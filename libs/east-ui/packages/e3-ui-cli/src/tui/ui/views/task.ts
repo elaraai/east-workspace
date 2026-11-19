@@ -14,12 +14,13 @@
  */
 
 import { compactType } from '../../model/types.js';
-import { eventCell, taskStatusCell } from '../../model/status.js';
+import { eventCell, loadStatusCell, taskStatusCell } from '../../model/status.js';
 import { registerListModel } from '../../model/index.js';
 import { registerViewHooks } from '../../controller.js';
-import { latestPerTask } from './dashboard.js';
+import { latestPerTask } from './dashboard-model.js';
 import { agoShort, displayWidth, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
-import { isLogTab, taskTabsOf, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
+import { isLogTab, loadStepOf, taskTabsOf, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
+import { isRunLive } from '../../data/dataflow.js';
 import { countLines } from '../../data/logs.js';
 import { blank, d, b, lrLine, rule, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, tabStrip, tabStripHits } from '../shell/widgets.js';
@@ -46,9 +47,25 @@ export function taskTabLabels(state: TuiState, ws: string, task: string, tabs: T
     });
 }
 
-/** The title line's right side: `DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9`. */
+/**
+ * The title line's right side: `DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9`;
+ * a load's, `LOAD · ● LOADED · 2.3s · inputs 4be1…a9`, says what the latest
+ * run said of the step, else whether its source holds a delivery.
+ */
 export function taskTitle(state: TuiState, ws: string, task: string, ctx: RenderCtx): Line {
     const g = ctx.g;
+    const load = loadStepOf(state, ws, task);
+    if (load !== undefined) {
+        const source = state.data.records[ws]?.[load.record]?.signature?.sources.find(x => x.name === load.source);
+        const event = latestPerTask(state.data.execution[ws]?.events ?? []).find(e => e.value.task === task);
+        const cell = loadStatusCell(event, isRunLive(state, ws), source, g);
+        const out: Line = [d('LOAD'), d(` ${g.sep} `), b(`${cell.glyph} ${cell.word.toUpperCase()}`, cell.tone)];
+        if (cell.detail !== '') out.push(d(` ${g.sep} ${cell.detail}`));
+        if (event !== undefined && (event.type === 'complete' || event.type === 'failed')) out.push(d(` ${g.sep} ${formatDuration(event.value.duration)}`));
+        const newest = runsOf(state, ws, task)[0];
+        if (newest !== undefined) out.push(d(` ${g.sep} inputs ${hashMid(newest.inputsHash)}`));
+        return out;
+    }
     const ui = taskTabs(state, ws, task).includes('reads');
     const info = state.data.status[ws]?.result.tasks.find(x => x.name === task);
     const out: Line = [d(`${ui ? 'UI' : 'DATA'} TASK`)];
@@ -160,9 +177,12 @@ registerView('task', (state, ctx) => {
     const labels = taskTabLabels(state, ws, task, tabs);
     const ui = tabs.includes('reads');
     const active = tabs.indexOf(tab);
+    // What the step writes: a task's output, and a load's record
+    const load = loadStepOf(state, ws, task);
+    const writes = load === undefined ? `.tasks.${task}.output` : `.records.${load.record}`;
     const body: Line[] = [
         lrLine(tabStrip(task, labels, active, g), [...taskTitle(state, ws, task, ctx), t(' ')], width),
-        datasetLine(state.data.dataset[ws]?.[`.tasks.${task}.output`], `.tasks.${task}.output`, ui, ctx),
+        datasetLine(state.data.dataset[ws]?.[writes], writes, ui, ctx),
         rule(width, g.dashed),
     ];
     const hits: Hit[] = tabStripHits(task, labels, g).map(h => ({ row: 0, x0: h.x0, x1: h.x1, target: { kind: 'tab', index: h.index } }));

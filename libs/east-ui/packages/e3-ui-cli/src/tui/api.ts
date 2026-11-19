@@ -29,6 +29,7 @@ import {
     dataflowCancel,
     dataflowExecuteLaunch,
     dataflowExecutePoll,
+    dataflowGraph,
     repoList,
     repoStatus,
     taskExecutionList,
@@ -43,6 +44,7 @@ import {
     workspaceStatus,
     type DataflowBudget,
     type DataflowExecutionState,
+    type DataflowGraph,
     type DataflowOptions,
     type DatasetFindQuery,
     type DatasetFindResult,
@@ -116,6 +118,8 @@ export interface Api {
     dataflowExecuteLaunch(ws: string, options: DataflowOptions): Promise<void>;
     /** The latest run's state, its id and its last event's sequence number, and its events past the cursor (`since`, the `nextSeq` the poll before answered), at most `limit` and never more than 1,000: `limit: 0` for its state alone. */
     dataflowExecutePoll(ws: string, window: ExecutionStateOptions): Promise<DataflowExecutionState>;
+    /** The nodes a run of the workspace steps through: its tasks, and the load of each composite record's source that a dataset of the package feeds. */
+    dataflowGraph(ws: string): Promise<DataflowGraph>;
     /** The budget a run of the workspace gets (the server's), or null for a server whose runners hold none. */
     dataflowBudget(ws: string): Promise<DataflowBudget | null>;
     dataflowCancel(ws: string): Promise<void>;
@@ -181,6 +185,7 @@ export function createHttpApi(config: HttpApiConfig): Api {
             await dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options());
         },
         dataflowExecutePoll: async (ws, window) => dataflowExecutePoll(apiUrl, repo(), ws, window, await options()),
+        dataflowGraph: async (ws) => dataflowGraph(apiUrl, repo(), ws, await options()),
         dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),
         taskLogs: async (ws, task, logOptions) => taskLogs(apiUrl, repo(), ws, task, logOptions, await options()),

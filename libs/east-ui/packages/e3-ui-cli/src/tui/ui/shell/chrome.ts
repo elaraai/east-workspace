@@ -15,6 +15,7 @@ import { columnPlan, breakpoint } from '../../render/layout.js';
 import { displayWidth, padEnd, lr, truncate } from '../../render/text.js';
 import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
+import { runProgress } from '../../data/dataflow.js';
 import { changedNames } from '../../data/edit-buffer.js';
 import { RUN_FLAGS, describe, parseCommand } from '../../input/commands.js';
 import { connectionCell } from '../../model/status.js';
@@ -52,10 +53,9 @@ export function pills(state: TuiState, ctx: RenderCtx): Line {
     if (dirty > 0) out.push(b(`${g.diamond} ${dirty} DIRTY`, 'warn'), t('  '));
     const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' || state.view.kind === 'record' ? state.view.ws : null;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
-    if (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true) {
-        const total = ws !== null ? state.data.status[ws]?.result.tasks.length ?? 0 : 0;
-        // A requeue is a unit's, and ends no task.
-        const done = execution.events.filter(e => e.type !== 'start' && e.type !== 'requeued').length;
+    if (ws !== null && (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true)) {
+        // The steps the run has ended, of its tasks and its loads.
+        const { done, total } = runProgress(state, ws);
         const spin = g.spinner[ctx.spinner % g.spinner.length]!;
         if (execution.stopping) out.push(b(`${g.square} STOPPING ${spin}`, 'warn'), t('  '));
         else out.push(b(`${g.quarter} RUNNING ${done}/${total} ${spin}`, 'info'), t('  '));

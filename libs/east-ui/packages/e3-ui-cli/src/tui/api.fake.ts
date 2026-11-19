@@ -20,6 +20,7 @@ import {
     type DataflowOptions,
     type DataflowEvent,
     type DataflowExecutionState,
+    type DataflowGraph,
     type DatasetStatusDetail,
     type ExecutionListItem,
     type ExecutionStateOptions,
@@ -38,7 +39,7 @@ import {
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
 import type { DataManifest, RecordSummaryTotals, TreePath, WorkspaceState } from '@elaraai/e3-types';
-import { DATAFLOW_POLL_EVENTS_MAX, encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
+import { DATAFLOW_POLL_EVENTS_MAX, encodeDatasetBlob, indexWindowType, loadNodeName } from '@elaraai/e3-types';
 import {
     IntegerType,
     NullType,
@@ -122,6 +123,22 @@ export interface FakeRecord {
     indexes?: FakeIndex[] | undefined;
     /** Its commits, newest first. */
     commits?: RecordCommitInfo[] | undefined;
+    /** A composite record's sources, as its signature describes them; none for a plain record. */
+    sources?: RecordSignature['sources'] | undefined;
+}
+
+/** The load of a composite record's source that a dataset of the package feeds: a node of a run. */
+export interface FakeLoad {
+    /** The composite record. */
+    record: string;
+    /** Its source the load writes. */
+    source: string;
+    /** The dataset that feeds it, by its path (`.tasks.erp_orders.output`, `.inputs.erp_export`). */
+    feed: string;
+    /** Its latest run's log, which the server reads by the load's step name. */
+    logs?: { stdout?: string; stderr?: string } | undefined;
+    /** Its runs, newest first. */
+    executions?: ExecutionListItem[] | undefined;
 }
 
 /** The fake's own (mutable) record of a dataflow execution. */
@@ -152,6 +169,8 @@ export interface FakeWorkspace {
     tasks: FakeTask[];
     inputs: FakeInput[];
     records?: FakeRecord[] | undefined;
+    /** The loads a run of the workspace steps through beside its tasks. */
+    loads?: FakeLoad[] | undefined;
     lock?: { pid: number; acquiredAt: Date; command: string } | undefined;
     /** What holds the workspace exclusively, as the lock route serves it: a deploy, and how far it has got. */
     lockStatus?: LockStatus | undefined;
@@ -319,10 +338,20 @@ export class FakeApi implements Api {
         return w;
     }
 
+    /**
+     * A task by its name, or a load by the name it has as a step of a run, as
+     * the server finds one: a load's logs, runs and details are read as a
+     * task's are, and what it writes is its record.
+     */
     private findTask(ws: FakeWorkspace, name: string): FakeTask {
         const t = ws.tasks.find(x => x.name === name);
-        if (t === undefined) throw new ApiError('task_not_found', { task: name });
-        return t;
+        if (t !== undefined) return t;
+        const load = (ws.loads ?? []).find(x => loadNodeName(x.record, x.source) === name);
+        if (load === undefined) throw new ApiError('task_not_found', { task: name });
+        return {
+            name, status: variant('ready', null), inputs: [load.feed], dependsOn: [], outputPath: `.records.${load.record}`,
+            logs: load.logs, executions: load.executions,
+        };
     }
 
     private findRecord(ws: FakeWorkspace, name: string): FakeRecord {
@@ -782,6 +811,30 @@ export class FakeApi implements Api {
         });
     }
 
+    /**
+     * The nodes a run steps through, as the graph route serves them: each task,
+     * then each load, a load named `<record>.<source>`, its one input its feed
+     * and its output the record, depending on the task that writes its feed
+     * when one does.
+     */
+    async dataflowGraph(ws: string): Promise<DataflowGraph> {
+        return this.call(`dataflowGraph ${ws}`, () => {
+            const w = this.deployed(ws);
+            const hashOf = (name: string): string => sha256(new TextEncoder().encode(name));
+            const tasks = w.tasks.map(t => ({ name: t.name, hash: hashOf(t.name), inputs: t.inputs, output: this.outputPathOf(t), dependsOn: t.dependsOn, load: none }));
+            const loads = (w.loads ?? []).map(load => {
+                const name = loadNodeName(load.record, load.source);
+                const writer = w.tasks.find(t => this.outputPathOf(t) === load.feed);
+                return {
+                    name, hash: hashOf(name), inputs: [load.feed], output: `.records.${load.record}`,
+                    dependsOn: writer !== undefined ? [writer.name] : [],
+                    load: some({ record: load.record, source: load.source }),
+                };
+            });
+            return { tasks: [...tasks, ...loads] } as DataflowGraph;
+        });
+    }
+
     async dataflowBudget(ws: string): Promise<DataflowBudget | null> {
         return this.call(`dataflowBudget ${ws}`, () => {
             this.ws(ws);
@@ -835,8 +888,8 @@ export class FakeApi implements Api {
                     built: r.value !== undefined,
                 })),
                 migrations: [],
-                // The fixtures' records have no sources: none is a composite
-                sources: [],
+                // A composite record's sources, as its fixture gives them; a plain record's are none
+                sources: r.sources ?? [],
             };
         });
     }

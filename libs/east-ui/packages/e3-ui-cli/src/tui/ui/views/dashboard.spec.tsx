@@ -14,14 +14,16 @@
 
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, DictType, FloatType, StringType, StructType, none, some, toEastTypeValue, variant } from '@elaraai/east';
+import { ArrayType, DictType, FloatType, StringType, StructType, VariantType, none, some, toEastTypeValue, variant } from '@elaraai/east';
+import { loadNodeName } from '@elaraai/e3-types';
 import type { Action, ExecutionData } from '../../state/actions.js';
 import { breakpoint } from '../../render/layout.js';
 import { initialState, type TuiState } from '../../state/actions.js';
 import { createStore } from '../../state/store.js';
 import { dashboardFixture } from '../../testing/fixtures.js';
 import { KEY, NOW, dashboardView, mountApp, type Mounted } from '../../testing/harness.js';
-import { accountedBar, dashboardLines, dashboardModel, latestPerTask, liveRows, type DashboardCtx } from './dashboard.js';
+import { dashboardLines } from './dashboard.js';
+import { accountedBar, dashboardModel, latestPerTask, liveRows, sourceWords, type DashboardCtx } from './dashboard-model.js';
 import { UNICODE } from '../../render/glyphs.js';
 
 let mounted: Mounted | null = null;
@@ -48,13 +50,48 @@ const paramsType = toEastTypeValue(StructType({ horizon: FloatType }));
 const overridesType = toEastTypeValue(DictType(StringType, FloatType));
 const forecastType = toEastTypeValue(DictType(StringType, StructType({ units: FloatType })));
 
+/** The orders: a composite record of three sources, its key a case for each. */
+const ordersType = toEastTypeValue(DictType(VariantType({ erp: StringType, forecast: StringType, own: StringType }), StructType({ customer: StringType })));
+
+/**
+ * The orders' sources, as the record's description answers them: the ERP's,
+ * which the output of `ingest` feeds and which holds a delivery; the
+ * forecast's, which the `calendar` input feeds and which waits for its first
+ * delivery; and the planners' own, which the record's mutations write.
+ */
+const orderSources = [
+    {
+        name: 'erp', key: toEastTypeValue(StringType), external: true, delivery: some(rowsType),
+        feed: some([variant('field', 'tasks'), variant('field', 'ingest'), variant('field', 'output')]),
+        last: some({ delivery: 'd41e09c2b7a3f001', commit: some('c0ffee0000000001'), asOf: some(new Date(NOW - 3_600_000)) }), pending: false,
+    },
+    {
+        name: 'forecast', key: toEastTypeValue(StringType), external: true, delivery: some(rowsType),
+        feed: some([variant('field', 'inputs'), variant('field', 'calendar')]), last: none, pending: true,
+    },
+    { name: 'own', key: toEastTypeValue(StringType), external: false, delivery: none, feed: none, last: none, pending: false },
+];
+
+/** A load of the orders, as the run's graph holds it: it reads its feed and writes the record. */
+const loadNode = (source: string, feed: string, dependsOn: string[]) => {
+    const name = loadNodeName('orders', source);
+    return { name, hash: `hash-${name}`, inputs: [feed], output: '.records.orders', dependsOn, load: some({ record: 'orders', source }) };
+};
+
 /**
  * The mock's six tasks and four inputs, with `forecast` optionally in
  * progress: split into 8 pieces, 3 done, and piece 5, stopped past the
  * server's budget of 8 cores and 14 GB, waiting for room to run again.
+ *
+ * With `loads`, the workspace holds the orders too, and a run has two more
+ * steps: `orders.erp`, which loads what `ingest` writes, and
+ * `orders.forecast`, which loads the `calendar` input. In the run that
+ * failed, the first loaded and the second failed; in the run in progress,
+ * the first is loading, 2 of its 4 pieces done, and the second has not begun.
  */
-function fixture(options: { running?: boolean } = {}): Action[] {
+function fixture(options: { running?: boolean; loads?: boolean } = {}): Action[] {
     const running = options.running === true;
+    const loads = options.loads === true;
     const tasks = [
         task('ingest', variant('up-to-date', { cached: false }), [], ['.inputs.sales', '.inputs.calendar'], 310 * MB),
         task('features', variant('up-to-date', { cached: false }), ['ingest'], ['.inputs.params', '.tasks.ingest.output'], 1.8 * GB),
@@ -94,6 +131,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         entry('tasks.optimise', rowsType, null, null),
         entry('tasks.report.output', toEastTypeValue(StringType), null, null),
         entry('tasks.dashboard', paramsType, 41_984, 'out-dashboard'),
+        ...(loads ? [entry('records.orders', ordersType, 1_258_291, 'rec-orders')] : []),
     ];
     const piece5 = { merge: none, index: 4n, units: 8n };
     const execution = running
@@ -102,7 +140,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
                 status: variant('running', null), startedAt: iso(12_000), completedAt: none, summary: none, events: [], nextSeq: 5n,
                 budget: some({ cores: 8n, memory: BigInt(14 * GB), coresInUse: 4n, memoryInUse: BigInt(Math.round(12.6 * GB)) }),
                 waiting: [{ task: 'forecast', unit: some(piece5), needs: BigInt(Math.round(3.2 * GB)), since: iso(2_000) }],
-                splits: [{ task: 'forecast', merge: none, done: 3n, units: 8n }],
+                splits: [{ task: 'forecast', merge: none, done: 3n, units: 8n }, ...(loads ? [{ task: 'orders.erp', merge: none, done: 2n, units: 4n }] : [])],
             },
             events: [
                 variant('cached', { task: 'ingest', timestamp: iso(12_000) }),
@@ -110,6 +148,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
                 variant('complete', { task: 'features', timestamp: iso(11_000), duration: 4_200, peakBytes: some(BigInt(Math.round(1.8 * GB))) }),
                 variant('start', { task: 'forecast', timestamp: iso(9_000) }),
                 variant('requeued', { task: 'forecast', timestamp: iso(4_000), unit: piece5, reason: variant('budget', null), peak: BigInt(Math.round(3.2 * GB)), reserves: BigInt(Math.round(3.2 * GB)) }),
+                ...(loads ? [variant('start', { task: 'orders.erp', timestamp: iso(7_000) })] : []),
             ],
             startedAt: iso(12_000),
         }
@@ -129,6 +168,12 @@ function fixture(options: { running?: boolean } = {}): Action[] {
                 variant('start', { task: 'report', timestamp: iso(61_000) }),
                 variant('failed', { task: 'report', timestamp: iso(60_000), duration: 800, exitCode: 2n }),
                 variant('input_unavailable', { task: 'optimise', timestamp: iso(60_000), reason: 'waiting on forecast' }),
+                ...(loads ? [
+                    variant('start', { task: 'orders.erp', timestamp: iso(59_000) }),
+                    variant('complete', { task: 'orders.erp', timestamp: iso(56_700), duration: 2_300, peakBytes: some(BigInt(64 * MB)) }),
+                    variant('start', { task: 'orders.forecast', timestamp: iso(55_400) }),
+                    variant('failed', { task: 'orders.forecast', timestamp: iso(55_000), duration: 400, exitCode: 3n }),
+                ] : []),
             ],
             startedAt: iso(120_000),
         };
@@ -143,6 +188,24 @@ function fixture(options: { running?: boolean } = {}): Action[] {
             role: t.name === 'dashboard' ? variant('ui', { paths: [], functions: [], records: [], pages: [] }) : variant('data', null),
         })) as never },
         { type: 'data/execution', ws: 'main', state: execution.state as never, events: execution.events as never, startedAt: execution.startedAt },
+        // The steps a run has, and what is read of the orders: appended, so the actions above keep their places.
+        ...(loads ? [
+            {
+                type: 'data/graph' as const, ws: 'main',
+                graph: { tasks: [
+                    ...tasks.map(t => ({ name: t.name, hash: t.hash, inputs: t.inputs, output: t.output, dependsOn: t.dependsOn, load: none })),
+                    loadNode('erp', '.tasks.ingest.output', ['ingest']),
+                    loadNode('forecast', '.inputs.calendar', []),
+                ] } as never,
+            },
+            {
+                type: 'data/record' as const, ws: 'main', name: 'orders',
+                data: {
+                    hash: 'rec-orders', rows: 1_240, head: null, history: null, complete: false,
+                    signature: { name: 'orders', mutations: [{ name: 'patch', argTypes: [], form: 'patch' }], indexes: [], migrations: [], sources: orderSources } as never,
+                },
+            },
+        ] : []),
     ];
 }
 
@@ -373,6 +436,118 @@ describe('the dashboard', () => {
     });
 });
 
+describe('R77 — the dashboard over a run\'s loads', () => {
+    const SPIN = '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]';
+    // Tall enough for the whole column: the tables, the orders' row and its sources' lines
+    const tall = { columns: 120, rows: 50 };
+
+    /** The names of the tasks table's rows, in order. */
+    const stepNames = (lines: string[]): string[] => {
+        const first = lines.findIndex(line => /^ TASKS$/.test(line)) + 2;
+        const end = lines.findIndex(line => /^ INPUTS$/.test(line)) - 1;
+        return lines.slice(first, end).map(line => line.replace(/^ ▌/, '  ').trim().split(/\s+/)[0]!);
+    };
+
+    /** The frame's line for the row of a step. */
+    const rowOf = (lines: string[], step: string): string => {
+        const found = lines.find(line => line.replace(/^ ▌/, '  ').startsWith(`  ${step} `));
+        assert.ok(found !== undefined, `no row for ${step}\n${lines.join('\n')}`);
+        return found;
+    };
+
+    test('a load is a row of the tasks table after the task that writes its feed, and after the tasks when none does: it says what the run said of it, and its record is its output', async () => {
+        mounted = await mountApp({ view: dashboardView(), actions: fixture({ loads: true }), size: tall });
+        const lines = mounted.lines();
+        assert.deepEqual(stepNames(lines), ['ingest', 'orders.erp', 'features', 'forecast', 'optimise', 'report', 'dashboard', 'orders.forecast']);
+        // Loaded from what ingest writes; the record, with its size and how long the load took, as a task's output
+        // (its type, `Dict<Variant, Struct>`, cut to the column the longer names leave it).
+        assert.match(rowOf(lines, 'orders.erp'), /^  orders\.erp\s+● loaded\s+ingest\s+—\s+Dict<Variant, Str…\s+1\.2 MB · 2\.3s\s+64 MB$/);
+        // Fed by an input, as INPUTS lists a task's; its failure inline, as a task's is.
+        assert.match(rowOf(lines, 'orders.forecast'), /^  orders\.forecast\s+✗ failed · exit 3\s+—\s+calendar\s+Dict<Variant, Str…\s+1\.2 MB · 0\.4s\s+—$/);
+        // The panel lists a load's failure after the task's, with its logs to open as the task's has (ruling 41).
+        assert.match(lines[9]!, /^ ▌  1m  ✗ failed      report\s+exit 2 · 0\.8s     ⏎ logs$/);
+        assert.match(lines[10]!, /^   55s  ✗ failed      orders\.forecast\s+exit 3 · 0\.4s     ⏎ logs$/);
+        // The records table lists the record the loads write, and under its row each of its sources (ruling 39): who
+        // writes it, what feeds it, its last delivery and when that says its data is as of, or that it waits for one.
+        const at = lines.findIndex(line => /^  orders\s+1,240\s+1\.2 MB\s+—\s+—$/.test(line));
+        assert.ok(at >= 0, mounted.frame());
+        assert.deepEqual(lines.slice(at + 1, at + 4), [
+            '    erp       fed by .tasks.ingest.output · last delivery d41e09c2b7a3 · as of 2026-09-08 11:00:00',
+            '    forecast  fed by .inputs.calendar · waits for its first delivery',
+            '    own       written by its mutations',
+        ]);
+    });
+
+    test('a record\'s sources are lines of the records table that no selection lands on: the row after them is the next record\'s (ruling 39)', () => {
+        const store = createStore(initialState(tall, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        for (const action of fixture({ loads: true })) store.dispatch(action);
+        // A plain record beside the orders, after them in the list
+        const datasets = store.getState().data.datasets['main']!;
+        store.dispatch({ type: 'data/datasets', ws: 'main', entries: [...datasets, entry('records.zones', overridesType, 2_048, 'rec-zones')] as never });
+        const state = store.getState();
+        const dctx = { g: UNICODE, now: NOW, columns: state.size.columns, bp: breakpoint(state.size), spinner: 0 };
+        const model = dashboardModel(state, 'main', dctx);
+
+        assert.deepEqual(model.recordLines, [
+            { record: 0, source: null }, { record: 0, source: 0 }, { record: 0, source: 1 }, { record: 0, source: 2 }, { record: 1, source: null },
+        ]);
+        const [orders, zones] = model.rows.filter(row => row.kind === 'record');
+        assert.deepEqual([orders?.name, zones?.name, (zones?.line ?? 0) - (orders?.line ?? 0)], ['orders', 'zones', 4]);
+        assert.equal(model.total, zones!.line + 1, 'the column ends with the last record\'s row');
+        // The line under the orders' row is a source's, and the selected record's row is the one drawn selected
+        const selected = model.rows.findIndex(row => row.kind === 'record' && row.name === 'zones');
+        const drawn = dashboardLines(model, dctx, selected, orders!.line, 5).map(line => line.map(span => span.text).join(''));
+        assert.match(drawn[0]!, /^ {2}orders\s/);
+        assert.match(drawn[1]!, /^ {4}erp\s+fed by \.tasks\.ingest\.output/);
+        assert.match(drawn[4]!, /^ ▌zones\s/);
+    });
+
+    test('a source `e3 load` delivers, and one that holds no delivery: the words say which', () => {
+        const feedless = { name: 'wms', key: toEastTypeValue(StringType), external: true, delivery: some(rowsType), feed: none, last: none, pending: true };
+        assert.equal(sourceWords(feedless as never, UNICODE), 'delivered by e3 load · waits for its first delivery');
+        assert.equal(sourceWords({ ...feedless, pending: false } as never, UNICODE), 'delivered by e3 load · holds no delivery');
+        assert.equal(sourceWords({ ...feedless, pending: false, last: some({ delivery: 'd41e09c2b7a3f001', commit: none, asOf: none }) } as never, UNICODE),
+            'delivered by e3 load · last delivery d41e09c2b7a3');
+    });
+
+    test('⏎ on a load\'s row opens the load\'s logs and runs, as a task\'s row opens the task, and ⏎ on its failure in the panel opens its logs (ruling 41)', async () => {
+        mounted = await mountApp({ view: dashboardView(), actions: fixture({ loads: true }), size: tall });
+        // The rows in order: report's failure, the forecast's load's, ingest, then the load of what ingest writes.
+        await mounted.press('j');
+        await mounted.press(KEY.enter);
+        let view = mounted.store.getState().view;
+        assert.deepEqual(view.kind === 'task' && [view.ws, view.task, view.tab], ['main', 'orders.forecast', 'stdout']);
+        await mounted.press(KEY.escape);
+        await mounted.press('j');
+        await mounted.press('j');
+        assert.match(rowOf(mounted.lines(), 'orders.erp'), /^ ▌orders\.erp\s/);
+        await mounted.press(KEY.enter);
+        view = mounted.store.getState().view;
+        assert.deepEqual(view.kind === 'task' && [view.ws, view.task, view.tab], ['main', 'orders.erp', 'stdout']);
+        // A load's page has no output of its own: its logs, and its runs
+        assert.match(mounted.lines()[2]!, /^ orders\.erp   ▌1 Stdout▐  2 Stderr   3 Runs\s+LOAD · ● LOADED · 2\.3s$/);
+    });
+
+    test('while running: the loads count among the run\'s steps, a load\'s pieces show in the feed, and its row says in-progress', async () => {
+        mounted = await mountApp({ view: dashboardView(), actions: fixture({ running: true, loads: true }), size: tall });
+        const lines = mounted.lines();
+        // Six tasks and two loads: two steps have ended.
+        assert.match(lines[0]!, new RegExp(`◔ RUNNING 2/8 ${SPIN}  ● CONNECTED$`));
+        assert.match(lines[9]!, new RegExp(`^ EXECUTION\\s+◔ RUNNING · started 12s ago · 2 of 8 steps · cores 4 of 8 · memory 12\\.6 of 14 GB · ${SPIN}$`));
+        assert.ok(lines.some(line => new RegExp(`^    7s  ◔ start       orders\\.erp · 2 of 4 pieces\\s+${SPIN} 7s$`).test(line)), mounted.frame());
+        assert.match(rowOf(lines, 'orders.erp'), new RegExp(`^  orders\\.erp\\s+◔ in-progress\\s+ingest\\s+—\\s+Dict<Variant, Str…\\s+${SPIN} 7s\\s+—$`));
+        // The forecast's load has not begun, and its source holds no delivery.
+        assert.match(rowOf(lines, 'orders.forecast'), /^  orders\.forecast\s+○ not loaded\s+—\s+calendar\s+Dict<Variant, Str…\s+1\.2 MB · never\s+—$/);
+    });
+
+    test('a workspace with no load counts its tasks, as before', async () => {
+        mounted = await mountApp({ view: dashboardView(), actions: fixture({ running: true }) });
+        assert.match(mounted.lines()[9]!, /2 of 6 tasks/);
+        assert.match(mounted.lines()[0]!, /RUNNING 2\/6/);
+    });
+});
+
 describe('dashboard model', () => {
     test('latestPerTask keeps one event per task in first-seen order, and a unit\'s requeue stands for no task', () => {
         const events = [
@@ -465,6 +640,51 @@ describe('dashboard model', () => {
         const shown = dashboardLines(model, dctxOf(state), 100, selectedLine, 1)[0]!;
         assert.equal(shown[1]!.text, '▌', 'the selected row carries the bar');
         assert.match(shown.map(s => s.text).join(''), /task_9[0-9]|task_1\d\d/);
+    });
+
+    test('R77 — the loads are the run\'s graph\'s: before it is read the table lists the tasks alone, and reading it rebuilds the model', () => {
+        const store = createStore(initialState({ columns: 120, rows: 44 }, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        const actions = fixture({ running: true, loads: true });
+        for (const action of actions) if (action.type !== 'data/graph') store.dispatch(action);
+        const before = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.deepEqual(before.tasks.map(row => row.name), ['ingest', 'features', 'forecast', 'optimise', 'report', 'dashboard']);
+        assert.deepEqual([before.steps, before.loads], [6, 0]);
+        store.dispatch(actions.find(action => action.type === 'data/graph')!);
+        const after = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.notEqual(after, before, 'a new graph rebuilds');
+        assert.deepEqual(after.rows.filter(row => row.kind === 'load').map(row => row.name), ['orders.erp', 'orders.forecast']);
+        assert.deepEqual(after.rows.filter(row => row.kind === 'task').map(row => row.name), ['ingest', 'features', 'forecast', 'optimise', 'report', 'dashboard']);
+        assert.deepEqual([after.steps, after.loads], [8, 2]);
+        // Each row's line follows the one before: a load takes a line of the table as a task does.
+        const lines = after.rows.filter(row => row.kind === 'task' || row.kind === 'load').map(row => row.line);
+        assert.deepEqual(lines, lines.map((_, i) => lines[0]! + i));
+    });
+
+    test('R77 — a load\'s row says what is known of it: waiting on its feed as the run said, and nothing of its source until the record is read', () => {
+        const store = createStore(initialState({ columns: 120, rows: 44 }, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        for (const action of fixture({ loads: true })) if (action.type !== 'data/record') store.dispatch(action);
+        // The run left the forecast's load waiting on its feed, and said nothing of the ERP's.
+        const execution = store.getState().data.execution['main']!;
+        const reason = 'Input \'calendar\' holds its package\'s value';
+        store.dispatch({
+            type: 'data/execution', ws: 'main', state: execution.state, startedAt: execution.startedAt,
+            events: [
+                ...execution.events.filter(event => !event.value.task.startsWith('orders.')),
+                variant('input_unavailable', { task: 'orders.forecast', timestamp: iso(50_000), reason }),
+            ] as never,
+        });
+        const state = store.getState();
+        const model = dashboardModel(state, 'main', dctxOf(state));
+        const step = (name: string) => model.tasks.find(row => row.name === name)!;
+        assert.deepEqual(step('orders.forecast').cells['status'], { text: '◐ waiting', tone: 'warn' });
+        assert.deepEqual(step('orders.forecast').phase, { kind: 'waiting', reason });
+        assert.deepEqual(step('orders.erp').cells['status'], { text: '○ …', tone: 'muted' });
+        assert.deepEqual(step('orders.erp').phase, { kind: 'rest', never: false });
+        // The reason takes the last run's column, as a waiting task's does, cut to the column's width.
+        const shown = dashboardLines(model, dctxOf(state), 0, model.rows.find(row => row.name === 'orders.forecast')!.line, 1)[0]!;
+        assert.match(shown.map(span => span.text).join(''), /orders\.forecast\s+◐ waiting\s+—\s+calendar\s+Dict<Variant, Str…\s+— · input 'cal/);
     });
 
     test('accountedBar sorts low to high, marks failures, samples past 40 tasks', () => {

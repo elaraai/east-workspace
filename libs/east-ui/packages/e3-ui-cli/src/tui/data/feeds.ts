@@ -12,8 +12,10 @@
  * the open workspace, `workspaceList` 5 s once a repository is bound,
  * `repoList` 5 s on a bare origin, dataset types 5 s — each record's
  * signature, rows and newest commit read after them when its state moved —
- * task kinds, the deployed state and the budget a run gets (`/run`'s
- * confirmation) 30 s, per-workspace summaries 5 s in the workspaces view,
+ * task kinds and the steps a run has (its tasks, and the load of each
+ * composite record's source a dataset feeds), the deployed state and the
+ * budget a run gets (`/run`'s confirmation) 30 s, per-workspace summaries 5 s
+ * in the workspaces view,
  * task details once, executions 5 s on the runs tab, the shown log stream
  * 1 s and stderr 5 s on every task tab (the Stderr tab's line count), and a
  * record's newest commits 5 s on its History tab. Each result becomes a
@@ -312,6 +314,10 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     try {
                         const tasks = await api.taskList(ws);
                         store.dispatch({ type: 'data/taskList', ws, tasks });
+                        // The steps a run has — the tasks, and each load beside them: the deployed package's, as
+                        // the tasks are, and read when they are.
+                        const graph = await api.dataflowGraph(ws);
+                        store.dispatch({ type: 'data/graph', ws, graph });
                     } catch (err) {
                         if (!isApiCode(err, 'workspace_not_deployed')) throw err;
                     }

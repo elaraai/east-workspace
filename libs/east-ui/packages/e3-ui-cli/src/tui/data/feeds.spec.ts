@@ -13,7 +13,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { none, variant } from '@elaraai/east';
+import { ArrayType, IntegerType, OptionType, StringType, StructType, equalFor, none, some, toEastTypeValue, variant } from '@elaraai/east';
+import { DataflowLoadType } from '@elaraai/e3-types';
 import { fakeRepo } from '../api.fake.js';
 import { createFeeds } from './feeds.js';
 import { initialState } from '../state/actions.js';
@@ -49,11 +50,16 @@ const settle = async (): Promise<void> => {
 
 const session = { kind: 'local' as const, label: 'demo-repo', repo: 'default', apiUrl: 'http://x', path: '/x', origin: null, identity: null, stateKey: '/x', target: '/x' };
 
+/** Whether two lists of a run's steps are the same, each step without its hash. */
+const sameSteps = equalFor(ArrayType(StructType({
+    name: StringType, inputs: ArrayType(StringType), output: StringType, dependsOn: ArrayType(StringType), load: OptionType(DataflowLoadType),
+})));
+
 describe('feeds', () => {
     test('the dashboard mounts status, execution, datasets, task list, workspace state, the budget and the workspace list', async () => {
         const api = fakeRepo();
         api.task('main', { name: 'left', status: variant('ready', null), inputs: ['.inputs.a'], dependsOn: [] });
-        api.input('main', { name: 'a', type: { type: 'Integer', value: null } as never, value: 1n });
+        api.input('main', { name: 'a', type: toEastTypeValue(IntegerType), value: 1n });
         const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
         store.dispatch({ type: 'session', session });
         store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
@@ -322,7 +328,9 @@ describe('feeds', () => {
         feeds.fire('status:scratch');
         await settle();
         assert.equal(store.getState().data.lock['scratch'], null);
-        assert.deepEqual(api.calls.slice(before).sort(), ['datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch']);
+        assert.deepEqual(api.calls.slice(before).sort(), [
+            'dataflowGraph scratch', 'datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch',
+        ]);
         feeds.stop();
     });
 
@@ -341,13 +349,45 @@ describe('feeds', () => {
         const before = api.calls.length;
         feeds.fire('status:scratch');
         await settle();
-        assert.deepEqual(api.calls.slice(before).sort(), ['datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch']);
+        assert.deepEqual(api.calls.slice(before).sort(), [
+            'dataflowGraph scratch', 'datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch',
+        ]);
         assert.equal(store.getState().data.workspaceState['scratch']?.packageVersion, '1.5.0');
         // Once seen deployed, a status reads nothing more.
         const after = api.calls.length;
         feeds.fire('status:scratch');
         await settle();
         assert.deepEqual(api.calls.slice(after), ['workspaceStatus scratch']);
+        feeds.stop();
+    });
+
+    test('R77 — the task list\'s feed reads the steps a run has: each task, and the load of a composite record\'s source that a dataset feeds', async () => {
+        const api = fakeRepo();
+        api.task('main', { name: 'erp_orders', status: variant('ready', null), inputs: ['.inputs.erp_export'], dependsOn: [] });
+        api.input('main', { name: 'erp_export', type: toEastTypeValue(StringType), value: 'SO-1001' });
+        // The orders' ERP source is fed by a task's output, and their forecast source by an input no task writes.
+        api.workspace('main').loads = [
+            { record: 'orders', source: 'erp', feed: '.tasks.erp_orders.output' },
+            { record: 'orders', source: 'forecast', feed: '.inputs.erp_export' },
+        ];
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        assert.ok(api.calls.includes('dataflowGraph main'));
+        const graph = store.getState().data.graph['main'];
+        assert.ok(graph !== undefined, 'the graph is read with the task list');
+        assert.ok(sameSteps(graph.tasks.map(({ name, inputs, output, dependsOn, load }) => ({ name, inputs, output, dependsOn, load })), [
+            { name: 'erp_orders', inputs: ['.inputs.erp_export'], output: '.tasks.erp_orders.output', dependsOn: [], load: none },
+            // A load is named as its step of a run is; it reads its feed, writes its record, and follows the task that writes its feed.
+            { name: 'orders.erp', inputs: ['.tasks.erp_orders.output'], output: '.records.orders', dependsOn: ['erp_orders'], load: some({ record: 'orders', source: 'erp' }) },
+            { name: 'orders.forecast', inputs: ['.inputs.erp_export'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'forecast' }) },
+        ]));
+        // Leaving the session's data behind leaves the graph behind too.
+        store.dispatch({ type: 'data/reset' });
+        assert.equal(store.getState().data.graph['main'], undefined);
         feeds.stop();
     });
 });

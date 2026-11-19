@@ -17,6 +17,7 @@ import type {
     DataflowBudget, DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, IntakeFile, RecordDeployState, TaskStatus, DataflowEvent,
     SplitProgress, StageUnit, UnitWait,
 } from '@elaraai/e3-api-client';
+import type { RecordSourceInfo } from '@elaraai/e3-types';
 import type { Glyphs } from '../render/glyphs.js';
 import type { Tone } from '../render/theme.js';
 import { formatDuration, formatSize } from '../render/text.js';
@@ -59,6 +60,36 @@ export function taskStatusCell(status: TaskStatus, g: Glyphs): StatusCell {
         case 'stale-running':
             return { glyph: g.half, tone: 'warn', word: 'stale-running', detail: status.value.pid.type === 'some' ? `pid ${status.value.pid.value} gone` : '' };
     }
+}
+
+/**
+ * A load's status cell — the step of a run that loads a composite record's
+ * source from the dataset that feeds it.
+ *
+ * @remarks
+ * The workspace's status lists its tasks, and a load is none, so nothing
+ * says whether a load is due. The cell says what is known: what the latest
+ * run said of the step — in progress while that run is live, failed, or
+ * waiting on its feed — and otherwise whether the source holds a delivery,
+ * as the record's description answers it.
+ *
+ * @param event - The step's latest event of the workspace's latest run, if it has one
+ * @param live - Whether that run is live
+ * @param source - The source, as the record's description answers it; undefined until it is read
+ * @param g - The glyph set
+ * @returns The cell: `◔ in-progress`, `✗ failed · exit 2`, `✗ error · …`,
+ *   `◐ waiting · …`, `● loaded`, or `○ not loaded`
+ */
+export function loadStatusCell(event: DataflowEvent | undefined, live: boolean, source: RecordSourceInfo | undefined, g: Glyphs): StatusCell {
+    if (event !== undefined) {
+        if (event.type === 'start' && live) return { glyph: g.quarter, tone: 'info', word: 'in-progress', detail: '' };
+        if (event.type === 'failed') return { glyph: g.cross, tone: 'neg', word: 'failed', detail: `exit ${event.value.exitCode}` };
+        if (event.type === 'error') return { glyph: g.cross, tone: 'neg', word: 'error', detail: event.value.message };
+        if (event.type === 'input_unavailable') return { glyph: g.half, tone: 'warn', word: 'waiting', detail: event.value.reason };
+    }
+    if (source === undefined) return { glyph: g.empty, tone: 'muted', word: '…', detail: '' };
+    if (source.last.type === 'some') return { glyph: g.dot, tone: 'pos', word: 'loaded', detail: '' };
+    return { glyph: g.empty, tone: 'muted', word: 'not loaded', detail: '' };
 }
 
 /**
