@@ -16,8 +16,10 @@
  *    e3 — the shared picker in the flow under the rows, whole, drawing no
  *    frame of its own, the popover ending where it ends; a filled slot is its
  *    words, no box at rest; and no Done, each finished condition the page's.
- *  - F3 the filter is a chip in the rows' words, and every visual of its
- *    source narrows: the tiles ask again, on e3.
+ *  - F3 the filter is a chip in the rows' words, after its dataset's name —
+ *    said once, in the caption type, on the chip's line (ruled 19 November
+ *    2026) — and every visual of its source narrows: the tiles ask again, on
+ *    e3.
  *  - F4 the chip's × takes the filter out, and the tiles are as they were.
  *  - F5 the builder's toolbar holds no filter rail — its canvas is the page as
  *    designed — and its Preview is the page as a reader sees it: the rail
@@ -61,8 +63,6 @@ const BUILDER = "e3/studio/studio/studioContent";
 /** The page's first KPI's value: the quarter's revenue. */
 const revenue = (grid: Locator) => grid.locator('[data-snap-grid-cell="v-revenue"] [data-studio-kpi-value]');
 
-test.describe("A Studio page's filter rail (#1673)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 /**
  * Opens the showcase's builder, its entry in view.
  *
@@ -100,6 +100,8 @@ const railAtRest = (rail: Locator) => rail.evaluate((el) => {
 /** What {@link railAtRest} reads of a rail with no filter: F1's page, and the Preview's at F5 and F7. */
 const AT_REST = { h: 28, toGrid: 12, sameStart: true, borders: ["0px", "0px", "0px", "0px"], chips: 0, add: [28, true] };
 
+test.describe("A Studio page's filter rail (#1673)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
     test("F1: on a page the rail is a 28px toolbar row over the grid, 12 above it, with no border; with no filter, its + FILTER chip after its icon", async ({ page }) => {
         const grid = await openVisuals(page, "light");
@@ -164,9 +166,21 @@ const AT_REST = { h: 28, toGrid: 12, sameStart: true, borders: ["0px", "0px", "0
         await page.keyboard.press("Escape");
         await expect(rail.locator("[data-slice-clause]")).toHaveText("Region: SA");
         await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "region is SA");
+        // After its dataset's name, said once: before the chip, on its line, in the caption type.
+        const named = await rail.evaluate((el) => {
+            const names = el.querySelectorAll("[data-slice-chip-group]");
+            const name = names[0]!.getBoundingClientRect();
+            const chip = el.querySelector("[data-slice-clause]")!.getBoundingClientRect();
+            const look = getComputedStyle(names[0]!);
+            return {
+                names: [...names].map((held) => held.textContent), before: name.right <= chip.left,
+                line: Math.abs((name.top + name.bottom) / 2 - (chip.top + chip.bottom) / 2) <= 0.5, type: [look.textTransform, look.fontWeight],
+            };
+        });
+        expect(named).toEqual({ names: ["Orders"], before: true, line: true, type: ["uppercase", "600"] });
         // Its ×: the filter out, the tiles as they were.
         await rail.locator("[data-slice-clause] [data-chip-remove]").click();
-        await expect(rail.locator("[data-slice-clause]")).toHaveCount(0);
+        await expect(rail.locator("[data-slice-clause], [data-slice-chip-group]")).toHaveCount(0);
         await expect(revenue(grid)).toHaveText(all ?? "");
     });
 

@@ -12,7 +12,11 @@
  * how many there are — and holds the rail it is drawn in, letting both go once
  * no editor is open and the press that shut the last has clicked; a filter
  * taken out meanwhile leaves it at once. A chip given its whole words says
- * them on hover, its label cut where it runs long.
+ * them on hover, its label cut where it runs long. Chips in groups are drawn
+ * each group's together, the group named once before its first, in the order
+ * the host names the groups, each chip still the host's by its place; a group
+ * folded whole goes unnamed, and `+N more` lists the filters under their
+ * groups' names.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -193,5 +197,87 @@ describe("a chip's words", () => {
         cleanup();
         render(<LiveRow wholes={false} />);
         expect([chipAt(0).title, chipAt(0).hasAttribute("data-chip-cut")]).toEqual(["Region: SA", false]);
+    });
+});
+
+/** The datasets the grouped row's filters are on, by key: the order its host names them in. */
+const DATASETS: Record<string, string> = { orders: "Orders", stock: "Stock" };
+
+/**
+ * Filters on two datasets, as a host gives them — interleaved, in the order they were added — each chip's group its
+ * dataset. A chip's editor adds a filter on the orders.
+ */
+function GroupedRow({ density = "focused", foldChips }: { density?: "compact" | "focused"; foldChips?: number }) {
+    const [held, setHeld] = useState([
+        { on: "orders", label: "Region: SA" }, { on: "stock", label: "Site: North" }, { on: "orders", label: "Units: more than 1" },
+    ]);
+    const chips = held.map((filter): SliceFilterChip => ({
+        label: filter.label,
+        whole: `${filter.label} — said whole`,
+        group: { key: filter.on, label: DATASETS[filter.on]! },
+        editLabel: "Filter",
+        large: true,
+        editor: () => <button type="button" onClick={() => setHeld((was) => [...was, { on: "orders", label: "Revenue: at least 100" }])}>Add on orders</button>,
+    }));
+    return (
+        <ChakraProvider value={system}>
+            <SliceFilterChips density={density} foldChips={foldChips} live chips={chips} groups={Object.keys(DATASETS)}
+                onRemove={(i) => setHeld((was) => was.filter((_filter, j) => j !== i))} onClear={() => setHeld([])} add={() => null} />
+        </ChakraProvider>
+    );
+}
+
+/** The row as drawn: each group's name and each chip's words, in order. */
+const drawnRow = () => [...document.querySelectorAll("[data-slice-chip-group], [data-slice-clause]")].map((el) => el.textContent);
+/** The host's place of each chip, in the order the row draws them. */
+const places = () => [...document.querySelectorAll("[data-slice-clause]")].map((el) => el.getAttribute("data-slice-clause"));
+
+describe("a row of chips in groups (#1673)", () => {
+    test("draws each group's chips together, the group named once before its first, the groups as the host names them; each chip is still the host's by its place", async () => {
+        render(<GroupedRow />);
+        expect([drawnRow(), places()]).toEqual([["Orders", "Region: SA", "Units: more than 1", "Stock", "Site: North"], ["0", "2", "1"]]);
+        // The × of the chip drawn second takes out the host's third filter.
+        await press(chipAt(2).querySelector<HTMLElement>("[data-chip-remove]")!);
+        expect(drawnRow()).toEqual(["Orders", "Region: SA", "Stock", "Site: North"]);
+    });
+
+    test("a group's first filter taken out moves no group, and Delete hands the focus to the chip drawn in its place", async () => {
+        render(<GroupedRow />);
+        chipAt(0).focus();
+        await act(async () => { fireEvent.keyDown(chipAt(0), { key: "Delete" }); await Promise.resolve(); });
+        // Stock's filter is now the host's first; the orders still draw first.
+        expect([drawnRow(), places()]).toEqual([["Orders", "Units: more than 1", "Stock", "Site: North"], ["1", "0"]]);
+        expect(document.activeElement).toBe(chipAt(1));
+    });
+
+    test("a filter added on the orders while an editor is open stays off the row as it stood; once shut, it joins its group", async () => {
+        render(<GroupedRow />);
+        await press(chipAt(0));
+        await press(screen.getByRole("button", { name: "Add on orders" }));
+        expect(drawnRow()).toEqual(["Orders", "Region: SA", "Units: more than 1", "Stock", "Site: North"]);
+        await escape();
+        expect(drawnRow()).toEqual(["Orders", "Region: SA", "Units: more than 1", "Revenue: at least 100", "Stock", "Site: North"]);
+    });
+
+    test("folded: a group folded whole into +N more goes unnamed in the row, and +N more lists every filter under its group's name", async () => {
+        render(<GroupedRow density="compact" foldChips={1} />);
+        expect(drawnRow()).toEqual(["Orders", "Region: SA", "Units: more than 1"]);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        const listed = [...document.querySelectorAll("[data-slice-more-group], [data-slice-more-row] > span")].map((el) => el.textContent);
+        expect(listed).toEqual(["Orders", "Region: SA — said whole", "Units: more than 1 — said whole", "Stock", "Site: North — said whole"]);
+    });
+
+    test("chips in no group: no name is drawn, in the row or in +N more", async () => {
+        render(<LiveRow />);
+        expect(document.querySelectorAll("[data-slice-chip-group]")).toHaveLength(0);
+        cleanup();
+        render(
+            <ChakraProvider value={system}>
+                <SliceFilterChips density="compact" foldChips={1} live onRemove={() => undefined} onClear={() => undefined} add={() => null}
+                    chips={["Region: SA", "Units: more than 1"].map((label): SliceFilterChip => ({ label, editLabel: "Filter", editor: () => null }))} />
+            </ChakraProvider>,
+        );
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        expect([document.querySelectorAll("[data-slice-chip-group], [data-slice-more-group]").length, document.querySelectorAll("[data-slice-more-row]").length]).toEqual([0, 2]);
     });
 });

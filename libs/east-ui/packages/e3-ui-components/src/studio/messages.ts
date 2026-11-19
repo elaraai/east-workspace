@@ -110,8 +110,6 @@ export interface StudioMessages {
     filters: () => string;
     /** How many filters narrow the page, as the rail's folded chip says it. */
     filtersSet: (p: { n: number; count: string }) => string;
-    /** A filter's chip where the page lists more than one source: the source's name, then the filter's words. */
-    filterOn: (p: { source: string; filter: string }) => string;
     /** A filter's editor's head: the source it is on. */
     filterOf: (p: { source: string }) => string;
     /** The source a new filter is on — the chooser's label. */
@@ -682,7 +680,6 @@ export const studioMessages: StudioMessages = {
     needsWindowHint: () => "Filter the page by date to compare it with another period.",
     filters: () => "Filters",
     filtersSet: ({ n, count }) => (n === 0 ? "No filters" : n === 1 ? "1 filter" : `${count} filters`),
-    filterOn: ({ source, filter }) => `${source}: ${filter}`,
     filterOf: ({ source }) => `Filter · ${source}`,
     filterSource: () => "Source",
     filterSourceGone: ({ source }) => `This page no longer lists ${source}. Remove the filter.`,

@@ -48,11 +48,15 @@ export const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
 /** The page the tiles are of. */
 export const PAGE = { project: "Sales desk", page: "Orders" };
 const encodeFilters = encodeBeast2For(StudioFiltersType);
-/** Sets the reader's filters of the page, as its rail does: in the UI store, under the page's key. */
-export async function filterPage(...conditions: string[]) {
+/** Sets the reader's filters of the page on its sources, each a condition on one, as its rail does: in the UI store, under the page's key. */
+export async function filterSources(...filters: readonly { readonly source: string; readonly where: string }[]) {
     await act(async () => {
-        StateRuntime.getStore().write(studioFiltersKey(PAGE), conditions.length === 0 ? undefined : encodeFilters(conditions.map((where) => ({ source: "orders", where: condition(where), from: none }))));
+        StateRuntime.getStore().write(studioFiltersKey(PAGE), filters.length === 0 ? undefined : encodeFilters(filters.map(({ source, where }) => ({ source, where: condition(where), from: none }))));
     });
+}
+/** Sets the reader's filters of the page on the orders, as its rail does. */
+export function filterPage(...conditions: string[]) {
+    return filterSources(...conditions.map((where) => ({ source: "orders", where })));
 }
 
 /** A placement holding content. */
