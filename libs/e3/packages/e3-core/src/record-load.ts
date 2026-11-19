@@ -424,7 +424,11 @@ export interface RecordLoadOptions {
  *    when an earlier one holds it, and telling `onAsked` once it has asked.
  * 3. A delivery the source last loaded, under the same load, is answered
  *    `again` with the commit that applied it; one older than the source's
- *    as-of is answered `superseded`. Nothing runs for either.
+ *    as-of is answered `superseded`. Nothing runs for either. A repeat that
+ *    carries a later as-of than the source's moves the source's as-of to it,
+ *    holding the workspace as step 4 does, and changes nothing else: no
+ *    commit is made, and a delivery that arrives afterwards with an as-of
+ *    between the two is answered `superseded`.
  * 4. It holds the workspace shared, as a record's write does, once nothing
  *    has announced itself on the workspace's intent.
  * 5. It takes the delivery in as a stored value of the source's delivery
@@ -512,7 +516,8 @@ export async function recordLoad(
       stopIfAsked();
       // A deploy that landed while it waited its turn may have changed the source
       const answered = await answeredAlready(storage, repo, ws, await sourceToLoad(storage, repo, ws, record, source, began), source, delivery, options.asOf);
-      if (answered !== null) return answered;
+      // A repeat that carries a later as-of goes on to hold the workspace, where it moves the source's as-of
+      if (answered !== null && answered.later === undefined) return answered.result;
       // The words the load last said of what stopped it, while that holds the workspace's intent
       let told: string | undefined;
       // A removal or a copy that stopped the load while it held the workspace
@@ -532,6 +537,12 @@ export async function recordLoad(
         try {
           const declared = await sourceToLoad(storage, repo, ws, record, source, began);
           head = await recordHead(storage, repo, ws, declared.record);
+          // Asked again of the workspace as it is held: a deploy since may have made the record forget the delivery
+          const repeat = answered === null ? null : await answeredAlready(storage, repo, ws, declared, source, delivery, options.asOf);
+          if (repeat !== null) {
+            if (repeat.later !== undefined) await asOfMoved(storage, repo, ws, declared.record, source, repeat.later);
+            return repeat.result;
+          }
           const loaded = await loadHeld(storage, runner, repo, ws, name, declared, source, delivery, options, watch.signal, report);
           if (loaded !== null) return loaded;
         } catch (err) {
@@ -927,14 +938,55 @@ function watchIntent(storage: StorageBackend, repo: string, ws: string, outer: A
 }
 
 /**
+ * Moves a source's as-of to the later one a repeat of its last delivery
+ * carried: the slot alone.
+ *
+ * @remarks
+ * No commit is made: the record's head, its state and every other slot stand,
+ * so nothing that reads the record is due again. The caller holds the
+ * workspace's lock, shared, as a record's write does. The write is
+ * conditional on the ref it read, and tried again when a save landed
+ * meanwhile, with no cap, as a load's commit is.
+ *
+ * @param record - The record, as the load resolved it
+ * @param source - The source the delivery is of
+ * @param asOf - The as-of the repeat carried
+ */
+async function asOfMoved(
+  storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>, source: string, asOf: Date,
+): Promise<void> {
+  const slot = sourceLoadSlots(source).asOf;
+  for (let attempt = 1; ; attempt++) {
+    const read = await storage.datasets.readVersioned(repo, ws, record.refPath);
+    if (read === null || read.ref.type !== 'value') return;
+    const { hash, versions } = read.ref.value;
+    const head = versions.get(record.selfKeypath);
+    const held = versions.get(slot);
+    const later = laterAsOf(held, asOf);
+    // Another repeat moved it as far already
+    if (head === undefined || later === undefined || (held !== undefined && sameObject(held, later))) return;
+    try {
+      await storage.datasets.writeIf(repo, ws, record.refPath,
+        variant('value', { hash, versions: nextVersions(versions, record.selfKeypath, head, { [slot]: later }) }), read.revision);
+      return;
+    } catch (err) {
+      if (!(err instanceof DatasetRefConflictError)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+    }
+  }
+}
+
+/**
  * Answers a delivery the source last loaded, under the same load (`again`),
  * or one older than the source's as-of (`superseded`).
  *
- * @returns The answer, or null when the delivery is to be loaded
+ * @returns The answer, or null when the delivery is to be loaded; and, for a
+ *   repeat that carries a later as-of than the source's, that as-of, which the
+ *   source's is moved to
  */
 async function answeredAlready(
   storage: StorageBackend, repo: string, ws: string, declared: LoadDeclared, source: string, delivery: string, asOf: Date | undefined,
-): Promise<RecordLoadResult | null> {
+): Promise<{ readonly result: RecordLoadResult; readonly later?: Date } | null> {
   const held = await storage.datasets.read(repo, ws, declared.record.refPath);
   if (held === null || held.type !== 'value') return null;
   const { versions } = held.value;
@@ -946,16 +998,21 @@ async function answeredAlready(
     // The commit that applied it, unless a compaction cut it from the chain
     const commit = versions.get(slots.commit);
     const state = commit === undefined || commit.length === 0 ? null : await commitState(storage, repo, commit);
-    return {
+    const result: RecordLoadResult = {
       commit: commit !== undefined && state !== null ? some(commit) : none, state: state === null ? none : some(state), delivery, ...none0,
       outcome: variant('again', null),
     };
+    const dated = asOf === undefined ? undefined : versions.get(slots.asOf);
+    const stands = dated === undefined ? undefined : parseTime(dated);
+    // Later than the source's, or the source has none: the repeat moves it
+    const moves = asOf !== undefined && (stands?.success !== true || byTime(stands.value, asOf) < 0);
+    return moves ? { result, later: asOf } : { result };
   }
   if (asOf === undefined) return null;
   const heldAsOf = versions.get(slots.asOf);
   const parsed = heldAsOf === undefined ? undefined : parseTime(heldAsOf);
   if (parsed?.success !== true || byTime(parsed.value, asOf) <= 0) return null;
-  return { commit: none, state: none, delivery, ...none0, outcome: variant('superseded', parsed.value) };
+  return { result: { commit: none, state: none, delivery, ...none0, outcome: variant('superseded', parsed.value) } };
 }
 
 /** The state a commit left, or null once the store no longer holds it. */

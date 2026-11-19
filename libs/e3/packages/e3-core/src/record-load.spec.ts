@@ -206,6 +206,38 @@ describe('a load of a delivery', () => {
     assert.equal((await ref(ws)).versions.get(sourceLoadSlots('erp').asOf), '2026-11-02T03:00:00.000', 'and leaves the source\'s');
   });
 
+  it('ruling 50 — the same delivery sent again with a later as-of is answered again, and moves the source\'s as-of and nothing else: a delivery that arrives after it with an as-of between the two is superseded', async () => {
+    const ws = await fresh();
+    const slots = sourceLoadSlots('erp');
+    const delivery = await deliver([['SO-5001', acme]]);
+    const first = (await load(ws, 'erp', delivery, { asOf: new Date('2026-11-01T03:00:00Z') })).result;
+    await save(ws, 'P-2', cedar);
+    const before = await ref(ws);
+    const commits = await chain(ws);
+
+    // The ERP sends the same file again, dated two days on
+    const moved = new Date('2026-11-03T03:00:00Z');
+    const { result, steps } = await load(ws, 'erp', delivery, { asOf: moved });
+    answered(result, { commit: first.commit, state: first.state, delivery, set: 0n, deleted: 0n, unchanged: 0n, outcome: variant('again', null) });
+    assert.deepEqual(steps, [], 'nothing was taken in, run or committed');
+    const after = await ref(ws);
+    assert.equal(after.versions.get(slots.asOf), '2026-11-03T03:00:00.000', 'the source\'s as-of is the repeat\'s');
+    assert.deepEqual([after.hash, await chain(ws)], [before.hash, commits], 'the record\'s state and its history stand');
+    assert.deepEqual([...after.versions].filter(([slot]) => slot !== slots.asOf), [...before.versions].filter(([slot]) => slot !== slots.asOf),
+      'and every other slot of its ref');
+
+    // A delivery dated between the two arrives late: the source has said its data is as of a later time
+    const late = await deliver([['SO-5001', birch]]);
+    const between = await load(ws, 'erp', late, { asOf: new Date('2026-11-02T03:00:00Z') });
+    answered(between.result, { commit: none, state: none, delivery: late, set: 0n, deleted: 0n, unchanged: 0n, outcome: variant('superseded', moved) });
+    await holds(ws, [['erp', 'SO-5001', acme], ['own', 'P-1', birch], ['own', 'P-2', cedar]]);
+
+    // A repeat dated earlier, or not at all, moves nothing
+    await load(ws, 'erp', delivery, { asOf: new Date('2026-11-02T03:00:00Z') });
+    await load(ws, 'erp', delivery);
+    assert.equal((await ref(ws)).versions.get(slots.asOf), '2026-11-03T03:00:00.000');
+  });
+
   it('R13 — the same delivery after the load\'s function changed applies again, under the new function', async () => {
     const ws = await fresh();
     const delivery = await deliver([['SO-1001', acme]]);
