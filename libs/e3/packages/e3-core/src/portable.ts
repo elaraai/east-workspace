@@ -366,10 +366,13 @@ export {
   readDatasetChunks,
   readDatasetWhole,
   inputObject,
-  taskInputRead,
   readRecordStateObject,
   recordIndexManifests,
 } from './dataset-open.js';
+
+// What a reader is handed of a task's or a function's input, as its dataset's
+// ref stands: the one place that decides whether it can be read now
+export { taskInputRead, type InputHeld, type TaskInputRead } from './input-read.js';
 
 // The store's door: the one way a collection reaches the object store, from a
 // stored collection, chunks or elements

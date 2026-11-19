@@ -33,6 +33,7 @@ import {
   ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject,
   type ExecuteResult, type FunctionDraft, type MutationObject, type RecordSource,
 } from '@elaraai/e3-types';
+import { dataflowGetGraph, dataflowResolveInputHashes } from './dataflow.js';
 import type { InputWait } from './dataflow/types.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
@@ -365,8 +366,13 @@ describe('a composite record: an external entry is never written (no program run
       assert.deepEqual(status.tasks.find((task) => task.name === 'tally')?.status,
         { type: 'waiting', reason: 'record \'notes\' waits for the first delivery of erp' }, 'the status says so in the run\'s words');
 
+      // Every reader of the task's inputs decides the same: what a collection keeps holds no execution over them
+      const graphed = (await dataflowGetGraph(storage, REPO, FRESH)).tasks.find((task) => task.name === 'tally')!;
+      assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, FRESH, graphed), [null], 'the record cannot be read now');
+
       // The ERP delivers: the ref written as a load's commit leaves it, until a load does
       await sourceDelivered(storage, REPO, FRESH, 'records/notes', 'erp', '2026-11-02T03:00:00.000');
+      assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, FRESH, graphed), [(await heldRef(storage, REPO, FRESH, 'notes')).hash]);
       const next = await dataflowExecute(storage, REPO, FRESH, { runner });
       assert.deepEqual([next.success, next.executed, next.waiting], [true, 1, 0], JSON.stringify(next.tasks));
       assert.deepEqual(runner.getCalls().map(({ taskHash, inputHashes }) => [taskHash, inputHashes]), [[tally, [(await heldRef(storage, REPO, FRESH, 'notes')).hash]]],

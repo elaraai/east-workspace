@@ -33,6 +33,7 @@ import {
 } from '@elaraai/e3-types';
 import { indexNotHeld, inputObject } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
+import { taskInputRead, type InputHeld } from '../input-read.js';
 import { pendingSources } from '../record-slots.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
@@ -364,8 +365,9 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * delivery, or an index of one, is refused too, naming the record and the
  * sources: the record holds a state — the solution's own entries — and a
  * function over it would compute on part of the record, where a task reading
- * it waits. A dataset a caller names as an argument is read as it stands, as
- * the record's own route serves it.
+ * it waits. An input is read where a task's is (`taskInputRead`), so the two
+ * agree. A dataset a caller names as an argument is read as it stands, as the
+ * record's own route serves it.
  *
  * Each dataset is read once, however many of the function's inputs and the
  * call's dataset arguments read it: so the inputs and arguments of one record
@@ -401,33 +403,32 @@ export async function pinCallArguments(
   // The query builder reads a dataset argument's refusal by its words
   // (`Dataset argument <i> is not assigned`), so those stay as they are; an
   // input, which no caller named, is refused naming its path.
-  // Its ref is read once, with its version vector: the hash it is pinned at
-  // and what its record waits for are of the one read.
-  const read = async (
-    path: TreePath, refusal: (refType: string) => string,
-  ): Promise<{ hash: string; versions: ReadonlyMap<string, string> } | { refused: ExecuteResult }> => {
+  // Its ref is read once: the hash it is pinned at and what its record waits
+  // for are of the one read.
+  const read = async (path: TreePath, refusal: (refType: string) => string): Promise<InputHeld | { refused: ExecuteResult }> => {
     const { refType, hash, versions } = await workspaceGetDatasetHash(storage, repo, workspace, path);
-    return hash === null || versions === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash, versions };
+    return hash === null || versions === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash, pending: pendingSources(versions) };
   };
   // Each dataset is read once, for the inputs and the arguments alike: those of
   // one record are of one state of it
-  const held = new Map<string, string>();
+  const held = new Map<string, InputHeld>();
   for (const { path, index } of options.inputs ?? []) {
     const at = pathToString(path);
-    let hash = held.get(at);
-    if (hash === undefined) {
-      const found = await read(path, (refType) => unassignedInput(path, refType));
-      if ('refused' in found) return found.refused;
-      // A record that waits for a first delivery holds its own entries alone:
-      // a task reading it waits, and so does a function that declares it
-      const waits = pendingSources(found.versions);
-      if (waits.length > 0) return invalidExecuteResult(pendingInput(path, waits));
-      held.set(at, hash = found.hash);
+    let found = held.get(at);
+    if (found === undefined) {
+      const first = await read(path, (refType) => unassignedInput(path, refType));
+      if ('refused' in first) return first.refused;
+      held.set(at, found = first);
     }
-    const object = await inputObject(storage, repo, hash, index.type === 'some' ? index.value : null);
-    if (object === null) return invalidExecuteResult(`The function's input ${at} cannot be read: ${indexNotHeld(at, index.value!)}, and nothing ran`);
-    pinned.push({ dataset: object });
-    inputs.push({ path, index, hash });
+    // A record that waits for a first delivery holds its own entries alone:
+    // a task reading it waits, and so does a function that declares it
+    const object = await taskInputRead(storage, repo, at, found, index.type === 'some' ? index.value : null);
+    if ('waiting' in object) {
+      return invalidExecuteResult(object.pending !== undefined ? pendingInput(path, object.pending)
+        : `The function's input ${at} cannot be read: ${indexNotHeld(at, index.value!)}, and nothing ran`);
+    }
+    pinned.push({ dataset: object.object });
+    inputs.push({ path, index, hash: found.hash });
   }
   for (const [i, arg] of args.entries()) {
     if (arg.type === 'value') {
@@ -435,14 +436,14 @@ export async function pinCallArguments(
       continue;
     }
     const at = pathToString(arg.value);
-    let hash = held.get(at);
-    if (hash === undefined) {
-      const found = await read(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
-      if ('refused' in found) return found.refused;
-      held.set(at, hash = found.hash);
+    let found = held.get(at);
+    if (found === undefined) {
+      const first = await read(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
+      if ('refused' in first) return first.refused;
+      held.set(at, found = first);
     }
-    pinned.push({ dataset: hash });
-    inputs.push({ path: arg.value, index: none, hash });
+    pinned.push({ dataset: found.hash });
+    inputs.push({ path: arg.value, index: none, hash: found.hash });
   }
   return { args: pinned, inputs };
 }
