@@ -22,7 +22,7 @@ import { queryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import { groupCondition } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, ORDERS_SOURCE, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
-import { studioMessages } from "../messages.js";
+import { studioMessages } from "../messages-en.js";
 import { recordsCsv, recordsField, recordsModel, recordsRows, rowsVisual, sortedBy, type RecordsView } from "./records-table.js";
 
 const v = Studio.visual;

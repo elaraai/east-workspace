@@ -21,7 +21,7 @@ import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
-import { studioMessages } from "../messages.js";
+import { studioMessages } from "../messages-en.js";
 import { SUMMARY_LABEL_KEY, summaryModel, summaryValueKey, type SummaryView } from "./summary-table.js";
 
 const v = Studio.visual;

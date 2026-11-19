@@ -19,7 +19,7 @@ import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
-import { studioMessages } from "../messages.js";
+import { studioMessages } from "../messages-en.js";
 import { listModel, type ListView } from "./list-rows.js";
 
 const v = Studio.visual;

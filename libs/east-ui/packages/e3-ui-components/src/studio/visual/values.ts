@@ -29,7 +29,8 @@ import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { Pick as ClickedPick } from "../../query/visual/clicks.js";
 import { visualValues, type VisualAsk, type VisualValue } from "../../query/visual/print.js";
 import { bucketStart, partsAt, readGroups, readTotal } from "../../query/visual/read.js";
-import { capitalised, type StudioMessages } from "../messages.js";
+import { capitalised } from "../../shared/capital.js";
+import type { StudioMessages } from "../messages.js";
 
 /** A listed source, decoded. */
 export type VisualSource = ValueTypeOf<typeof StudioSourceType>;
