@@ -627,15 +627,22 @@ export function fedOrders(options: {
  * As asked, `orders.erp` is fed by:
  * - `book` (the default): `combine_erp`, a task over `erp_book` that keeps its
  *   orders of a quantity above 0. `invoices`, a second composite record, is
- *   fed `erp_book` whole by `combine_inv`. `reconcile` reads `erp_book` and
- *   `orders`; `audit` reads `orders` and `invoices`.
+ *   fed every order of `erp_book` by `combine_inv`. `reconcile` reads
+ *   `erp_book` and `orders`; `audit` reads `orders` and `invoices`.
  * - `extract`: the input `erp_extract`, which nothing sets until a spec does;
  *   `check` reads `erp_extract` and `orders`.
  * - `twice`: `combine_erp`, beside a second fed source of `orders`, `inv`,
- *   fed `erp_book` whole by `combine_inv`: one record whose two sources each
- *   carry a version of the book. `reconcile` reads `erp_book` and `orders`.
+ *   fed every order of `erp_book` by `combine_inv`: one record whose two
+ *   sources each carry a version of the book. `reconcile` reads `erp_book` and
+ *   `orders`.
  *
  * `forecast` reads `orders` alone, and counts its entries.
+ *
+ * `combine_inv` writes each customer's name in capitals, so what it feeds is
+ * never the delivery `combine_erp` feeds. The two loads run one load function
+ * over sources that hold the same orders: fed one delivery they would be one
+ * execution, and whichever started second would be answered by the first's,
+ * never reaching the runner a spec holds it at.
  *
  * @param options - What feeds `orders.erp`, and an order id whose delivery
  *   makes its load fail, naming the order
@@ -652,7 +659,8 @@ export function bookFed(options: { readonly feed?: 'book' | 'extract' | 'twice';
   });
   const combineErp = e3.task('combine_erp', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType,
     ($, rows) => rows.filter(($, order) => order.qty.greater(0n))));
-  const combineInv = e3.task('combine_inv', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const combineInv = e3.task('combine_inv', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType,
+    ($, rows) => rows.map(($, order) => ({ customer: order.customer.upperCase(), qty: order.qty }))));
   const erpExtract = e3.input('erp_extract', ErpDeliveryType);
   const loadErp = options.failsOn === undefined ? loadBook : loadFailingOn(options.failsOn);
   if (options.feed === 'twice') {
