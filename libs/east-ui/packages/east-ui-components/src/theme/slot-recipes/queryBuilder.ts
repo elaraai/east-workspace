@@ -317,12 +317,14 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             color: "fg.subtle",
         },
-        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart. */
+        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart; it gives up
+           its height to the picker under them, which takes what its host's body has left (#1673). */
         conditions: {
             display: "flex",
             flexDirection: "column",
             gap: "6px",
             minWidth: "0",
+            minHeight: "0",
         },
         /* A row of words and parts. */
         row: {
@@ -355,12 +357,14 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
             "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
-            // In place: its words and its caret; the box only while it is hovered, focused or open.
+            // In place: its words and its caret; the box only while it is hovered, focused or open. Its words stand where a
+            // bare word would — a joiner, a foot's add, a group's edge — the box reaching back over its border and padding.
             "[data-query-look='inline'] &": {
                 borderColor: "transparent",
                 background: "transparent",
                 boxShadow: "none",
                 paddingInlineStart: "6px",
+                marginInlineStart: "-7px",
                 _hover: { borderColor: "border.strong", background: "bg.surface" },
                 "&[data-empty]": { borderStyle: "solid", borderColor: "transparent", color: "fg.subtle" },
                 "&[data-empty]:hover": { borderColor: "border.strong" },
@@ -424,9 +428,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle", color: "link" },
             },
         },
-        /* A row's ×. */
+        /* A row's ×; in place, at its line's end, in line with its group's (#1673). */
         remove: {
             color: "fg.subtle",
+            "[data-query-look='inline'] &": { marginInlineStart: "auto" },
         },
         /* A group of conditions: its joiner, and its box. */
         group: {
@@ -460,7 +465,8 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.3}",
             minHeight: "26px",
             paddingInlineStart: "32px",
-            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
+            // A lone condition's add, its icon on the condition's first word: back over the add's own padding.
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0", marginInlineStart: "-4px" },
         },
         note: {
             paddingInlineStart: "36px",

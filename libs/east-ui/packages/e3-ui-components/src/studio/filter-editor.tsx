@@ -8,8 +8,10 @@
  * rows over one source's rows, in place (`ConditionRows`) — a field, a
  * comparison, a value from the values the source holds with their counts, add
  * a condition, all or any, and a line of jq where the words run out — the
- * shared picker under them while a slot is open. Never the builder's frame,
- * its tabs or its toolbar: the popover they lie in is their one frame.
+ * shared picker under them while a slot is open, taking the height the
+ * popover's body leaves it, so its list is the one thing that scrolls. Never
+ * the builder's frame, its tabs or its toolbar: the popover they lie in is
+ * their one frame.
  *
  * It is the query builder's own editor (`useQueryEditor`) over a query of one
  * Keep rows where step (`filterQuery`), its drafts held here, not in an
@@ -22,6 +24,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Box } from "@chakra-ui/react";
 import { JqType, equalFor, none, type JqNode } from "@elaraai/east";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { ConditionRows, type ConditionRowsProps } from "../query/condition-rows.js";
 import { useQueryCall, useQuerySummaries } from "../query/hooks.js";
 import type { SavedOffer } from "../query/model/slots.js";
@@ -69,6 +72,7 @@ export interface FilterConditionsProps extends Pick<ConditionRowsProps, "autoOpe
 export function FilterConditions({ id, where, read, root, onChange, autoOpen = false }: FilterConditionsProps) {
     const words = useQueryWords();
     const ps = usePartStyles(words);
+    const styles = useSlotStyles("studioFilters");
     const call = useQueryCall();
     const summaries = useQuerySummaries(root, call);
     // The rows' drafts: the filter as a query of one step, as it stood when it was opened.
@@ -99,7 +103,7 @@ export function FilterConditions({ id, where, read, root, onChange, autoOpen = f
     });
     const [card] = editor.cards;
     return (
-        <Box data-studio-filter-rows="">
+        <Box css={styles.rows} data-studio-filter-rows="">
             {card !== undefined && <ConditionRows card={card} popover={editor.popover} ps={ps} actions={editor.actions} autoOpen={autoOpen} rootRef={setBounds} />}
         </Box>
     );

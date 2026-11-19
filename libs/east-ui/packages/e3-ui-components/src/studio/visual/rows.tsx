@@ -31,7 +31,7 @@ import { useStudioMessages } from "../messages.js";
 import { SourceFailed, problemOf } from "./notes.js";
 import { recordsOf, recordsRows } from "./records-table.js";
 import { NoRows, VisualLoading } from "./states.js";
-import { midSentence, type Visual, type VisualSource } from "./values.js";
+import type { Visual, VisualSource } from "./values.js";
 
 /** How tall the tree stands at most, in a popover: ten of its rows. */
 const TREE_MAX_HEIGHT = "320px";
@@ -136,7 +136,7 @@ export function RowsTree({ visual, source, read, state, storageKey, onTotal }: R
     const waiting = useLoadingReveal(held === undefined && failed === undefined);
     if (failed !== undefined) return <SourceFailed source={source.name} message={failed} />;
     if (tree === undefined || paging === undefined) return waiting ? <VisualLoading view={visual.view} /> : null;
-    if (paging.totalRows === 0) return <NoRows reason={m.noDataReason({ rows: midSentence(source.name) })} />;
+    if (paging.totalRows === 0) return <NoRows visual={visual} state={state} read={read} source={source.name} />;
     // In a popover it is narrow, where the tree opens its first row alone: one row read whole, the rest a line each.
     return <EastChakraValueTree value={tree} storageKey={storageKey} paging={paging} phoneFirstOnly />;
 }

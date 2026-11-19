@@ -7,7 +7,8 @@
  * A visual's states, as its tile draws them (#1671, TIL-3): the wells it
  * needs — its view's icon, "Add fields to draw it", and a checklist, a check
  * for what is chosen and a dot for what is missing; no rows — `no data` where
- * its value would be, and why on the annotation line; a field its source
+ * its value would be, and on the annotation line what emptied it, or that its
+ * source has none; a field its source
  * does not have — its name, as code, and the link that opens its fields; and,
  * while its answer is awaited, Skeleton blocks in its own shape.
  *
@@ -18,8 +19,11 @@ import { Box, Skeleton } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircle, faCircleCheck, faCircleExclamation, type IconName } from "@fortawesome/free-solid-svg-icons";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { filterWords } from "../../query/visual/filters.js";
+import type { PrintSource, PrintState } from "../../query/visual/print.js";
+import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
-import type { VisualView } from "./values.js";
+import { midSentence, type Visual, type VisualView } from "./values.js";
 
 /** Props of {@link WellsEmpty}. */
 export interface WellsEmptyProps {
@@ -61,21 +65,40 @@ export function WellsEmpty({ icon, needed }: WellsEmptyProps) {
     );
 }
 
+/** Props of {@link NoRows}. */
+export interface NoRowsProps {
+    /** The visual. */
+    readonly visual: Visual;
+    /** The page's state, as its programs read it: the page's filters on its source, and what it follows. */
+    readonly state: PrintState;
+    /** Its source, as the printer reads it. */
+    readonly read: PrintSource;
+    /** Its source's name. */
+    readonly source: string;
+}
+
 /**
  * A visual that read no rows: `no data` where its value would be, never a
- * zero, and why under it.
+ * zero, and under it what emptied it (#1673) — its own filter, the page's
+ * filters on its source and what it follows, each once, in the words its chip
+ * says — or, with none of them, that its source has no rows; the whole on
+ * hover where the line is cut.
  *
- * @param props - Why
+ * @param props - The visual, the page's state, and its source
  * @returns The state
  */
-export function NoRows({ reason }: { readonly reason: string }) {
+export function NoRows({ visual, state, read, source }: NoRowsProps) {
     const m = useStudioMessages();
+    const words = useQueryWords();
     const styles = useSlotStyles("studioVisual");
+    const conditions = [...(visual.where.type === "some" ? [visual.where.value] : []), ...state.filters];
+    const causes = [...new Set(conditions.map((condition) => filterWords(condition, read, words)))];
+    const reason = m.noDataReason({ rows: midSentence(source), source, causes });
     return (
         <Box css={styles.state} data-studio-visual="no-rows">
             <Box css={styles.kpi}>
                 <Box as="span" css={styles.absent}>{m.noData()}</Box>
-                <Box css={styles.anno}>{reason}</Box>
+                <Box css={styles.anno} title={reason}>{reason}</Box>
             </Box>
         </Box>
     );

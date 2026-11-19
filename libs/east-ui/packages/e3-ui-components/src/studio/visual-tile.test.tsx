@@ -96,11 +96,22 @@ describe("a visual's tile", () => {
         expect(eyebrow(container)[1]).toBe("needs a field");
     });
 
-    test("says no data where its value would be when it reads no rows, never a zero, and why under it (TIL-3)", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))], createInMemoryQueryCall(DATASETS));
-        expect(await screen.findByText("no data")).toBeTruthy();
-        const state = container.querySelector<HTMLElement>("[data-studio-visual=no-rows]")!;
-        expect([...state.firstElementChild!.children].map((part) => part.textContent)).toEqual(["no data", "No orders"]);
+    test("says no data where its value would be when it reads no rows, never a zero, and under it what emptied it — its own filter, then the page's, each once — or that its source has none (TIL-3, #1673)", async () => {
+        const said = (container: HTMLElement) => {
+            const state = container.querySelector<HTMLElement>("[data-studio-visual=no-rows]");
+            return state === null ? undefined : [...state.firstElementChild!.children].map((part) => [part.textContent, part.getAttribute("title")]);
+        };
+        const own = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))], createInMemoryQueryCall(DATASETS));
+        await waitFor(() => expect(said(own.container)).toEqual([["no data", null], ["No orders for region is WA", "No orders for region is WA"]]));
+        own.unmount();
+        const filtered = page([cell("c1", v.of("orders", v.kpi({ value: v.count() }), { where: condition(".units > 1") }))], createInMemoryQueryCall(DATASETS));
+        await filterPage(`.region == "NSW"`, `.region == "NSW"`);
+        await waitFor(() => expect(said(filtered.container)?.[1]?.[0]).toBe("No orders for units is more than 1 · region is NSW"));
+        filtered.unmount();
+        await filterPage();
+        // A source with no rows: nothing emptied it.
+        const none_ = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall([{ ...DATASETS[0]!, value: [] }]));
+        await waitFor(() => expect(said(none_.container)?.[1]?.[0]).toBe("Orders has no rows"));
     });
 
     test("shows its source's error when there is no server to ask", async () => {
