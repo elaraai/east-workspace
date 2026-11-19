@@ -74,6 +74,9 @@ import type {
  *  root's keypath, where each other is a task's name. */
 const sameInput = equalFor(StringType);
 
+/** Whether two task names are one. */
+const sameName = equalFor(StringType);
+
 // =============================================================================
 // Initialization
 // =============================================================================
@@ -553,7 +556,7 @@ export async function stepTaskCommits(
   options: { hold?: boolean } = {},
 ): Promise<TaskCommits> {
   const graph = getGraph(state);
-  const task = graph.tasks.find(t => t.name === taskName);
+  const task = graph.tasks.find(t => sameName(t.name, taskName));
   if (!task) {
     throw new Error(`Task '${taskName}' not found in graph`);
   }
@@ -793,7 +796,7 @@ export async function stepTaskDueAgain(
   state: DataflowExecutionState,
   taskName: string
 ): Promise<ExecutionEvent | null> {
-  const task = getGraph(state).tasks.find(t => t.name === taskName);
+  const task = getGraph(state).tasks.find(t => sameName(t.name, taskName));
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!task || !taskState || taskState.status !== 'completed') return null;
   if (!(await wouldReadOther(storage, state, taskName, task.output))) return null;

@@ -95,7 +95,9 @@ import type { Mutable } from '../types.js';
  *  a set of inputs from a catch-up run of it over the same. */
 const sameInputs = equalFor(StringType);
 
-/** Whether two names are one: a repository's, or a workspace's. */
+/** Whether two Strings of a run are one: a repository's name, a workspace's
+ *  or a task's, the key a run is tracked under, or the words a deferral was
+ *  told in. */
 const sameName = equalFor(StringType);
 
 /** The tasks and units the loop keeps in flight unless its caller sets a
@@ -1765,7 +1767,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
     const path = deferralPath(at.reason);
     const told = `${at.reason.kind}:${path}`;
-    if (execution.deferredFor.get(taskName) === told) return;
+    const before = execution.deferredFor.get(taskName);
+    if (before !== undefined && sameName(before, told)) return;
     execution.deferredFor.set(taskName, told);
 
     // Emit task_deferred event, whose conflict path is the input the reason
@@ -1847,7 +1850,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       await this.handleInputChanges(storage, execution);
     } catch {
       const graph = state.graph.type === 'some' ? state.graph.value : null;
-      for (const input of graph?.tasks.find((each) => each.name === taskName)?.inputs ?? []) execution.unasked.add(input);
+      for (const input of graph?.tasks.find((each) => sameName(each.name, taskName))?.inputs ?? []) execution.unasked.add(input);
       execution.unasked.add(prepared.outputPath);
     }
   }
@@ -2458,7 +2461,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // a split task's stages, not each unit: a per-unit state rewrite would
       // make persistence O(units²) under the orchestrator mutex. A catch-up
       // run's is no progress of the task's.
-      onPartitionProgress: key === taskName && options.onPartitionProgress
+      onPartitionProgress: sameName(key, taskName) && options.onPartitionProgress
         ? (progress) => options.onPartitionProgress!(taskName, progress)
         : undefined,
       // A wait for room is kept, under the run's key, while it lasts.
