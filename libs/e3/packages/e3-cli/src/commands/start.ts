@@ -608,8 +608,18 @@ export function waitLine(task: string, waits: readonly InputWait[]): string {
   return `[WAIT] ${task}: ${describeWaits(waits)}`;
 }
 
-/** What a run that left tasks waiting says after its summary: what they wait
- *  on, and what to do about it. */
+/**
+ * What a run that left tasks waiting says after its summary: what they wait
+ * on, and what to do about it.
+ *
+ * @param waiting - How many tasks the run left waiting
+ * @returns The line
+ *
+ * @example
+ * ```ts
+ * if (summary.waiting > 0) console.log(waitingLine(summary.waiting));
+ * ```
+ */
 export function waitingLine(waiting: number): string {
   return `${waiting} ${waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set, or on a record's load: `
     + 'set the input, or load the record\'s sources, and run again.';

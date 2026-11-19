@@ -517,6 +517,13 @@ export interface ResolvedRecord {
  *
  * @param record - The record's sources, as {@link resolveRecord} finds them
  * @returns Their names, sorted; none for a record that has no sources
+ *
+ * @example
+ * ```ts
+ * // `orders` is a composite over erp and wms, which loads write, and own, which its mutations write
+ * const orders = await resolveRecord(storage, repo, 'production', 'orders');
+ * externalSources(orders!); // ['erp', 'wms']
+ * ```
  */
 export function externalSources(record: Pick<ResolvedRecord, 'sources'>): string[] {
   return [...record.sources].filter(([, source]) => source.type === 'load').map(([name]) => name).sort(bySourceName);
