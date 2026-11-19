@@ -342,20 +342,27 @@ repository holds — sent, when it is a file, by an upload that writes no ref
 (`TransferBackend.objectUpload`, an `ObjectUploadStore`, through
 `createObjectUploadRoutes`): the dataset upload's protocol, whose commit
 stores the bytes as the object they hash to and points nothing at it. One
-source's loads apply one at a time, in the order asked: a store starts each
-source's jobs in the order they were filed, and the load takes its turn by a
-lock of its own, `<ws>#load~<record>~<source>` (`loadQueueLock`), which the
-lock service takes as it takes `<ws>#dataflow`, so loads in two processes
-take turns too. A store that runs its jobs in one process keeps the order
-with `JobOrder`, a place taken as a job is asked to run, before anything is
-awaited; one with a queue of its own keeps it there. Where the lock service
-says it queues its waiters (`LockService.queuesWaiters`), the load waits for
-its turn once, with no bound, and holds its place: the local service keeps a
-place file for each such waiter in the resource's directory and gives the
-lock to the oldest, so several `e3 load` commands on one repository apply in
-the order they were started, and e3-web's is one Web Locks request. Of a
-service that does not, the load asks in turns of 30 s, in no set order, which
-is enough where the store's own queue runs one job of a source at a time. A
+source's loads apply one at a time, in the order asked: the load takes its
+turn by a lock of its own, `<ws>#load~<record>~<source>` (`loadQueueLock`),
+which the lock service takes as it takes `<ws>#dataflow`, so loads in two
+processes take turns too. Where the lock service says it queues its waiters
+(`LockService.queuesWaiters`), the load waits for its turn once, with no
+bound, and holds its place: the local service keeps a place file for each
+such waiter in the resource's directory and gives the lock to the oldest, so
+several `e3 load` commands on one repository apply in the order they were
+started, and e3-web's is one Web Locks request. Of a service that does not,
+the load asks in turns of 30 s, in no set order. A store keeps its own jobs
+in the order they were filed. One that runs its jobs in its own process does
+so by the job every such store shares (`handleProcessRecordLoadInOrder`),
+over a place taken with `JobOrder` as the job is asked to run, before
+anything is awaited. Over a lock service that queues, a job's load starts
+once the job before it has asked for the turn (`RecordLoadOptions.onAsked`),
+so a job that waits does so inside its load, holding its place among every
+asker of the turn: a load another process asks after the job was filed
+applies after it. Over one that does not, a job's load starts once the job
+before it has ended, and the store's order is all there is. A store with a
+queue of its own keeps the order there. A job that waits says so (`queued`),
+and a request to cancel it reaches it where it waits. A
 load holds the repository's running work from when it is
 dispatched, so no sweep takes its delivery while it waits, and the workspace
 shared from its intake to its commit, as a Save holds it; it lets the
@@ -376,7 +383,13 @@ nothing. A rule that throws is answered as any error, in the route's type. The l
 `allowEveryLoad`. e3-web keeps each job and upload as a record of its own kind
 in IndexedDB, and its sweep records one a closed tab left unfinished failed,
 as it does every job. A store's behaviour is `recordLoadStoreTests` and
-`objectUploadStoreTests`; a route's, the `records-load` and `object-upload`
+`objectUploadStoreTests`. The load store's suite runs the store's jobs too,
+over the storage and the runner its setup gives, into a workspace the setup
+deployed: one source's jobs apply in the order filed, among themselves and
+with a load asked of the storage directly; a request to cancel a job that
+waits reaches it; a job that waits holds the running work, by the count of
+its holds the setup reads from its locks; and a job dispatched while gc holds
+the repository fails, naming it. A route's behaviour is the `records-load` and `object-upload`
 suites of e3-api-tests, and `e3 load` against a server, `cliTests`.
 
 **A route factory takes its seams as arguments.** Each is exported from

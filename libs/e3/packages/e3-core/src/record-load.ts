@@ -399,6 +399,12 @@ export interface RecordLoadOptions {
   /** Stops the load — its waits, its intake, its pieces, and its commit
    *  before it writes — which then throws {@link RecordLoadStoppedError}. */
   readonly signal?: AbortSignal;
+  /** Told once, when the load has asked for its source's turn: it holds the
+   *  turn, or has asked a lock service that queues its waiters for it, and so
+   *  has its place among them. What starts several loads of one source lets
+   *  the next ask then, so they are given the turn in the order it started
+   *  them. A load refused, or stopped, before it asks is never told. */
+  readonly onAsked?: () => void;
 }
 
 /**
@@ -415,7 +421,7 @@ export interface RecordLoadOptions {
  *    refused here.
  * 2. It takes its turn among its source's loads ({@link loadQueueLock}), so
  *    they apply one at a time, in the order asked, reporting `queued` once
- *    when an earlier one holds it.
+ *    when an earlier one holds it, and telling `onAsked` once it has asked.
  * 3. A delivery the source last loaded, under the same load, is answered
  *    `again` with the commit that applied it; one older than the source's
  *    as-of is answered `superseded`. Nothing runs for either.
@@ -501,7 +507,7 @@ export async function recordLoad(
     // The record's head as the load last saw it, with nothing announced on
     // the workspace: what a removal or a copy it waits out is judged against
     let head = await recordHead(storage, repo, ws, began.record);
-    const queue = await queueTaken(storage, repo, ws, record, source, delivery, name, signal, report);
+    const queue = await queueTaken(storage, repo, ws, record, source, delivery, name, signal, report, options.onAsked);
     try {
       stopIfAsked();
       // A deploy that landed while it waited its turn may have changed the source
@@ -715,18 +721,24 @@ async function unlessStopped(asked: Promise<LockHandle | null>, signal: AbortSig
  * {@link LOAD_WAIT_TURN_MS}, as often as it takes, and is served in no set
  * order: such a backend keeps its loads' order in its own queue.
  *
+ * @param asked - Told once the load holds the turn, or has asked for it with
+ *   a wait: a lock service that queues its waiters takes a waiter's place as
+ *   it is asked
  * @returns The turn, which the load lets go once it ends
  * @throws {RecordLoadStoppedError} When the signal fires while it waits
  * @throws {Error} When the store no longer holds the delivery
  */
 async function queueTaken(
   storage: StorageBackend, repo: string, ws: string, record: string, source: string, delivery: string, name: string,
-  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void,
+  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void, asked: (() => void) | undefined,
 ): Promise<LockHandle> {
   const lock = loadQueueLock(ws, record, source);
   const operation = variant('dataset_write', null);
   const free = await storage.locks.acquire(repo, lock, operation);
-  if (free !== null) return free;
+  if (free !== null) {
+    asked?.();
+    return free;
+  }
   report(variant('queued', null));
   // One wait with no bound where the lock service queues its waiters, which
   // keeps the load's place; turns elsewhere. Either is given up when the load
@@ -745,9 +757,14 @@ async function queueTaken(
       stop();
     });
   }, LOAD_WAIT_TURN_MS);
+  let told = false;
   try {
     for (;;) {
-      const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: unbounded ? Infinity : LOAD_WAIT_TURN_MS }), given.signal);
+      const waiting = storage.locks.acquire(repo, lock, operation, { wait: true, timeout: unbounded ? Infinity : LOAD_WAIT_TURN_MS });
+      // Its place among the waiters is taken as the lock is asked for
+      if (!told) asked?.();
+      told = true;
+      const turn = await unlessStopped(waiting, given.signal);
       if (turn !== STOPPED && turn !== null) return turn;
       if (gone !== null) throw gone;
       if (turn === STOPPED) throw new RecordLoadStoppedError(name);

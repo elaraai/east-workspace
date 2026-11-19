@@ -12,16 +12,20 @@
  * what a closed tab left, recorded failed and never run again, and
  * what a live one runs, left to it; a job or a commit asked for twice at once,
  * run once; what a transfer staged, swept by gc and forgotten past its
- * retention; and gc as a job. Every store and its byte endpoints run under the
- * shared API suites too, in `libs/e3/test/integration`'s
- * `web-compliance.spec.ts` and in Chromium.
+ * retention; and gc as a job. Its load store runs e3-core's contract, its
+ * jobs loading into a workspace of the ledger's package on the tab's own
+ * runner. Every store and its byte endpoints run under the shared API suites
+ * too, in `libs/e3/test/integration`'s `web-compliance.spec.ts` and in
+ * Chromium.
  */
 
 import { afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { DateTimeType, StringType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import e3 from '@elaraai/e3';
 import { LockStateType } from '@elaraai/e3-types';
 import {
+  TASKS_LOCK,
   WorkspaceLockError,
   announcedIntent,
   computeHash,
@@ -32,15 +36,18 @@ import {
   workspaceGetDataset,
   workspaceSetDataset,
   type DatasetUpload,
+  type TaskRunner,
 } from '@elaraai/e3-core/portable';
-import { objectUploadStoreTests, recordLoadStoreTests } from '@elaraai/e3-core/test';
+import {
+  ErpDeliveryType, GatedTaskRunner, LEDGER_ORDERS, encodeInSegmentsOf, ledgerOrders, objectUploadStoreTests, recordLoadStoreTests,
+} from '@elaraai/e3-core/test';
 import { AdapterClosedError, type BlobKey, type BlobsAdapter, type ByteSource, type RecordKey } from '../storage/adapters.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, MemoryRecordStore, openMemoryRecords, type MemoryLocks } from '../storage/memory.js';
 import { WebStorage } from '../storage/WebStorage.js';
 import { UnitPool } from '../execution/pool.js';
 import { inProcessUnits } from '../execution/in-process.js';
 import { WebTaskRunner } from '../execution/WebTaskRunner.js';
-import { FIXTURE_VERSION, HELD_PACKAGE, PLATFORM_PACKAGE, buildE3Fixtures } from '../testing/e3-fixtures.js';
+import { FIXTURE_VERSION, HELD_PACKAGE, PLATFORM_PACKAGE, buildE3Fixtures, packageZip } from '../testing/e3-fixtures.js';
 import { WebTransferBackend, type WebTransferBackendOptions } from './WebTransferBackend.js';
 
 const REPO = 'default';
@@ -99,14 +106,19 @@ function untilClosed(blobs: BlobsAdapter, closed: () => boolean): BlobsAdapter {
  * @param options - The backend's part and round sizes and its retention
  * @param blobs - The blobs the tab reads and writes through: the origin's
  *   unless given
+ * @param over - What the backend's jobs run on, given the tab's own runner:
+ *   that runner unless given
  */
-async function openTab(origin: Origin, options: Partial<WebTransferBackendOptions> = {}, blobs: BlobsAdapter = origin.blobs): Promise<Tab> {
+async function openTab(
+  origin: Origin, options: Partial<WebTransferBackendOptions> = {}, blobs: BlobsAdapter = origin.blobs,
+  over: (runner: TaskRunner) => TaskRunner = (runner) => runner,
+): Promise<Tab> {
   const session = await origin.locks.open();
   const records = openMemoryRecords(origin.records);
   let closed = false;
   const storage = new WebStorage({ records, blobs: untilClosed(blobs, () => closed), locks: session, files: origin.files });
   const pool = new UnitPool({ units: inProcessUnits(), width: 2 });
-  const runner = new WebTaskRunner({ repo: REPO, pool, locks: session });
+  const runner = over(new WebTaskRunner({ repo: REPO, pool, locks: session }));
   const transfer = new WebTransferBackend({ storage, getRunner: () => runner, ...options });
   const tab: Tab = {
     session,
@@ -282,9 +294,32 @@ async function commitStatus(tab: Tab, id: string): Promise<{ readonly status: st
   return { status: status.type, message: status.type === 'failed' ? status.value.message : '' };
 }
 
+/** The ledger's package, whose record `orders` the load store's cases load
+ *  into: its zip, made by the first case that asks. */
+let ledgerZip: Promise<Uint8Array> | undefined;
+
+// Its jobs load into a workspace of the ledger's package, on a runner that
+// holds a task's executions when a case asks it to
 recordLoadStoreTests('e3-web', async () => {
-  const tab = await openTab(newOrigin());
-  return { store: tab.transfer.recordLoad, teardown: () => tab.close() };
+  ledgerZip ??= packageZip(e3.package('ledger', FIXTURE_VERSION, ledgerOrders()), 'ledger');
+  let held!: GatedTaskRunner;
+  const origin = newOrigin();
+  const tab = await openTab(origin, {}, origin.blobs, (runner) => (held = new GatedTaskRunner(runner)));
+  await tab.storage.repos.create(REPO);
+  await importPackage(tab, await ledgerZip);
+  await workspaceCreate(tab.storage, REPO, WORKSPACE);
+  await workspaceDeploy(tab.storage, REPO, WORKSPACE, 'ledger', FIXTURE_VERSION, { runner: held });
+  let delivered = 0;
+  return {
+    store: tab.transfer.recordLoad,
+    teardown: () => tab.close(),
+    loads: {
+      storage: tab.storage, repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', runner: held,
+      // An order no delivery before it holds
+      deliver: () => tab.storage.objects.write(REPO, encodeInSegmentsOf(ErpDeliveryType, 2)(new Map([[`SO-${++delivered}`, LEDGER_ORDERS.acme]]))),
+      working: async () => (await tab.session.held(JSON.stringify([REPO, TASKS_LOCK]))).length,
+    },
+  };
 });
 
 objectUploadStoreTests('e3-web', async () => {
@@ -506,30 +541,6 @@ describe('WebTransferBackend', () => {
       assert.equal(await importEnded(tab, id), 'completed');
       await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(statuses.filter((status) => status === 'completed').length, 1, `the import ran once: ${statuses.join(' → ')}`);
-    });
-
-    it('ruling 37 — runs one source\'s loads asked together in the order they were asked: the second waits for the first, and says so', async () => {
-      const tab = await openTab(newOrigin());
-      await tab.storage.repos.create(REPO);
-      // Two loads of a source no workspace holds: each ends failed as it runs, which is all this case needs of a run
-      const [first, second] = [crypto.randomUUID(), crypto.randomUUID()];
-      for (const [id, delivery] of [[first, 'a'.repeat(64)], [second, 'b'.repeat(64)]] as const) {
-        await tab.transfer.recordLoad.create(id, {
-          repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', delivery, actor: 'ada@example.com', asOf: none, cancel: none,
-          status: variant('processing', none), createdAt: new Date(),
-        });
-      }
-      const told: string[] = [];
-      const update = tab.transfer.recordLoad.updateStatus.bind(tab.transfer.recordLoad);
-      tab.transfer.recordLoad.updateStatus = (id, status) => {
-        const step = status.type === 'processing' ? (status.value.type === 'some' ? status.value.value.type : 'processing') : status.type;
-        told.push(`${id === first ? 'first' : 'second'} ${step}`);
-        return update(id, status);
-      };
-      await Promise.all([tab.transfer.recordLoad.execute(first, REPO), tab.transfer.recordLoad.execute(second, REPO)]);
-      await until(async () => ((await tab.transfer.recordLoad.get(second))?.status.type === 'processing' ? null : true), 'both loads to end', 10_000);
-      assert.deepEqual(told.filter((line) => line.endsWith(' queued') || line.endsWith(' failed')), ['second queued', 'first failed', 'second failed'],
-        told.join(' → '));
     });
 
     it('verifies an upload whose commit is asked for twice at once once', async () => {

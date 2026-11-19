@@ -310,16 +310,23 @@ export interface SplitCallStore {
  *
  * Only the job writes its end, `completed`, `failed` or `cancelled`. A cancel
  * records a request ({@link RecordLoadStore.cancel}), which the job reads once
- * a second as it runs (`handleProcessRecordLoad`): it ends `cancelled` when it
- * stops before its commit writes the record's ref, and `completed` once its
- * commit has written, since a commit that has written has landed.
+ * a second, as it waits for an earlier load of its source and as it runs
+ * (`handleProcessRecordLoad`): it ends `cancelled` when it stops before its
+ * commit writes the record's ref, and `completed` once its commit has written,
+ * since a commit that has written has landed.
  *
- * One source's loads apply one at a time, in the order asked: the load's
- * turn is a lock (`loadQueueLock`), which orders them across processes, and a
- * store runs each source's jobs in the order they were made, which orders
- * them within it. A job waiting for an earlier one of its source says so
- * (`queued`), and holds the repository's running work from when it is
- * dispatched, so no sweep takes its delivery meanwhile.
+ * One source's loads apply one at a time, in the order asked. The load's turn
+ * is a lock (`loadQueueLock`). A store whose jobs run in its own process has
+ * each source's jobs ask for it in the order they were filed, by
+ * `handleProcessRecordLoadInOrder`: where the storage's lock service queues
+ * its waiters, each job waits inside its load, holding its place among the
+ * source's waiters, so a job filed before another process asks is given the
+ * turn before it; over a lock service that keeps no queue, a job's load starts
+ * once the job filed before it has ended. A store with a queue of its own
+ * keeps the order there. A job waiting for an earlier load of its source says
+ * so (`queued`), and holds the repository's running work from when it is
+ * dispatched, so no sweep takes its delivery meanwhile. What a store's jobs do
+ * once dispatched is part of its contract (`recordLoadStoreTests`).
  *
  * Flow: create → execute → poll get (→ cancel) → delete
  */
@@ -351,8 +358,8 @@ export interface RecordLoadStore {
 
   /**
    * Dispatch processing.
-   * Local: runs `handleProcessRecordLoad` in the background, on the server's
-   * runner, each source's jobs in the order they were made.
+   * Local: runs `handleProcessRecordLoadInOrder` in the background, on the
+   * server's runner, each source's jobs in the order they were filed.
    * Cloud: invokes its own compute, which runs `handleProcessRecordLoad` on its runner.
    */
   execute(id: string, repo: string): Promise<void>;

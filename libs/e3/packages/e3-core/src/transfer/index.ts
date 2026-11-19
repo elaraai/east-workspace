@@ -78,6 +78,7 @@ export {
   handleProcessGc,
   handleProcessSplitCall,
   handleProcessRecordLoad,
+  handleProcessRecordLoadInOrder,
   LOAD_CANCEL_POLL_MS,
   type ProcessDeployDeps,
   type ProcessDeployInput,

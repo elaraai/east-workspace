@@ -30,7 +30,7 @@ import type { RunningExecution, TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
 import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
 import type { PackageExportStore, PackageImportStore, RecordLoadStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
-import { failedUnlessHandedOver, heldProgress, progressWrites, watchJob } from './job-progress.js';
+import { failedUnlessHandedOver, heldProgress, progressWrites, turnOrWord, watchJob, type JobPlace } from './job-progress.js';
 import type { PackageZipCheckpoint } from './types.js';
 
 // =============================================================================
@@ -672,6 +672,9 @@ export interface ProcessRecordLoadDeps {
    * took in, and the execution cache answers the load's that finished.
    */
   signal?: AbortSignal;
+  /** Told once the job's load has asked for its source's turn
+   *  (`RecordLoadOptions.onAsked`). */
+  onAsked?: () => void;
 }
 
 /** Input for handleProcessRecordLoad. */
@@ -686,6 +689,13 @@ const LOAD_PIECES_INTERVAL_MS = 500;
 /** How often a running load's job reads its record, to find a request to
  *  cancel it. */
 export const LOAD_CANCEL_POLL_MS = 1_000;
+
+/** Whether a load job's record says the job should stop: it is gone, asked
+ *  to cancel, or ended by another. */
+async function loadJobStops(store: RecordLoadStore, id: string): Promise<boolean> {
+  const current = await store.get(id);
+  return current === null || current.cancel.type === 'some' || current.status.type !== 'processing';
+}
 
 /**
  * Processes a record load job.
@@ -717,7 +727,7 @@ export async function handleProcessRecordLoad(
   deps: ProcessRecordLoadDeps,
   input: ProcessRecordLoadInput,
 ): Promise<void> {
-  const { storage, recordLoadStore, runner, signal } = deps;
+  const { storage, recordLoadStore, runner, signal, onAsked } = deps;
   const { id, repo } = input;
 
   const record = await recordLoadStore.get(id);
@@ -732,10 +742,7 @@ export async function handleProcessRecordLoad(
   };
   if (record.cancel.type === 'some') ask();
   const jobSignal = signal === undefined ? asked.signal : AbortSignal.any([signal, asked.signal]);
-  const unwatch = watchJob(async () => {
-    const current = await recordLoadStore.get(id);
-    return current === null || current.cancel.type === 'some' || current.status.type !== 'processing';
-  }, LOAD_CANCEL_POLL_MS, ask);
+  const unwatch = watchJob(() => loadJobStops(recordLoadStore, id), LOAD_CANCEL_POLL_MS, ask);
 
   // Progress is written one write at a time, and the last before the end. A
   // write the store refuses says the job has ended.
@@ -759,6 +766,7 @@ export async function handleProcessRecordLoad(
         ...(record.asOf.type === 'some' && { asOf: record.asOf.value }),
         signal: jobSignal,
         onProgress: report,
+        ...(onAsked !== undefined && { onAsked }),
       });
     } finally {
       // The load has settled: no count is written after its end
@@ -777,6 +785,66 @@ export async function handleProcessRecordLoad(
   // Its commit has written, when it made one: the load has landed, whatever
   // was asked since, and whatever the store says of the write of its end
   await landedWritten(recordLoadStore, id, result, signal);
+}
+
+/**
+ * Processes a record load job in its place among its source's jobs, for a
+ * store that runs its jobs in its own process ({@link JobOrder}): one
+ * source's jobs go on in the order the store was asked to run them.
+ *
+ * @remarks
+ * Where the storage's lock service queues its waiters, the job's load is
+ * started once the job before it has asked for its source's turn, and leaves
+ * its place once it has asked in its turn. The lock service then keeps the
+ * order, among this store's jobs and every other process's loads alike: each
+ * waits inside its load, holding its place among them (ruling 37), and says it
+ * waits (`queued`) as a load does. Over a lock service that keeps no queue the
+ * store's own order is all there is: the job's load is started once the job
+ * before it has ended, and the job says it waits meanwhile.
+ *
+ * While it waits to start, the job's record is read every
+ * {@link LOAD_CANCEL_POLL_MS} for a request to cancel it, which starts it at
+ * once: it loads nothing, and ends itself `cancelled`. The job leaves its place
+ * however it ends.
+ *
+ * @param deps - As {@link handleProcessRecordLoad}'s
+ * @param input - Job ID and repository identifier
+ * @param place - The job's place among its source's jobs, taken as the store
+ *   was asked to run it
+ * @throws As {@link handleProcessRecordLoad} does
+ *
+ * @example
+ * ```ts
+ * const place = order.take(loadJobKey(job)); // as the store is asked, before anything is awaited
+ * await handleProcessRecordLoadInOrder({ storage, recordLoadStore, runner }, { id, repo }, place);
+ * ```
+ */
+export async function handleProcessRecordLoadInOrder(
+  deps: ProcessRecordLoadDeps,
+  input: ProcessRecordLoadInput,
+  place: JobPlace,
+): Promise<void> {
+  const { storage, recordLoadStore } = deps;
+  const { id } = input;
+  const queues = storage.locks.queuesWaiters === true;
+  try {
+    if (place.waits) {
+      // The store's order is the job's whole wait where no lock service queues it: it says so. A write that fails
+      // leaves its status as it was, as a progress write does, and it waits its turn all the same
+      if (!queues) await recordLoadStore.updateStatus(id, variant('processing', some(variant('queued', null)))).catch(() => undefined);
+      await turnOrWord(place.before, () => loadJobStops(recordLoadStore, id), LOAD_CANCEL_POLL_MS);
+    }
+    await handleProcessRecordLoad({
+      ...deps,
+      onAsked: () => {
+        // The lock service keeps its place from here: the job after it may ask
+        if (queues) place.leave();
+        deps.onAsked?.();
+      },
+    }, input);
+  } finally {
+    place.leave();
+  }
 }
 
 /**

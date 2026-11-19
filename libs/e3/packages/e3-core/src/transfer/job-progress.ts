@@ -69,6 +69,33 @@ export function progressWrites<P>(update: (progress: P) => Promise<boolean>, ref
 }
 
 /**
+ * Waits for a job's turn among the jobs filed before it ({@link JobPlace}),
+ * or for word that it should wait for it no longer: a request to cancel it,
+ * or its end written by another, which its record is read for as the wait
+ * begins and then as often as `pollMs`.
+ *
+ * @param before - Settles once the job's turn has come ({@link JobPlace.before})
+ * @param stops - Reads the job's record, and answers whether it says to stop
+ * @param pollMs - How often the record is read
+ * @returns Once the turn has come, or the record said to stop
+ *
+ * @example
+ * ```ts
+ * const place = order.take('main/orders/erp');
+ * await turnOrWord(place.before, async () => (await store.get(id))?.cancel.type === 'some', 1_000);
+ * ```
+ */
+export async function turnOrWord(before: Promise<void>, stops: () => Promise<boolean>, pollMs: number): Promise<void> {
+  if (await stops().catch(() => false)) return;
+  let unwatch = (): void => undefined;
+  try {
+    await Promise.race([before, new Promise<void>((resolve) => { unwatch = watchJob(stops, pollMs, resolve); })]);
+  } finally {
+    unwatch();
+  }
+}
+
+/**
  * Ends a job whose run threw: recorded `failed`, with the error's message,
  * unless its caller's signal stopped it, when it is handed over as it stands
  * for the call that runs it again. The error is thrown again either way.
@@ -98,23 +125,26 @@ export function loadJobKey(job: { readonly repo: string; readonly workspace: str
 /** A job's place among the jobs filed under one key, in the order they were
  *  filed ({@link JobOrder.take}). */
 export interface JobPlace {
-  /** Whether a job filed before it under its key had yet to end as it took
-   *  its place: it waits */
+  /** Whether a job filed before it under its key had yet to leave its place
+   *  as it took its own: it waits */
   readonly waits: boolean;
-  /** Settles once every job filed before it under its key has ended */
+  /** Settles once every job filed before it under its key has left its
+   *  place */
   readonly before: Promise<void>;
-  /** Lets the job filed after it go on: called once, when this one has ended,
-   *  or was not run */
+  /** Lets the job filed after it go on: called when this one has ended, or
+   *  was not run, or has gone on to where another queue keeps its turn. A
+   *  place is left once, however often this is called */
   leave(): void;
 }
 
 /**
- * The order the jobs filed under one key run in, in a store that runs its
- * jobs in one process: each after every one filed before it.
+ * The order the jobs filed under one key go on in, in a store that runs its
+ * jobs in one process: each after every one filed before it has left its
+ * place.
  *
  * @remarks
  * A place is taken as a job is asked to run, before anything is awaited, so
- * the order the store is asked in is the order the jobs run in, however long
+ * the order the store is asked in is the order the jobs go on in, however long
  * each takes to start. A job that is not run after all, or ends early, leaves
  * its place, and the one after it still waits for every job before that.
  *
@@ -122,7 +152,7 @@ export interface JobPlace {
  * ```ts
  * const order = new JobOrder();
  * const place = order.take('main/orders/erp');
- * await place.before;       // every load of orders.erp filed before this one has ended
+ * await place.before;       // every load of orders.erp filed before this one has left its place
  * try { await run(); } finally { place.leave(); }
  * ```
  */

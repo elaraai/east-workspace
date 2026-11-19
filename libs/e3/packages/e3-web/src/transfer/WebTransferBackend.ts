@@ -66,10 +66,11 @@ import {
   handleProcessExport,
   handleProcessGc,
   handleProcessImport,
-  handleProcessRecordLoad,
+  handleProcessRecordLoadInOrder,
   handleProcessSplitCall,
   JobOrder,
   loadJobKey,
+  withRunningWork,
   type DatasetAdoptProgress,
   type DatasetCommitStatus,
   type DatasetDownloadStore,
@@ -1376,11 +1377,15 @@ class WebSplitCallStore extends JobStore<SplitCallJob, SplitRecord> implements S
 /**
  * Record loads: each run in this worker through e3-core's shared handler, on
  * the repository's runner, its turn among its source's loads taken through
- * the storage's locks. This worker's jobs of one source run in the order they
- * were filed (ruling 37): each is started after every job it was asked to
- * run before, and waits for the earlier ones of its source. A cancel is
- * recorded on the job, which the job acts on, ending itself: `cancelled`
- * before its commit writes, `completed` after.
+ * the storage's locks. This worker's jobs of one source ask for that turn in
+ * the order they were filed (ruling 37, `handleProcessRecordLoadInOrder`):
+ * each is started after every job it was asked to run before, and the
+ * storage's locks, which queue their waiters, keep the order from there,
+ * among this tab's jobs and every other tab's. A job holds the repository's
+ * running work from its start to its end, so no sweep takes its delivery
+ * while it waits. A cancel is recorded on the job, which the job reads once a
+ * second, waiting or running, and acts on, ending itself: `cancelled` before
+ * its commit writes, `completed` after.
  */
 class WebRecordLoadStore extends JobStore<RecordLoadJob, LoadRecord> implements RecordLoadStore {
   /** The order each source's jobs run in, in this worker */
@@ -1442,13 +1447,21 @@ class WebRecordLoadStore extends JobStore<RecordLoadJob, LoadRecord> implements 
 
   protected async work(id: string, record: LoadRecord): Promise<void> {
     const repo = record.job.repo;
+    const { storage } = this.host;
     // Its place among its source's loads, taken as it starts, before anything is awaited
     const place = this.order.take(loadJobKey(record.job));
     try {
-      // Waiting for an earlier load of its source, the job says so
-      if (place.waits) await this.updateStatus(id, variant('processing', some(variant('queued', null))));
-      await place.before;
-      await handleProcessRecordLoad({ storage: this.host.storage, recordLoadStore: this, runner: this.host.getRunner(repo) }, { id, repo });
+      // Held from its start to its end, so no sweep takes its delivery while
+      // it waits for an earlier load of its source
+      await withRunningWork(storage, repo, () =>
+        handleProcessRecordLoadInOrder({ storage, recordLoadStore: this, runner: this.host.getRunner(repo) }, { id, repo }, place));
+    } catch (err) {
+      // The handler records its job's own end; what kept the job from
+      // starting, a garbage collection that holds the repository, is recorded
+      // here, in its words
+      const current = await this.record(id);
+      if (current !== null && !this.finished(current.job.status)) await this.updateStatus(id, this.failure(messageOf(err)));
+      throw err;
     } finally {
       place.leave();
     }

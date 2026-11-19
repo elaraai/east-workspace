@@ -5,10 +5,12 @@
 
 /**
  * The local server's load jobs and object uploads (§7.11, ruling 28): the
- * stores' contracts over the in-memory transfer backend, and a load run as a
- * job — one source's jobs in the order made, a cancel that asks and a job
- * that ends itself, and a delivery uploaded as an object and loaded by its
- * hash. Each case is titled by the requirement of the design it checks.
+ * stores' contracts over the in-memory transfer backend, its jobs run over a
+ * local repository on the local runner; and what is the backend's own of a
+ * load run as a job — a cancel that asks and a job that ends itself, a job
+ * that lets go however it ends, and a delivery uploaded as an object and
+ * loaded by its hash. Each case is titled by the requirement of the design it
+ * checks.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -21,6 +23,7 @@ import { computeHash } from '../objects.js';
 import { LocalTaskRunner } from '../execution/LocalTaskRunner.js';
 import type { TaskRunner } from '../execution/interfaces.js';
 import { packageImport } from '../package-files.js';
+import { loadQueueLock } from '../record-load.js';
 import { recordHistory } from '../records.js';
 import { TASKS_LOCK } from '../running-work.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -54,7 +57,70 @@ async function stagePart(repoPath: string, id: string, part: number, bytes: Uint
   }
 }
 
-recordLoadStoreTests('the in-memory transfer backend', async () => ({ store: new InMemoryTransferBackend({}).recordLoad }));
+/** A repository that holds the ledger's package, and what loads into it. */
+interface LedgerRepo {
+  readonly repoDir: string;
+  readonly dir: string;
+  readonly storage: StorageBackend;
+  readonly runner: LocalTaskRunner;
+  readonly ledger: LedgerWorkspaces;
+}
+
+/** The repository every case of this file loads into: made by the first that
+ *  asks, and removed once all have run. */
+let made: Promise<LedgerRepo> | undefined;
+function ledgerRepo(): Promise<LedgerRepo> {
+  made ??= (async () => {
+    const repoDir = createTestRepo();
+    const dir = createTempDir();
+    const storage = new LocalStorage(dirname(repoDir));
+    const runner = new LocalTaskRunner(repoDir);
+    await e3.export(e3.package('ledger', '1.0.0', ledgerOrders()), join(dir, 'ledger.zip'));
+    await packageImport(storage, repoDir, join(dir, 'ledger.zip'));
+    return { repoDir, dir, storage, runner, ledger: ledgerWorkspaces(storage, repoDir, runner) };
+  })();
+  return made;
+}
+
+after(async () => {
+  const repo = await made?.catch(() => undefined);
+  if (repo === undefined) return;
+  removeTestRepo(repo.repoDir);
+  removeTempDir(repo.dir);
+});
+
+recordLoadStoreTests('the in-memory transfer backend', async () => {
+  const { repoDir, storage, runner, ledger } = await ledgerRepo();
+  const held = new GatedTaskRunner(runner);
+  // The holds of the running work taken through the storage the store's jobs run over
+  let working = 0;
+  const locks = overriding(storage.locks, {
+    acquire: async (...args: Parameters<StorageBackend['locks']['acquire']>) => {
+      const handle = await storage.locks.acquire(...args);
+      if (handle === null || args[1] !== TASKS_LOCK) return handle;
+      working++;
+      return overriding(handle, {
+        release: async () => {
+          working--;
+          await handle.release();
+        },
+      });
+    },
+  });
+  const counted = withStores(storage, { locks });
+  const backend = new InMemoryTransferBackend({ storage: counted, getRepoPath: (name) => name, getRunner: () => held, partBytes: PART_BYTES });
+  const workspace = await ledger.fresh();
+  let delivered = 0;
+  return {
+    store: backend.recordLoad,
+    loads: {
+      storage: counted, repo: repoDir, workspace, record: 'orders', source: 'erp', runner: held,
+      // An order no delivery before it holds
+      deliver: () => storage.objects.write(repoDir, encodeInSegmentsOf(ErpDeliveryType, 2)(new Map([[`SO-${workspace}-${++delivered}`, acme]]))),
+      working: () => Promise.resolve(working),
+    },
+  };
+});
 
 objectUploadStoreTests('the in-memory transfer backend', async () => {
   const repo = createTestRepo();
@@ -71,24 +137,12 @@ objectUploadStoreTests('the in-memory transfer backend', async () => {
 
 describe('a load run as a job on the in-memory transfer backend', () => {
   let repoDir: string;
-  let dir: string;
   let storage: StorageBackend;
   let runner: LocalTaskRunner;
   let ledger: LedgerWorkspaces;
 
   before(async () => {
-    repoDir = createTestRepo();
-    dir = createTempDir();
-    storage = new LocalStorage(dirname(repoDir));
-    runner = new LocalTaskRunner(repoDir);
-    ledger = ledgerWorkspaces(storage, repoDir, runner);
-    await e3.export(e3.package('ledger', '1.0.0', ledgerOrders()), join(dir, 'ledger.zip'));
-    await packageImport(storage, repoDir, join(dir, 'ledger.zip'));
-  });
-
-  after(() => {
-    removeTestRepo(repoDir);
-    removeTempDir(dir);
+    ({ repoDir, storage, runner, ledger } = await ledgerRepo());
   });
 
   const fresh = (): Promise<string> => ledger.fresh();
@@ -119,27 +173,6 @@ describe('a load run as a job on the in-memory transfer backend', () => {
   /** The record's commits, newest first, by name and hash. */
   const history = async (ws: string) => (await recordHistory(storage, repoDir, ws, 'orders')).map(({ hash, commit }) => [commit.mutation, hash] as const);
   const asked = { by: some('ada@example.com'), at: new Date('2026-11-17T12:00:00Z') };
-
-  it('R14 — two jobs of one source run in the order they were made: the second says it waits, and commits after the first', async () => {
-    const ws = await fresh();
-    const gated = new GatedTaskRunner(runner, ['orders.erp']);
-    const backend = backendOn(gated);
-    const first = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1401', acme]])));
-    await gated.launched('orders.erp');
-    const second = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1402', birch]])));
-    const waiting = await backend.recordLoad.get(second);
-    assert.ok(waiting?.status.type === 'processing' && waiting.status.value.type === 'some' && waiting.status.value.value.type === 'queued',
-      'the second says it waits for an earlier load of its source');
-
-    gated.pass('orders.erp');
-    gated.release('orders.erp');
-    const [one, two] = [await ended(backend, first), await ended(backend, second)];
-    assert.deepEqual([one.status.type, two.status.type], ['completed', 'completed']);
-    const commits = await history(ws);
-    assert.deepEqual(commits.slice(0, 2).map(([name]) => name), ['$load:erp', '$load:erp']);
-    assert.ok(one.status.type === 'completed' && one.status.value.commit.type === 'some' && commits[1]![1] === one.status.value.commit.value,
-      'the first committed first');
-  });
 
   it('ruling 37 — jobs of one source asked to run together run in the order they were filed, however long each takes to start', async () => {
     const ws = await fresh();
@@ -173,6 +206,44 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     assert.ok(one.status.type === 'completed' && one.status.value.commit.type === 'some' && commits[1]![1] === one.status.value.commit.value,
       'the job filed first committed first');
     assert.ok(two.status.type === 'completed' && two.status.value.commit.type === 'some' && commits[0]![1] === two.status.value.commit.value);
+  });
+
+  it('ruling 37 — over a lock service that keeps no queue of its waiters the store\'s own order is the jobs\' order: a job says it waits, and asks for no turn, until the one filed before it has ended, and a request to cancel it reaches it there', async () => {
+    const ws = await fresh();
+    // The source's turn, asked of a lock service that says it keeps no queue
+    let turnsAsked = 0;
+    const locks = overriding(storage.locks, {
+      queuesWaiters: false,
+      acquire: (...args: Parameters<StorageBackend['locks']['acquire']>) => {
+        if (args[1] === loadQueueLock(ws, 'orders', 'erp')) turnsAsked++;
+        return storage.locks.acquire(...args);
+      },
+    });
+    const held = new GatedTaskRunner(runner, ['orders.erp']);
+    const backend = backendOn(held, withStores(storage, { locks }));
+    const says = async (id: string): Promise<string | undefined> => {
+      const status = (await backend.recordLoad.get(id))?.status;
+      return status?.type === 'processing' && status.value.type === 'some' ? status.value.value.type : status?.type;
+    };
+    const first = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-3711', acme]])));
+    await held.launched('orders.erp');
+    const second = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-3712', birch]])));
+    const third = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-3713', acme]])));
+    assert.deepEqual([await says(second), await says(third)], ['queued', 'queued'], 'each said it waits as it was dispatched');
+    assert.equal(turnsAsked, 1, 'only the job that runs has asked for its source\'s turn');
+
+    await backend.recordLoad.cancel(second, asked);
+    assert.equal((await ended(backend, second)).status.type, 'cancelled');
+    assert.deepEqual([(await backend.recordLoad.get(first))?.status.type, await says(third), turnsAsked], ['processing', 'queued', 1],
+      'the first still runs, and the third still waits for it');
+
+    held.pass('orders.erp');
+    held.release('orders.erp');
+    const [one, three] = [await ended(backend, first), await ended(backend, third)];
+    assert.ok(one.status.type === 'completed' && one.status.value.commit.type === 'some', `the first loaded: ${one.status.type}`);
+    assert.ok(three.status.type === 'completed' && three.status.value.commit.type === 'some', `the third loaded: ${three.status.type}`);
+    assert.deepEqual((await history(ws)).filter(([name]) => name === '$load:erp').map(([, hash]) => hash),
+      [three.status.value.commit.value, one.status.value.commit.value], 'the third applied after the first, and the cancelled job loaded nothing');
   });
 
   it('R85 — a cancel asked while a job runs is recorded, and the job ends itself cancelled before its commit writes: nothing commits', async () => {
@@ -245,7 +316,7 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     assert.equal((await history(ws))[0]![0], '$load:erp', 'the record holds the delivery');
   });
 
-  it('a job whose hold of the running work fails to let go still leaves its source\'s turn, and one that cannot say it waits lets the running work go: the next job runs, gc is not refused, and no rejection goes unhandled', async () => {
+  it('a job whose hold of the running work fails to let go still leaves its source\'s turn, and one whose store fails the write that says it waits still waits its turn: each loads, gc is not refused after them, and no rejection goes unhandled', async () => {
     const ws = await fresh();
     const unhandled: unknown[] = [];
     const note = (reason: unknown): void => { unhandled.push(reason); };
@@ -276,22 +347,20 @@ describe('a load run as a job on the in-memory transfer backend', () => {
         if (status.type === 'processing' && status.value.type === 'some' && status.value.value.type === 'queued') throw new Error('the store is throttling');
         return update(id, status);
       };
-      const second = uuidv7();
-      await assert.rejects(launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1102', birch]])), second), /the store is throttling/);
-      backend.recordLoad.updateStatus = update;
+      const second = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1102', birch]])));
 
       held.pass('orders.erp');
       held.release('orders.erp');
       assert.equal((await ended(backend, first)).status.type, 'completed');
+      // The first left its source's turn, and the second waited for it all the same: it loads
+      const waited = await Promise.race([ended(backend, second), new Promise<null>((resolve) => { setTimeout(() => resolve(null), 10_000).unref(); })]);
+      assert.equal(waited?.status.type, 'completed', 'the second ran once the first had left its turn');
+      backend.recordLoad.updateStatus = update;
+
       // Both jobs have let the running work go: a garbage collection takes the repository
       const gc = await storage.locks.acquire(repoDir, TASKS_LOCK, variant('dataflow', null), { wait: true, timeout: 5_000 });
       assert.ok(gc !== null, 'no job holds the running work');
       await gc.release();
-
-      // The first left its source's turn, and the second may be dispatched again: it runs
-      await backend.recordLoad.execute(second, repoDir);
-      const waited = await Promise.race([ended(backend, second), new Promise<null>((resolve) => { setTimeout(() => resolve(null), 10_000).unref(); })]);
-      assert.equal(waited?.status.type, 'completed', 'the second ran once the first had left its turn');
       await new Promise((resolve) => { setImmediate(resolve); });
       assert.deepEqual(unhandled, [], 'the failed release was handled');
     } finally {
@@ -315,19 +384,5 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     const job = await ended(backend, await launch(backend, ws, upload.hash));
     assert.ok(job.status.type === 'completed' && job.status.value.outcome.type === 'loaded' && job.status.value.set === 2n,
       `the load of the uploaded delivery: ${job.status.type}`);
-  });
-
-  it('a job dispatched while a garbage collection holds the repository fails, naming it: a job holds the repository\'s running work from its dispatch', async () => {
-    const ws = await fresh();
-    const backend = backendOn(runner);
-    const gc = await storage.locks.acquire(repoDir, TASKS_LOCK, variant('dataflow', null));
-    assert.ok(gc !== null);
-    try {
-      const job = await ended(backend, await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-6902', acme]]))));
-      assert.ok(job.status.type === 'failed' && job.status.value.message.includes('a garbage collection or an upgrade holds this repository'),
-        `it failed, naming gc: ${job.status.type}`);
-    } finally {
-      await gc.release();
-    }
   });
 });
