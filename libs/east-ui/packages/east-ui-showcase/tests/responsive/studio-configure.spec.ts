@@ -37,6 +37,10 @@
  *  - C7 a group of names never cuts one: a table's three kinds stand side by
  *    side while they fit, and in a pane a scroll bar narrows they stack, a
  *    28px row each.
+ *  - C8 a visual's own filter (ruled 19 November 2026): its label over the
+ *    condition rows in place, every part inside the tab and nothing scrolling
+ *    sideways — with its field's list open under the rows, and once a
+ *    condition is written, with Remove filter under them.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -122,10 +126,11 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
         // Its words start a whole number of pixels under the box's edge.
         expect(name!.y - box!.y).toBe(8);
         const hints = await read(tab, "[data-configure-hint]");
-        // The Follows field's hint runs to two of its lines (#1673).
-        expect(hints.map((hint) => [hint.size, hint.line, hint.h])).toEqual([["12.5px", "19px", 19], ["12.5px", "19px", 19], ["12.5px", "19px", 38]]);
+        // The Filter field's hint is one line; the Follows field's runs to two (#1673).
+        expect(hints.map((hint) => [hint.size, hint.line, hint.h])).toEqual([["12.5px", "19px", 19], ["12.5px", "19px", 19], ["12.5px", "19px", 19], ["12.5px", "19px", 38]]);
         expect(await tab.locator("[data-configure-hint]").allTextContents()).toEqual([
             "Switching view resets the wells.", "Column · categories or periods side by side",
+            "Narrows this visual alone, before the page's filters.",
             "Pick a visual whose click selects: this one then shows what is selected there.",
         ]);
         // The section's fields: the source, the view and the kind, 12px apart.
@@ -244,6 +249,36 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
         expect(await state()).toEqual({ cut: 0, stacked: true, rows: [28, 29, 29], height: 88 });
         await tab.evaluate((el) => { (el as HTMLElement).style.width = ""; });
         await expect(kinds).not.toHaveAttribute("data-stack", "");
+    });
+
+    test("C8: a visual's own filter — its label over the condition rows in place, inside the tab; its field's list opens under the rows, inside it; written, Remove filter under them — nothing scrolling sideways (ruled 19 November 2026)", async ({ page }) => {
+        const { tab } = await openConfigure(page);
+        const field = tab.locator("[data-configure=where]");
+        await field.scrollIntoViewIfNeeded();
+        const rows = field.locator("[data-studio-filter-rows]");
+        await expect(rows.locator("[data-query-line=row]")).toHaveCount(1);
+        /** Whether every part of the Filter field, and Remove filter, stands inside the tab, and the tab scrolls nothing sideways. */
+        const inside = () => tab.evaluate((root) => {
+            const pane = root.getBoundingClientRect();
+            const parts = [...root.querySelectorAll("[data-configure=where], [data-configure=where] *, [data-configure-remove-filter]")]
+                .map((el) => el.getBoundingClientRect()).filter((box) => box.width > 0);
+            return { inside: parts.every((box) => box.left >= pane.left - 0.5 && box.right <= pane.right + 0.5), fits: root.scrollWidth <= root.clientWidth };
+        });
+        expect(await inside()).toEqual({ inside: true, fits: true });
+        // Its field's slot opens the list under the rows.
+        await rows.locator("[aria-haspopup=listbox]").first().click();
+        const chooser = rows.locator("[data-chooser]");
+        await expect(chooser).toBeVisible();
+        await settled(page);
+        expect(await inside()).toEqual({ inside: true, fits: true });
+        // A field, then the first value its source holds: the condition is the visual's, and Remove filter stands under the rows.
+        await chooser.locator("[role=option]", { hasText: "region" }).first().click();
+        await expect(chooser.locator("[role=option]").first()).toBeVisible({ timeout: 20_000 });
+        await chooser.locator("[role=option]").first().click();
+        await expect(chooser).toHaveCount(0);
+        await expect(tab.locator("[data-configure-remove-filter]")).toBeVisible();
+        await settled(page);
+        expect(await inside()).toEqual({ inside: true, fits: true });
     });
 
     test("C6: every part of the tab stands a whole number of pixels under its top", async ({ page }) => {

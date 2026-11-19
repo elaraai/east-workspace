@@ -11,18 +11,23 @@
  * gesture of the page's session, tinted until saved (EDT-8–EDT-10); its wells
  * — a field dropped on one, placed from the keyboard, moved, changed and taken
  * out (EDT-3–EDT-5), a field a well refuses (EDT-4), a pill's menu (EDT-6,
- * EDT-7), a field its source lacks (MOD-5) — and the Fields list. The record
- * and the builders are `builder.test-utils.tsx`'s; the tab drawn from a
+ * EDT-7), a field its source lacks (MOD-5) — its own filter, written with the
+ * condition rows in place (ruled 19 November 2026), and the Fields list. The
+ * record and the builders are `builder.test-utils.tsx`'s; the tab drawn from a
  * declaration alone (EDT-2) is `configure.test.tsx`'s.
  */
 
+const { offers, openSlot, pick } = slotActions(act, settle);
+
 import { describe, test, expect } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, NullType, none, variant } from "@elaraai/east";
+import { East, NullType, none, some, variant } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, settle } from "../e3-web-mount.test-utils.js";
+import { slotActions } from "../query/slots.test-utils.js";
+import { condition } from "../query/visual/visual.test-utils.js";
 import {
     components, PAGES, h, ASKED, withEntry, readRecord, commits, tile, palette, cardOf, inspector, openTabName, openTab, groupHeads, spanOf,
     rowsDrawn, textIn, placed, select, press, pickFromMenu, dragOnto, dropCard, type Key, type Entry,
@@ -211,7 +216,7 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
             await settle();
         };
         expect([...inspector(container).querySelectorAll("[data-configure]")].map((el) => el.getAttribute("data-configure")))
-            .toEqual(["source", "view", "kind", "wells", "options", "click", "follow", "fields"]);
+            .toEqual(["source", "view", "kind", "wells", "where", "options", "click", "follow", "fields"]);
         /** What a click does, as its select says it. */
         const click = () => part("click").querySelector("[data-configure-click]")!.textContent;
         expect(tinted()).toEqual([]);
@@ -224,7 +229,8 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         expect([...inspector(container).querySelectorAll("[data-configure-hint]")].map((el) => el.textContent))
             .toEqual([
                 "Switching view resets the wells.", "Column · categories or periods side by side",
-                // The Follows field says what following does, while the visual follows none (#1673).
+                // Its own filter says what it narrows; the Follows field what following does, while the visual follows none (#1673).
+                "Narrows this visual alone, before the page's filters.",
                 "Pick a visual whose click selects: this one then shows what is selected there.",
             ]);
         expect(tile(container, "b-sales").querySelector("[data-studio-visual-name]")!.textContent).toBe("Revenue by region");
@@ -262,6 +268,37 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
             "daily", Studio.visual.column({ x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue")], stack: "stacked" }), "select",
         ]);
         await waitFor(() => expect(tinted()).toEqual([]));
+    });
+
+    test("a visual's own filter is written with the condition rows in place — a field, then a value its source holds — one gesture, tinted until Save writes it; Undo takes it back and starts the rows afresh; Remove filter takes it off (ruled 19 November 2026)", async () => {
+        const { container, was } = await mountBoard();
+        await select(container, "b-sales");
+        const rows = () => configurePart(container, "where").querySelector<HTMLElement>("[data-studio-filter-rows]")!;
+        const lines = () => [...rows().querySelectorAll<HTMLElement>("[data-query-line=row]")].map((row) => row.textContent ?? "");
+        const tinted = () => [...inspector(container).querySelectorAll("[data-changed]")].map((el) => el.getAttribute("data-changed"));
+        const remove = () => inspector(container).querySelector<HTMLElement>("[data-configure-remove-filter]");
+        // With no filter of its own: one row still to be written, nothing to remove.
+        expect([lines().length, remove()]).toEqual([1, null]);
+        // Its field, then one of the values the sales hold: the condition is the visual's at once.
+        await openSlot(rows(), "field");
+        await pick("region");
+        await waitFor(() => expect(offers()).toContain("North"));
+        await pick("North");
+        expect([tinted(), lines()[0]!.includes("North"), remove() !== null]).toEqual([["where"], true, true]);
+        // Undo takes it back, and the rows start afresh over no filter; Redo brings it again.
+        await press("Undo");
+        expect([tinted(), lines().length, lines()[0]!.includes("North"), remove()]).toEqual([[], 1, false, null]);
+        await press("Redo");
+        expect([tinted(), lines()[0]!.includes("North")]).toEqual([["where"], true]);
+        await press("Save");
+        expect(await commits()).toEqual(["patch", ...was]);
+        const sales = (await boardCells()).find((cell) => cell.key === "b-sales")!;
+        if (sales.content.type !== "visual") throw new Error("expected a visual");
+        expect(sales.content.value.where).toEqual(some(condition(`.region == "North"`)));
+        await waitFor(() => expect(tinted()).toEqual([]));
+        // Remove filter: the filter off, one gesture, the rows empty again.
+        await pressOn(remove()!);
+        expect([tinted(), lines().length, lines()[0]!.includes("North"), remove()]).toEqual([["where"], 1, false, null]);
     });
 
     test("an operator places a column chart, picks a source, drops a date on its X axis and a number on its values — the canvas draws it, each a gesture Undo takes back, and Save writes one patch (EDT-3, EDT-5, MOD-6)", async () => {
