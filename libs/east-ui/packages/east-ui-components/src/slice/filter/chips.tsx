@@ -32,19 +32,32 @@
  * chip opens that chip's editor where the row stood, and the row stays held.
  * A filter taken out meanwhile leaves the row at once.
  *
+ * A host whose filters fall into groups — a Studio page's, each on one of the
+ * page's datasets — gives each chip its group: the row draws a group's chips
+ * together and names the group once, before the first of them it draws, in
+ * the caption type a group's fields are headed in (`railGroupLabel`); a group
+ * folded whole into `+N more` goes unnamed in the row, and `+N more` lists
+ * the filters under their groups' names. The groups come in the order the host
+ * names them (`groups`), so no filter added or taken out reorders them
+ * (`./groups.ts`). A chip is still told by its place in the host's order:
+ * what `onRemove` and its editor are told.
+ *
  * @packageDocumentation
  */
 
-import { useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { SliceFieldChip } from "../choice.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { SliceEditPopover } from "../edit";
 import { SliceRailHold } from "../rail/hold.js";
+import type { SliceRailGroup } from "../rail/toolbar.js";
 import { usePressWait } from "../../pointer/press-wait.js";
+import { chipOrder } from "./groups.js";
 
 /** One filter of the row, as its chip shows it. */
 export interface SliceFilterChip {
@@ -52,6 +65,8 @@ export interface SliceFilterChip {
     readonly label: string;
     /** Its whole words, where its label says them short: what its hover says, its label cut with an ellipsis where it runs long (#1673). */
     readonly whole?: string | undefined;
+    /** The group it is drawn in, named once before the group's first chip (#1673): a Studio page's dataset; its icon and count go unsaid. In none unless given. */
+    readonly group?: SliceRailGroup | undefined;
     /** Its editor's head. */
     readonly editLabel: ReactNode;
     /** Its editor, drawn while it is open; `close` puts it away. */
@@ -111,19 +126,22 @@ export interface SliceFilterChipsProps {
     readonly save?: SliceFilterSave | undefined;
     /** Whether its editors apply each edit as it is made: their popovers then hold no Done and no Cancel. */
     readonly live?: boolean | undefined;
+    /** Its chips' groups' keys in the order it draws the groups; a group not among them comes after, in the order its first chip comes. */
+    readonly groups?: readonly string[] | undefined;
 }
 
 /**
  * A row of filter chips — see the module docs.
  *
- * @param props - The filters, the density, how many fold, and what removing, clearing and adding do
+ * @param props - The filters, the density, how many fold, what removing, clearing and adding do, and the groups' order
  * @returns The row
  */
-export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, seedOpen = false, save, live = false }: SliceFilterChipsProps) {
+export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, seedOpen = false, save, live = false, groups }: SliceFilterChipsProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
     const edit = useSlotRecipe({ key: "sliceEdit" })();
+    const frame = useSlotStyles("sliceFrame");
     const compact = density === "compact";
 
     // null = closed; "add" = a new filter's editor; "more" = overflow list;
@@ -135,6 +153,9 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     const [frozen, setFrozen] = useState<Frozen | null>(null);
     const rowChips = frozen === null ? chips
         : chips.slice(0, frozen.labels.length).map((held, i) => ({ ...held, label: frozen.labels[i]!, whole: frozen.wholes[i] }));
+    // The order the row draws its chips in, each group's together; and the order `+N more` lists every filter in.
+    const drawn = chipOrder(rowChips.map((held) => held.group?.key), groups);
+    const listed = chipOrder(chips.map((held) => held.group?.key), groups);
 
     // Compact eyebrow is one row that never wraps/clips — Priority+ overflow: as
     // many chips as fit, the rest collapse into `+N more`. The hook measures the
@@ -188,7 +209,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
 
     // A filter removed by Delete hands the focus on once the chips have drawn
     // again, as a Sheet tab's close does (#860): to the filter that takes its
-    // place, else the one before it, else `+N more`, else `+ FILTER`.
+    // place in the row, else the one before it, else `+N more`, else `+ FILTER`.
     const focusAfter = useRef<{ chips: Element; index: number } | null>(null);
     useLayoutEffect(() => {
         const after = focusAfter.current;
@@ -200,17 +221,18 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             ?? after.chips.querySelector<HTMLElement>("[data-slice-add='filter']");
         next?.focus();
     });
-    const onClauseKey = (i: number) => (e: KeyboardEvent<HTMLElement>) => {
+    const onClauseKey = (i: number, at: number) => (e: KeyboardEvent<HTMLElement>) => {
         if (e.key !== "Delete") return;
         e.preventDefault();
         const row = e.currentTarget.closest("[data-slice-filter]");
-        if (row !== null) focusAfter.current = { chips: row, index: i };
+        if (row !== null) focusAfter.current = { chips: row, index: at };
         onRemove(i);
     };
 
     // A filter's chip: one button opening its editor (Slice.Edit), whose foot
-    // removes the filter; its xmark the pointer's (#1231).
-    const clausePill = (held: SliceFilterChip, i: number) => (
+    // removes the filter; its xmark the pointer's (#1231). It is the host's
+    // `i`th, drawn `at`th in the row.
+    const clausePill = (held: SliceFilterChip, i: number, at: number) => (
         <SliceEditPopover
             key={i}
             open={open === i}
@@ -221,12 +243,22 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Cancel</chakra.button>}
             trigger={
                 <SliceFieldChip label={held.label} title={held.whole} active data-slice-clause={i} data-chip-cut={held.whole === undefined ? undefined : ""}
-                    onKeyDown={onClauseKey(i)} onRemove={() => onRemove(i)} />
+                    onKeyDown={onClauseKey(i, at)} onRemove={() => onRemove(i)} />
             }
         >
             {open === i ? held.editor(close) : null}
         </SliceEditPopover>
     );
+    // A chip's group's name, before the chip drawn `at`th where it is the first of its group the row draws.
+    const groupName = (held: SliceFilterChip, at: number) => (drawn.starts[at] === true && held.group !== undefined
+        ? <Box as="span" css={frame.railGroupLabel} data-slice-chip-group={held.group.key}>{held.group.label}</Box>
+        : null);
+    // A chip drawn in a row that wraps: after its group's name where it starts its group, the two kept on one line.
+    const wrapped = (i: number, at: number) => {
+        const held = rowChips[i]!;
+        const name = groupName(held, at);
+        return name === null ? clausePill(held, i, at) : <Box key={i} css={frame.railAffordance}>{name}{clausePill(held, i, at)}</Box>;
+    };
 
     const addPopover = (
         <SliceEditPopover
@@ -259,7 +291,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         // editor-density disclosure.
         return (
             <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="wrap" minWidth="0" data-slice-filter="">
-                {rowChips.map((held, i) => clausePill(held, i))}
+                {drawn.order.map(wrapped)}
                 {addPopover}
             </Box>
         );
@@ -267,8 +299,10 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
 
     if (compact) {
         // During the measure pass every chip is in flow; once measured we show
-        // the leading `visibleCount` and collapse the rest into `+N more`.
-        const shown = measuring ? rowChips : rowChips.slice(0, visibleCount);
+        // the leading `visibleCount` and collapse the rest into `+N more` — a
+        // group's name in the item of its first chip, so it is measured and
+        // folds with it.
+        const shown = measuring ? drawn.order : drawn.order.slice(0, visibleCount);
         const overflow = rowChips.length - (measuring ? 0 : visibleCount);
         // Reserve the `+N more` chip's width during measuring (worst-case count)
         // so it never collapses one chip too many once it appears.
@@ -277,9 +311,10 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
         return (
             <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflowX="clip" minWidth="0" data-slice-filter="">
-                {shown.map((held, i) => (
-                    <Box key={i} data-overflow-item flexShrink="0" display="inline-flex">
-                        {clausePill(held, i)}
+                {shown.map((i, at) => (
+                    <Box key={i} css={frame.railAffordance} data-overflow-item>
+                        {groupName(rowChips[i]!, at)}
+                        {clausePill(rowChips[i]!, i, at)}
                     </Box>
                 ))}
                 <Box data-overflow-rest display="inline-flex" alignItems="center" gap="{spacing.2}" flexShrink="0">
@@ -318,16 +353,27 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                                     {save.name.trim() === "" && <Box as="span" fontFamily="mono" fontSize="10px" color="fg.muted">Give the cohort a name to save it.</Box>}
                                 </Box>
                             )}
-                            {(open === "more" || open === "save") && chips.map((held, i) => (
-                                <Box key={i} css={edit.moreRow}>
-                                    <Box as="span">{held.whole ?? held.label}</Box>
-                                    {open === "more" && (
-                                        <chakra.button type="button" css={edit.moreRowRemove} onClick={() => onRemove(i)} aria-label="Remove filter">
-                                            <FontAwesomeIcon icon={faXmark} />
-                                        </chakra.button>
-                                    )}
-                                </Box>
-                            ))}
+                            {(open === "more" || open === "save") && listed.order.map((i, at) => {
+                                const held = chips[i]!;
+                                return (
+                                    <Fragment key={i}>
+                                        {/* Each group's filters under its name, in the caption a group's fields are headed by. */}
+                                        {listed.starts[at] === true && held.group !== undefined && (
+                                            <Box css={frame.railGroupHead} data-slice-more-group={held.group.key}>
+                                                <Box as="span" css={frame.railGroupLabel}>{held.group.label}</Box>
+                                            </Box>
+                                        )}
+                                        <Box css={edit.moreRow} data-slice-more-row={i}>
+                                            <Box as="span">{held.whole ?? held.label}</Box>
+                                            {open === "more" && (
+                                                <chakra.button type="button" css={edit.moreRowRemove} onClick={() => onRemove(i)} aria-label="Remove filter">
+                                                    <FontAwesomeIcon icon={faXmark} />
+                                                </chakra.button>
+                                            )}
+                                        </Box>
+                                    </Fragment>
+                                );
+                            })}
                         </SliceEditPopover>
                     )}
                     <Box data-overflow-keep display="inline-flex">{addPopover}</Box>
@@ -338,7 +384,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
 
     return (
         <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center" data-slice-filter="">
-            {rowChips.map((held, i) => clausePill(held, i))}
+            {drawn.order.map(wrapped)}
             {addPopover}
         </Box>
     );

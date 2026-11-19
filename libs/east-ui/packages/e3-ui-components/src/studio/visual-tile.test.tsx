@@ -27,7 +27,7 @@ import { E3Provider } from "../platform/index.js";
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
-import { PAGE, SOURCE, cell, filterPage, onE3, page, pageWithoutServer, sized, tileHarness } from "./tile.test-utils.js";
+import { PAGE, SOURCE, cell, filterPage, filterSources, onE3, page, pageWithoutServer, sized, tileHarness } from "./tile.test-utils.js";
 
 const h = tileHarness();
 
@@ -292,12 +292,15 @@ describe("a KPI's tile (#1671)", () => {
         const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         const rail = () => container.querySelector<HTMLElement>("[data-studio-filters]")!;
         const chips = () => [...rail().querySelectorAll<HTMLElement>("[data-slice-clause]")].map((chip) => [chip.textContent, chip.getAttribute("title")]);
+        const datasets = () => [...rail().querySelectorAll("[data-slice-chip-group]")].map((name) => name.textContent);
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("3"));
-        // With no filter the rail is its + FILTER chip alone, before the grid.
-        expect([chips(), rail().querySelector("[data-slice-add=filter]") !== null]).toEqual([[], true]);
+        // With no filter the rail is its + FILTER chip alone, before the grid: no dataset named.
+        expect([chips(), datasets(), rail().querySelector("[data-slice-add=filter]") !== null]).toEqual([[], [], true]);
         expect(rail().compareDocumentPosition(container.querySelector("[data-studio-kpi-value]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         await filterPage(`.region == "SA"`, ".units > 1");
         await waitFor(() => expect(chips()).toEqual([["Region: SA", "region is SA"], ["Units: more than 1", "units is more than 1"]]));
+        // The page's one dataset, named once before its chips (ruled 19 November 2026).
+        expect(datasets()).toEqual(["Orders"]);
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("2"));
         // A chip's ×, as a pointer presses it.
         const remove = rail().querySelector<HTMLElement>("[data-slice-clause] [data-chip-remove]");
@@ -307,6 +310,23 @@ describe("a KPI's tile (#1671)", () => {
         // A filter of two conditions, one of them twice: its first short, how many more, each said once on its hover.
         await filterPage(`.region == "SA" and .units > 1 and .region == "SA"`);
         await waitFor(() => expect(chips()).toEqual([["Region: SA +1", "region is SA and units is more than 1"]]));
+    });
+
+    test("over two datasets the rail draws each dataset's chips together after its name, said once, the datasets in the order the surface lists them — whatever order the filters came in (ruled 19 November 2026)", async () => {
+        // The returns: a second dataset, over the same rows.
+        const returns: ValueTypeOf<typeof StudioSourceType> = { ...SOURCE, key: "returns", name: "Returns", binding: { ...SOURCE.binding, name: "returns" } };
+        const { container } = await page([
+            cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
+            cell("c2", v.of("returns", v.kpi({ value: v.count() }))),
+        ], [SOURCE, returns]);
+        const drawn = () => [...container.querySelectorAll("[data-studio-filters] [data-slice-chip-group], [data-studio-filters] [data-slice-clause]")]
+            .map((el) => el.textContent);
+        await waitFor(() => expect(container.querySelector("[data-studio-filters] [data-slice-add=filter]")).not.toBeNull());
+        // A filter on the returns first, then two on the orders: the orders, listed first, draw first; each chip its condition alone.
+        await filterSources({ source: "returns", where: `.region == "SA"` }, { source: "orders", where: ".units > 1" }, { source: "orders", where: `.region == "NSW"` });
+        await waitFor(() => expect(drawn()).toEqual(["Orders", "Units: more than 1", "Region: NSW", "Returns", "Region: SA"]));
+        // Each chip still the page's filter by its place: the returns' is the first.
+        expect([...container.querySelectorAll("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.getAttribute("data-slice-clause"))).toEqual(["1", "2", "0"]);
     });
 
     test("a page whose placements read no source has no rail (#1673)", async () => {

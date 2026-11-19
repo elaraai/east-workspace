@@ -6,8 +6,9 @@
 /**
  * A Studio page's filter rail (#1673): the reader's filters of the page as
  * chips — each its condition in short words, `Region: NSW +1`, and whole on
- * its hover, its source's name first where the page reads more than one — a
- * `+ FILTER` chip, and each chip's editor: the query builder's condition rows
+ * its hover — each dataset's chips together after its name, said once, the
+ * datasets in the order the surface lists them (ruled 19 November 2026); a
+ * `+ FILTER` chip; and each chip's editor: the query builder's condition rows
  * over its source (`./filter-editor.tsx`).
  *
  * It is a model for the rail both it and Slice draw (`useSliceRailItems`, on
@@ -128,21 +129,21 @@ interface StudioFilterChipsProps {
     readonly foldChips: number | undefined;
 }
 
-/** The page's filters as the shared row of chips, in the rail's density. */
+/** The page's filters as the shared row of chips, in the rail's density: each dataset's together, after its name. */
 function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
     const density = useSliceDensity();
     const chips = page.filters.map((filter, i): SliceFilterChip => {
         const on = sources.find((held) => held.source.key === filter.source);
-        // Short on the chip — `Region: NSW +1` — and whole on its hover (#1673).
+        // Short on the chip — `Region: NSW +1` — and whole on its hover (#1673); its dataset named before its group.
         const jq = printJq(filter.where).text;
         const said = on === undefined ? { words: jq, whole: jq } : filterChip(filter.where, on.read, words);
         const name = on?.source.name ?? filter.source;
-        const named = (text: string) => (sources.length > 1 ? m.filterOn({ source: name, filter: text }) : text);
         return {
-            label: named(said.words),
-            whole: named(said.whole),
+            label: said.words,
+            whole: said.whole,
+            group: { key: filter.source, label: name },
             editLabel: m.filterOf({ source: name }),
             large: true,
             editor: (): ReactNode => (on === undefined
@@ -151,17 +152,17 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
                     onChange={(where) => page.set(changeFilter(page.filters, i, { ...filter, where }))} />),
         };
     });
-    // Each finished condition is the page's at once: the popovers say no Done or Cancel.
+    // Each finished condition is the page's at once: the popovers say no Done or Cancel. The datasets in the surface's order.
     return (
-        <SliceFilterChips chips={chips} density={density} foldChips={foldChips} live
+        <SliceFilterChips chips={chips} density={density} foldChips={foldChips} live groups={sources.map((held) => held.source.key)}
             onRemove={(i) => page.set(removeFilter(page.filters, i))} onClear={() => page.set([])}
             add={() => <NewFilter sources={sources} page={page} />} />
     );
 }
 
 /**
- * A page's filter rail, as items of its surface's toolbar — the builder's
- * one toolbar, or the row over a page's grid.
+ * A page's filter rail, as items of the toolbar row over its grid — on a
+ * published page, and in the builder's Preview.
  *
  * @param page - The page's key
  * @param sources - The sources the surface lists
