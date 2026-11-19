@@ -10,10 +10,12 @@
  *  - F1 on a page the rail is a toolbar row over the grid: 28px, the grid 12
  *    under it, no border of its own; with no filter it is its `+ FILTER` chip
  *    after the rail's icon.
- *  - F2 a filter is written with the query builder's condition rows, in the
- *    chip's popover: a field, then a value from the values the source holds
- *    with how many rows hold each, read from e3 — and the chooser stands
- *    whole inside the popover, never cut by it.
+ *  - F2 a filter is written with the query builder's condition rows in
+ *    place, in the chip's popover: it opens on its field's list, then a value
+ *    from the values the source holds with how many rows hold each, read from
+ *    e3 — the shared picker in the flow under the rows, whole, drawing no
+ *    frame of its own, the popover ending where it ends; a filled slot is its
+ *    words, no box at rest; and no Done, each finished condition the page's.
  *  - F3 the filter is a chip in the rows' words, and every visual of its
  *    source narrows: the tiles ask again, on e3.
  *  - F4 the chip's × takes the filter out, and the tiles are as they were.
@@ -71,32 +73,46 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await rail.locator("[data-slice-add=filter]").click();
         const rows = page.locator("[data-studio-filter-rows]");
         await expect(rows).toBeVisible();
-        await settled(page);
-        // The rows alone: no step card, number or toolbar of the query builder's.
-        expect(await rows.locator("[data-step-id], [data-query-shape-text]").count()).toBe(0);
-        await rows.locator("[aria-haspopup=listbox]").first().click();
-        const chooser = page.locator("[data-query-autocomplete]");
+        // A new filter opens on its field's list: the shared picker, in the flow under the rows.
+        const chooser = rows.locator("[data-chooser]");
         await expect(chooser).toBeVisible();
         await settled(page);
-        /** Whether the chooser stands whole inside the rows' block, on top, tall enough for its offers. */
+        // The rows alone: no step card, number or toolbar of the query builder's, and no Done — each finished condition is the page's.
+        expect(await rows.locator("[data-step-id], [data-query-shape-text]").count()).toBe(0);
+        await expect(page.getByRole("dialog").getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+        /**
+         * Whether the picker stands whole in the popover's body, on top, tall enough for its offers, with no edge of its
+         * own — the popover's is the one frame — and the rows' block, and the popover with it, ending where it ends.
+         */
         const whole = () => chooser.evaluate((el) => {
             const box = el.getBoundingClientRect();
-            const within = document.querySelector("[data-studio-filter-rows]")!.getBoundingClientRect();
+            const block = document.querySelector("[data-studio-filter-rows]")!.getBoundingClientRect();
+            const body = el.closest("[data-scope='popover'][data-part='content']")!.getBoundingClientRect();
             const hit = document.elementFromPoint(box.left + box.width / 2, box.bottom - 8);
+            const look = getComputedStyle(el);
             return {
-                inside: box.left >= within.left && box.right <= within.right && box.top >= within.top && box.bottom <= within.bottom + 0.5,
+                inside: box.left >= body.left && box.right <= body.right && box.top >= body.top && box.bottom <= body.bottom + 0.5,
                 onTop: hit !== null && el.contains(hit), tall: box.height >= 200,
+                edges: [look.borderTopWidth, look.borderRightWidth, look.borderBottomWidth, look.borderLeftWidth],
+                endsWithIt: Math.abs(block.bottom - box.bottom) <= 0.5,
             };
         });
-        expect(await whole()).toEqual({ inside: true, onTop: true, tall: true });
+        expect(await whole()).toEqual({ inside: true, onTop: true, tall: true, edges: ["0px", "0px", "0px", "0px"], endsWithIt: true });
         await chooser.locator("[role=option]", { hasText: "region" }).first().click();
         // The field's value opens next: the values the orders hold, each with its rows.
         await expect(chooser.locator("[role=option]", { hasText: "SA" })).toBeVisible({ timeout: 20_000 });
         await settled(page);
         const offers = await chooser.locator("[role=option]").allTextContents();
         expect(offers.every((offer) => /\d+ orders?$/.test(offer)), offers.join(" | ")).toBe(true);
-        expect(await whole()).toEqual({ inside: true, onTop: true, tall: true });
+        expect(await whole()).toEqual({ inside: true, onTop: true, tall: true, edges: ["0px", "0px", "0px", "0px"], endsWithIt: true });
         await chooser.locator("[role=option]", { hasText: "SA" }).first().click();
+        // The condition finished, the picker goes; each filled slot at rest is its words, no box — the one the pick gave
+        // the focus back to wears its ring.
+        await expect(chooser).toHaveCount(0);
+        const slots = await rows.locator("[data-slot-key]:not([data-empty])").evaluateAll((all) =>
+            all.map((slot) => ({ focused: slot === document.activeElement, edge: getComputedStyle(slot).borderTopColor })));
+        expect([slots.filter((slot) => !slot.focused).map((slot) => slot.edge), slots.filter((slot) => slot.focused).length])
+            .toEqual([["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"], 1]);
 
         // The filter is a chip in the rows' words, and the page's revenue is South Australia's alone.
         await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "region is SA");
@@ -140,8 +156,8 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await rail.locator("[data-slice-add=filter]").click();
             const rows = page.locator("[data-studio-filter-rows]");
             await expect(rows).toBeVisible();
-            await rows.locator("[aria-haspopup=listbox]").first().click();
-            const chooser = page.locator("[data-query-autocomplete]");
+            // It opens on its field's list.
+            const chooser = rows.locator("[data-chooser]");
             await chooser.locator("[role=option]", { hasText: field }).first().click();
             await expect(chooser.locator("[role=option]", { hasText: value }).first()).toBeVisible({ timeout: 20_000 });
             await chooser.locator("[role=option]", { hasText: value }).first().click();

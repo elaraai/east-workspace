@@ -17,6 +17,11 @@
  * a focused one with Delete, and on a coarse pointer it is not drawn: the
  * chip is one target, 44px by its halo, as `+N more` and `+ FILTER` are.
  *
+ * A host whose editors apply each edit as it is made — a Studio page's
+ * filters, whose condition rows apply a condition as it is finished — says so
+ * (`live`): their popovers then hold no Done and no Cancel, which would say an
+ * edit waits for them, and a filter's keeps Remove filter.
+ *
  * @packageDocumentation
  */
 
@@ -72,6 +77,8 @@ export interface SliceFilterChipsProps {
     readonly seedOpen?: boolean | undefined;
     /** Saving the filters as a set, offered inside `+N more` while there are two or more; none unless given. */
     readonly save?: SliceFilterSave | undefined;
+    /** Whether its editors apply each edit as it is made: their popovers then hold no Done and no Cancel. */
+    readonly live?: boolean | undefined;
 }
 
 /**
@@ -80,7 +87,7 @@ export interface SliceFilterChipsProps {
  * @param props - The filters, the density, how many fold, and what removing, clearing and adding do
  * @returns The row
  */
-export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, seedOpen = false, save }: SliceFilterChipsProps) {
+export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, seedOpen = false, save, live = false }: SliceFilterChipsProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
@@ -134,7 +141,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             label={held.editLabel}
             {...(held.large === true ? { size: "lg" as const } : {})}
             footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setOpen(null); onRemove(i); }}>Remove filter</chakra.button>}
-            footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Cancel</chakra.button>}
+            footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Cancel</chakra.button>}
             trigger={
                 <SliceFieldChip label={held.label} active data-slice-clause={i}
                     onKeyDown={onClauseKey(i)} onRemove={() => onRemove(i)} />
@@ -150,7 +157,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             onOpenChange={o => setOpen(o ? "add" : null)}
             label="Add filter"
             size="lg"
-            footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Done</chakra.button>}
+            footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Done</chakra.button>}
             trigger={
                 // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
                 <chakra.button type="button" css={[chip({ tone: "dashed", caps: true }), coarseHitArea({ position: true })]} cursor="pointer"

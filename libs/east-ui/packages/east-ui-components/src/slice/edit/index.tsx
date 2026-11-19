@@ -15,7 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
-import { layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { escapeTakenWithin, layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -143,7 +143,9 @@ function Rehang({ from }: { from: unknown }) {
  * frame after it opens, so an Esc pressed in that frame — a press that follows
  * the one that opened it at once — was heard by nothing, and the popover
  * stayed. It is heard here first and taken, and a layer open over it, a field's
- * list or a popover of its own, keeps its own.
+ * list or a popover of its own, keeps its own — as does a control in its body
+ * that takes Esc itself and says so (`data-escape-layer`: a Chooser laid in
+ * it, #1673), which closes while the popover stays.
  *
  * In a phone's frame (560px or narrower), a popover its toolbar opens is a
  * view over the whole builder instead, in the frame's overlay slot, as the
@@ -212,6 +214,7 @@ export function SliceEditPopover({
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
             if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
             if (layerOpenOver(contentRef.current, anchored ? anchorRef.current : triggerRef.current)) return;
+            if (escapeTakenWithin(event, contentRef.current)) return;
             event.preventDefault();
             close.current(false);
         };
@@ -285,6 +288,8 @@ export function SliceEditPopover({
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
             {...(keepOnFocusOut && { onFocusOutside: (e: { preventDefault: () => void }) => { e.preventDefault(); } })}
+            // Its own dismissal leaves an Esc a control in its body takes itself to that control.
+            onEscapeKeyDown={(e) => { if (escapeTakenWithin(e, contentRef.current)) e.preventDefault(); }}
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
@@ -435,7 +440,7 @@ function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flu
     useEffect(() => {
         if (!open) return undefined;
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
-            if (event.key !== "Escape" || layerOpen()) return;
+            if (event.key !== "Escape" || layerOpen() || escapeTakenWithin(event, viewRef.current)) return;
             event.preventDefault();
             event.stopPropagation();
             close.current(false);

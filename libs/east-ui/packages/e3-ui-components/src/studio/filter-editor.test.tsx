@@ -8,6 +8,9 @@
  * rows over one source — a condition drawn as its row, a value picked from
  * the values the source holds, a condition added and told only once it is
  * finished, all or any, and a line of jq where no row says the condition.
+ * In place: no frame of their own, a lone condition with no joiner column,
+ * the shared picker in the flow under them — open on a new filter's field,
+ * Esc closing it and leaving the rows, Tab choosing as Enter does.
  */
 
 import type { ReactNode } from "react";
@@ -34,13 +37,13 @@ const { popover, offers, openSlot, pick } = slotActions(act, settle);
 /** The orders, answered in memory: what a slot's values are read from. */
 const CALL = createInMemoryQueryCall([{ path: [variant("field", "inputs"), variant("field", "orders")], type: ArrayType(OrderRow), value: ORDERS }]);
 
-/** A filter's rows over the orders, and each condition they told, as jq. */
-function rowsOf(where: string | undefined) {
+/** A filter's rows over the orders, and each condition they told, as jq; `autoOpen` as a new filter's are. */
+function rowsOf(where: string | undefined, autoOpen = false) {
     const told: string[] = [];
     const onChange = (next: JqNode) => { told.push(printJq(next).text); };
     const host = (children: ReactNode) => <ChakraProvider value={system}><QueryCallProvider call={CALL}>{children}</QueryCallProvider></ChakraProvider>;
     const { container } = render(host(
-        <FilterConditions id="f1" where={where === undefined ? undefined : condition(where)} read={ORDERS_SOURCE} root={ORDERS_ROOT} onChange={onChange} />,
+        <FilterConditions id="f1" where={where === undefined ? undefined : condition(where)} read={ORDERS_SOURCE} root={ORDERS_ROOT} onChange={onChange} autoOpen={autoOpen} />,
     ));
     const rows = container.querySelector<HTMLElement>("[data-studio-filter-rows]")!;
     return { rows, told };
@@ -92,6 +95,40 @@ describe("a page filter's conditions", () => {
         const { rows, told } = rowsOf(undefined);
         expect(lines(rows)).toHaveLength(1);
         expect(told).toEqual([]);
+    });
+
+    test("in place: the rows draw no frame of their own — a lone condition with no joiner column; from the second, the all · any head", async () => {
+        const { rows } = rowsOf(`.region == "SA"`);
+        const block = rows.querySelector<HTMLElement>("[data-condition-rows]")!;
+        expect([block.getAttribute("data-query-look"), block.hasAttribute("data-single"), block.querySelector("[data-query-line=head]")]).toEqual(["inline", true, null]);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        expect([block.hasAttribute("data-single"), block.querySelector("[data-query-line=head]")!.textContent]).toEqual([false, "allof these are true"]);
+    });
+
+    test("a new filter opens on its field's list: the shared picker under the rows, named by its slot, its offers the source's fields", async () => {
+        rowsOf(undefined, true);
+        await waitFor(() => expect(popover()).not.toBeNull());
+        expect([popover()!.hasAttribute("data-chooser"), popover()!.getAttribute("data-surface")]).toEqual([true, "bare"]);
+        // Its search takes the focus as it mounts.
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Field" })));
+        expect(offers()).toEqual(["ordered at", "region", "customer", "revenue", "units", "margin"]);
+    });
+
+    test("Esc in the list closes it and leaves the rows, the focus back on its slot; Tab chooses as Enter does", async () => {
+        const { rows, told } = rowsOf(`.region == "SA"`);
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "Escape" }); });
+        await settle();
+        expect([popover(), lines(rows)[0]?.includes("SA"), document.activeElement?.textContent?.startsWith("SA")]).toEqual([null, true, true]);
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "ArrowDown" }); });
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "Tab" }); });
+        await settle();
+        expect(told).toHaveLength(1);
+        expect(popover()).toBeNull();
     });
 
     test("holds a condition no row says as a line of jq", () => {

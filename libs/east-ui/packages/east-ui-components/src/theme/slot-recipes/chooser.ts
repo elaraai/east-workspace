@@ -12,16 +12,22 @@
  *
  * In a `SliceEditPopover` (`surface="popover"`) the popover is the frame; laid
  * in a pane (`surface="inline"`, the inspector's) the Chooser draws its own
- * border and stops 20px shorter.
+ * border and stops 20px shorter; bare (`surface="bare"`, #1673) in a body its
+ * host frames — a filter's condition rows — it draws no edge and no foot.
+ *
+ * A label before the search says what the list is of, in the label voice
+ * (`FIELD`); an option may lead with its icon in a 14px column, and a label
+ * that reads as words (`data-words`) takes the body face.
  *
  * Slots:
  * - `root` — the column: search, list, foot.
- * - `search` — the band round the box; `searchBox` the 32px box; `searchIcon`; `searchInput`.
+ * - `search` — the band round the box; `searchLabel` the label before it; `searchBox` the 32px box; `searchIcon`; `searchInput`.
  * - `list` — the scrolling listbox.
  * - `section` — a section's head.
  * - `option` — one option: its mark, its text and its range. `data-highlighted`,
  *   `data-state` (`current`, `refused`, `disabled`), `data-warn`.
  * - `mark` — the 14px slot: a check for Current, a × for one refused.
+ * - `icon` — an option's own icon, in a 14px column after its mark (`data-icon`).
  * - `text`, `label`, `line` — the option's name and its line.
  * - `range` — its range, at its end.
  * - `empty` — `no match`.
@@ -32,7 +38,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const chooserSlotRecipe = defineSlotRecipe({
     className: "elara-chooser",
-    slots: ["root", "search", "searchBox", "searchIcon", "searchInput", "list", "section", "option", "mark", "text", "label", "line", "range", "empty", "foot"],
+    slots: ["root", "search", "searchLabel", "searchBox", "searchIcon", "searchInput", "list", "section", "option", "mark", "icon", "text", "label", "line", "range", "empty", "foot"],
     base: {
         root: {
             display: "flex",
@@ -45,11 +51,26 @@ export const chooserSlotRecipe = defineSlotRecipe({
         },
         search: {
             flex: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
             padding: "8px",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
         },
+        searchLabel: {
+            flex: "none",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontWeight: "semibold",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+        },
         searchBox: {
+            flex: 1,
+            minWidth: 0,
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -111,6 +132,8 @@ export const chooserSlotRecipe = defineSlotRecipe({
             _hover: { background: "bg.subtle" },
             "&[data-highlighted]": { background: "bg.subtle" },
             "&[data-state='refused'], &[data-state='disabled']": { cursor: "default", _hover: { background: "transparent" } },
+            // An option with its icon: the icon's 14px column after the mark's.
+            "&[data-icon]": { gridTemplateColumns: "14px 14px minmax(0, 1fr) auto" },
             _coarse: { minHeight: "44px" },
         },
         mark: {
@@ -119,6 +142,13 @@ export const chooserSlotRecipe = defineSlotRecipe({
             fontSize: "label.lg",
             "[data-state='current'] > &": { color: "status.pos" },
             "[data-state='refused'] > &": { color: "fg.warning" },
+        },
+        icon: {
+            display: "flex",
+            justifyContent: "center",
+            fontSize: "label.lg",
+            color: "fg.muted",
+            "[data-state='refused'] > &, [data-state='disabled'] > &": { color: "fg.faint" },
         },
         text: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
         label: {
@@ -130,6 +160,8 @@ export const chooserSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "[data-state='refused'] &, [data-state='disabled'] &": { color: "fg.faint" },
+            // Words — a field's name, a step — in the body face, as the app's other lists set them.
+            "&[data-words]": { fontFamily: "body", fontSize: "body", fontWeight: "normal" },
         },
         line: {
             fontFamily: "mono",
@@ -185,6 +217,10 @@ export const chooserSlotRecipe = defineSlotRecipe({
             popover: {},
             inline: {
                 root: { maxHeight: "340px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "md" },
+            },
+            // In a body its host frames: no edge, and no foot (the component draws none).
+            bare: {
+                root: { background: "transparent" },
             },
         },
     },

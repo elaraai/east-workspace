@@ -7,7 +7,8 @@
  * The query builder's slots, driven as a pointer drives them — for the tests
  * of every surface that draws its condition rows: the builder's own, and a
  * Studio page's filters (#1673). A slot is opened by the words it shows, and
- * an offer of its autocomplete picked by its label.
+ * an offer of its list picked by its label — the builder's autocomplete, or
+ * the shared picker the rows in place draw (`[data-chooser]`).
  *
  * @packageDocumentation
  */
@@ -37,8 +38,10 @@ export interface SlotActions {
  * @returns The driver
  */
 export function slotActions(act: Act, settle: () => Promise<void>): SlotActions {
-    const popover = () => document.querySelector<HTMLElement>("[data-query-autocomplete]");
-    const offers = () => [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.querySelector("[data-label]")!.textContent);
+    const popover = () => document.querySelector<HTMLElement>("[data-query-autocomplete], [data-chooser]");
+    /** An offer's label: the autocomplete's, or the picker's. */
+    const labelOf = (option: HTMLElement) => option.querySelector("[data-label], [data-option-label]")!.textContent;
+    const offers = () => [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].map(labelOf);
     return {
         popover,
         offers,
@@ -49,7 +52,7 @@ export function slotActions(act: Act, settle: () => Promise<void>): SlotActions 
             await settle();
         },
         pick: async (label) => {
-            const option = [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.querySelector("[data-label]")!.textContent === label);
+            const option = [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].find((o) => labelOf(o) === label);
             if (option === undefined) throw new Error(`no offer “${label}”: ${offers().join(", ")}`);
             await act(async () => { fireEvent.click(option); });
             await settle();

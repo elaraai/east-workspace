@@ -20,7 +20,15 @@
  * the buttons the `button` and `iconButton` recipes, the status line's dots
  * the `status` recipe. This recipe adds what those have not: the dashed and
  * danger states (by data attributes), and the joiner column that lines
- * conditions up. Its toolbar row and its layout are the builder frame's, its
+ * conditions up.
+ *
+ * In place (#1673) — a filter's conditions in a popover, a visual's own
+ * filter — the same rows stand in `conditions`, marked
+ * `data-query-look="inline"`, with no frame of their own: a slot is its words
+ * and its caret, the select's box drawn only while it is hovered, focused or
+ * open, and an empty one its placeholder in the quiet ink; a lone condition
+ * (`data-single`) has no joiner column, its rows and its foot at the start.
+ * The builder's step card keeps the boxed look. Its toolbar row and its layout are the builder frame's, its
  * pane the `dock`'s, its history item the `editHistory`'s, Download ▾ the
  * `menu`'s; the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
@@ -58,7 +66,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         // The Query tab.
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
-        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished",
+        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished", "conditions",
         "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove",
         "group", "groupBox", "groupHead", "cardFoot", "note", "problem", "problemIcon", "problemText",
         "tabFoot", "addAtEnd", "quick", "quickLabel",
@@ -309,6 +317,13 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             color: "fg.subtle",
         },
+        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart. */
+        conditions: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            minWidth: "0",
+        },
         /* A row of words and parts. */
         row: {
             display: "flex",
@@ -323,6 +338,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             fontSize: "12.5px",
             color: "fg.muted",
+            "[data-query-look='inline'][data-single] &": { display: "none" },
         },
         word: {
             fontSize: "12.5px",
@@ -339,6 +355,18 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
             "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
+            // In place: its words and its caret; the box only while it is hovered, focused or open.
+            "[data-query-look='inline'] &": {
+                borderColor: "transparent",
+                background: "transparent",
+                boxShadow: "none",
+                paddingInlineStart: "6px",
+                _hover: { borderColor: "border.strong", background: "bg.surface" },
+                "&[data-empty]": { borderStyle: "solid", borderColor: "transparent", color: "fg.subtle" },
+                "&[data-empty]:hover": { borderColor: "border.strong" },
+                "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
+                "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus", background: "bg.surface" },
+            },
         },
         /* Its words on the small Select's value line (#1638): a whole 16px in the 24px inside the trigger's edge, 4px under
            it. The line the trigger hands down is 1.3 of its 12.5px face, 16.25px, centred at a fraction. */
@@ -432,11 +460,13 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.3}",
             minHeight: "26px",
             paddingInlineStart: "32px",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
         },
         note: {
             paddingInlineStart: "36px",
             fontSize: "12px",
             color: "fg.subtle",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
         },
         /* A problem under its row, in its severity's ink, with its fixes. */
         problem: {
@@ -448,6 +478,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             paddingBottom: "{spacing.1}",
             fontSize: "12px",
             lineHeight: "1.4",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
             "&[data-severity=error]": { color: "fg.danger" },
             "&[data-severity=warning]": { color: "fg.warning" },
             "&[data-severity=note]": { color: "fg.muted" },
