@@ -28,13 +28,14 @@ import {
 } from '@elaraai/east';
 import { loadUnitProgram } from '@elaraai/east/internal';
 import {
-  pathToString, treePathToRefPath, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest,
+  pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest,
   type RunnerValue, type TreePath,
 } from '@elaraai/e3-types';
 import { indexNotHeld, inputObject } from '../dataset-open.js';
-import { PermissionDeniedError, checkName } from '../errors.js';
+import { PermissionDeniedError } from '../errors.js';
 import { pendingSources } from '../record-slots.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
 
@@ -405,10 +406,8 @@ export async function pinCallArguments(
   const read = async (
     path: TreePath, refusal: (refType: string) => string,
   ): Promise<{ hash: string; versions: ReadonlyMap<string, string> } | { refused: ExecuteResult }> => {
-    checkName('workspace', workspace);
-    if (path.length === 0) throw new Error('Cannot get dataset at root path - root is always a tree');
-    const ref = await storage.datasets.read(repo, workspace, treePathToRefPath(path));
-    return ref === null || ref.type !== 'value' ? { refused: invalidExecuteResult(refusal(ref?.type ?? 'unassigned')) } : ref.value;
+    const { refType, hash, versions } = await workspaceGetDatasetHash(storage, repo, workspace, path);
+    return hash === null || versions === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash, versions };
   };
   // Each dataset is read once, for the inputs and the arguments alike: those of
   // one record are of one state of it

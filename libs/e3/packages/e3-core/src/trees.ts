@@ -679,25 +679,35 @@ export async function workspaceGetDataset(
 }
 
 /**
- * Get the hash of a dataset at a path within a workspace's data tree.
+ * Get the hash of a dataset at a path within a workspace's data tree, and
+ * the version vector its ref carries.
  *
- * Reads the per-dataset ref file directly. No tree traversal needed.
+ * Reads the per-dataset ref file directly, once: the hash and the vector are
+ * of the one read. No tree traversal needed.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
- * @returns Object with ref type and hash (null for unassigned/null refs)
+ * @returns Object with ref type, hash and version vector (the last two null
+ *   for unassigned/null refs)
  * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
  *   is asked
  * @throws If workspace not deployed, path invalid, or path points to a tree
+ *
+ * @example
+ * ```ts
+ * const { refType, hash, versions } = await workspaceGetDatasetHash(storage, repo, 'production', ordersPath);
+ * if (hash === null) throw new Error(`orders is not assigned (ref type: ${refType})`);
+ * // `versions` is what the ref says of the value beside its hash: a record's head commit, and its reserved slots
+ * ```
  */
 export async function workspaceGetDatasetHash(
   storage: StorageBackend,
   repo: string,
   ws: string,
   treePath: TreePath
-): Promise<{ refType: DataRef['type']; hash: string | null }> {
+): Promise<{ refType: DataRef['type']; hash: string | null; versions: VersionVector | null }> {
   // Checked here, as `readWorkspaceState` checks it for the reads that
   // resolve a path: this one reads the ref alone.
   checkName('workspace', ws);
@@ -710,14 +720,14 @@ export async function workspaceGetDatasetHash(
   const ref = await storage.datasets.read(repo, ws, refPath);
 
   if (!ref || ref.type === 'unassigned') {
-    return { refType: 'unassigned', hash: null };
+    return { refType: 'unassigned', hash: null, versions: null };
   }
 
   if (ref.type === 'null') {
-    return { refType: 'null', hash: null };
+    return { refType: 'null', hash: null, versions: null };
   }
 
-  return { refType: 'value', hash: ref.value.hash };
+  return { refType: 'value', hash: ref.value.hash, versions: ref.value.versions };
 }
 
 /**
