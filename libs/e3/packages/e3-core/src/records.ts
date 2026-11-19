@@ -2901,6 +2901,66 @@ async function loadWasFirst(storage: StorageBackend, repo: string, commit: Recor
 }
 
 /**
+ * The external sources a composite record waited on for a first delivery at
+ * a commit of its history, read back from the commits made since.
+ *
+ * @remarks
+ * What a run asks of a version it read whose wait it holds no memory of: a
+ * host that runs a step an invocation keeps none between two steps. A source
+ * waited at the commit when it waits now, or when a load of it committed
+ * since was its first ({@link loadWasFirst}). A save and a reindex leave what
+ * a record waits on as it was. A deploy, and a state an operator committed,
+ * may change it with no load ({@link changesEntriesUnloaded}), and a
+ * compaction cuts the chain: past any of them, and where the chain does not
+ * reach the commit, the history cannot say.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param versions - The record ref's version vector, as it stands
+ * @param selfKeypath - The record's own keypath, which names its head
+ * @param commit - A commit of the record's history
+ * @returns The sources, sorted; `null` when the history cannot say
+ *
+ * @example
+ * ```ts
+ * const ref = await storage.datasets.read(repo, 'main', 'records/orders');
+ * if (ref?.type === 'value') {
+ *   // ['erp'] where erp's first load committed after `taken`; [] where every source had delivered by then
+ *   const waited = await recordPendingAt(storage, repo, ref.value.versions, '.records.orders', taken);
+ * }
+ * ```
+ */
+export async function recordPendingAt(
+  storage: StorageBackend,
+  repo: string,
+  versions: ReadonlyMap<string, string>,
+  selfKeypath: string,
+  commit: string,
+): Promise<string[] | null> {
+  const waited = new Set(pendingSources(versions));
+  const seen = new Set<string>();
+  let at = versions.get(selfKeypath);
+  while (at !== undefined && !seen.has(at)) {
+    if (sameSource(at, commit)) return [...waited].sort(bySourceName);
+    seen.add(at);
+    let made: RecordCommit;
+    try {
+      made = decodeRecordCommit(await storage.objects.read(repo, at));
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) return null;
+      throw err;
+    }
+    const loaded = loadCommitSource(made.mutation);
+    if (loaded !== null) {
+      if (await loadWasFirst(storage, repo, made)) waited.add(loaded);
+    } else if (changesEntriesUnloaded(made.mutation)) return null;
+    at = made.parent.type === 'some' ? made.parent.value : undefined;
+  }
+  // A root the walk passed: a compaction cut the commit from the chain
+  return null;
+}
+
+/**
  * Why a state a system commit names cannot be the record's, or `null` when it
  * can.
  *

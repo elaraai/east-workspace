@@ -35,7 +35,8 @@ import {
 } from './executions.js';
 import { taskInputRead, type InputHeld } from './input-read.js';
 import { packageObjectRead } from './packages.js';
-import { pendingSources } from './record-slots.js';
+import { EXTERNAL_SLOT, pendingSources, slotNames } from './record-slots.js';
+import { recordPendingAt } from './records.js';
 import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import {
@@ -1065,8 +1066,13 @@ type RootAt = ({ readonly kind: 'object' } & InputHeld) | { readonly kind: 'unas
  * the run's look that took that version read the ref
  * ({@link dataflowSnapshotLooked}): a first delivery that landed since leaves
  * the task waiting until the run looks again and takes it in, so no task
- * reads the record as it stood before. A version no look of the run read —
- * one a result made before the run names — is asked of the ref as it stands.
+ * reads the record as it stood before. The run's memory of its looks is this
+ * process's alone: a version it holds no look of — one a result made before
+ * the run names, or any version in a host that runs a step an invocation — is
+ * asked of the ref where the ref still stands at it, and otherwise read back
+ * from the record's history, by the loads committed since
+ * (`recordPendingAt`). Where the history cannot say, the record is taken to
+ * wait for each of its external sources until the run looks again.
  *
  * @param storage - Storage backend
  * @param state - The run's state
@@ -1103,13 +1109,21 @@ export async function dataflowResolveInputs(
         const held = ref !== null && ref.type === 'value' ? ref.value : null;
         // What the record waits for is judged at the version read, as the look
         // that took it read its ref: a delivery that landed since is the run's
-        // once it looks again. A version no look of the run read is judged by
-        // the ref as it stands
-        const pending = waitedAt(state, path, wanted) ?? (held === null ? [] : pendingSources(held.versions));
-        if (held !== null && sameVersion(held.versions.get(path) ?? held.hash, wanted)) return { kind: 'object', hash: held.hash, pending };
+        // once it looks again
+        const looked = waitedAt(state, path, wanted);
+        if (held !== null && sameVersion(held.versions.get(path) ?? held.hash, wanted)) {
+          return { kind: 'object', hash: held.hash, pending: looked ?? pendingSources(held.versions) };
+        }
         // It has moved on since the run's snapshot: a record's commit is
         // read from its history, and a plain input's version is its value
-        const hash = (await dataflowRecords(storage, state)).has(path) ? decodeRecordCommit(await storage.objects.read(repo, wanted)).state : wanted;
+        const record = (await dataflowRecords(storage, state)).has(path);
+        const hash = record ? decodeRecordCommit(await storage.objects.read(repo, wanted)).state : wanted;
+        if (looked !== undefined || !record || held === null) return { kind: 'object', hash, pending: looked ?? [] };
+        // A version this process holds no look of: what the record waited for
+        // there is read back from its history, and where that cannot say, it
+        // is taken to wait for each external source until the run looks again
+        const external = slotNames(held.versions, EXTERNAL_SLOT);
+        const pending = external.length === 0 ? [] : await recordPendingAt(storage, repo, held.versions, path, wanted) ?? external;
         return { kind: 'object', hash, pending };
       })();
       roots.set(path, read);

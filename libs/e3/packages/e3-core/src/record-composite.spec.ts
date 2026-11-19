@@ -30,7 +30,7 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject,
+  ExecuteResultType, MutationObjectType, decodeRecordCommit, decodeRecordLoadObject, decodeTaskObject,
   type ExecuteResult, type FunctionDraft, type MutationObject, type RecordSource,
 } from '@elaraai/e3-types';
 import { dataflowGetGraph, dataflowResolveInputHashes } from './dataflow.js';
@@ -617,6 +617,37 @@ describe('a composite record: an external entry is never written (the mutation\'
     const loaded = await heldRef(storage, repo, WS, 'orders');
     assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(loaded.versions.get('.records.orders')!)),
       { kind: 'resolved', hashes: [loaded.hash] });
+  });
+
+  it('ruling 48 — a run that holds no memory of the version it read reads what the record waited for there from the record\'s history: a host that runs a step an invocation leaves the task waiting too', async () => {
+    const { state } = await stepInitialize(storage, repo, WS, 'run-1');
+    if (state.graph.type !== 'some') assert.fail('the run holds its graph');
+    const counted = state.graph.value.tasks.find((task) => task.name === 'counted')!;
+    const at = (commit: string): Map<string, string> => new Map([['.records.orders', commit]]);
+    const waits = { kind: 'unassigned', waits: [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }] };
+    const head = async (): Promise<string> => (await heldRef(storage, repo, WS, 'orders')).versions.get('.records.orders')!;
+    /** The run's state as another invocation reads it from its store: the same state, and none of this process's memory of it. */
+    const nextStep = (): typeof state => ({ ...state });
+    const taken = await head();
+
+    // The ERP delivers for the first time, and a person saves, before the next step runs
+    await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
+    const delivered = await head();
+    assert.equal((await mutate('plan', [encodeString('P-2'), encodeOrder(acme)])).kind, 'committed');
+    assert.equal((await heldRef(storage, repo, WS, 'orders')).versions.has(PENDING_SLOT), false, 'the ref waits no more');
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(taken)), waits,
+      'the load committed since was erp\'s first: at the commit the run took, the record waited for it');
+    // At the load's own commit the record waited for nothing: the save since changed no wait
+    const then = decodeRecordCommit(await storage.objects.read(repo, delivered)).state;
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(delivered)), { kind: 'resolved', hashes: [then] });
+
+    // A compaction cuts the history: it cannot say what the record waited for before it, so the task waits until the run looks again
+    assert.equal((await recordCompact(storage, repo, WS, 'orders', { actor: 'ada@example.com' })).kind, 'committed');
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(delivered)), waits);
+    const stepped = nextStep();
+    await stepDetectInputChanges(storage, stepped);
+    const now = await heldRef(storage, repo, WS, 'orders');
+    assert.deepEqual(await dataflowResolveInputs(storage, stepped, counted, at(now.versions.get('.records.orders')!)), { kind: 'resolved', hashes: [now.hash] });
   });
 
   it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
