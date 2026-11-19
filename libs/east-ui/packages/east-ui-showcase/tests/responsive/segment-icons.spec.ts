@@ -9,7 +9,7 @@
  * many rows above it as below, each a whole number — wherever the strip
  * stands.
  *
- *  - I1 the Studio builder's design widths, Desktop · Tablet, in its toolbar's
+ *  - I1 the Studio builder's design widths, Desktop · Tablet · Mobile, in its toolbar's
  *    row: a 10px glyph in the 26px inside the strip's edge, 8 rows either side.
  *  - I2 the Preview's devices, Desktop · Tablet · Mobile, on its bar: a 10px
  *    glyph in its 26px segment.
@@ -81,9 +81,9 @@ test.describe("a segment's icon at its middle", () => {
         const widths = builder.locator("[data-snap-grid-widths]").first();
         await expect(widths).toBeVisible();
         const rows = await iconRows(widths, "button");
-        expect(rows.map((row) => row.label.trim()), "both widths, each with its icon").toEqual(["Desktop", "Tablet"]);
+        expect(rows.map((row) => row.label.trim()), "every width, each with its icon").toEqual(["Desktop", "Tablet", "Mobile"]);
         expect(offCentre(rows)).toEqual([]);
-        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8]]);
+        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8], [10, 8]]);
     });
 
     test("I2: the Preview's devices stand their icons at their segments' middles on whole pixels", async ({ page }) => {

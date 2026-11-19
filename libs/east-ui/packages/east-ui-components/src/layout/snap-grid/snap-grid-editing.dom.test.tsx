@@ -21,7 +21,8 @@
  * row short of room folds into chips (#1229): its ladder, the View chip's
  * bundle, its menu, and its hold. Then what a tile shows and its copies
  * (#1672): a field of its entry a pane sets, and a duplicate — asked by a pane
- * or from the selected tile's own toolbar, under its badge.
+ * or from the selected tile's own toolbar, under its badge. Then the canvas at
+ * a phone's design width (#1673): the page laid out as a phone shows it.
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
@@ -35,7 +36,7 @@ import { faIcons, loneGlyphs } from "../../testing/icons.js";
 import {
     BLOCKED, SEED, Tile, type EditingSnapGrid, type TileValue,
     announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,
-    mountSnapGrid, rowsDrawn, selectedTile, spanOf, tileEl,
+    mountSnapGrid, rowsDrawn, selectedTile, settle, spanOf, tileEl,
 } from "./snap-grid-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -544,6 +545,76 @@ describe("the builder's frame (#995)", () => {
     }, 30_000);
 });
 
+describe("at a phone's design width (#1673)", () => {
+    /** The canvas with Mobile pressed: its design width a phone's. */
+    async function onMobile(): Promise<EditingSnapGrid> {
+        const canvas = await mountSnapGrid({ chrome: true });
+        await act(async () => { fireEvent.click(canvas.getByRole("button", { name: "Mobile" })); });
+        await settle();
+        return canvas;
+    }
+    /** Whether the canvas stands stacked, and the design width it draws at. */
+    const laidOut = (c: HTMLElement) => {
+        const el = c.querySelector<HTMLElement>("[data-snap-grid-canvas]")!;
+        return { stacked: el.hasAttribute("data-stacked"), width: el.style.maxWidth };
+    };
+    /** The tiles a pointer picks up. */
+    const draggable = (c: HTMLElement) => SEED.filter((t) => tileEl(c, t.id).hasAttribute("data-draggable")).map((t) => t.id);
+
+    test("Mobile lays the page out as a phone shows it — stacked at 390px, no column ruler, nothing to pick up — and Desktop puts it back on its columns", async () => {
+        const canvas = await onMobile();
+        const c = canvas.container;
+        expect(canvas.boundView()).toEqual({ width: "390px", zoom: null });
+        expect(laidOut(c)).toEqual({ stacked: true, width: "390px" });
+        expect(c.querySelector("[data-snap-grid-ruler], [data-snap-grid-bands]")).toBeNull();
+        expect(draggable(c)).toEqual([]);
+        // The rows as the page holds them: a phone only stacks them, and pressing Mobile is no gesture.
+        expect([rowsDrawn(c), canvas.patches.length]).toEqual([SEED_ROWS, 0]);
+        await act(async () => { fireEvent.click(canvas.getByRole("button", { name: "Desktop" })); });
+        expect([laidOut(c), c.querySelector("[data-snap-grid-ruler]") !== null, draggable(c)])
+            .toEqual([{ stacked: false, width: "1440px" }, true, ["kpi", "trend", "region", "board"]]);
+    }, 30_000);
+
+    test("a tile is selected there, wearing its badge and its toolbar but no handles; [ and ] leave its span, and up and down step through the column", async () => {
+        const canvas = await onMobile();
+        const c = canvas.container;
+        await clickTile(c, "trend");
+        const tile = tileEl(c, "trend");
+        expect([selectedTile(c), tile.querySelector("[data-handle]"), tile.querySelector("[data-snap-grid-badge]")!.textContent, tile.querySelector("[data-snap-grid-tile-bar]") !== null])
+            .toEqual(["trend", null, "Revenue trend · 8/12", true]);
+        await key(c, { key: "]" }, "trend");
+        await key(c, { key: "[" }, "trend");
+        expect([spanOf(c, "trend"), canvas.patches.length]).toEqual([8, 0]);
+        // One column in reading order: down from the trend to the breakdown a desktop draws beside it.
+        await key(c, { key: "ArrowDown" }, "trend");
+        expect(selectedTile(c)).toBe("region");
+        await key(c, { key: "ArrowDown" }, "region");
+        await key(c, { key: "ArrowLeft" }, "board");
+        await key(c, { key: "ArrowRight" }, "board");
+        expect(selectedTile(c)).toBe("board");
+        await key(c, { key: "ArrowUp" }, "board");
+        expect([selectedTile(c), announced(c)]).toEqual(["region", "Selected Breakdown bars"]);
+        // Removing a tile is a phone's gesture too.
+        await key(c, { key: "Delete" }, "region");
+        expect(rowsDrawn(c)).toEqual([["kpi"], ["trend"], ["board"]]);
+        expect(labels(canvas)).toEqual(["Remove Breakdown bars"]);
+    }, 30_000);
+
+    test("a card lands only between rows, a row of its own: resting in a row it is refused (⊘) and nothing is drafted; in the gap it makes a new row there", async () => {
+        const canvas = await onMobile();
+        const c = canvas.container;
+        layOut(layRows(c));
+        const charts = c.querySelector<HTMLElement>('[data-snap-grid-row="charts"]')!;
+        const letGo = await hold(canvas.getByTestId("card-orders"), charts, { x: 1000, y: 160 });
+        expect(charts.hasAttribute("data-drop-invalid")).toBe(true);
+        await letGo();
+        expect(canvas.patches).toHaveLength(0);
+        await drop(canvas.getByTestId("card-orders"), gapEl(c, 1));
+        expect(rowsDrawn(c)).toEqual([["kpi"], ["orders-1"], ["trend", "region"], ["board"]]);
+        expect(labels(canvas)).toEqual(["Add orders"]);
+    }, 30_000);
+});
+
 describe("a pane beside the canvas (#996)", () => {
     test("a span request is one resize, held to the row's room — and the request is written back none", async () => {
         const canvas = await mountSnapGrid();
@@ -994,7 +1065,7 @@ describe("the toolbar folded into chips (#1229)", () => {
         // The chip is Font Awesome's eye and its caret, never a written ▾ (#1263).
         expect([chip.textContent, faIcons(chip, "eye").length, faIcons(chip, "caret-down").length]).toEqual(["", 1, 1]);
         await openMenu(chip);
-        expect(menuItems()).toEqual(["menuitem:Zoom out", "menuitem:Zoom in", "menuitemradio:Desktop (checked)", "menuitemradio:Tablet"]);
+        expect(menuItems()).toEqual(["menuitem:Zoom out", "menuitem:Zoom in", "menuitemradio:Desktop (checked)", "menuitemradio:Tablet", "menuitemradio:Mobile"]);
         const zoomShown = () => document.querySelector("[data-snap-grid-view-zoom]")!.textContent;
         expect(zoomShown()).toBe("100%");
         await pick("Zoom in");

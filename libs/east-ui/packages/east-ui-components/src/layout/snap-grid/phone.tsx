@@ -35,7 +35,7 @@ import { useSlotStyles } from "../../theme/slot-styles.js";
 import { FrameBottomPanel } from "../builder-frame/bottom-panel.js";
 import { useTopViewEscape } from "../builder-frame/view-escape.js";
 import type { SnapGridWords } from "./messages.js";
-import { useTileGrows } from "./tile-grows.js";
+import { ALWAYS_STACKED, useTileGrows } from "./tile-grows.js";
 import {
     SNAP_GRID_COLUMNS, MIN_SPAN, placeSlots, startColumn,
     type SnapGridDrop, type SnapGridRowModel, type SnapGridSlot, type SnapGridTile,
@@ -88,9 +88,6 @@ export interface SnapGridPhoneCanvasProps {
     readonly remove: (key: string) => void;
 }
 
-/** A phone's tiles are all stacked. */
-const ALWAYS = () => true;
-
 /** A tile's twelve cells, its own columns lit (ST10). */
 function Meter({ first, span, styles }: { first: number; span: number; styles: ReturnType<typeof useSlotStyles> }) {
     return (
@@ -104,7 +101,7 @@ function Meter({ first, span, styles }: { first: number; span: number; styles: R
 
 /** A tile's frame on a phone: its fixed height applies (ST11), unless what it holds stacked needs more (ST39). */
 function PhoneFrame({ styles, fixed, children }: { styles: ReturnType<typeof useSlotStyles>; fixed: number | undefined; children: ReactNode }) {
-    const { ref, height } = useTileGrows<HTMLDivElement>(fixed, ALWAYS);
+    const { ref, height } = useTileGrows<HTMLDivElement>(fixed, ALWAYS_STACKED);
     return (
         <Box ref={ref} css={styles.frame} data-snap-grid-phone-frame="" data-frame="" style={height === undefined ? undefined : { height: `${height}px` }}>
             {children}

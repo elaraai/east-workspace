@@ -18,6 +18,9 @@
  * frame and its 320px aside (E1, E3); the page on its panel, 24 / 28px in, at
  * most each device's width — Desktop and Tablet laying the page out at its
  * declared spans, Mobile stacking its placements in row order at 390px (E2).
+ * The canvas's Mobile does as the preview's: the canvas 390px wide, every tile
+ * its rows' width in row order, no column ruler, and a selected tile with no
+ * handles (B14).
  * The builder is set to the Studio's width, 1440px, and measured on the page
  * it opens at rest. Its builder frame (#1125 F3): on a desktop the palette
  * and the inspector are pinned, main between them; on a phone each rests on
@@ -215,6 +218,38 @@ test.describe("Studio builder (#1000)", () => {
                 stacked: ys.every((y, i) => i === 0 || y > ys[i - 1]!),
             };
         }).toEqual({ frame: 390, centred: true, keys: ["a-kpi", "a-orders", "a-bars", "a-trend"], full: true, stacked: true });
+    });
+
+    test("B14: the canvas's Mobile lays the page out as the preview's does — 390px wide, every tile its rows' width, in row order, no column ruler; a tile selected there wears no handles; Desktop puts it back on its columns", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const widths = builder.locator("[data-snap-grid-widths]");
+        /** The canvas's width, its ruler, and its tiles: their keys, whether each is its rows' width, and whether each stands under the one before. */
+        const laidOut = () => builder.evaluate((root) => {
+            const canvas = root.querySelector("[data-snap-grid-canvas]")!;
+            const rows = root.querySelector("[data-snap-grid-rows]")!.getBoundingClientRect();
+            const tiles = [...root.querySelectorAll("[data-snap-grid-tile]")];
+            const boxes = tiles.map((t) => t.getBoundingClientRect());
+            return {
+                canvas: Math.round(canvas.getBoundingClientRect().width),
+                ruler: canvas.querySelector("[data-snap-grid-ruler]") !== null,
+                keys: tiles.map((t) => t.getAttribute("data-snap-grid-tile")),
+                full: boxes.every((b) => Math.abs(b.left - rows.left) < 0.5 && Math.abs(b.width - rows.width) < 0.5),
+                stacked: boxes.every((b, i) => i === 0 || b.top >= boxes[i - 1]!.bottom),
+            };
+        });
+        await widths.getByRole("button", { name: "Mobile" }).click();
+        await settled(page);
+        await expect.poll(laidOut).toEqual({ canvas: 390, ruler: false, keys: ["a-kpi", "a-orders", "a-bars", "a-trend"], full: true, stacked: true });
+        await builder.locator('[data-snap-grid-tile="a-orders"]').click();
+        await settled(page);
+        await expect(builder.locator('[data-snap-grid-tile="a-orders"] [data-snap-grid-tile-bar]')).toBeVisible();
+        await expect(builder.locator("[data-snap-grid-tile] [data-handle]")).toHaveCount(0);
+        await widths.getByRole("button", { name: "Desktop" }).click();
+        await settled(page);
+        await expect.poll(async () => {
+            const at = await laidOut();
+            return { canvas: at.canvas > 390, ruler: at.ruler, full: at.full, stacked: at.stacked };
+        }).toEqual({ canvas: true, ruler: true, full: false, stacked: false });
     });
 });
 

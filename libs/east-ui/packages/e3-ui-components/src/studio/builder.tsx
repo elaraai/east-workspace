@@ -403,6 +403,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         widths: [
             { label: m.device({ device: "desktop" }), icon: some("desktop"), width: "1440px" },
             { label: m.device({ device: "tablet" }), icon: some("tablet-screen-button"), width: "1024px" },
+            // A phone's: the canvas lays the page out as a phone shows it, stacked.
+            { label: m.device({ device: "mobile" }), icon: some("mobile-screen"), width: "390px" },
         ],
         toolbar: { start: [], end: [] },
         panes: { start: none, end: none },
