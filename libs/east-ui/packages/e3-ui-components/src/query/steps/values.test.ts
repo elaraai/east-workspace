@@ -6,13 +6,14 @@
 /**
  * What a Group and total step groups by (#1670), as every edit sets it — a
  * field picked, a field added, one taken out, a check's fix: none chosen, one
- * field, or several in their order, one replaced in its place.
+ * field, or several in their order, one replaced in its place; and the unit an
+ * "is in the last" comparison counts in, paired with it both ways.
  */
 
 import { describe, expect, it } from "vitest";
 import { OptionType, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { QueryGroupByType } from "@elaraai/e3-ui/internal";
-import { groupFields, groupedBy, withGroupField, type GroupBy } from "./values.js";
+import { groupFields, groupedBy, isLastUnit, lastComparison, lastUnit, withGroupField, type GroupBy } from "./values.js";
 
 const GroupByType = OptionType(QueryGroupByType);
 const sameBy = equalFor(GroupByType);
@@ -56,5 +57,15 @@ describe("withGroupField", () => {
 
     it("leaves several fields as they are when the one named is not among them", () => {
         expectBy(withGroupField(fields("region", "status"), "customer_id", "channel"), fields("region", "status"));
+    });
+});
+
+describe("an \"is in the last\" comparison and its unit (#1670)", () => {
+    it("pairs each comparison with the unit it counts in, both ways, and no other comparison or name with any", () => {
+        expect((["hour", "day", "week"] as const).map((unit) => [lastComparison(unit), lastUnit(lastComparison(unit)), isLastUnit(unit)])).toEqual([
+            ["inLastHours", "hour", true], ["inLastDays", "day", true], ["inLastWeeks", "week", true],
+        ]);
+        // Another comparison counts in none; a unit it does not count in, or a name every object has, is none.
+        expect([lastUnit("eq"), lastUnit("inYear"), isLastUnit("minute"), isLastUnit("toString")]).toEqual([undefined, undefined, false, false]);
     });
 });

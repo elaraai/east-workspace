@@ -83,7 +83,9 @@ import {
     LocalStorage, LocalTaskRunner, datasetAdoptFile, executionGet, executionList, executionListIds, executionReadLog, oneShotExecute, packageImport,
     pruneHistory, repoInit, resolveBudget, splitCallPrepare, splitCallResult, splitCallRun, workspaceCreate, workspaceDeploy, workspaceGetDatasetStatus,
 } from '@elaraai/e3-core';
-import { draftPlan, planQuery, prepareQuery, queryResultOf, type PlanOptions, type QueryPlan, type QueryResult, type SourceWeight } from '@elaraai/e3-ui-components/query';
+import {
+    draftPlan, planQuery, prepareQuery, queryResultOf, type PlanOptions, type QueryPlan, type QueryReading, type QueryResult, type SourceWeight,
+} from '@elaraai/e3-ui-components/query';
 import {
     CUSTOMERS, CUSTOMER_COUNT, CustomersType, ORDERS, OrdersType, QUERIES, REGIONS, ROOT, SHIPMENTS, ShipmentsType, THRESHOLD, customerId, customers, orders,
     shipmentOf,
@@ -608,18 +610,21 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
                             return { result, output: outcome.output.type === 'some' ? outcome.output.value : null };
                         };
                         let result: ExecuteResult;
+                        let reading: QueryReading;
                         if (plan.kind === 'split') {
                             result = (await call(plan.request, 'split call')).result;
+                            reading = plan.reading;
                         } else {
-                            // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
+                            // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash; the
+                            // answer read as the call that gave it numbers its arguments.
                             const first = await call(plan.first, 're-key call');
                             const joined = first.output === null ? undefined : (await call(plan.join(first.output), 'join call')).result;
-                            result = plan.answer(first.result, joined);
+                            ({ result, reading } = plan.answer(first.result, joined));
                         }
                         const seconds = (performance.now() - started) / 1000;
                         splitSeconds.push(seconds);
                         const cpuAtEnd = cpuSeconds();
-                        const answer = decoded(queryResultOf(plan.reading, result), `${q.id}'s split calls`);
+                        const answer = decoded(queryResultOf(reading, result), `${q.id}'s split calls`);
                         assert.ok(isTypeEqual(answer.type, type), `${q.id}: the split calls answer at the query's result type`);
                         const exact = equalFor(type)(answer.value as never, oracle as never);
                         assert.ok(exact || close(type, answer.value, oracle), `${q.id}: the split calls' answer is the oracle's`);

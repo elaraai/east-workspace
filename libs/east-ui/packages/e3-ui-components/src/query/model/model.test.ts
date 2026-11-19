@@ -34,7 +34,7 @@ import { cardsFor, firstEmptySlot, outlineOf, sourceCard, type Card, type CardLi
 import type { SlotRef } from "./refs.js";
 import { applyAction, applyInput, applyRemove, applySlot } from "./slot-edits.js";
 import { activeItem, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
-import { SummaryCache, summaryAt, summaryNeeded, withMinute, type Summary, type SummaryRequest } from "./summaries.js";
+import { SummaryCache, summaryAt, summaryHashes, summaryNeeded, withMinute, type Summary, type SummaryRequest } from "./summaries.js";
 import { parseErrorWords, problemWords } from "./problem-words.js";
 import { DESCRIPTION_MAX, describeQuery } from "./step-words.js";
 import { plural, queryWords, shapeWords } from "./words.js";
@@ -632,8 +632,8 @@ describe("P2: slot offers", () => {
         expect(steps[activeItem(steps, query("bom", []), ROOT, add)]!.label).toBe("List every part in the tree");
     });
 
-    test("opening a slot fetches a summary only where its offers need one", () => {
-        expect((["field", "value", "by", "agg-field", "sort-field", "pick-add"] as const).every(summaryNeeded)).toBe(true);
+    test("opening a slot fetches a summary only where its offers need one: a field more to group by and a ratio's field it is per too (#1670)", () => {
+        expect((["field", "value", "by", "by-add", "agg-field", "agg-per", "sort-field", "pick-add"] as const).every(summaryNeeded)).toBe(true);
         expect((["cmp", "match", "dataset", "dir", "part", "add-step"] as const).some(summaryNeeded)).toBe(false);
         void f4;
     });
@@ -965,5 +965,11 @@ describe("P5: summaries are fetched lazily, once per prefix and hashes", () => {
         expect(cache.get(request, withMinute(new Map([["orders", "4f2a1c8d"]]), utcAt("2026-06-28T09:00:59.000")))).toEqual(summary);
         expect(cache.get(request, withMinute(new Map([["orders", "4f2a1c8d"]]), utcAt("2026-06-28T09:01:00.000")))).toBeUndefined();
         expect(runs).toBe(1);
+        // As a slot of the steps and the jq view's completions look it up: by the minute asked in; rows that read no
+        // `now`, by their sources alone.
+        const hashes = new Map([["orders", "4f2a1c8d"]]);
+        expect(cache.get(request, summaryHashes(request, hashes, utcAt("2026-06-28T09:00:30.000")))).toEqual(summary);
+        expect(cache.get(request, summaryHashes(request, hashes, utcAt("2026-06-28T09:01:05.000")))).toBeUndefined();
+        expect(summaryHashes(summaryAt(q, 0, ROOT)!, hashes, NOW)).toBe(hashes);
     });
 });

@@ -224,23 +224,26 @@ export async function runDraft(draft: PlanDraft, seams: DraftRunSeams, signal: A
         },
     });
     let answer: ExecuteResult;
+    let reading: QueryReading;
     try {
         if (planned.kind === "split") {
             counted = planned.request;
             const done = await send(counted);
             ({ result: answer, output } = done);
+            reading = planned.reading;
             report = done.report ?? undefined;
         } else {
-            // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
+            // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash; the answer read as
+            // the call that gave it numbers its arguments.
             const first = await send(planned.first);
             if (signal.aborted) return { kind: "abandoned" };
             pieces = undefined;
             if (first.output === null) {
-                answer = planned.answer(first.result, undefined);
+                ({ result: answer, reading } = planned.answer(first.result, undefined));
             } else {
                 counted = planned.join(first.output);
                 const joined = await send(counted);
-                answer = planned.answer(first.result, joined.result);
+                ({ result: answer, reading } = planned.answer(first.result, joined.result));
                 output = joined.output;
                 report = joined.report ?? undefined;
             }
@@ -262,5 +265,5 @@ export async function runDraft(draft: PlanDraft, seams: DraftRunSeams, signal: A
         }
         if (signal.aborted) return { kind: "abandoned" };
     }
-    return { kind: "answered", planned, reading: planned.reading, answer, weights, opened, pieces, report, counted };
+    return { kind: "answered", planned, reading, answer, weights, opened, pieces, report, counted };
 }

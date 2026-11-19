@@ -56,7 +56,7 @@ import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import {
     ArrayType, DateTimeType, DictType, FloatType, IntegerType, RUN_MAX_BYTES, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, isVariant, toEastTypeValue, variant,
+    compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, isVariant, parseFor, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { randomStream } from '@elaraai/east/internal';
@@ -135,12 +135,30 @@ function customers(count = CUSTOMER_COUNT): SortedMap<string, ValueTypeOf<typeof
 
 /** How many events there are: more than one piece as e3 stores them, at the test's piece size. */
 const EVENT_COUNT = 60_000;
+
+const readDateTime = parseFor(DateTimeType);
+
+/**
+ * An instant written as East prints a DateTime (UTC), read with East's own parser.
+ *
+ * @param text - The DateTime's East text
+ * @returns The instant
+ */
+function utcAt(text: string): Date {
+    const read = readDateTime(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
+
 /** The first event's minute; event `i` comes `i` minutes after it. */
-const EVENTS_OPEN = Date.UTC(2026, 0, 5, 8, 0);
+const EVENTS_OPEN = utcAt('2026-01-05T08:00:00.000');
+
+/** The minute `n` minutes after the first event's: counted on from it, the one instant the spec writes. */
+const minutesAfterOpen = (n: number): Date => new Date(EVENTS_OPEN.getTime() + n * 60_000);
 
 /** The events, one a minute from {@link EVENTS_OPEN}, by id. */
 function events(): ValueTypeOf<typeof EventsType> {
-    return Array.from({ length: EVENT_COUNT }, (_, i) => ({ id: BigInt(i), at: new Date(EVENTS_OPEN + i * 60_000) }));
+    return Array.from({ length: EVENT_COUNT }, (_, i) => ({ id: BigInt(i), at: minutesAfterOpen(i) }));
 }
 
 /** The first `count` customers' credit limits, but every fifth customer's, which has none. */
@@ -405,7 +423,8 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                     const explained = await splitCallExplain(server.apiUrl, server.repo, ws, join, NO_TOKEN);
                     assert.ok(Number(explained.pieces) > 4, `${program}: the join is many pieces, not ${explained.pieces}: the heavier weighs ${explained.bytes} bytes`);
                     const joined = await splitCall(server.apiUrl, server.repo, ws, join, NO_TOKEN);
-                    const got = queryResultOf(plan.reading, plan.answer(first.result, joined.result));
+                    const { result, reading } = plan.answer(first.result, joined.result);
+                    const got = queryResultOf(reading, result);
                     const one = await oneShot(ws, program, runner);
                     const [value, want] = [decoded(got, `${program}'s re-keyed join`), decoded(one, `${program}'s one-shot call`)];
                     assert.ok(isTypeEqual(value.type, want.type), `${program}: the re-keyed join answers at the one-shot call's type`);
@@ -419,7 +438,7 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                 await workspaceSetDataset(storage, repo, ws, EVENTS, events(), EventsType);
                 const ids = equalFor(ArrayType(IntegerType));
                 for (const minute of [30_000, 31_000]) {
-                    const now = new Date(EVENTS_OPEN + minute * 60_000);
+                    const now = minutesAfterOpen(minute);
                     const plan = await planOf(ws, RECENT_EVENTS, runner, ['events'], now);
                     if (plan.kind !== 'split') assert.fail(`the events' query planned ${plan.kind}`);
                     assert.deepEqual(plan.request.args.map((a) => `${a.arg.type}:${a.partition.type}`).sort(), ['dataset:some', 'value:none'],

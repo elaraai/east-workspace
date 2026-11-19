@@ -10,10 +10,11 @@
  * asked on e3 once per the hashes of what it read, however many tiles ask it;
  * a dataset's new hash, which the dataset cache's poll follows without
  * reading its content, asks again only the programs that read it, and a new
- * minute only those that read `.now`; a tile that goes, or asks another
- * program, stops waiting, and a program no tile waits for is given up. A
- * source the page cannot query fails only the visuals that read it, and a
- * tile whose call failed offers to ask again.
+ * minute only those that read `.now` — the only tiles that draw again as it
+ * moves on; a tile asked again keeps what it drew until its new answers land;
+ * a tile that goes, or asks another program, stops waiting, and a program no
+ * tile waits for is given up. A source the page cannot query fails only the
+ * visuals that read it, and a tile whose call failed offers to ask again.
  *
  * The rules are the asking layer's (`ask.ts`, `summaries.ts`); these hooks
  * hold them for React.
@@ -21,8 +22,8 @@
  * @packageDocumentation
  */
 
-import { createContext, createElement, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrayType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { createContext, createElement, Fragment, use, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrayType, DateTimeType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { StudioSourceType } from "@elaraai/e3-ui/internal";
 import { useReactiveDatasetCacheOptional } from "../../platform/dataset-hooks.js";
 import { messageOf } from "../../shared/message.js";
@@ -40,23 +41,45 @@ import type { VisualAsk } from "./print.js";
 type Source = ValueTypeOf<typeof StudioSourceType>;
 
 const sourcesEqual = equalFor(ArrayType(StudioSourceType));
+const sameMinute = equalFor(DateTimeType);
 
 /**
  * A page's answers: the sources it lists, and by key; its kept answers; the
- * hash of each source as the poll last read it — and the minute, under `now`,
- * where the root's `.now` is the clock; why each source it cannot query
- * cannot, by key; and the minute it is.
+ * hash of each source as the poll last read it; whether the root's `.now` is
+ * the clock; and why each source it cannot query cannot, by key. The minute a
+ * tile draws by is apart from these, in {@link PageMinuteContext}: as it moves
+ * on, these stay as they were.
  */
 interface PageAnswers {
     readonly list: Source[];
     readonly sources: ReadonlyMap<string, Source>;
     readonly answers: VisualAnswers;
     readonly hashes: ReadonlyMap<string, string>;
+    readonly clock: boolean;
     readonly refused: ReadonlyMap<string, string>;
-    readonly minute: Date;
 }
 
 const PageAnswersContext = createContext<PageAnswers | null>(null);
+
+/**
+ * The minute a page takes as now (#1670): apart from its answers, so that
+ * only what reads it — a tile whose programs read `.now` — draws again as it
+ * moves on.
+ */
+const PageMinuteContext = createContext<Date | undefined>(undefined);
+
+/**
+ * The hashes a tile's programs are kept by: the page's of its sources, and —
+ * for programs that read `.now`, where it is the clock — the minute they are
+ * asked for, under `now`.
+ *
+ * @param page - The page's answers
+ * @param minute - The minute; `undefined` where none of the programs reads `.now`
+ * @returns The hashes
+ */
+function hashesOf(page: PageAnswers, minute: Date | undefined): ReadonlyMap<string, string> {
+    return minute !== undefined && page.clock ? withMinute(page.hashes, minute) : page.hashes;
+}
 
 /**
  * Each source's hash, by its name in the root, as the dataset cache's
@@ -140,9 +163,12 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
     // `.now` is the clock unless a source is named `now`, whose poll then gives its hash.
     const clock = root !== undefined && rootHasClock(root);
     const instant = useNow(now);
-    const minute = useMemo(() => minuteOf(instant), [instant]);
-    const sourceHashes = useSourceHashes(root);
-    const hashes = useMemo(() => (clock ? withMinute(sourceHashes, minute) : sourceHashes), [clock, sourceHashes, minute]);
+    // The minute, one object all minute long: what reads it draws again only once it moves on.
+    const held = useRef<Date | undefined>(undefined);
+    const next = minuteOf(instant);
+    if (held.current === undefined || !sameMinute(held.current, next)) held.current = next;
+    const minute = held.current;
+    const hashes = useSourceHashes(root);
     const value = useMemo((): PageAnswers => {
         // A key two sources share keeps the first, as the sources' names do.
         const byKey = new Map<string, Source>();
@@ -153,9 +179,9 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
             const why = refusedByName.get(source.binding.name);
             if (why !== undefined) refused.set(source.key, why);
         }
-        return { list: [...sources], sources: byKey, answers, hashes, refused, minute };
-    }, [sources, refusedByName, answers, hashes, minute]);
-    return createElement(PageAnswersContext.Provider, { value }, children);
+        return { list: [...sources], sources: byKey, answers, hashes, clock, refused };
+    }, [sources, refusedByName, answers, hashes, clock]);
+    return createElement(PageAnswersContext.Provider, { value }, createElement(PageMinuteContext.Provider, { value: minute }, children));
 }
 
 /**
@@ -186,37 +212,45 @@ export type VisualAnswersState =
  * @param asks - Its programs, as the printer gave them
  * @param source - The source they read, by its key
  * @returns Waiting; failed, with why — until its programs or the data change,
- *   or it is asked again; or answered
+ *   or it is asked again; or answered — the answers it last drew, while the
+ *   same programs are asked again
  *
  * @remarks
- * An answer kept under a hash the page has moved past since the tile asked —
- * a dataset written between the call's read and the poll's — is asked for
- * once more; an answer of a newer hash than the page's waits for the poll to
- * read it.
+ * - **The minute**: only a tile whose programs read `.now` reads it, and draws
+ *   again as it moves on (#1670); the page's other tiles draw nothing again.
+ * - **Asked again** — a new minute, a dataset written — a tile keeps drawing
+ *   the answers it drew, for the same programs, until the new ones land; a
+ *   call that fails says so. Programs of their own — a filter changed — wait.
+ * - An answer kept under a hash the page has moved past since the tile asked
+ *   — a dataset written between the call's read and the poll's — is asked for
+ *   once more; an answer of a newer hash than the page's waits for the poll to
+ *   read it.
  */
 export function useVisualAnswers(asks: readonly VisualAsk[], source: string): VisualAnswersState {
     const page = useContext(PageAnswersContext);
-    // Only a tile whose programs read `.now` follows the minute.
-    const minute = asks.some((ask) => ask.readsNow) ? page?.minute : undefined;
+    // Only a tile whose programs read `.now` reads the minute: `use`, which may be called where a hook may not, leaves
+    // the page's other tiles unsubscribed to it.
+    const minute = asks.some((ask) => ask.readsNow) ? use(PageMinuteContext) : undefined;
     const requests = useMemo(() => asks.map((ask): VisualRequest => (ask.readsNow
         ? { prefix: ask.program, reads: [source, NOW_FIELD], ...(minute === undefined ? {} : { now: minute }) }
         : { prefix: ask.program, reads: [source] })), [asks, source, minute]);
+    const hashes = useMemo(() => (page === null ? undefined : hashesOf(page, minute)), [page, minute]);
     const key = requests.map((request) => request.prefix).join("\u0001");
     // What the tile asks for: its programs, under the hashes the page holds of what they read.
-    const askedFor = page === null ? key
-        : `${key}\u0002${requests.map((request) => request.reads.map((read) => page.hashes.get(read) ?? "").join("\u0000")).join("\u0001")}`;
+    const askedFor = hashes === undefined ? key
+        : `${key}\u0002${requests.map((request) => request.reads.map((read) => hashes.get(read) ?? "").join("\u0000")).join("\u0001")}`;
     const [failed, setFailed] = useState<{ readonly key: string; readonly message: string } | undefined>(undefined);
     // The answers landed for what it asks for: a second that misses waits for the page's hashes to move.
     const [landed, setLanded] = useState<{ readonly for: string; readonly times: number }>({ for: "", times: 0 });
     const [attempt, setAttempt] = useState(0);
     const refused = page?.refused.get(source);
-    const held = page === null || refused !== undefined ? [] : requests.map((request) => page.answers.get(request, page.hashes));
+    const held = page === null || hashes === undefined || refused !== undefined ? [] : requests.map((request) => page.answers.get(request, hashes));
     const missing = page === null || refused !== undefined || held.some((answer) => answer === undefined);
     const waits = landed.for === askedFor && landed.times >= 2;
     useEffect(() => {
-        if (page === null || refused !== undefined || !missing || waits) return undefined;
+        if (page === null || hashes === undefined || refused !== undefined || !missing || waits) return undefined;
         const controller = new AbortController();
-        void Promise.all(requests.map((request) => page.answers.ensure(request, page.hashes, controller.signal))).then(
+        void Promise.all(requests.map((request) => page.answers.ensure(request, hashes, controller.signal))).then(
             () => {
                 if (!controller.signal.aborted) setLanded((was) => ({ for: askedFor, times: was.for === askedFor ? was.times + 1 : 1 }));
             },
@@ -226,14 +260,22 @@ export function useVisualAnswers(asks: readonly VisualAsk[], source: string): Vi
         );
         // The tile going, or asking another program, stops it waiting.
         return () => controller.abort();
-    }, [page, refused, requests, key, askedFor, missing, waits, landed, attempt]);
+    }, [page, hashes, refused, requests, key, askedFor, missing, waits, landed, attempt]);
     const retry = useCallback(() => {
         setFailed(undefined);
         setAttempt((n) => n + 1);
     }, []);
+    // The answers it last drew, and for which programs: what it keeps drawing while the same programs are asked again.
+    const drawn = useRef<{ readonly key: string; readonly answers: readonly VisualAnswer[] } | undefined>(undefined);
     if (page === null) return { status: "failed", message: "", retry: undefined };
     if (refused !== undefined) return { status: "failed", message: refused, retry: undefined };
-    if (!missing) return { status: "answered", answers: held as VisualAnswer[] };
+    if (!missing) {
+        const answers = held as VisualAnswer[];
+        drawn.current = { key, answers };
+        return { status: "answered", answers };
+    }
     if (failed?.key === key) return { status: "failed", message: failed.message, retry };
+    // Asked again — a new minute, a dataset written: what it drew stands until the new answers land.
+    if (drawn.current?.key === key) return { status: "answered", answers: drawn.current.answers };
     return { status: "waiting" };
 }

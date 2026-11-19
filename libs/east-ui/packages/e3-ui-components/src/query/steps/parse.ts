@@ -20,12 +20,12 @@ import {
 import { NOW_FIELD } from "../one-shot.js";
 import { comparisonsFor, fieldsOf, type StepField } from "./fields.js";
 import {
-    at, readCall, readChain, readLiteral, readObject, readPath, readPipe, readStepValue,
+    at, readCall, readChain, readIfElse, readLiteral, readObject, readPath, readPipe, readStepValue,
 } from "./jq.js";
 import { SEP, itemShape, knownAfter, nameFor, pathFor, queryReadsNow, scalarFieldsOf, stageAt, variableName } from "./print.js";
 import { UNKNOWN, shapeOf, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
-    comparison, freshId, lastComparison, type Aggregate, type ComparisonKind, type Condition, type LastUnit, type PickField, type Step, type StepInput,
+    comparison, freshId, isLastUnit, lastComparison, type Aggregate, type ComparisonKind, type Condition, type LastUnit, type PickField, type Step, type StepInput,
     type StepQuery, type StepValue,
 } from "./values.js";
 
@@ -102,9 +102,6 @@ function test(ref: string, kind: ComparisonKind, value: StepValue | undefined, e
     }) as Condition;
 }
 
-/** The units `datetime_add` moves by that an "is in the last" comparison counts in. */
-const LAST_UNITS: ReadonlySet<string> = new Set<LastUnit>(["hour", "day", "week"]);
-
 /**
  * `$now | datetime_add(-N; "unit")`, as an "is in the last" test prints it
  * (#1670): its count back, and its unit.
@@ -117,15 +114,14 @@ function readLast(node: JqNode): { value: StepValue; unit: LastUnit } | undefine
     if (segments.length !== 2 || segments[0]!.type !== "variable" || segments[0]!.value !== NOW_FIELD) return undefined;
     const args = readCall(segments[1]!, "datetime_add", 2);
     const unit = args === undefined ? undefined : readLiteral(args[1]!);
-    if (args === undefined || unit?.type.type !== "String" || !LAST_UNITS.has(unit.value as string)) return undefined;
-    // `-N` reads as a negation of `N`, or as a negative literal.
+    const name = unit?.type.type === "String" ? unit.value as string : undefined;
+    if (args === undefined || name === undefined || !isLastUnit(name)) return undefined;
+    // `-N` reads as a negation of `N`. A count with none moves the minute on — a bound to come, which is no "is in the
+    // last" — and so does a negation of one with its own minus, which reads as no literal.
     const count = args[0]!;
-    if (count.type === "negate") {
-        const value = readStepValue(count.value);
-        return value === undefined ? undefined : { value, unit: unit.value as LastUnit };
-    }
-    const value = readStepValue(count);
-    return value?.type === "number" ? { value: variant("number", -value.value), unit: unit.value as LastUnit } : undefined;
+    if (count.type !== "negate") return undefined;
+    const value = readStepValue(count.value);
+    return value === undefined ? undefined : { value, unit: name };
 }
 
 /** Whether a field takes a comparison: one the rows do not have takes any, which the check judges. */
@@ -283,6 +279,23 @@ function sumOf(shape: Shape, node: JqNode): string | undefined {
     return map !== undefined && readCall(segments[1]!, "add", 0) !== undefined ? refOfNode(shape, map[0]) : undefined;
 }
 
+/**
+ * A ratio's fields, where a node is `if (map(q) | add) == 0 then null else (map(p) | add) / (map(q) | add) end`: the
+ * field added up, and the field it is per.
+ */
+function ratioOf(shape: Shape, node: JqNode): { readonly of: string; readonly per: string } | undefined {
+    const guarded = readIfElse(node);
+    if (guarded === undefined) return undefined;
+    const { condition, then, otherwise } = guarded;
+    if (condition.type !== "binary" || condition.value.op !== "==" || otherwise.type !== "binary" || otherwise.value.op !== "/") return undefined;
+    const zero = readStepValue(condition.value.right);
+    if (zero?.type !== "number" || zero.value !== 0 || readStepValue(then)?.type !== "null") return undefined;
+    const tested = sumOf(shape, condition.value.left);
+    const of = sumOf(shape, otherwise.value.left);
+    const per = sumOf(shape, otherwise.value.right);
+    return of === undefined || per === undefined || tested !== per ? undefined : { of, per };
+}
+
 /** Reads one total of a Group and total step. */
 function readAggregate(shape: Shape, as: string, node: JqNode | undefined): Aggregate | undefined {
     if (node === undefined) return undefined;
@@ -293,12 +306,9 @@ function readAggregate(shape: Shape, as: string, node: JqNode | undefined): Aggr
         field: ref === undefined ? none : some(ref),
         as,
     });
-    // `(map(p) | add) / (map(q) | add)`: a ratio (#1670).
-    if (node.type === "binary" && node.value.op === "/") {
-        const of = sumOf(shape, node.value.left);
-        const per = sumOf(shape, node.value.right);
-        return of === undefined || per === undefined ? undefined : { id: freshId("aggregate"), fn: variant("ratio", some(per)), field: some(of), as };
-    }
+    // A ratio (#1670): its field added up over the field it is per, added up — nothing where that adds up to nothing.
+    const ratio = ratioOf(shape, node);
+    if (ratio !== undefined) return { id: freshId("aggregate"), fn: variant("ratio", some(ratio.per)), field: some(ratio.of), as };
     if (readCall(node, "length", 0) !== undefined) return total("count", undefined);
     const segments = readPipe(node);
     const map = segments.length >= 2 ? readCall(segments[0]!, "map", 1) : undefined;
@@ -695,7 +705,9 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
     if (queryReadsNow({ source, steps })) looked.add(NOW_FIELD);
     const unused = binds.find(b => !looked.has(b.name));
     if (unused !== undefined) {
-        return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but no Look up reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
+        // The minute is read by an "is in the last" condition, a dataset by a Look up: what the steps would say it with.
+        const reader = unused.name === NOW_FIELD ? 'no "is in the last" condition' : "no Look up";
+        return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but ${reader} reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
     }
     return { query: { source, steps }, spans };
 }

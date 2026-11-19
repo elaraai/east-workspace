@@ -80,14 +80,16 @@ export function leafOf(summary: Summary | undefined, field: StepField, list?: St
 
 /**
  * Whether a slot's offers come from a summary: a condition's field and
- * value, a field to show, group by, total or sort by, and an input's value.
+ * value, a field to show, group by — or add to the fields grouped by — total,
+ * divide a ratio by or sort by, and an input's value.
  *
  * @param slot - the slot's kind
  * @returns whether opening it fetches the summary
  */
 export function summaryNeeded(slot: SlotKind): boolean {
     switch (slot) {
-        case "field": case "value": case "by": case "agg-field": case "sort-field": case "pick-field": case "pick-add": case "fill-field":
+        case "field": case "value": case "by": case "by-add": case "agg-field": case "agg-per": case "sort-field": case "pick-field": case "pick-add":
+        case "fill-field":
             return true;
         default:
             return false;
@@ -148,6 +150,22 @@ export function readHashes(result: QueryResult): ReadonlyMap<string, string> {
  */
 export function withMinute(hashes: ReadonlyMap<string, string>, at: Date): ReadonlyMap<string, string> {
     return new Map([...hashes, [NOW_FIELD, minuteKey(at)]]);
+}
+
+/**
+ * The hashes a summary is fetched and looked up by: the builder's hash of
+ * each data source a run has read, and — where its rows are narrowed by "is in
+ * the last", which reads `now` — the minute it is asked in (#1670), so a
+ * summary fetched in an earlier minute is not this one's. A slot of the steps
+ * and the jq view's completions look a summary up alike.
+ *
+ * @param request - the summary
+ * @param hashes - the builder's hash of each data source a run has read
+ * @param at - the instant it is asked at: now, when not given
+ * @returns the hashes it is kept by
+ */
+export function summaryHashes(request: SummaryRequest, hashes: ReadonlyMap<string, string>, at: Date = new Date()): ReadonlyMap<string, string> {
+    return request.reads.includes(NOW_FIELD) ? withMinute(hashes, at) : hashes;
 }
 
 /**

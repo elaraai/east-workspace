@@ -165,10 +165,9 @@ export function resultFooter(state: RunState, words: QueryWords): ResultFooter {
     if (state.status === "running") return { count: m.runningWord(), ...empty };
     const run = m.runLine({ n: f.bare(state.n), time: f.time(state.at), ms: f.bare(state.status === "done" ? Math.round(state.ms) : 0) });
     if (state.status === "failed") return { count: m.noResult(), fields: "", run, type: "", reads: "" };
-    const { result, output, plan, planned } = state;
+    const { result, output, plan, reading } = state;
     const reads = m.readsLine({ sources: result.inputs.map(i => ({ name: i.name, hash: i.hash.slice(0, 8) })) });
-    // The call that ran, as the checker typed it: none when the query did not check, so nothing ran.
-    const reading = planned === undefined ? undefined : planned.kind === "one_shot" ? planned.prepared : planned.reading;
+    // The call that ran, as the checker typed it — what its answer was read by: none when the query did not check, so nothing ran.
     const type = reading === undefined ? "" : m.typeHover({
         type: describeJqType(reading.checked.elementType, { maxDepth: 2 }), multiplicity: reading.checked.multiplicity,
     });

@@ -22,7 +22,7 @@ import { checkJq, parseJq, printJq, type CheckJqResult, type EastType, type JqNo
 import { NOW_FIELD } from "../one-shot.js";
 import { fieldByRef, fieldsOfRecord, itemRecordOf, pathOfUnknown, type StepField } from "./fields.js";
 import {
-    IDENTITY, arrayNode, at, binary, bind, booleanLiteral, call, chain, chainedPath, fieldNode, floatLiteral, index,
+    IDENTITY, arrayNode, at, binary, bind, booleanLiteral, call, chain, chainedPath, fieldNode, floatLiteral, ifElse, index,
     integerLiteral, isVariableName, iterate, negate, nullLiteral, numberLiteral, objectNode, pathNode, pipe, pipeAll,
     pipedPath, sliceTo, stringLiteral, updateNode, valueLiteral, variable,
 } from "./jq.js";
@@ -394,16 +394,26 @@ function aggregateNode(shape: Shape, agg: Aggregate): JqNode {
         case "min": return pipe(of, call("min"));
         case "max": return pipe(of, call("max"));
         case "distinct": return pipe(of, pipe(call("unique"), call("length")));
-        // A ratio: its field added up over the field it is per, added up (#1670).
-        case "ratio": return binary(pipe(of, call("add")), "/", pipe(values(fn.value.type === "some" ? fn.value.value : undefined), call("add")));
+        // A ratio: its field added up over the field it is per, added up (#1670) — nothing where that adds up to nothing,
+        // which no number divides by.
+        case "ratio": {
+            const per = pipe(values(fn.value.type === "some" ? fn.value.value : undefined), call("add"));
+            return ifElse(binary(per, "==", integerLiteral(0n)), nullLiteral(), binary(pipe(of, call("add")), "/", per));
+        }
     }
 }
 
-/** A total's slots in its entry of an object at a path: its field, and the field a ratio is per. */
+/**
+ * A total's slots in its entry of an object at a path: its field, and the field a ratio is per — where its sum is
+ * tested and where it divides, so a problem with either is the slot's.
+ */
 function totalSlots(agg: Aggregate, path: string): PartPaths[] {
     return [
         slotAt("agg-field", path, agg.id),
-        ...(agg.fn.type === "ratio" ? [slotAt("agg-per", at(path, "binary.right"), agg.id)] : []),
+        ...(agg.fn.type === "ratio" ? [
+            slotAt("agg-per", at(path, "if.branches[0].condition.binary.left"), agg.id),
+            slotAt("agg-per", at(path, "if.otherwise.some.binary.right"), agg.id),
+        ] : []),
     ];
 }
 

@@ -14,7 +14,8 @@
  * - **J2**: completions — the bound sources at the root, a variant's `type`
  *   and `value`, case names inside a string, builtins inserting `name(`, a
  *   closing quote not doubled; keys; and the data's values from a summary the
- *   builder holds — a value slot's, read by its call to e3 — never fetched.
+ *   builder holds — a value slot's, read by its call to e3 — never fetched;
+ *   for rows narrowed by "is in the last", only in the minute it was read.
  * - **J3**: the problems panel — codes, positions and sentences, a note on a
  *   part that stays a jq step, going to a range, and each text-edit fix making
  *   a program that checks clean, one gesture of its own.
@@ -25,10 +26,11 @@
  *   the visual view of one that is — run as it opens, and no draft left on it.
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { ArrayType, IntegerType, StringType, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
 import type { ExecuteResult } from "@elaraai/e3-types";
+import { utcAt } from "../plan/plan.test-utils.js";
 import { FIXTURE_VALUE, FixtureType, savedQuery } from "./fixture.test-utils.js";
 import { act, enabled, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 
@@ -209,9 +211,9 @@ describe("the jq view (#937) — J2 completions", () => {
     });
 });
 
-/** Opens a slot of the visual view's first card by the words it shows, as a click does. */
-async function openSlot(text: string) {
-    const card = document.querySelector<HTMLElement>("[data-step-id]")!;
+/** Opens a slot of one of the visual view's cards — the first by default — by the words it shows, as a click does. */
+async function openSlot(text: string, cardIndex = 0) {
+    const card = document.querySelectorAll<HTMLElement>("[data-step-id]")[cardIndex]!;
     const slot = [...card.querySelectorAll<HTMLElement>("[aria-haspopup=listbox]")].find((el) => el.querySelector("span")!.textContent === text);
     if (slot === undefined) throw new Error(`no slot “${text}”`);
     await act(async () => { fireEvent.click(slot); });
@@ -251,6 +253,46 @@ describe("the jq view (#937) — J2 the data's values", () => {
         expect(summaryCalls()).toHaveLength(1);
         await key("Enter");
         expect(area().value).toBe(".orders\n| map(select(.customer_id == \"C01\"");
+    });
+
+    test("rows narrowed by is in the last are the minute's: their values are offered in the minute the slot read them, and not after it (#1670)", async () => {
+        // The clock alone faked: the harness waits on real time.
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            // Two days after the fixture's last shipment: the last 30 days hold some.
+            vi.setSystemTime(utcAt("2026-06-28T09:00:00.000"));
+            const recent = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"day\"))))";
+            const RECENT = savedQuery("Recent shipments by customer", `${recent}\n| map(select(.customer_id == \"C01\"))`);
+            await h.seed([TOP, BIG, RECENT]);
+            await h.mountBuilder();
+            await openQuery(variant("saved", RECENT.name));
+            // The second card's value slot reads the summary of the rows the first leaves: the minute's.
+            await openSlot("C01", 1);
+            expect(summaryCalls()).toHaveLength(1);
+            await act(async () => { fireEvent.keyDown(within(document.querySelector<HTMLElement>("[data-query-autocomplete]")!).getByRole("combobox"), { key: "Escape" }); });
+            await settle();
+            await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "jq" })); });
+            await settle();
+            const asking = `${recent}\n| map(select(.customer_id == \"C0`;
+            const ask = async () => {
+                await type(asking);
+                area().setSelectionRange(asking.length, asking.length);
+                await key(" ", { code: "Space", ctrlKey: true });
+            };
+            // Later in the same minute: the values the slot read.
+            vi.setSystemTime(utcAt("2026-06-28T09:00:30.000"));
+            await ask();
+            expect(offered().length).toBeGreaterThan(0);
+            expect(offered().every(([glyph]) => glyph === "\"v")).toBe(true);
+            await key("Escape");
+            // The next minute: those rows are not this minute's, so none are offered, and the jq view fetches none.
+            vi.setSystemTime(utcAt("2026-06-28T09:01:05.000"));
+            await ask();
+            expect([completions(), summaryCalls()]).toEqual([null, expect.any(Array)]);
+            expect(summaryCalls()).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 

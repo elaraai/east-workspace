@@ -11,7 +11,7 @@
  */
 
 import { withArticle } from "../../shared/article.js";
-import type { ComparisonKind, StepKind } from "../steps/values.js";
+import { lastUnit, type ComparisonKind, type LastUnit, type StepKind } from "../steps/values.js";
 import type { PlanCombineKind, PlanTotalRule, QueryMessages, SlotKind } from "./messages.js";
 import type { InputKind } from "./refs.js";
 
@@ -75,10 +75,16 @@ const COMPARISON: Readonly<Record<ComparisonKind, string>> = {
     inLastHours: "is in the last … hours", inLastDays: "is in the last … days", inLastWeeks: "is in the last … weeks",
 };
 
-/** An "is in the last" comparison's unit: one, and more. */
-const LAST_UNIT_WORDS: Readonly<Partial<Record<ComparisonKind, readonly [string, string]>>> = {
-    inLastHours: ["hour", "hours"], inLastDays: ["day", "days"], inLastWeeks: ["week", "weeks"],
+/** The unit an "is in the last" comparison counts in, by that unit: one, and more. */
+const LAST_UNIT_WORDS: Readonly<Record<LastUnit, readonly [string, string]>> = {
+    hour: ["hour", "hours"], day: ["day", "days"], week: ["week", "weeks"],
 };
+
+/** The words of the unit a comparison counts back in; `undefined` for a comparison that is no "is in the last". */
+function unitWords(cmp: ComparisonKind): readonly [string, string] | undefined {
+    const unit = lastUnit(cmp);
+    return unit === undefined ? undefined : LAST_UNIT_WORDS[unit];
+}
 
 const SLOT_LABEL: Readonly<Record<SlotKind, string>> = {
     "match": "Match", "group-match": "Match",
@@ -210,10 +216,10 @@ export const queryMessages: QueryMessages = {
     startWith: ({ source }) => `Start with ${source}`,
 
     comparison: ({ cmp }) => COMPARISON[cmp],
-    comparisonDetail: ({ cmp }) => (cmp === "anyWhere" ? "check the items in the list" : LAST_UNIT_WORDS[cmp] !== undefined ? "up to the minute the query runs" : ""),
-    comparisonSlot: ({ cmp }) => (LAST_UNIT_WORDS[cmp] !== undefined ? "is in the last" : COMPARISON[cmp]),
+    comparisonDetail: ({ cmp }) => (cmp === "anyWhere" ? "check the items in the list" : unitWords(cmp) !== undefined ? "up to the minute the query runs" : ""),
+    comparisonSlot: ({ cmp }) => (unitWords(cmp) !== undefined ? "is in the last" : COMPARISON[cmp]),
     lastUnit: ({ cmp, n }) => {
-        const words = LAST_UNIT_WORDS[cmp];
+        const words = unitWords(cmp);
         return words === undefined ? "" : words[n === 1 ? 0 : 1];
     },
 
@@ -418,7 +424,7 @@ export const queryMessages: QueryMessages = {
     describeGroup: ({ match, conditions }) => (conditions.length > 1 ? `(${conditions.join(match === "any" ? " or " : " and ")})` : conditions[0] ?? ""),
     describeCondition: ({ field, cmp, value, n }) => {
         // "is in the last … days 7" reads as "is in the last 7 days".
-        const unit = LAST_UNIT_WORDS[cmp];
+        const unit = unitWords(cmp);
         if (unit !== undefined) return `${field} is in the last ${value} ${unit[n === 1 ? 0 : 1]}`;
         // "is in year 2026" reads better as "is in 2026".
         const words = cmp === "inYear" || cmp === "inMonth" ? "is in" : COMPARISON[cmp];

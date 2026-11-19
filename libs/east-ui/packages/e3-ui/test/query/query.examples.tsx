@@ -716,7 +716,8 @@ export const sales = e3.input("sales", ArrayType(Sale), variant("value", [
  * The saved query over the sales, in its canonical jq: the sales of the last
  * 52 weeks before the minute it runs — `.now`, which e3 is given beside the
  * data — grouped by region and channel together, each group's revenue totalled
- * over its units as a ratio.
+ * over its units as a ratio — nothing for a group whose units add up to none,
+ * which sorts last, highest first.
  */
 export const salesQueries = e3.record("sales_queries", Query.Types.Saved, {
     initial: Query.value({ sales }, [
@@ -726,8 +727,9 @@ export const salesQueries = e3.record("sales_queries", Query.Types.Saved, {
     | .sales
     | map(select(.sold_on >= ($now | datetime_add(-52; "week"))))
     | group_by({region, channel})
-    | map({region: .[0].region, channel: .[0].channel, revenue: map(.revenue) | add, units: map(.units) | add, revenue_per_unit: (map(.revenue) | add) / (map(.units) | add)})
-    | sort_by(-.revenue_per_unit)`,
+    | map({region: .[0].region, channel: .[0].channel, revenue: map(.revenue) | add, units: map(.units) | add, revenue_per_unit: if (map(.units) | add) == 0 then null else (map(.revenue) | add) / (map(.units) | add) end})
+    | sort_by(.revenue_per_unit)
+    | reverse`,
             description: "Revenue over units sold in the last 52 weeks, by region and channel.",
             savedAt: new Date("2026-10-05T09:00:00Z"),
         },
