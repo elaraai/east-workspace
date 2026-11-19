@@ -255,8 +255,8 @@ describe("chartModel", () => {
         expect([pie.value.data.map(s => [s.key, s.value]), pie.value.top, pie.value.total, pie.value.donut, pie.value.other]).toEqual([
             [["NSW", 50], ["SA", 170], ["VIC", 30], ["WA", 20]], some(2n), some(270), true, some("Other 2"),
         ]);
-        // A donut's total says what it is under it; it has no note.
-        expect([pie.value.caption, pie.value.note]).toEqual([some("AUD · total"), none]);
+        // A donut's total says what it is under it, and its note says it under its legend where its hole cannot (#1692).
+        expect([pie.value.caption, pie.value.note]).toEqual([some("AUD · total"), some("AUD · share of 270.00")]);
         const mean = childrenOf((await modelOf(v.of("orders", v.pie({ slice: v.group("region"), value: v.mean("revenue") })))).spec)[0]!;
         expect(mean.type === "pie" ? [mean.value.top, mean.value.total, mean.value.other] : []).toEqual([some(4n), none, some("Other")]);
     });
