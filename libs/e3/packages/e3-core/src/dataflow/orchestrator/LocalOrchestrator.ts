@@ -2358,9 +2358,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    *    `loadCommits`, which a yield stops and waits for.
    * 2. Outside the mutex, {@link recordLoadCommit}, named `system:dataflow`:
    *    every other completion, launch and cache hit goes on meanwhile, and so
-   *    do people's edits. A forced node whose record held its delivery already
-   *    commits only a delta that sets or deletes an entry, and otherwise
-   *    completes with the execution the record's slots name.
+   *    do people's edits. A large delta is applied where the run's runner
+   *    applies deltas, when it names a place (`TaskRunner.applyDelta`), so a
+   *    run in a process that answers requests holds none up for its loads. A
+   *    forced node whose record held its delivery already commits only a
+   *    delta that sets or deletes an entry, and otherwise completes with the
+   *    execution the record's slots name.
    * 3. Under the mutex, by its answer: committed, the node completes, its
    *    output the commit and its versions the feed's it was launched with, and
    *    the run takes the record's change in, so its readers are due; restarted,
@@ -2435,6 +2438,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         feed: versions,
         actor: 'system:dataflow',
         signal,
+        ...(options.runner?.applyDelta !== undefined && { apply: options.runner.applyDelta }),
       });
     } catch (error) {
       committed = { kind: 'thrown', error };

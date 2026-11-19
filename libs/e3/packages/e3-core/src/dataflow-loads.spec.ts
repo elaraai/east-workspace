@@ -29,6 +29,7 @@ import type { TaskRunner } from './execution/interfaces.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { packageImport } from './package-files.js';
+import { DELTA_OPS_APPLIED_IN_PLACE, applyDeltaSummarized } from './record-apply.js';
 import { recordHistory, recordMutate, recordSystemCommit } from './records.js';
 import { pruneHistory } from './history.js';
 import { sourceExecution, sourceLoadSlots } from './record-slots.js';
@@ -619,6 +620,27 @@ describe('a source the dataflow loads', () => {
     held.allow();
     await assert.rejects(running.done, DataflowAbortedError);
     assert.deepEqual(await loads(), ['$load:erp system:dataflow', '$load:wms cli:test'], 'nothing committed');
+  });
+
+  it('ruling 56 — a fed load\'s commit applies a large delta where the run\'s runner applies deltas, when it names a place: a run in a process that answers requests holds none up for its loads', async () => {
+    await deployed();
+    await deliverWms({ 'W-1': ['Cedar', 7n] });
+    // One order more than a delta is applied in place for
+    const orders = DELTA_OPS_APPLIED_IN_PLACE + 1;
+    await setRows(ERP_ROWS, Object.fromEntries(Array.from({ length: orders }, (_, n) => [`SO-${String(n).padStart(5, '0')}`, ['Acme', BigInt(n)] as const])));
+
+    const sent: string[] = [];
+    const placed = overriding<TaskRunner>(runner, {
+      applyDelta: (...asked) => {
+        sent.push(asked[3]);
+        return applyDeltaSummarized(...asked);
+      },
+    });
+    const { result, told } = await run({ runner: placed });
+    assert.equal(result.success, true, told);
+    assert.equal(sent.length, 1, 'the load\'s one delta went where the runner applies deltas');
+    assert.deepEqual(await loads(), ['$load:erp system:dataflow', '$load:wms cli:test'], 'and committed once');
+    assert.equal(await workspaceGetDataset(storage, repo, WS, FORECAST), BigInt(orders + 2), 'every order of the ERP\'s, beside P-1 and the warehouse\'s W-1');
   });
 
   it('R57 — a filter on a reader loads nothing, a filter on the load runs it and its feed, and a forced load runs past the slots and commits only a delta that changes something', async () => {
