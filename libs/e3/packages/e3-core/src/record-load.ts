@@ -698,39 +698,35 @@ async function queueTaken(
   const free = await storage.locks.acquire(repo, lock, operation);
   if (free !== null) return free;
   report(variant('queued', null));
-  if (storage.locks.queuesWaiters === true) {
-    // One wait, given up when the load is stopped or its delivery is gone: a
-    // lock that comes after that is let go as it comes
-    const given = new AbortController();
-    const stop = (): void => given.abort();
-    if (signal?.aborted === true) stop();
-    signal?.addEventListener('abort', stop, { once: true });
-    let gone: unknown = null;
-    const kept = setInterval(() => {
-      reference(storage, repo, delivery).catch((err: unknown) => {
-        gone ??= err;
-        stop();
-      });
-    }, LOAD_WAIT_TURN_MS);
-    try {
-      for (;;) {
-        const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: Infinity }), given.signal);
-        if (turn !== STOPPED && turn !== null) return turn;
-        if (gone !== null) throw gone;
-        if (turn === STOPPED) throw new RecordLoadStoppedError(name);
-        // Not given, though its wait had no bound: it asks again
-      }
-    } finally {
-      clearInterval(kept);
-      signal?.removeEventListener('abort', stop);
+  // One wait with no bound where the lock service queues its waiters, which
+  // keeps the load's place; turns elsewhere. Either is given up when the load
+  // is stopped or its delivery is gone: a lock that comes after that is let go
+  // as it comes
+  const unbounded = storage.locks.queuesWaiters === true;
+  const given = new AbortController();
+  const stop = (): void => given.abort();
+  if (signal?.aborted === true) stop();
+  signal?.addEventListener('abort', stop, { once: true });
+  let gone: unknown = null;
+  // A wait with no bound has no turn to re-reference the delivery at
+  const kept = !unbounded ? undefined : setInterval(() => {
+    reference(storage, repo, delivery).catch((err: unknown) => {
+      gone ??= err;
+      stop();
+    });
+  }, LOAD_WAIT_TURN_MS);
+  try {
+    for (;;) {
+      const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: unbounded ? Infinity : LOAD_WAIT_TURN_MS }), given.signal);
+      if (turn !== STOPPED && turn !== null) return turn;
+      if (gone !== null) throw gone;
+      if (turn === STOPPED) throw new RecordLoadStoppedError(name);
+      // Not given: its turn ran out, and it asks again
+      await reference(storage, repo, delivery);
     }
-  }
-  for (;;) {
-    const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: LOAD_WAIT_TURN_MS }), signal);
-    if (turn === STOPPED) throw new RecordLoadStoppedError(name);
-    if (turn !== null) return turn;
-    if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
-    await reference(storage, repo, delivery);
+  } finally {
+    clearInterval(kept);
+    signal?.removeEventListener('abort', stop);
   }
 }
 
@@ -796,8 +792,7 @@ async function workspaceTaken(
   storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>, head: string,
 ): Promise<boolean> {
   if (await storage.refs.workspaceRead(repo, ws) === null) return true;
-  const read = await storage.datasets.readVersioned(repo, ws, record.refPath);
-  const now = read !== null && read.ref.type === 'value' ? read.ref.value.versions.get(record.selfKeypath) : undefined;
+  const now = await recordHead(storage, repo, ws, record);
   return now === undefined || await commitsSince(storage, repo, now, head) === null;
 }
 
