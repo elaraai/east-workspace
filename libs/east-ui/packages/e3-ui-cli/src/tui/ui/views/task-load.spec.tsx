@@ -20,7 +20,7 @@ import { mountApp, type Mounted } from '../../testing/harness.js';
 let mounted: Mounted | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
 
-describe('a load\'s page', () => {
+describe('R77 — a load\'s page', () => {
     test('a load opened by its step\'s name shows its logs and its runs, no output tab, and the record it writes', async () => {
         const api = fakeRepo();
         api.task('main', { name: 'ingest', status: variant('up-to-date', { cached: false }), inputs: [], dependsOn: [] });

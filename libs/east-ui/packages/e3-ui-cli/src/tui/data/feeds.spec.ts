@@ -361,7 +361,7 @@ describe('feeds', () => {
         feeds.stop();
     });
 
-    test('the task list\'s feed reads the steps a run has: each task, and the load of a composite record\'s source that a dataset feeds (R77)', async () => {
+    test('R77 — the task list\'s feed reads the steps a run has: each task, and the load of a composite record\'s source that a dataset feeds', async () => {
         const api = fakeRepo();
         api.task('main', { name: 'erp_orders', status: variant('ready', null), inputs: ['.inputs.erp_export'], dependsOn: [] });
         api.input('main', { name: 'erp_export', type: toEastTypeValue(StringType), value: 'SO-1001' });

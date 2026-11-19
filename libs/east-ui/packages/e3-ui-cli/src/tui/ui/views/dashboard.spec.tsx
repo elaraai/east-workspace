@@ -436,7 +436,7 @@ describe('the dashboard', () => {
     });
 });
 
-describe('the dashboard over a run\'s loads (R77)', () => {
+describe('R77 — the dashboard over a run\'s loads', () => {
     const SPIN = '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]';
     // Tall enough for the whole column: the tables, the orders' row and its sources' lines
     const tall = { columns: 120, rows: 50 };
@@ -642,7 +642,7 @@ describe('dashboard model', () => {
         assert.match(shown.map(s => s.text).join(''), /task_9[0-9]|task_1\d\d/);
     });
 
-    test('the loads are the run\'s graph\'s: before it is read the table lists the tasks alone, and reading it rebuilds the model (R77)', () => {
+    test('R77 — the loads are the run\'s graph\'s: before it is read the table lists the tasks alone, and reading it rebuilds the model', () => {
         const store = createStore(initialState({ columns: 120, rows: 44 }, './demo-repo'));
         store.dispatch({ type: 'view/root', view: dashboardView() });
         const actions = fixture({ running: true, loads: true });
@@ -661,7 +661,7 @@ describe('dashboard model', () => {
         assert.deepEqual(lines, lines.map((_, i) => lines[0]! + i));
     });
 
-    test('a load\'s row says what is known of it: waiting on its feed as the run said, and nothing of its source until the record is read (R77)', () => {
+    test('R77 — a load\'s row says what is known of it: waiting on its feed as the run said, and nothing of its source until the record is read', () => {
         const store = createStore(initialState({ columns: 120, rows: 44 }, './demo-repo'));
         store.dispatch({ type: 'view/root', view: dashboardView() });
         for (const action of fixture({ loads: true })) if (action.type !== 'data/record') store.dispatch(action);
