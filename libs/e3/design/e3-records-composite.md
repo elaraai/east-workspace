@@ -24,7 +24,8 @@
 > - **Not yet audited: the builders.** §7.15, task group G and the review's
 >   tasks L and M name Sheet code that is gone. They are audited when the
 >   Plan's pull requests have landed, before the fifth pull request is cut.
->   Each such passage is marked.
+>   Each such passage is marked. The terminal UI's part, G5, is written as
+>   built, under rulings 39 to 41.
 > - **Every backend.** e3 runs over the local backend, e3-web and a hosted
 >   one. §11.1 says, for each pull request, what another backend implements
 >   and which shared suite pins it.
@@ -219,6 +220,32 @@ this document.
 38. **A load that has landed is recorded completed, however long the store
     refuses the write**: it is tried again once a second, with no bound
     (§7.5, §8).
+
+**Rulings 39 to 41, 18 November 2026.** Building the terminal UI's part of
+the fifth pull request raised three points this document left unsaid, which
+the product owner settled on the issue (#1465), where each is written out.
+The sections each names are amended below.
+
+39. **The terminal UI lists a composite record's sources under its row of
+    the dashboard's RECORDS table**, a line for each: its name, whether a
+    load or the record's mutations write it, what feeds it, its last
+    delivery and the time that delivery says its data is as of, and whether
+    the record waits for its first delivery. A source `e3 load` delivers is
+    listed too, and a plain record's row is as it was. The record's own page
+    gains no tab (§7.15).
+40. **A run counts its loads among its steps.** A workspace that has loads
+    counts its tasks and its loads together, `2 of 8 steps` and `RUNNING
+    2/8`; one that has none says `N of M tasks`, as it did. A load is a row
+    of the dashboard's tasks table, after the task that writes its feed, and
+    after the tasks when a dataset no task writes feeds it (§7.15).
+41. **A load's logs and runs are read by its step's name.** Where e3 finds a
+    task by its name to read its logs, its runs or its details, it finds the
+    load of a source by `<record>.<source>`, a load `e3 load` delivers among
+    them, and a load's log with no run named is its latest run's. No route
+    is added and no seam gains a method; the list of a workspace's tasks
+    lists its tasks alone. In the terminal UI a failed load offers its logs,
+    and a load's row opens its logs and runs. It lands as a pull request of
+    its own, before the terminal UI's (§7.8, §7.11, §7.13, §7.15, §11).
 
 **The reviewer's calls.** The review made eight engineering calls. None is a
 ruling, and each can be overturned. Calls 1 and 2 are put to the product
@@ -1649,10 +1676,11 @@ with no test is a gap a reviewer sees. These specs are new:
 | R74 | A view's Apply names an external entry | Rejected before any commit, naming the entry and its source. | §4.5 | G2 | `e3-ui-components/test/record-apply.spec.ts` |
 | R75 | A Sheet over a composite: an external row | It draws locked, saying whose it is, and an edit, a delete, a paste or a fill over it is refused with those words. | §4.5 | G3 | `e3-ui/test/sheet/sheet-record.spec.ts`, `e3-ui-components/test/sheet-record-rows.spec.ts`, `east-ui-showcase/tests/responsive/sheet-bound.spec.ts` |
 | R76 | A Sheet over a composite: a new row | It is the solution source's, keyed `variant('own', <id>)`. The edit session makes the key (R89); no Sheet option does. | §4.5 | L1 | not yet audited (§7.15) |
-| R77 | The terminal UI | The records view shows each source, and the dashboard shows a load node as a step of the run after its feed. | — | G5 | `e3-ui-cli/src/tui/data/records.spec.ts` |
+| R77 | The terminal UI | The dashboard lists a composite record's sources, a line each under its row of the RECORDS table (ruling 39), and each load as a row of the tasks table, after the task that writes its feed; a run with loads counts its steps (ruling 40). A load's row, and its failure, open its logs and runs (ruling 41). | — | G5 | `e3-ui-cli/src/tui/ui/views/dashboard.spec.tsx`, `e3-ui-cli/src/tui/data/feeds.spec.ts`, `e3-ui-cli/src/tui/ui/views/task-load.spec.tsx` |
 
-R73–R77, and R89 and R90 below, are the builders' (§7.15): their specs' paths
-are those of the first audit and are not yet audited.
+R73–R76, and R89 and R90 below, are the builders' (§7.15): their specs' paths
+are those of the first audit and are not yet audited. R77's are the terminal
+UI's as built.
 
 **Added by the review of 13 November 2026.** R54 above changed with ruling
 15. The pull request that builds each is the one §11 gives its task.
@@ -2685,8 +2713,9 @@ No node depends on a load node (F28). The record stays a root input:
 
 A name that clashes with a task's, and a cycle, are refused, naming them, as
 the SDK refuses them first (§7.1). A load node is not a task of the package:
-the `e3 task` commands do not list it. The run's state, events and lines name
-it as they name a task.
+the list of a workspace's tasks (`e3 task list`) does not list it. The run's
+state, events and lines name it as they name a task, and its logs, runs and
+details are read by its name as a task's are (ruling 41, below).
 
 **The record's version** (F17) is its commit and what its fed sources carry
 (above). A load node's completion records the feed's vector for the node
@@ -2930,6 +2959,21 @@ again. A copy writes every ref as it stands, the slots with it
 (`workspaceCopy`, `workspaces.ts:340`), and both workspaces are of one
 repository, so a copied composite reads as loaded with nothing changed.
 
+**A load's logs, runs and details (ruling 41).** A load's executions are
+kept as a task's are, under the hash of its task object, for a load a run
+makes and a load job alike: both run the load's task object over
+`[delivery, run]` (§7.5). So where e3 finds a task by its name —
+`workspaceFindTask` and `workspaceGetTaskHash` (`tasks.ts`), which the
+routes reading a task's details, its runs and its logs go through — a name
+no task has is looked up as a load's, `<record>.<source>`
+(`packageLoadStep`, `record-load-step.ts`). Only a record whose name begins
+it is read, and a source the record's mutations write is no load. A load's
+current execution is its latest run (`executionFindCurrent`), current while
+the record's `$load.<source>.execution` slot names it: a load that failed
+shows the run that failed, and one that has not run has none. No route is
+added and no seam gains a method, and the list of a workspace's tasks lists
+its tasks alone.
+
 **The upgrade step.** `e3-core/src/upgrades/dataflow-graph-loads.ts` carries
 every stored run into the form whose graph nodes carry `load`, with `none` on
 each. It follows `dataflow-force-tasks.ts`:
@@ -3168,6 +3212,8 @@ editing under is stopped first, by a stop request.
   node's `load`, and the run start answers `DataflowStartResult`, handing a
   start to the run in flight through `wake` (§7.8). Client and server ship
   together.
+- **A load's logs, runs and details** are the task routes', by the load's
+  step's name (ruling 41, §7.8). No route is added.
 - **The deploy route** takes its lock through `acquireForDeploy` (§7.9).
 
 ### 7.12 e3-api-client
@@ -3279,6 +3325,9 @@ e3-ui-components' dataset store and e3-ui-cli's run screen.
   (`watch.ts:190–193`) print a `retained` input's line.
 - **`e3 history`** says a `$load:` commit in words, with its as-of, and
   `--delta` (local) shows its delta as for a mutation (`commands/history.ts`).
+- **`e3 task logs <repo> <ws>.<record>.<source>`** shows a load's log as a
+  task's (ruling 41): its latest run's, whether a run or `e3 load` ran it.
+  `e3 task list` lists tasks alone.
 - **`e3 dataset get -f beast2` writes the stored segments** (§5 of the issue,
   F7; `commands/get.ts`).
   - Locally, a collection streams `DatasetSegments.open(…).splice()`, and any
@@ -3321,7 +3370,8 @@ does today (`stores.spec.ts`, `web-compliance.spec.ts`).
 > against the code as the Plan leaves it, before the fifth pull request is
 > cut. Until then the rules of the review, written next, are what the
 > builders must meet, and where a bullet after them disagrees, the rules
-> hold.
+> hold. The terminal UI's bullet is the exception: it says what was built,
+> under rulings 39 to 41.
 
 **The rules the builders meet** (the review's section 10; R89, R90).
 
@@ -3432,12 +3482,29 @@ does today (`stores.spec.ts`, `web-compliance.spec.ts`).
 - **One entry's rows** (`sheet/record.ts:161–195`): read-only also when the
   entry's key is of an external case, `readOnly: held.hasTag("none") ||
   <external case>` (`:189`).
-- **The terminal UI** (`e3-ui-cli` `tui/data/records.ts`, `tui/api.ts`,
-  `tui/api.fake.ts`):
-  - the records view shows a record's sources under its name: external or
-    not, its feed, the last delivery and its as-of, and pending;
-  - the workspace dashboard shows a load node as a step of the run after its
-    feed, with its pieces, from the graph's `load`.
+- **The terminal UI** (rulings 39 to 41; as built, `e3-ui-cli` `tui/`):
+  - the dashboard reads the run's graph (`dataflowGraph`) with its task
+    list, and lists each load as a row of the tasks table, after the task
+    that writes its feed, or after the tasks when a dataset no task writes
+    feeds it. Its feed is under DEPENDS ON or INPUTS, as a task's is, and its
+    record is its output. Its status is what the latest run said of the
+    step, in progress, failed, in error or waiting and why, and otherwise
+    whether its source holds a delivery: the workspace's status lists no
+    load, and the terminal UI works out none of its own (ruling 40);
+  - a run with loads counts its steps, in the execution panel and the
+    header's pill (`2 of 8 steps`, `RUNNING 2/8`); one with none counts its
+    tasks, as before (ruling 40);
+  - under a composite record's row of the RECORDS table is a line for each
+    of its sources, which no selection lands on, from the record's
+    description (`recordDescribe`'s `sources`): who writes it and what feeds
+    it, then what it holds (`fed by .tasks.combine_erp.output · last
+    delivery d41e09c2b7a3 · as of 2026-11-02 03:00:00`, `delivered by e3 load
+    · waits for its first delivery`, `holds no delivery` when none is on
+    record and none is awaited, as after a rollback forgot one, `written by
+    its mutations`). The record's own page is unchanged (ruling 39);
+  - `⏎` on a load's row, and on its failure in the execution panel, opens
+    the load's page, its stdout, its stderr and its runs, read by its step's
+    name through the task routes (ruling 41).
 - The Plan and the other editors over a record write through
   `Record.onApply`, so they cannot write an external entry. *Superseded by
   "One lock" above: every builder draws those entries locked and refuses the
@@ -3691,6 +3758,10 @@ with the requirement it checks where it checks one.
     hit applied, while a load node commits; a yield waiting for a commit in
     flight; a cancel stopping one before its write;
   - `keepOf` naming a load node's execution by its slot;
+  - a load found by its step's name (ruling 41): its task object and what it
+    loads; its latest run, for a load a run made and a load job, current
+    while the slot names it; a failed load's run; a name that is no task's
+    and no load's refused;
   - a deploy cancelling a run in flight, loading or not, from another
     `StorageBackend` client: its landed results kept, and the next run served
     from the cached pieces.
@@ -3703,7 +3774,10 @@ with the requirement it checks where it checks one.
     commit, its readers after it;
   - the run start handed to a run in flight (`handed`, with its cursor), and a
     filtered or forced start refused while one is;
-  - a deploy over the routes stopping a load job, and a run in flight.
+  - a deploy over the routes stopping a load job, and a run in flight;
+  - a load's runs, log and details by its step's name, for a load job and a
+    load a run made, the task list listing neither, and `e3 task logs` of
+    one in the CLI suite (ruling 41).
 - **e3-cli**:
   - `e3 load` locally (each delivery form) and against a server, with and
     without `--as-of`, its superseded and repeat words, and its refusal of a
@@ -3726,8 +3800,10 @@ with the requirement it checks where it checks one.
   - the Sheet's locked rows: no edit, delete, paste or fill, and the attribute
     set (DOM-measured);
   - the examples beside the specs (`docs/conventions/EXAMPLES_AUTHORING.md`).
-- **e3-ui-cli**: the records view showing sources, and the dashboard showing a
-  load node, against the fake API.
+- **e3-ui-cli**, against the fake API: a composite record's sources under its
+  row of the dashboard (ruling 39); a load's row after its feed's task, its
+  words, and the run's count of steps (ruling 40); a load's row and its
+  failure opening its page of logs and runs (ruling 41).
 
 ## 10. Out of scope, and follow-ups
 
@@ -3808,6 +3884,8 @@ tip whenever that moves. The fifth waits for the finished Plan.
    to D4.
 5. **The builders over a composite.** G1, G2, G3, G5, and the Plan's tasks L1
    to L3 and M3, as small pull requests. G4 goes. Not yet audited (§7.15).
+   G5's e3 part, a load's logs read by its step's name (ruling 41), is a
+   pull request of its own, before the terminal UI's.
 
 Docs and skills (H1 to H4) land with the pull request that makes each thing
 usable, and each adds its entries to `docs/conventions/WIRE_MIGRATION.md`
@@ -3833,6 +3911,7 @@ this for what it lands, and adds it to the seams convention.
 | 3 | An upload that writes no ref | The protocol and its routes | `TransferBackend.objectUpload`: staging, and a commit that stores an object and writes no ref | A contract suite for the store, new; `object-upload.ts` of e3-api-tests |
 | 3 | Who may load | The routes ask before they file a job | The host's rule, through the seam the routes are given; none allows what its mutate route allows | `records-load.ts`, as an admin and as a reader |
 | 4 | Fed sources | Load nodes in the shared graph, steps and loop; the commit outside the run's mutex; ruling 15 | Nothing new for a backend that runs the shared loop. The stored run state's graph gains `load` through the shared upgrade step, which reads and rewrites each run through the backend's `runStates(repo).readStored` | `dataflowTests`; `repositoryRecordTests` for the upgrade step; the `dataflow` suite of e3-api-tests |
+| 5 | A load's logs, runs and details by its step's name (ruling 41) | e3-core's lookup of a task by its name (`tasks.ts`, `record-load-step.ts`, `executionFindCurrent`) over the stores every backend has, and the task routes as they are | Nothing: no route and no seam method | `records-load.ts` and the CLI suite of e3-api-tests |
 | 5 | The builders | — | Nothing: the builders are the page's | Not yet audited (§7.15) |
 
 A backend's capacity is its own: where a load's pieces run, and how many at
@@ -4087,9 +4166,14 @@ the pull request's description, land with these.
   **Done when** R75 passes, its DOM invariant among the responsive specs.
 - G4. *Removed by the review:* `SheetRootType.newRowKey` is not added. A new
   row's key is the edit session's (L1, R89), and R76 is met there.
-- [ ] G5. *(PR 5)* The terminal UI: the records view's sources, and the dashboard's
-  load nodes.
-  **Done when** R77 passes.
+- [ ] G5. *(PR 5; its e3 part a pull request of its own before it, ruling 41)*
+  The terminal UI: a composite record's sources under its row of the
+  dashboard (ruling 39); each load a row of the tasks table, and a run with
+  loads counting its steps (ruling 40); a load's row and its failure opening
+  its logs and runs (ruling 41). In e3, a load found by its step's name for
+  the task routes and `e3 task logs` (§7.8).
+  **Done when** R77 passes, and ruling 41's cases pass in
+  `dataflow-loads.spec.ts` and the shared API suites.
 
 **H. Docs and skills**
 - [ ] H1. *(PR each)* `libs/e3/SKILL.md` (composite records, fed sources in the dataflow,
