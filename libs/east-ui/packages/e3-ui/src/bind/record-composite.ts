@@ -80,6 +80,23 @@ export function bindingSources(record: Pick<RecordDef<EastType>, "sources">): Va
         .sort((a, b) => compareNames(a.name, b.name));
 }
 
+/**
+ * Words the refusal of a record's binding that names no sources: one a UI
+ * exported by an e3-ui from before composite records makes, whose
+ * `record_bind` takes the record's name alone.
+ *
+ * @remarks
+ * What reads a UI's IR before it deploys (`deriveUiAccess`) and what binds
+ * the record as the UI runs (`RecordRuntime`) refuse it in these words: a UI
+ * is exported again, and no reader binds the form it had before.
+ *
+ * @param record - The record's name
+ * @returns The refusal, which says to export the UI's package again
+ */
+export function bindingNamesNoSources(record: string): string {
+    return `record_bind names no sources for record "${record}": an e3-ui from before composite records exported this UI — export its package again`;
+}
+
 /** {@link externalSourceOf}'s function, over a record's key type. */
 export type ExternalSourceOf<K extends EastType = EastType> =
     ExprType<FunctionType<[K, RecordBindingSourcesType], OptionType<StringType>>>;

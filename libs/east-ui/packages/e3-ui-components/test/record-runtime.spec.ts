@@ -39,6 +39,7 @@ import {
     printFor,
     toEastTypeValue,
     variant,
+    type EastTypeValue,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { FuncDraftType, RecordBindHandleType, RecordBindingSourcesType } from "@elaraai/e3-ui/internal";
@@ -191,6 +192,14 @@ describe("RecordRuntime — read side", () => {
         assert.ok(sourcesEqual(again.binding.sources, []));
         assert.ok(sourcesEqual(handle.binding.sources, ORDER_SOURCES));
         assert.equal(again.read, handle.read, "the compiled methods are the cached ones");
+    });
+
+    test("R73 — a bind that names no sources, as a UI an e3-ui from before composite records exported makes, is refused naming the record, in the words deriveUiAccess refuses it in", () => {
+        // The bind as that UI's IR calls it: the record's name, its one argument.
+        const bind = (new RecordRuntime().buildPlatform(null).fn as (handle: EastTypeValue) => (...args: unknown[]) => unknown)(toEastTypeValue(CounterHandle));
+        assert.throws(() => bind("counter"), {
+            message: 'record_bind names no sources for record "counter": an e3-ui from before composite records exported this UI — export its package again',
+        });
     });
 
     test("R73 — the binding's sources survive the handle's encoding: a handle decoded elsewhere names them still", async () => {

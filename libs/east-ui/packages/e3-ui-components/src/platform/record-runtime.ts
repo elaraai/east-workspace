@@ -64,7 +64,8 @@ import {
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
 import {
-    recordBindPlatformFn, RecordBindPrimitives, type FuncDraftType, type RecordBindingSourcesType, type RecordErrorType, type RecordOutcomeType,
+    bindingNamesNoSources, recordBindPlatformFn, RecordBindPrimitives,
+    type FuncDraftType, type RecordBindingSourcesType, type RecordErrorType, type RecordOutcomeType,
 } from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
@@ -890,7 +891,9 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
 
     /** Build a `Record.bind` PlatformFunction bound to this runtime. Pass
      *  `allowed=null` for an unscoped impl; pass a Set of record names for
-     *  manifest scoping. */
+     *  manifest scoping. A bind that names no sources — a UI an e3-ui from
+     *  before composite records exported — is refused, saying to export the
+     *  UI's package again, in the words `deriveUiAccess` refuses it in. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return recordBindPlatformFn.implement((handleType: EastTypeValue) =>
             (nameArg: unknown, sourcesArg: unknown) => {
@@ -901,6 +904,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                         `bind it in the task body so derivation records it`,
                     );
                 }
+                if (sourcesArg === undefined) throw new Error(bindingNamesNoSources(name));
                 return this.buildHandle(handleType, name, sourcesArg as ValueTypeOf<RecordBindingSourcesType>);
             },
         );

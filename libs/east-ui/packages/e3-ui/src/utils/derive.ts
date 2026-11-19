@@ -42,7 +42,7 @@ import {
 } from '@elaraai/east';
 import { TreePathType, type TreePath } from '@elaraai/e3-types';
 import type { DataBindModeType } from '../bind/data.js';
-import { RecordBindingSourcesType } from '../bind/record-composite.js';
+import { RecordBindingSourcesType, bindingNamesNoSources } from '../bind/record-composite.js';
 import type { DataManifest } from './manifest.js';
 
 /** Platform-fn name we extract paths from. */
@@ -340,9 +340,7 @@ export function deriveUiAccess(ir: IR): UiAccess {
                 // The record's sources, the binding's second literal. They are the record's, so every binding of it
                 // names them alike: a UI that names them two ways says two things of which entries a load writes,
                 // and a host could check only one against the package.
-                if (args[1] === undefined) {
-                    throw new Error(`record_bind names no sources for record "${record.name}": an e3-ui from before composite records exported this UI — export its package again`);
-                }
+                if (args[1] === undefined) throw new Error(bindingNamesNoSources(record.name));
                 const sources = constValueOf(args[1]) as ValueTypeOf<RecordBindingSourcesType>;
                 if (record.sources === null) record.sources = sources;
                 else if (!sameSources(record.sources, sources)) {
