@@ -29,7 +29,7 @@ import type { CatchUpPhase } from '../dataflow.js';
 import type { OrchestratorStartOptions } from '../dataflow/orchestrator/interfaces.js';
 import type { DeferReason } from '../dataflow/types.js';
 import { acquireWorkspaceExclusive, workspaceIntentLock } from '../deploy-lock.js';
-import { DataflowAbortedError, ObjectNotFoundError, WorkspaceLockError } from '../errors.js';
+import { DataflowAbortedError, ObjectNotFoundError, RecordDeployRefusedError, WorkspaceLockError, WorkspaceNotFoundError } from '../errors.js';
 import { GatedTaskRunner } from '../execution/GatedTaskRunner.js';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
@@ -1729,5 +1729,50 @@ export function dataflowFollowCases(setup: BackendSetup): void {
       for (const name of tasks.keys()) runner.pass(name);
       for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
     }
+  });
+
+  it('stops no run for a deploy or a copy that is refused: a version no package has, a record the package cannot carry, a source no workspace has, and a source held whole', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployCombined(t, context);
+    // A later version whose record `orders` is of another type, with no migration to carry it
+    const names = DictType(StringType, StringType);
+    const renamed = e3.record('orders', names, { initial: new Map() });
+    const count = e3.task('forecast', [renamed], East.function([names], IntegerType, ($, rows) => rows.size()));
+    const zip = join(scratch(t), 'combined-2.zip');
+    await e3.export(e3.package('combined', '2.0.0', renamed, count), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, 'other');
+    await workspaceDeploy(storage, repo, 'other', 'combined', '1.0.0');
+
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    // A run that stopped takes no wake: one in flight answers its own id
+    const inFlight = async (after: string): Promise<void> => assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id, `the run goes on after ${after}`);
+
+    try {
+      await assert.rejects(workspaceDeploy(storage, repo, 'ws', 'combined', '9.9.9'), { name: 'PackageNotFoundError' });
+      await inFlight('a deploy of a version no package has');
+      await assert.rejects(workspaceDeploy(storage, repo, 'ws', 'combined', '2.0.0'), RecordDeployRefusedError);
+      await inFlight('a deploy the record refuses');
+      await assert.rejects(workspaceCopy(storage, repo, 'nowhere', 'ws'), WorkspaceNotFoundError);
+      await inFlight('a copy of a workspace that does not exist');
+      const deploying = await acquireWorkspaceExclusive(storage, repo, 'other', variant('deployment', null));
+      try {
+        await assert.rejects(workspaceCopy(storage, repo, 'other', 'ws'), WorkspaceLockError);
+      } finally {
+        await deploying.release();
+      }
+      await inFlight('a copy of a workspace a deploy holds');
+    } finally {
+      for (const name of tasks.keys()) runner.pass(name);
+      for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    }
+    assert.equal((await orchestrator.wait(handle)).success, true);
+    assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CANCELLED]')), [], 'no task was stopped');
   });
 }

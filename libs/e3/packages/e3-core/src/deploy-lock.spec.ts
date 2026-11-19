@@ -123,12 +123,13 @@ describe('a workspace\'s intent', () => {
     const operation: LockOperation = variant('export', null);
     const held = await storage.locks.acquire(repo, WS, operation);
     assert.ok(held !== null);
-    // How the deploy asked for the workspace's lock: waiting, for what was
-    // left of its wait
-    const asked: Array<{ wait?: boolean; timeout?: number }> = [];
+    // How the deploy asked for the workspace's lock: to share it, without
+    // waiting, to decide before it announced itself; then whole, waiting for
+    // what was left of its wait
+    const asked: Array<{ mode?: string; wait?: boolean; timeout?: number }> = [];
     const acquire = storage.locks.acquire.bind(storage.locks);
     storage.locks.acquire = (lockRepo, resource, lockOperation, options) => {
-      if (resource === WS) asked.push({ wait: options?.wait, timeout: options?.timeout });
+      if (resource === WS) asked.push({ mode: options?.mode, wait: options?.wait, timeout: options?.timeout });
       return acquire(lockRepo, resource, lockOperation, options);
     };
     try {
@@ -139,9 +140,10 @@ describe('a workspace\'s intent', () => {
         assert.equal(err.message, `Workspace '${WS}' is locked by an export in process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
         return true;
       });
-      assert.equal(asked.length, 1, 'it asked for the workspace once');
-      assert.equal(asked[0]!.wait, true, 'it waited before it was refused');
-      assert.ok(asked[0]!.timeout !== undefined && asked[0]!.timeout > 0 && asked[0]!.timeout <= 300, `for what was left of its wait, not ${asked[0]!.timeout}`);
+      assert.deepEqual(asked.map((each) => each.mode ?? 'exclusive'), ['shared', 'exclusive'], 'it asked to share the workspace, then for the workspace whole, once each');
+      assert.equal(asked[0]!.wait, undefined, 'it did not wait to share a workspace something holds whole');
+      assert.equal(asked[1]!.wait, true, 'it waited before it was refused');
+      assert.ok(asked[1]!.timeout !== undefined && asked[1]!.timeout > 0 && asked[1]!.timeout <= 300, `for what was left of its wait, not ${asked[1]!.timeout}`);
       assert.equal(await announcedIntent(storage, repo, WS), null);
       assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '1.0.0', 'nothing was deployed');
     } finally {

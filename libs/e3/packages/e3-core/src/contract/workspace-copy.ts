@@ -177,8 +177,8 @@ export function workspaceCopyTests(setup: BackendSetup): void {
       };
       await workspaceCopy(ws.storage, ws.repo, PROD, STAGING);
       assert.deepEqual(taken, [
-        `${workspaceIntentLock(STAGING)} workspace_copy exclusive`, `${STAGING} workspace_copy exclusive`, `${PROD} workspace_copy shared`,
-      ], 'it announces itself on the target\'s intent, then takes the target');
+        `${PROD} workspace_copy shared`, `${workspaceIntentLock(STAGING)} workspace_copy exclusive`, `${STAGING} workspace_copy exclusive`,
+      ], 'it holds its source first, so a copy refused for its source announces nothing; then it announces itself on the target\'s intent, and takes the target');
     });
 
     it('copies a workspace nothing is deployed to as one nothing is deployed to', async (t) => {
