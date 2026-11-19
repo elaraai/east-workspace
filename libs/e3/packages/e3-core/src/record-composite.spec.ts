@@ -481,6 +481,21 @@ describe('a composite record: an external entry is never written (the mutation\'
       'no commit joined its history');
   });
 
+  it('R4 — a write the state moved under that names an entry of an external source is refused as invalid, for the entry: its case is read before the state is', async () => {
+    const before = await storage.datasets.read(repo, WS, 'records/orders');
+    const ordersOf = (...rows: Array<[OrderKey, OrderRow]>) => new SortedMap<OrderKey, OrderRow>(rows, compareFor(OrdersKey));
+    /** A patch that replaces a state the record does not hold — it holds P-1 — with `after`. */
+    const replaces = (after: SortedMap<OrderKey, OrderRow>) => mutate('patch', [encodePatch(variant('replace', { before: ordersOf(), after }))]);
+
+    // The program finds the write stale, and emits its ops beside the conflict: the ERP's order among them
+    assert.deepEqual(await replaces(ordersOf([ERP_ORDER, acme], [variant('own', 'P-2'), acme])), { kind: 'invalid', message: refusal('patch') });
+    // The same stale write of the solution's own entries alone is the conflict it was
+    assert.deepEqual(await replaces(ordersOf([variant('own', 'P-2'), acme])),
+      { kind: 'conflict', attempts: 1, detail: 'the patch replaces a state the record no longer holds' });
+
+    assert.deepEqual(await storage.datasets.read(repo, WS, 'records/orders'), before, 'the record stands where it stood');
+  });
+
   it('R4 — the same mutations write the solution\'s own entries, and the index with them', async () => {
     for (const [mutation, args] of [
       ['plan', [encodeString('P-2'), encodeOrder(acme)]],

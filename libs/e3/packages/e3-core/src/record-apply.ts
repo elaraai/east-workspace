@@ -175,7 +175,9 @@ class DeltaCursor {
  *
  * A delta whose program found the write stale opens with a
  * {@link DELTA_CONFLICT} entry, which sorts before every target, so it is
- * refused before anything is written.
+ * refused before anything is written. A write held to some cases is asked
+ * first whether it names an entry of another: the case is read before the
+ * state is, so such a write is refused for the entry, stale or not.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -210,7 +212,9 @@ export async function applyDelta(
  * A write held to some cases of a composite record's key is refused where it
  * names an entry of another, as the op is taken and before the target's
  * manifest is written. The apply streams, so segments an earlier batch of ops
- * stored may exist: nothing names them, and nothing commits.
+ * stored may exist: nothing names them, and nothing commits. A delta that
+ * says the write is stale is read on to the end of its `primary` ops first,
+ * and refused for an entry of another case where it names one.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -238,7 +242,11 @@ export async function applyDeltaEntries(
   const writes: Array<{ target: string; written: Promise<string> }> = [];
   try {
     for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
-      if (entry.target === DELTA_CONFLICT) throw new DeltaConflictError(entry.key as string);
+      if (entry.target === DELTA_CONFLICT) {
+        // The case is read before the state is: a stale write that names an entry of another case is refused for that
+        if (options.cases !== undefined) await refuseOtherCases(storage, repo, targets, cursor, options.cases);
+        throw new DeltaConflictError(entry.key as string);
+      }
       const hash = targets.get(entry.target);
       if (hash === undefined) {
         throw new Error(
@@ -259,6 +267,64 @@ export async function applyDeltaEntries(
   const written = new Map<string, string>();
   for (const write of writes) written.set(write.target, await write.written);
   return written;
+}
+
+/**
+ * The check a write held to some cases makes of each key of its record's own
+ * collection: a check of the key's case, which reads no state.
+ *
+ * @param target - The target, as the delta names it
+ * @param keyType - The target's key type
+ * @param cases - The cases the write may touch
+ * @returns The check, which throws for a key that is no case's, and
+ *   {@link ExternalEntryError} for a key of a case the write may not touch
+ */
+function caseCheck(target: string, keyType: EastTypeValue, cases: ReadonlySet<string>): (key: unknown) => void {
+  const print = printFor(fromEastTypeValue(keyType));
+  return (key) => {
+    if (!isVariant(key)) throw new Error(`a write held to the sources ${[...cases].join(', ')} names a key of '${target}' that is no source's`);
+    if (!cases.has(key.type)) throw new ExternalEntryError(key, key.type, print(key));
+  };
+}
+
+/**
+ * Reads a delta that says its write is stale on to the end of its `primary`
+ * ops, and refuses one on a key of a case the write may not touch.
+ *
+ * @remarks
+ * A program emits the write's ops beside the conflict it found, so the keys
+ * the write names are the delta's to read: no state is. The delta is what the
+ * write touched, and nothing is applied either way.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param cursor - The delta, at its conflict
+ * @param cases - The cases the write may touch
+ * @throws {ExternalEntryError} When a `primary` op names a key of another case
+ */
+async function refuseOtherCases(
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  cursor: DeltaCursor,
+  cases: ReadonlySet<string>,
+): Promise<void> {
+  const hash = targets.get(PRIMARY_TARGET);
+  if (hash === undefined) return;
+  let check: ((key: unknown) => void) | undefined;
+  for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
+    // Each target's ops are one run: past the record's own, none is left to read
+    if (entry.target !== PRIMARY_TARGET && check !== undefined) return;
+    cursor.take();
+    if (entry.target !== PRIMARY_TARGET) continue;
+    if (check === undefined) {
+      const keyType = segmentKeyTypeOf((await DatasetSegments.open(storage, repo, hash)).typeValue);
+      if (keyType === null) return;
+      check = caseCheck(PRIMARY_TARGET, keyType, cases);
+    }
+    check(entry.key);
+  }
 }
 
 /** A delta's entries as the cursor takes them, held or read. */
@@ -395,12 +461,7 @@ async function writeTarget(
   if (keyType === null) {
     throw new Error(`a mutation delta addresses Set and Dict targets by key; '${target}' holds Array`);
   }
-  /** Refuses a key of a case the write may not touch: a check of the key's case, which reads no state. */
-  const checkCase = (key: unknown): void => {
-    if (cases === undefined) return;
-    if (!isVariant(key)) throw new Error(`a write held to the sources ${[...cases].join(', ')} names a key of '${target}' that is no source's`);
-    if (!cases.has(key.type)) throw new ExternalEntryError(key, key.type, printFor(fromEastTypeValue(keyType))(key));
-  };
+  const checkCase = cases === undefined ? undefined : caseCheck(target, keyType, cases);
   const keyCompare = compareFor(keyType as never) as (a: unknown, b: unknown) => number;
   const apply = applyFor(typeValue);
   const decodeSegment = decodeBeast2For(typeValue) as (bytes: Uint8Array) => unknown;
@@ -448,7 +509,7 @@ async function writeTarget(
         release();
         break;
       }
-      checkCase(entry.key);
+      checkCase?.(entry.key);
       const segment = await segmentOf(entry.key);
       let last = groups.at(-1);
       if (last === undefined || last.segment !== segment) {

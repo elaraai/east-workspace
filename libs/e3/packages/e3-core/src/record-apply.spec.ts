@@ -25,7 +25,7 @@ import {
   DictType, IntegerType, NullType, SEGMENT_RULE_KEYED, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
   compareFor, decodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
+import { DELTA_CONFLICT, RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { datasetWrite } from './trees.js';
 import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries } from './record-apply.js';
@@ -416,6 +416,10 @@ describe('applying a mutation delta', () => {
     const orders = (): SortedMap<SourceKey, Row> => new SortedMap<SourceKey, Row>(
       [[variant('erp', 'SO-1001'), row(1)], [variant('own', 'P-1'), row(2)]], ordersOrder);
     const OWN = { cases: new Set(['own']) };
+    /** The refusal of an op on the ERP's entry: the key, its source, and the words. */
+    const refused = (key: string) => (err: unknown) => err instanceof ExternalEntryError && err.source === 'erp' && err.printed === `.erp "${key}"`
+      && ordersOrder(err.key as SourceKey, variant('erp', key)) === 0
+      && err.message === `.erp "${key}" is an entry of source 'erp', which this write may not write`;
 
     it('takes every op on a key of its cases, and writes what the door writes', async () => {
       const hash = await store(OrdersType, orders());
@@ -431,9 +435,6 @@ describe('applying a mutation delta', () => {
 
     it('refuses an op on a key of any other case as it is taken, naming the key and its source, whatever the state holds', async () => {
       const hash = await store(OrdersType, orders());
-      const refused = (key: string) => (err: unknown) => err instanceof ExternalEntryError && err.source === 'erp' && err.printed === `.erp "${key}"`
-        && ordersOrder(err.key as SourceKey, variant('erp', key)) === 0
-        && err.message === `.erp "${key}" is an entry of source 'erp', which this write may not write`;
       const apply = async (ops: Array<[unknown, unknown]>, options?: { cases: Set<string> }) =>
         applyDelta(storage, repo, new Map([['primary', hash]]), await delta('primary', SourceKeyType, OrdersType, ops), options);
 
@@ -448,6 +449,29 @@ describe('applying a mutation delta', () => {
       const after = orders();
       after.set(variant('erp', 'SO-9'), row(9));
       assert.equal((await apply([[variant('erp', 'SO-9'), variant('insert', row(9))]])).get('primary'), await store(OrdersType, after));
+    });
+
+    it('R4 — refuses a stale write that names an entry of another case for the entry, not as a conflict: its ops are read before its conflict is answered', async () => {
+      const EntryType = StructType({ ik: StringType, k: SourceKeyType });
+      const primary = await store(OrdersType, orders());
+      const index = await store(DictType(EntryType, NullType), new SortedMap<ValueTypeOf<typeof EntryType>, null>(
+        [[{ ik: 'Plan 1', k: variant('erp', 'SO-1001') }, null], [{ ik: 'Plan 2', k: variant('own', 'P-1') }, null]], compareFor(EntryType)));
+      const targets = new Map([['primary', primary], ['by_title', index]]);
+      // What a write's program emits when the state moved under it: the conflict, which sorts first, and its ops all the same
+      const stale = { target: DELTA_CONFLICT, key: 'update of .erp "SO-1001", whose row no longer matches the patch', op: null };
+      const retitled = variant('update', variant('patch', { due: variant('unchanged', null), title: variant('replace', { before: 'Plan 0', after: 'RETITLED' }) }));
+      const ofTheErp = { target: 'primary', key: variant('erp', 'SO-1001'), op: retitled };
+      const ofItsOwn = { target: 'primary', key: variant('own', 'P-1'), op: retitled };
+      const indexed = { target: 'by_title', key: { ik: 'Plan 1', k: variant('erp', 'SO-1001') }, op: variant('delete', null) };
+      const conflict = (err: unknown) => err instanceof DeltaConflictError && err.message === stale.key;
+
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, ofTheErp], OWN), refused('SO-1001'));
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, indexed, ofTheErp, ofItsOwn], OWN), refused('SO-1001'),
+        'past an index\'s arm, whose entries are held to no case');
+      // A stale write of its own cases alone is the conflict it was, and so is any write held to no case
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, indexed, ofItsOwn], OWN), conflict);
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale], OWN), conflict, 'one that names no key');
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, ofTheErp]), conflict);
     });
 
     it('holds the record\'s own collection alone: an index\'s entries follow its rows', async () => {
