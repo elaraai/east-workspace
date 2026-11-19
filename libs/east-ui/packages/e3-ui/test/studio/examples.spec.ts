@@ -7,9 +7,8 @@ import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import * as component from "./component.examples.js";
 import * as page from "./page.examples.js";
 import * as studio from "./studio.examples.js";
-import * as tiles from "./tiles.examples.js";
 
-describeEast("Studio examples (#991–#1000, #1669, #1671, #1672, #1692)", (test) => {
+describeEast("Studio examples (#991–#1000, #1669, #1671, #1672)", (test) => {
     Assert.examples(test, {
         studioComponent: component.studioComponent,
         studioPage: page.studioPage,
@@ -22,6 +21,5 @@ describeEast("Studio examples (#991–#1000, #1669, #1671, #1672, #1692)", (test
         studioVisuals: studio.studioVisuals,
         studioChartOptions: studio.studioChartOptions,
         studioClicks: studio.studioClicks,
-        studioKpiSizes: tiles.studioKpiSizes,
     });
 }, { platformFns: TestImpl });

@@ -5,12 +5,12 @@
 
 /**
  * What the Studio's tile tests draw a page with (#1670, #1673), on e3 itself:
- * a source of the tile tests' own three orders, deployed with the Studio's
- * tiles examples (`tiles.examples.tsx`); a page of placements over it, mounted
- * as the showcase mounts the tiles' example; and the reader's filters of the
- * page set as its rail sets them — for the tests of a tile, of a page's
- * clicks and of a filter's conditions. A file that draws with them calls
- * {@link tileHarness} once, at its top.
+ * a source of the tile tests' own three orders, deployed beside the Studio's
+ * examples from their data module (`tiles.examples.tsx`); a page of placements
+ * over it, mounted as the showcase mounts a Studio example; and the reader's
+ * filters of the page set as its rail sets them — for the tests of a tile, of
+ * a page's clicks and of a filter's conditions. A file that draws with them
+ * calls {@link tileHarness} once, at its top.
  *
  * @packageDocumentation
  */
@@ -29,9 +29,8 @@ import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
 
 /**
- * The file's e3: the Studio's tiles examples deployed — the tile tests' own
- * data among them — with the Studio examples' orders the tiles' example
- * reads, a workspace of its own each test.
+ * The file's e3: the Studio's examples deployed with the tile tests' own data
+ * beside them, a workspace of its own each test.
  *
  * @returns The harness
  */
@@ -62,16 +61,16 @@ export function cell(key: string, content: ValueTypeOf<typeof StudioCellType>["c
 }
 
 /**
- * Mounts what a page draws on e3, as the showcase mounts an example — the
- * test's workspace, its calls, its sources' status read from it — and settles
- * once it has rendered.
+ * Mounts what a page draws on e3, in the page of visuals' place as the
+ * showcase mounts that example — the test's workspace, its calls, its
+ * sources' status read from it — and settles once it has rendered.
  *
  * @param view - What the page draws
  * @param host - What the host holds the page in, inside e3's providers: its own `E3Provider`, say
  * @returns What Testing Library rendered
  */
 export function onE3(view: ReactNode, host?: MountOptions["host"]): Promise<RenderResult> {
-    return currentHarness().mount(tiles.studioKpiSizes, { view, ...(host === undefined ? {} : { host }) });
+    return currentHarness().mount(studio.studioVisuals, { view, ...(host === undefined ? {} : { host }) });
 }
 
 /** A page of placements over the sources — the orders unless given — on e3, and who it tells a click opens another page. */
