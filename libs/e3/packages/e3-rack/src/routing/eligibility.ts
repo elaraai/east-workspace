@@ -3,8 +3,9 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { DetachedCallRequest, StorageBackend, TaskBodyRequest } from '@elaraai/e3-core';
-import { decodeEnvironmentSpec, decodeTaskObject } from '@elaraai/e3-types';
+import { pythonInstalls } from '@elaraai/e3';
+import { decodeEnvironmentFile, type DetachedCallRequest, type StorageBackend, type TaskBodyRequest } from '@elaraai/e3-core';
+import { decodeEnvironmentSpec, decodeTaskObject, type EnvironmentSpec, type RunnerValue } from '@elaraai/e3-types';
 import { selectTask, type RackComputeSize, type RackPolicy, type TaskSelection } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms, scanProgram } from './host-coupling.js';
@@ -31,19 +32,35 @@ export interface EligibilityOptions {
 }
 
 /**
- * Why the environment work declares cannot go to a rack, or null when it can:
- * an environment that is files of the launching machine's platform, or a
+ * Why the environment work declares cannot go to a rack, or null when it can.
+ *
+ * @remarks
+ * An environment that is files of the launching machine's platform, or a
  * server's image, is not installed for a rack's; nor is one built on Windows,
  * whose built environments have another layout. A spec of another type than
  * this release's is refused by the one decoder every reader goes through, and
  * the work stays here, where running it says why.
  */
-async function environmentRefusal(storage: StorageBackend, repo: string, environment: string | null): Promise<IneligibleReason | null> {
-  if (environment === null) return null;
-  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, environment), environment);
+function environmentRefusal(spec: EnvironmentSpec): IneligibleReason | null {
   if (spec.type === 'tools' || spec.type === 'image') return `environment:${spec.type}`;
   if (process.platform === 'win32') return 'environment:windows-host';
   return null;
+}
+
+/**
+ * What a python environment installs, read from its lock as its sync takes it
+ * ({@link pythonInstalls}): a project's with its own `pyproject.toml`, which
+ * says the groups it installs; none of a node environment. Each file is
+ * decoded as every reader of an environment's files decodes one (e3-core's
+ * `decodeEnvironmentFile`), which refuses a file an older SDK stored raw.
+ */
+async function readInstalls(storage: StorageBackend, repo: string, spec: EnvironmentSpec): Promise<string[]> {
+  if (spec.type !== 'python' && spec.type !== 'workspace_python') return [];
+  const read = async (hash: string): Promise<string> => new TextDecoder().decode(decodeEnvironmentFile(await storage.objects.read(repo, hash), hash));
+  const lock = await read(spec.value.lock);
+  return spec.type === 'python'
+    ? pythonInstalls(lock, { kind: 'project', pyproject: await read(spec.value.pyproject) })
+    : pythonInstalls(lock, { kind: 'members', subjects: spec.value.subjects, requires: spec.value.requires });
 }
 
 /** The refusal of a program that calls platform functions reaching the host, or null for one that calls none. */
@@ -58,7 +75,8 @@ function eligible(selection: TaskSelection, tier: RackTier, environment: string 
 }
 
 /**
- * Evaluates routing once per logical task and graph name for a run.
+ * Evaluates routing once per logical task and graph name for a run, and reads
+ * what each environment the run's work declares installs once.
  * The program and output reducer are task-object references, so a merge that
  * arrives before any map (cached maps) receives the same complete scan.
  * @example
@@ -66,6 +84,9 @@ function eligible(selection: TaskSelection, tier: RackTier, environment: string 
  */
 export class EligibilityEvaluator {
   private readonly verdicts = new Map<string, Promise<Eligibility>>();
+  /** What each environment installs, by repository and spec: a lock is read
+   *  once for a run, however much of its work declares it. */
+  private readonly installs = new Map<string, Promise<string[]>>();
 
   /**
    * @param policy - The policy snapshot for this run
@@ -111,9 +132,7 @@ export class EligibilityEvaluator {
     if (selection === null) return { eligible: false, reason: 'not-selected' };
     try {
       const environment = request.spec.environment ?? null;
-      const refused = await environmentRefusal(storage, request.repo, environment);
-      if (refused !== null) return { eligible: false, reason: refused };
-      const tier = rackTierFor(request.spec.runner, { environment: environment !== null, gpu: selection.gpu });
+      const tier = await this.route(storage, request.repo, request.spec.runner, environment, selection.gpu);
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (!selection.allowHostCoupled) {
         const coupled = hostCoupling(hostCoupledPlatforms(collectPlatformNames(request.spec.bodyIr)));
@@ -131,15 +150,38 @@ export class EligibilityEvaluator {
     return selection.target === 'local' && this.options.selected !== true ? null : selection;
   }
 
+  /**
+   * The tier work runs on, or why it cannot go to a rack: from its runner, the
+   * environment it declares, and its rule's GPU ({@link rackTierFor}). What a
+   * python environment installs is read only where it can move the work, from
+   * the slim python image to the one that holds it, and once for a run
+   * ({@link readInstalls}).
+   */
+  private async route(storage: StorageBackend, repo: string, runner: RunnerValue, environment: string | null, gpu: boolean):
+    Promise<{ tier: RackTier } | { ineligible: IneligibleReason }> {
+    const spec = environment === null ? null : decodeEnvironmentSpec(await storage.objects.read(repo, environment), environment);
+    const refused = spec === null ? null : environmentRefusal(spec);
+    if (refused !== null) return { ineligible: refused };
+    const asks = { environment: spec !== null, gpu };
+    const route = rackTierFor(runner, asks);
+    if (environment === null || spec === null || !('tier' in route) || route.tier !== 'py') return route;
+    const key = JSON.stringify([repo, environment]);
+    let installs = this.installs.get(key);
+    if (installs === undefined) {
+      if (this.installs.size >= 4096) this.installs.clear();
+      installs = readInstalls(storage, repo, spec);
+      this.installs.set(key, installs);
+    }
+    return rackTierFor(runner, { ...asks, installs: await installs });
+  }
+
   private async check(request: TaskBodyRequest, logicalHash: string, name: string): Promise<Eligibility> {
     const selection = this.select(name);
     if (selection === null) return { eligible: false, reason: 'not-selected' };
     try {
       const task = logicalHash === request.taskHash ? request.task : decodeTaskObject(await request.storage.objects.read(request.repo, logicalHash));
       const environment = task.environment.type === 'some' ? task.environment.value : null;
-      const refused = await environmentRefusal(request.storage, request.repo, environment);
-      if (refused !== null) return { eligible: false, reason: refused };
-      const tier = rackTierFor(task.runner, { environment: environment !== null, gpu: selection.gpu });
+      const tier = await this.route(request.storage, request.repo, task.runner, environment, selection.gpu);
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (task.body.type !== 'east') return { eligible: false, reason: 'custom-runner' };
       if (!selection.allowHostCoupled) {

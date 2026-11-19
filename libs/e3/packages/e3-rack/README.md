@@ -327,10 +327,14 @@ how one is told to be the image's. It is neither packed nor sent.
 **For torch to stay in the tier, ask for it through the datascience package's
 extras.** A member that lists `elaraai-east-py-datascience[torch,lightning]`,
 and no torch of its own, locks the torch from PyPI that its release was tested
-with, which that release's `py-datascience` image holds. A member that lists
-`torch` itself locks the newest, and is sent it. So is one that takes torch
-from a PyTorch index: its `+cpu` or `+cu130` build meets the extras' pin, since
-a pin with no local label is met by every local label, and is not the image's.
+with, which that release's `py-datascience` image holds; and its task runs over
+that image, whatever platforms its runner names, since its environment
+installs the datascience platform. A member that lists `torch` itself runs
+over that image too, but locks the newest, and is sent it, unless the
+release's pins below hold it at the image's. One that takes torch from a
+PyTorch index is sent it too: its `+cpu` or `+cu130` build meets the extras'
+pin, since a pin with no local label is met by every local label, and is not
+the image's.
 What nothing pins is still sent when it has moved since the release: numpy and
 other small packages. A project holds those to the tier with the pins of the
 release's `east-py-constraints.txt` (in `@elaraai/e3-core`'s `tier/`), under
@@ -355,8 +359,15 @@ A task whose environment cannot go to a rack runs here, and says why on its
 | Names a platform package and declares no environment | `non-stock-platform:<name>` | A rack has nowhere to find the package. |
 | Its rule says `--gpu` and it is not an `east-py` task | `gpu-not-east-py` | The GPU tier is python's. |
 
-A task's tier is its runner's, `py-datascience` when it names
-`east-py-datascience`, and `py-datascience` when its rule says `--gpu`.
+A task's tier is its runner's. An `east-py` task runs on `py-datascience` when
+it names `east-py-datascience`, when the environment it declares installs that
+platform or torch (`elaraai-east-py-datascience`, `torch`, read from its lock
+as its sync installs them), or when its rule says `--gpu`, and on `py`
+otherwise. Only `--gpu` asks for the rack's GPU. Work no rack of its tier
+takes runs here, at once, or under `--rack-only` once two minutes have passed
+with none, and its `[LOCAL]` line says why (`no-rack-for-tier:py-datascience`
+where no rack serves the tier). It never falls back to `py`, which would send
+torch with its environment.
 
 ### One task or one call
 

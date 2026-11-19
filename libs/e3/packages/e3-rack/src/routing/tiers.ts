@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { STOCK_PLATFORMS_BY_RUNNER } from '@elaraai/e3';
+import { STOCK_PLATFORMS_BY_RUNNER, canonicalPythonName } from '@elaraai/e3';
 import type { RunnerValue } from '@elaraai/e3-types';
 
 /** Stock runtime images available to rack agents. */
@@ -24,9 +24,20 @@ export interface RackTierAsks {
   /** Whether the task declares an environment, which carries the platform
    *  packages its runner names */
   environment?: boolean;
+  /** The distributions the environment it declares installs, by name, as
+   *  `@elaraai/e3`'s `pythonInstalls` names them */
+  installs?: readonly string[];
   /** Whether its rule asks for a rack's GPU */
   gpu?: boolean;
 }
+
+/**
+ * What only the `py-datascience` image holds of what an environment may
+ * install, by PEP 503 name: the datascience platform, and torch, which it
+ * installs with torch's CUDA libraries. An environment built over that image
+ * leaves either to it, where it is the image's build.
+ */
+const DATASCIENCE_IMAGE_DISTRIBUTIONS: readonly string[] = ['elaraai-east-py-datascience', 'torch'];
 
 /**
  * Chooses the runtime image a task's work runs over, refusing a
@@ -34,14 +45,19 @@ export interface RackTierAsks {
  * find: one named by a task that declares no environment.
  *
  * A task's tier is its runner's. An `east-py` task runs on `py-datascience`
- * when its platforms name `east-py-datascience`, or its rule asks for a GPU:
- * the tier a rack gives its GPU to. Only an `east-py` task may ask for one.
+ * when its platforms name `east-py-datascience`, the environment it declares
+ * installs the datascience platform or torch, or its rule asks for a GPU.
+ * That image holds the platform and what it installs, torch among it, so an
+ * environment built over it leaves them to the image; it is also the tier a
+ * rack gives its GPU to, which the work takes only when its rule asks for
+ * one. Only an `east-py` task may ask for one.
  *
  * @param runner - The task's wire runner
- * @param asks - Whether the task declares an environment, and asks for a GPU
+ * @param asks - Whether the task declares an environment, what that
+ *   environment installs, and whether it asks for a GPU
  * @returns Its tier, or the reason it cannot run on the rack
  * @example
- * const route = rackTierFor(task.runner, { environment: task.environment.type === 'some' });
+ * const route = rackTierFor(task.runner, { environment: true, installs: pythonInstalls(lockText, { kind: 'members', subjects, requires }) });
  */
 export function rackTierFor(runner: RunnerValue, asks: RackTierAsks = {}): { tier: RackTier } | { ineligible: IneligibleReason } {
   if (runner.type === 'custom') return { ineligible: 'custom-runner' };
@@ -54,6 +70,10 @@ export function rackTierFor(runner: RunnerValue, asks: RackTierAsks = {}): { tie
   switch (runner.type) {
     case 'east_node': return { tier: 'node' };
     case 'east_c': return { tier: 'c' };
-    case 'east_py': return { tier: asks.gpu === true || runner.value.platforms.includes('east-py-datascience') ? 'py-datascience' : 'py' };
+    case 'east_py': {
+      const datascience = asks.gpu === true || runner.value.platforms.includes('east-py-datascience')
+        || (asks.installs ?? []).some((name) => DATASCIENCE_IMAGE_DISTRIBUTIONS.includes(canonicalPythonName(name)));
+      return { tier: datascience ? 'py-datascience' : 'py' };
+    }
   }
 }

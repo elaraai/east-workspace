@@ -354,8 +354,10 @@ describe('execution environments e2e — scaffolded python platform travels with
       assert.match(output, /2(\.0*)?/, `expected mean of [1,2,3], got: ${output}`);
 
       // On a rack, which composes the environment from layers built for its
-      // platform: the same value.
-      assert.strictEqual(await importDeployRunOnRack(testDir, zipPath, 'envpy@1.0.0', 'mean', 'py', 'mean'), output);
+      // platform: the same value. The scaffolded project depends on the
+      // datascience platform, so its task runs over the image that holds it,
+      // though its runner names only the project's own platform.
+      assert.strictEqual(await importDeployRunOnRack(testDir, zipPath, 'envpy@1.0.0', 'mean', 'py-datascience', 'mean'), output);
     });
 });
 
