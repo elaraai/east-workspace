@@ -32,7 +32,7 @@ import {
   type MigrationObject, type PackageObject, type RecordPlan, type SchemaPolicy, type TaskOutputKind,
 } from '@elaraai/e3-types';
 import {
-  appliedMigrations, namedSteps, readRecordState, recordLeafType, type DeployRecordCommit, type RecordRef,
+  appliedMigrations, externalSources, namedSteps, readRecordState, recordLeafType, type DeployRecordCommit, type RecordRef,
 } from './records.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -69,6 +69,10 @@ export interface RecordDeployment {
   /** The indexes the package declares for the record, by name; none for one
    *  it drops. */
   indexes: string[];
+  /** The external sources the package declares for the record, by name,
+   *  sorted: those of a composite record a load writes. None for a record
+   *  that has no sources, and for one the deploy drops. */
+  external: string[];
 }
 
 /** A type as a refusal names it: its head, and its members by name. */
@@ -146,6 +150,7 @@ export async function planRecordDeployments(
       chain,
       steps: [],
       indexes: [...recordObject.indexes.keys()],
+      external: externalSources(recordObject),
     };
 
     const held = prior?.records.get(path);
@@ -242,6 +247,7 @@ export async function planRecordDeployments(
       chain: [],
       steps: [],
       indexes: [],
+      external: [],
       plan: {
         record: path,
         action: allowDropRecords
@@ -352,12 +358,12 @@ export function recordDeployCommits(
   migrated: ReadonlyMap<string, ReadonlyArray<{ name: string; state: string }>>,
 ): DeployRecordCommit[] {
   const commits: DeployRecordCommit[] = [];
-  for (const { plan: { action }, path, initial, prior, chain } of deployments) {
+  for (const { plan: { action }, path, initial, prior, chain, external } of deployments) {
     switch (action.type) {
-      case 'mint': commits.push({ kind: 'mint', path, state: initial!, applied: chain }); break;
-      case 'keep': commits.push({ kind: 'keep', path, prior: prior!, deployed: action.value.deploy }); break;
-      case 'migrate': commits.push({ kind: 'migrate', path, prior: prior!, steps: migrated.get(path)!, applied: chain }); break;
-      case 'reset': commits.push({ kind: 'reset', path, prior: prior!, state: initial!, applied: chain }); break;
+      case 'mint': commits.push({ kind: 'mint', path, state: initial!, applied: chain, external }); break;
+      case 'keep': commits.push({ kind: 'keep', path, prior: prior!, deployed: action.value.deploy, external }); break;
+      case 'migrate': commits.push({ kind: 'migrate', path, prior: prior!, steps: migrated.get(path)!, applied: chain, external }); break;
+      case 'reset': commits.push({ kind: 'reset', path, prior: prior!, state: initial!, applied: chain, external }); break;
       // A record declared with no initial value goes back to unassigned
       case 'unassign': commits.push({ kind: 'unassign', path, prior: prior! }); break;
       case 'drop': case 'refused': case 'unassigned': break;

@@ -14,9 +14,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, FloatType, NullType, SetType, StringType, StructType, isTypeEqual, type EastType,
+  DateTimeType, DictType, East, FloatType, IntegerType, NullType, SetType, StringType, StructType, isTypeEqual, type EastType,
 } from '@elaraai/east';
-import { record, type RecordConfig } from './record.js';
+import { record, type RecordConfig, type RecordTypes } from './record.js';
 import type { IndexDraft, MutationDraft } from './record-builders.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
@@ -135,6 +135,49 @@ describe('e3.record declared whole', () => {
     assert.notEqual(builtIndex(rec, rec.indexes.by_site), rec.indexes.by_site);
     assert.equal(builtIndex(rec, rec.indexes.in_time), rec.indexes.in_time, 'the nested index is built as declared');
     assert.equal(builtIndex(rec, rec.indexes.by_site_status), rec.indexes.by_site_status, 'an index with a value of its own carries its own');
+  });
+
+  it('hands each part\'s function the record\'s types beside its builder: its state, its key, and the capability an edit writes through', () => {
+    const handed: Array<[string, RecordTypes<typeof Machines>]> = [];
+    const rec = record('typed', Machines, {
+      initial: new Map(),
+      indexes: (index, types) => {
+        handed.push(['indexes', types]);
+        return { by_start: index.key(East.function([types.key, Machine], DateTimeType, (_$, _key, row) => row.planned_start)) };
+      },
+      // A part's function is typed by the record, which names its type once
+      mutations: (mutation, { state, edit }) => ({
+        retire: mutation.edit(East.function([state, StringType, edit], NullType, ($, _machines, id, edit) => {
+          $(edit.delete(id));
+        })),
+        keep: mutation.reduce(East.function([state, StringType], state, (_$, machines, _id) => machines)),
+      }),
+      migrations: (migration, types) => {
+        handed.push(['migrations', types]);
+        return [migration.value('name_machines', named), migration.rows('fill_machines', filled)];
+      },
+    });
+    assert.deepEqual(handed.map(([part]) => part), ['indexes', 'migrations']);
+    for (const [part, types] of handed) {
+      assert.ok(isTypeEqual(types.state, Machines), `${part}: the record's state`);
+      assert.ok(isTypeEqual(types.key, StringType), `${part}: its key`);
+      assert.ok(isTypeEqual(types.edit, mutation.editType(Machines)), `${part}: the capability e3.mutation.editType gives`);
+    }
+    assert.deepEqual(Object.values(rec.mutations).map((m) => [m.name, m.form, m.argTypes.length]), [['retire', 'edit', 1], ['keep', 'reduce', 1]]);
+
+    // A Set's key is its element, and nothing writes it through an edit; any other record has neither
+    let ofSet: RecordTypes<SetType<StringType>> | undefined;
+    record('tags', SetType(StringType), { initial: new Set(), mutations: (mutation, types) => { ofSet = types; return { patch: mutation.patch() }; } });
+    assert.ok(ofSet !== undefined && isTypeEqual(ofSet.key, StringType) && ofSet.edit === undefined);
+    let ofCount: RecordTypes<typeof IntegerType> | undefined;
+    record('count', IntegerType, {
+      initial: 0n,
+      mutations: (mutation, types) => {
+        ofCount = types;
+        return { add: mutation.reduce(East.function([types.state, IntegerType], types.state, (_$, count, by) => count.add(by))) };
+      },
+    });
+    assert.ok(ofCount !== undefined && isTypeEqual(ofCount.state, IntegerType) && ofCount.key === undefined && ofCount.edit === undefined);
   });
 
   it('is never added to once declared', () => {

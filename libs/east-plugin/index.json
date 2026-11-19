@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1385,
+    "totalEntries": 1386,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 308,
       "e3-ui": 220,
-      "e3": 36,
+      "e3": 37,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -48562,7 +48562,7 @@
         "audited state"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48590,7 +48590,7 @@
         "e3 mutate"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48616,7 +48616,7 @@
         "deploy"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48647,7 +48647,7 @@
         "inputs"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48655,6 +48655,37 @@
         "typescript"
       ],
       "source": "// Read a record through one of its indexes inside a function and a task: `e3.index(record.indexes.<name>)` in the inputs hands the body the index's entries, read a run at a time with `prefix` and `range`\n() => {\n    const JobType = StructType({ title: StringType, press: StringType });\n    const JobsType = DictType(StringType, JobType);\n    const jobs = e3.record('jobs', JobsType, {\n      initial: new Map([['j1', { title: 'Annual report', press: 'P1' }], ['j2', { title: 'Posters', press: 'P2' }]]),\n      indexes: (index) => ({ jobs_by_press: index.on(['press']) }),\n      mutations: (mutation) => ({ patch: mutation.patch() }),\n    });\n    // The body is given the index's entries, Dict<{ ik, k }, P>: `ik` the index's key, `k` the row's key,\n    // and P what the index carries (nothing here). A press's entries are one run, so its size costs the\n    // run's two ends, never the index.\n    const byPress = e3.index(jobs.indexes.jobs_by_press);\n    const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], args: [StringType], output: IntegerType },\n      ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());\n    // To read more of a row than the index carries, take the record beside it and read the row by the\n    // entry's `k`: both are read at one state of the record.\n    const titlesOnPress = e3.function('titles_on_press', { inputs: [byPress, jobs], args: [StringType], output: DictType(StringType, StringType) },\n      ($, jobsByPress, jobs, press) => {\n        const titles = $.let(new Map(), DictType(StringType, StringType));\n        $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => { $(titles.insert(key.k, jobs.get(key.k).title)); });\n        return titles;\n      });\n    // A task takes it the same way; its body's parameter is the input's type. It is decided again when\n    // the record changes, and runs again when the index it reads did.\n    const watched = e3.input('watched', StringType, variant('value', 'P1'));\n    const watchedJobs = e3.task('watched_jobs', [byPress, watched],\n      East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));\n    return e3.package('pressroom', '1.0.0', jobsOnPress, titlesOnPress, watchedJobs);\n  }"
+    },
+    {
+      "id": "e3:records.examples.ts:recordCompositeSources",
+      "skill": "e3",
+      "package": "e3",
+      "file": "e3/test/integration/src/examples/records.examples.ts",
+      "suite": "e3.recordComposite",
+      "test": "Declare a composite record: one record over several sources, each the authority for its own entries — `source.load` for the entries another system delivers, which only its load writes, and `source.mutations` for the solution's own — keyed by a Variant with a case for each source",
+      "keywords": [
+        "e3",
+        "record",
+        "recordComposite",
+        "composite",
+        "source",
+        "source.load",
+        "source.mutations",
+        "delivery",
+        "external system",
+        "ERP",
+        "variant key",
+        "first delivery"
+      ],
+      "imports": [
+        "import {",
+        "import e3 from '@elaraai/e3';",
+        "import { example } from './example.js';"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Declare a composite record: one record over several sources, each the authority for its own entries — `source.load` for the entries another system delivers, which only its load writes, and `source.mutations` for the solution's own — keyed by a Variant with a case for each source\n() => {\n    const OrderType = StructType({ customer: StringType, status: StringType, qty: IntegerType });\n    // What the ERP sends: its whole order book, keyed by its own order id.\n    const ErpOrderType = StructType({ cust: StringType, state: StringType, qty: IntegerType });\n    const ErpDeliveryType = DictType(StringType, ErpOrderType);\n    const ErpEntriesType = DictType(StringType, OrderType);\n    // The load: the delivery and the source's entries as they stand, to a patch of them. It sees the ERP's own ids:\n    // e3 puts the source's case on each key. It gives the right entries from one delivery alone, whatever was loaded before.\n    const loadErp = East.function([ErpDeliveryType, ErpEntriesType], PatchType(ErpEntriesType),\n      ($, delivery, current) => East.diff(current, delivery.map(($, sent) => ({ customer: sent.cust, status: sent.state, qty: sent.qty }))));\n    const orders = e3.recordComposite('orders', OrderType, {\n      // Declared first: the parts after it are handed the types it makes.\n      sources: (source) => ({\n        erp: source.load(StringType, ErpDeliveryType, loadErp),   // the ERP's orders: written by this load alone\n        own: source.mutations(StringType),                        // the solution's own: written by the mutations\n      }),\n      initial: { own: new Map() },                                // a solution source's entries, by its own key\n      indexes: (index) => ({ by_customer: index.on(['customer']) }),\n      // `state` is the record's type, Dict<Variant{ erp: String, own: String }, Order>, and `edit` writes the\n      // solution's own entries alone: a write of an ERP entry does not compile, and is refused where it is tried.\n      mutations: (mutation, { state, edit }) => ({\n        plan_order: mutation.edit(East.function([state, StringType, OrderType, edit], NullType,\n          ($, _current, id, order, edit) => { $(edit.set(variant('own', id), order)); })),\n        patch: mutation.patch(),\n      }),\n    });\n    // Read, paged, indexed and bound as any record is: a task over it reads every order, whichever source it is of.\n    // It waits until the ERP has delivered once, so it never computes on the solution's own entries alone.\n    const openOrders = e3.task('open_orders', [orders], East.function([orders.type], IntegerType,\n      ($, held) => held.filter(($, order) => East.equal(order.status, 'open')).size()));\n    return e3.package('order_book', '1.0.0', openOrders);\n  }"
     },
     {
       "id": "e3:records.examples.ts:recordReadPlainIndex",
@@ -48678,7 +48709,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48709,7 +48740,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48741,7 +48772,7 @@
         "optimiser"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48772,7 +48803,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48804,7 +48835,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48834,7 +48865,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48869,7 +48900,7 @@
         "function"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48897,7 +48928,7 @@
         "entries"
       ],
       "imports": [
-        "import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';",
+        "import {",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],

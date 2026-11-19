@@ -29,6 +29,7 @@ import {
   ExecuteResultType, TaskObjectType, decodeTaskObject, type ExecuteResult, type FunctionDraft, type TreePath,
 } from '@elaraai/e3-types';
 import { dataflowResolveInputHashes } from './dataflow.js';
+import type { InputWait } from './dataflow/types.js';
 import { DatasetSegments, indexNotHeld, inputObject, readDatasetWhole, recordIndexManifests } from './dataset-open.js';
 import { executionFindCurrent } from './executions.js';
 import { repoGc } from './gc.js';
@@ -413,10 +414,10 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     ]);
     assert.equal(result.inputs.length, 0);
 
-    const waiting: Array<[string, string[]]> = [];
-    const run = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+    const waiting: Array<[string, InputWait[]]> = [];
+    const run = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
     assert.equal(run.success, true, 'the run goes on without it');
-    assert.deepEqual(waiting, [['watched_backlog', ['.records.backlog']]], 'the task waits on the record');
+    assert.deepEqual(waiting, [['watched_backlog', [{ input: '.records.backlog', kind: 'unset' }]]], 'the task waits on the record');
     assert.equal(run.waiting, 1);
     const status = await workspaceStatus(storage, runner, repo, WS);
     assert.deepEqual(status.tasks.find((task) => task.name === 'watched_backlog')!.status, { type: 'waiting', reason: 'Input \'.records.backlog\' is not set' });
@@ -430,11 +431,11 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     // declares: the record's rows alone
     await storage.datasets.write(repo, WS, 'records/jobs', variant('value', { ...ref.value, hash: primary }));
     try {
-      const waiting: Array<[string, string[]]> = [];
-      const run = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      const waiting: Array<[string, InputWait[]]> = [];
+      const run = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
       assert.equal(run.success, true, `the run goes on without it: ${JSON.stringify(run.tasks)}`);
-      assert.ok(waiting.some(([task, inputs]) => task === 'watched_jobs' && inputs.includes('.records.jobs')),
-        `the task waits on the record: ${JSON.stringify(waiting)}`);
+      assert.ok(waiting.some(([task, waits]) => task === 'watched_jobs' && waits.some((wait) => wait.kind === 'unset' && wait.input === '.records.jobs')),
+        `the task waits on the record, as on one not set: ${JSON.stringify(waiting)}`);
       const status = await workspaceStatus(storage, runner, repo, WS);
       assert.deepEqual(status.tasks.find((task) => task.name === 'watched_jobs')!.status,
         { type: 'waiting', reason: `Input '.records.jobs': ${indexNotHeld('.records.jobs', 'jobs_by_press')}` });

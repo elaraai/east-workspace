@@ -14,7 +14,7 @@
  */
 
 import { decodeBeast2, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, environmentSpecObjectHashes, type DataRef, type EnvironmentSpec, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MigrationObjectType, MutationObjectType, PackageObjectType, RECORD_LOAD_KIND, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordLoadObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, environmentSpecObjectHashes, type DataRef, type EnvironmentSpec, type FunctionObject, type MigrationObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost } from './concurrency.js';
 import { GcReadError, ObjectNotFoundError } from './errors.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -409,6 +409,11 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
         { hash: entry.index, kind: 'node' },
       ]),
     ])],
+  // A composite record's load object names the task object its load runs as,
+  // which is walked to its program, its merge and its environment. The key
+  // and delivery types it carries, and the path of a dataset that feeds it,
+  // name no object.
+  [RECORD_LOAD_KIND, taggedKind(RecordLoadObjectType, (load) => [{ hash: load.task, kind: 'node' }])],
   [TASK_OBJECT_KIND, taggedKind(TaskObjectType, (task) => {
       // The program or the command IR, and what the output folds with: every
       // one an IR blob or a value, which name nothing.
@@ -553,6 +558,11 @@ function extractChildren(
     }
     for (const step of rec.migrations) {
       children.push({ hash: step.migration, kind: 'node' });
+    }
+    // A composite record's external sources each name the load object their
+    // deliveries run under; a source the mutations write names none.
+    for (const source of rec.sources.values()) {
+      if (source.type === 'load') children.push({ hash: source.value, kind: 'node' });
     }
     return children;
   }

@@ -18,10 +18,11 @@ import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString, treePathToRefPath } from '@elaraai/e3-types';
-import { buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram, summed } from './record-programs.js';
+import { variant, some, none, BlobType, StringType, compareFor, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, SortedSet, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordLoadObject, RecordObject, RecordSource, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, RECORD_LOAD_KIND, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordLoadObjectType, RecordObjectType, encodeDatasetBlob, pathToString, treePathToRefPath } from '@elaraai/e3-types';
+import { buildLoadMergeProgram, buildLoadProgram, buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram, summed } from './record-programs.js';
+import { solutionSourceNames } from './record-sources.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { AsyncIRBundle, IRBundle, PackageDef, PackageItem } from './types.js';
 import { bundleOf } from './record-guards.js';
@@ -122,6 +123,9 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       if (idef.valueFn !== undefined) refer(bundleOf(idef.valueFn), owner, idef.runner);
     }
     for (const step of rdef.migrations) refer(step.body, `migration "${rname}.${step.name}"`, step.runner);
+    for (const source of Object.values(rdef.sources ?? {})) {
+      if (source.load !== undefined) refer(source.load.body, `load "${rname}.${source.name}"`, source.load.runner);
+    }
   }
   const manifests = await resolveFunctionManifests(references, explicit, process.cwd(), {
     ...(options?.cores !== undefined && { cores: options.cores }),
@@ -375,6 +379,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
   const indexEncoder = encodeBeast2For(RecordIndexObjectType);
   const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
+  const loadEncoder = encodeBeast2For(RecordLoadObjectType);
+  const taskEncoder = encodeBeast2For(TaskObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
     const recordRefPath = treePathToRefPath(rdef.path);
 
@@ -402,6 +408,9 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         runner: runnerToVariant(mdef.runner),
         form: variant(mdef.form, null),
         programIr,
+        // The cases of the record's key the mutation may write: a composite's solution sources, which e3 holds
+        // every write of the mutation to. A record with no sources names none, and a mutation writes its every key.
+        cases: rdef.sources === undefined ? none : some(new SortedSet(solutionSourceNames(rdef.sources), compareFor(StringType))),
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
       mutations.set(mname, mutHash);
@@ -453,7 +462,49 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       migrations.push({ name: step.name, migration: addObject(zipfile, Buffer.from(migrationEncoder(migrationObject))) });
     }
 
-    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations };
+    // A composite record's sources. A source of the solution's own is its mutations'. An external one names its
+    // load object — its key and delivery types, and the load's task object, built as a split call's is: the load's
+    // program on the source's runner, over a delivery and the source's run of the record, each named by no path. A
+    // delivery keyed as its source is cut with the run at the same keys — the run through its source's case — and
+    // its pieces' deltas fold by the load's merge; any other runs whole, and its program returns the delta.
+    const recordSources = new SortedMap<string, RecordSource>(); // name -> who writes it
+    for (const source of Object.values(rdef.sources ?? {})) {
+      const { load } = source;
+      if (load === undefined) {
+        recordSources.set(source.name, variant('mutations', null));
+        continue;
+      }
+      const owner = `load "${rname}.${source.name}"`;
+      const irObject = (bundle: IRBundle): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, load.runner))));
+      const cutBy = (by: string[]) => (load.keyed ? some({ by }) : none);
+      const loadTask: TaskObject = {
+        kind: TASK_OBJECT_KIND,
+        body: variant('east', { program: irObject(buildLoadProgram(rdef, source)) }),
+        runner: runnerToVariant(load.runner),
+        inputs: [
+          { path: [], index: none, partition: cutBy([]) },
+          { path: [], index: none, partition: cutBy([source.name]) },
+        ],
+        output: {
+          path: [],
+          kind: load.keyed ? variant('dict', { merge: some(irObject(buildLoadMergeProgram(rdef, source))) }) : variant('value', null),
+        },
+        role: variant('data', null),
+        environment: none,
+      };
+      const loadObject: RecordLoadObject = {
+        kind: RECORD_LOAD_KIND,
+        key: toEastTypeValue(source.key),
+        delivery: toEastTypeValue(load.delivery),
+        // A delivery handed to `e3 load`: no dataset of the package feeds the source.
+        feed: none,
+        task: addObject(zipfile, Buffer.from(taskEncoder(loadTask))),
+      };
+      recordSources.set(source.name, variant('load', addObject(zipfile, Buffer.from(loadEncoder(loadObject)))));
+    }
+
+    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations, sources: recordSources };
     const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
     records.set(rname, recHash);
   }

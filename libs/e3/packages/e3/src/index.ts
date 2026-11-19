@@ -50,6 +50,7 @@
 
 import type {
   ArrayOutputDef,
+  CompositeRecordDef,
   DatasetDef,
   DataTreeDef,
   DatasetsOf,
@@ -67,11 +68,14 @@ import type {
   PartitionDef,
   RecordDef,
   RecordIndexDef,
+  RecordLoadDef,
+  RecordSourceDef,
   SetOutputDef,
   TaskDef,
 } from './types.js';
 import { input } from './input.js';
 import { record } from './record.js';
+import { recordComposite } from './record-composite.js';
 import { mutation } from './mutation.js';
 import { task, customTask, streamTask, partition } from './task.js';
 import { index } from './index-input.js';
@@ -82,6 +86,7 @@ import { export_ } from './export.js';
 
 export type {
   ArrayOutputDef,
+  CompositeRecordDef,
   DataTreeDef,
   DatasetDef,
   DatasetsOf,
@@ -96,6 +101,8 @@ export type {
   PartitionDef,
   RecordDef,
   RecordIndexDef,
+  RecordLoadDef,
+  RecordSourceDef,
   SetOutputDef,
   TaskDef,
   PackageDef,
@@ -123,6 +130,7 @@ export { runnerToVariant, DEFAULT_RUNNER, DEFAULT_RECORD_RUNNER, STANDARD_PLATFO
 const e3 = {
   input,
   record,
+  recordComposite,
   mutation,
   task,
   customTask,
@@ -138,7 +146,7 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, task, customTask, streamTask, partition, index, output, function_, package_ as package, export_ as export };
+export { input, record, recordComposite, mutation, task, customTask, streamTask, partition, index, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
 export type { IndexEntriesOf } from './index-input.js';
 export { NestedUnderType } from './index-read.js';
@@ -151,9 +159,12 @@ export type { FunctionSpec } from './function.js';
 // Singleton tree definitions
 export { inputsTree } from './input.js';
 export { recordsTree } from './record.js';
-export type { RecordConfig } from './record.js';
+export type { EditCapability, RecordConfig, RecordEditOf, RecordKeyOf, RecordTypes } from './record.js';
 export type {
-  IndexBuilder, NestedBuilder, MutationBuilder, MigrationBuilder, IndexDraft, MutationDraft, MigrationDraft,
+  CompositeEditOf, CompositeRecordConfig, CompositeStateOf, CompositeTypes, SolutionKeysOf, SourceKeysOf, SourcesOf,
+} from './record-composite.js';
+export type {
+  IndexBuilder, NestedBuilder, MutationBuilder, MigrationBuilder, SourceBuilder, IndexDraft, MutationDraft, MigrationDraft, SourceDraft,
   IndexesOf, MutationsOf, PlainIndexOptions, PartRunner,
 } from './record-builders.js';
 export { tasksTree } from './task.js';
@@ -171,7 +182,10 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex, indexMaintenance } from './record-programs.js';
+export {
+  indexBuildProgram, buildMutationProgram, buildLoadProgram, buildLoadMergeProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType,
+  builtIndex, indexMaintenance,
+} from './record-programs.js';
 export type { IndexMaintenance } from './record-programs.js';
 export type {
   IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,

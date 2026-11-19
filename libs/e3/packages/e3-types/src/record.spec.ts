@@ -12,13 +12,16 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, ArrayType, EastTypeType, VariantType, dictPatchOpsType, encodeBeast2For, isTypeEqual, isTypeValueEqual, none, some, toEastTypeValue, variant, type EastType } from '@elaraai/east';
+import { BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, ArrayType, EastTypeType, VariantType, dictPatchOpsType, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, isTypeValueEqual, none, printFor, some, toEastTypeValue, variant, type EastType } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 import {
   MigrationObjectType,
   MutationObjectType,
+  RECORD_LOAD_KIND,
   RecordCommitType,
   RecordIndexObjectType,
+  RecordLoadArgsType,
+  RecordLoadObjectType,
   RecordObjectType,
   RecordSummaryOpType,
   RecordSummaryTotalsType,
@@ -26,14 +29,20 @@ import {
   decodeMutationObject,
   decodeRecordCommit,
   decodeRecordIndexObject,
+  decodeRecordLoadObject,
   decodeRecordObject,
   indexCollectionType,
+  loadCommitName,
+  loadCommitSource,
   mutationDeltaType,
   type MigrationObject,
   type MutationObject,
   type RecordCommit,
   type RecordIndexObject,
+  type RecordLoadArgs,
+  type RecordLoadObject,
   type RecordObject,
+  type RecordSource,
 } from './record.js';
 
 describe('decodeRecordCommit', () => {
@@ -75,6 +84,7 @@ describe('decodeMutationObject', () => {
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     form: variant('edit', null),
     programIr: 'b'.repeat(64),
+    cases: none,
   };
 
   /** A decoded mutation with its arg types checked off separately: a decoded
@@ -104,11 +114,30 @@ describe('decodeMutationObject', () => {
     );
   });
 
+  it('round-trips the sources a composite record\'s mutation may write', () => {
+    const composite: MutationObject = { ...mutation, cases: some(new Set(['plans', 'own'])) };
+    const decoded = decodeMutationObject(encodeBeast2For(MutationObjectType)(composite));
+    assert.ok(equalFor(MutationObjectType)(decoded, composite), printFor(MutationObjectType)(decoded));
+    assert.ok(!equalFor(MutationObjectType)(decoded, mutation), 'a mutation of a record with no sources names none');
+  });
+
+  it('refuses a mutation an older SDK exported before it named the sources it may write, naming the fix', () => {
+    const PreCasesMutationType = StructType({
+      bodyIr: StringType, argTypes: ArrayType(EastTypeType), runner: RunnerType, form: MutationObjectType.fields.form, programIr: StringType,
+    });
+    const { cases: _cases, ...older } = mutation;
+    assert.throws(
+      () => decodeMutationObject(encodeBeast2For(PreCasesMutationType)(older)),
+      /^Error: the mutation object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
+  });
+
   it('refuses a mutation whose form is a String, as an older SDK wrote it, whatever the string', () => {
     // A String form decoded as any string, and a form e3 does not know ran as
     // whichever form its checks fell through to.
     const StringFormMutationType = StructType({
       bodyIr: StringType, argTypes: ArrayType(EastTypeType), runner: RunnerType, form: StringType, programIr: StringType,
+      cases: MutationObjectType.fields.cases,
     });
     for (const form of ['edit', 'bogus']) {
       assert.throws(
@@ -237,7 +266,7 @@ describe('decodeMigrationObject', () => {
 
   it('refuses the bytes of another object, naming the re-export', () => {
     const mutation: MutationObject = {
-      bodyIr: 'a'.repeat(64), argTypes: [], runner: migration.runner, form: variant('reduce', null), programIr: '',
+      bodyIr: 'a'.repeat(64), argTypes: [], runner: migration.runner, form: variant('reduce', null), programIr: '', cases: none,
     };
     assert.throws(
       () => decodeMigrationObject(encodeBeast2For(MutationObjectType)(mutation)),
@@ -266,28 +295,103 @@ describe('decodeRecordObject', () => {
     mutations: new Map([['place', 'a'.repeat(64)]]),
     indexes: new Map([['by_status', 'b'.repeat(64)]]),
     migrations: [{ name: 'add_shift', migration: 'c'.repeat(64) }, { name: 'widen_row', migration: 'd'.repeat(64) }],
+    sources: new Map(),
   };
-
-  /** A decoded record object with its dicts as entry lists: a decoded Dict is
-   *  a SortedMap, which is the same mapping and not the same container. */
-  const read = (bytes: Uint8Array) => {
-    const decoded = decodeRecordObject(bytes);
-    return { path: decoded.path, mutations: [...decoded.mutations], indexes: [...decoded.indexes], migrations: decoded.migrations };
-  };
+  const same = equalFor(RecordObjectType);
+  const print = printFor(RecordObjectType);
 
   it('round-trips a current record object, its migrations in their order', () => {
-    assert.deepEqual(read(encodeBeast2For(RecordObjectType)(record)),
-      { path: record.path, mutations: [...record.mutations], indexes: [...record.indexes], migrations: record.migrations });
+    const decoded = decodeRecordObject(encodeBeast2For(RecordObjectType)(record));
+    assert.ok(same(decoded, record), print(decoded));
+    assert.deepEqual(decoded.migrations.map(({ name }) => name), ['add_shift', 'widen_row']);
+  });
+
+  it('round-trips a composite record\'s sources: an external one naming its load object, and the solution\'s own', () => {
+    const composite: RecordObject = { ...record, sources: new Map<string, RecordSource>([['own', variant('mutations', null)], ['erp', variant('load', 'e'.repeat(64))]]) };
+    const decoded = decodeRecordObject(encodeBeast2For(RecordObjectType)(composite));
+    assert.ok(same(decoded, composite), print(decoded));
+    assert.deepEqual([...decoded.sources.keys()], ['erp', 'own'], 'by name');
+    assert.ok(!same(decoded, record));
+  });
+
+  it('refuses a record object an older SDK exported before sources, naming the fix', () => {
+    const MigrationsEraRecordType = StructType({
+      path: StringType, mutations: DictType(StringType, StringType), indexes: DictType(StringType, StringType),
+      migrations: RecordObjectType.fields.migrations,
+    });
+    const { sources: _sources, ...older } = record;
+    assert.throws(
+      () => decodeRecordObject(encodeBeast2For(MigrationsEraRecordType)(older)),
+      /^Error: the record object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
   });
 
   it('refuses a record object an older SDK exported before migrations, naming the fix', () => {
     const IndexesEraRecordType = StructType({
       path: StringType, mutations: DictType(StringType, StringType), indexes: DictType(StringType, StringType),
     });
-    const { migrations: _migrations, ...older } = record;
+    const { migrations: _migrations, sources: _sources, ...older } = record;
     assert.throws(
       () => decodeRecordObject(encodeBeast2For(IndexesEraRecordType)(older)),
       /^Error: the record object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
     );
+  });
+});
+
+describe('decodeRecordLoadObject', () => {
+  const ErpDeliveryType = DictType(StringType, StructType({ cust: StringType, qty: IntegerType }));
+  const load: RecordLoadObject = {
+    kind: RECORD_LOAD_KIND,
+    key: toEastTypeValue(StringType),
+    delivery: toEastTypeValue(ErpDeliveryType),
+    feed: none,
+    task: 'a'.repeat(64),
+  };
+  const same = equalFor(RecordLoadObjectType);
+  const print = printFor(RecordLoadObjectType);
+
+  it('round-trips a load object, its key and delivery types among it', () => {
+    const decoded = decodeRecordLoadObject(encodeBeast2For(RecordLoadObjectType)(load));
+    assert.ok(same(decoded, load), print(decoded));
+    assert.equal(decoded.kind, '$recordLoad');
+    assert.ok(isTypeValueEqual(decoded.delivery, toEastTypeValue(ErpDeliveryType)));
+  });
+
+  it('round-trips the dataset that feeds a fed source', () => {
+    const fed: RecordLoadObject = { ...load, feed: some([variant('field', 'tasks'), variant('field', 'erp_orders'), variant('field', 'output')]) };
+    const decoded = decodeRecordLoadObject(encodeBeast2For(RecordLoadObjectType)(fed));
+    assert.ok(same(decoded, fed), print(decoded));
+    assert.ok(!same(decoded, load));
+  });
+
+  it('refuses the bytes of another object, naming the re-export', () => {
+    assert.throws(
+      () => decodeRecordLoadObject(encodeBeast2For(IntegerType)(7n)),
+      /^Error: the load object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
+  });
+});
+
+describe('a load\'s commit', () => {
+  it('is named by its source, which its name gives back', () => {
+    assert.equal(loadCommitName('erp'), '$load:erp');
+    assert.equal(loadCommitSource('$load:erp'), 'erp');
+    assert.equal(loadCommitSource(loadCommitName('crm_accounts')), 'crm_accounts');
+    for (const other of ['plan_order', '$init', '$migrate:add_owner', '$load', 'load:erp']) {
+      assert.equal(loadCommitSource(other), null, other);
+    }
+  });
+
+  it('round-trips what it says of itself: its delivery, its load, its as-of, whether it was the source\'s first, its execution and its counts', () => {
+    const args: RecordLoadArgs = {
+      delivery: 'a'.repeat(64), load: 'b'.repeat(64), asOf: some(new Date(Date.UTC(2026, 10, 17, 9, 0))), first: true,
+      execution: { inputsHash: 'c'.repeat(64), executionId: '0190a0b0-4444-7000-8000-000000000000' },
+      set: 1_204n, deleted: 3n, unchanged: 58_811n,
+    };
+    const same = equalFor(RecordLoadArgsType);
+    const decode = (value: RecordLoadArgs) => decodeBeast2For(RecordLoadArgsType)(encodeBeast2For(RecordLoadArgsType)(value));
+    assert.ok(same(decode(args), args), printFor(RecordLoadArgsType)(decode(args)));
+    const later: RecordLoadArgs = { ...args, asOf: none, first: false };
+    assert.ok(same(decode(later), later) && !same(decode(later), args));
   });
 });

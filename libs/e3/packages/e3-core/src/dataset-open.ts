@@ -535,45 +535,6 @@ export function indexNotHeld(path: string, index: string): string {
     `deploy the package that declares the index again, which builds it`;
 }
 
-/**
- * What a task reads of one of its inputs, given the hash its dataset holds:
- * the object it is handed ({@link inputObject}), or why it waits — its
- * record's state holds no such index — in the words its status gives.
- *
- * @remarks
- * Each reader of a task's current inputs that names a waiting task decides
- * here, so the run leaves the task waiting where its status says it waits,
- * and the run goes on without it; the history and the bundle, which need no
- * reason, keep no execution over such inputs, and the current execution falls
- * back to the task's last run. Every door that writes a state — a deploy,
- * `$init`, a restore, a rollback — writes one holding every index its record
- * declares, so a state that holds none was written outside them.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param path - The input's keypath, as a status names it: `.records.jobs`
- * @param hash - The hash the input's dataset holds: for a record, its state's
- * @param index - The index of the record the input reads, by name; `null` for
- *   the dataset itself
- * @returns The object the task is handed, or why it waits for the input
- *
- * @example
- * ```ts
- * const read = await taskInputRead(storage, repo, '.records.jobs', state, 'jobs_by_press');
- * if ('waiting' in read) console.log(read.waiting); // Input '.records.jobs': the record .records.jobs holds no index …
- * ```
- */
-export async function taskInputRead(
-  storage: StorageBackend,
-  repo: string,
-  path: string,
-  hash: string,
-  index: string | null,
-): Promise<{ readonly object: string } | { readonly waiting: string }> {
-  const object = await inputObject(storage, repo, hash, index);
-  return object === null ? { waiting: `Input '${path}': ${indexNotHeld(path, index!)}` } : { object };
-}
-
 /** How much of an object that is the value itself is read at once. */
 const CHUNK_BYTES = 8 * 1024 * 1024;
 

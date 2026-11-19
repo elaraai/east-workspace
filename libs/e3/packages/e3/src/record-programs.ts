@@ -40,7 +40,8 @@ import { argumentsType, callWithArguments, programOverArguments } from './record
 import { emptiedRow } from './record-index.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
-import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import { solutionKeyType } from './record-sources.js';
+import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef } from './types.js';
 import { lazyBuilds } from './lazy-build.js';
 
 /**
@@ -246,10 +247,25 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
  * @throws {Error} When the index is not a summary
  */
 export function summaryMergeProgram(def: RecordIndexDef) {
+  const merge = summaryMerge(def);
+  return locationFree(() => merge);
+}
+
+/** A summary's merge as the function it is, `({ik, k}, Totals, Totals) → Totals` ({@link summaryMergeProgram}). */
+function summaryMerge(def: RecordIndexDef) {
   if (!summed(def) || def.mergeFn === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
   const totals = RecordSummaryTotalsType;
-  const merge = functionAt(def.mergeFn, [indexEntryKeyType(NullType, def.keyType), totals, totals], totals);
-  return locationFree(() => merge);
+  return functionAt(def.mergeFn, [indexEntryKeyType(NullType, def.keyType), totals, totals], totals);
+}
+
+/** A summed index's arm of a mutation delta, as the delta's type holds it: its entry key, `{ik, k: Null}`, and its op, an `add`. */
+function summaryArm(def: RecordIndexDef): { keyType: EastType; opType: EastType } {
+  return { keyType: indexEntryKeyType(NullType, def.keyType), opType: RecordSummaryOpType };
+}
+
+/** A record's indexes as its write programs take them: each as it is built ({@link builtIndex}), in the order of their names. */
+function builtIndexes(rec: RecordDef): RecordIndexDef[] {
+  return Object.values(rec.indexes).map((index) => builtIndex(rec, index)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
 /**
@@ -865,7 +881,7 @@ function dictApply(indexes: readonly RecordIndexDef[], types: DictWrite) {
  * delta's conflict naming the key, as an apply would name it, rather than
  * reaching the apply as an op that cannot be represented.
  */
-function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWrite) {
+function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWrite, ownKeyType: VariantType<Record<string, EastType>> | undefined) {
   const { keyType, valueType, stateType, rows, opsType, emitType } = types;
   // The capability, typed as the ops are: its `update` takes the row's patch, checked to be East's own.
   const editType = StructType({
@@ -879,7 +895,17 @@ function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWr
   }
   const editsType = DictType(keyType, editOpsType(valueType, rows));
   const argsType = argumentsType(argTypes);
-  const body = callWithArguments(fn, stateType, argTypes, [editType], NullType);
+  // A composite record's body may declare the capability over its own sources' keys alone: it is then handed that
+  // one, whose writes go through the capability over every key.
+  const own = ownKeyType === undefined ? undefined : ownCapability(ownKeyType, editType, types);
+  const narrowed = own !== undefined && sameEastType(own.type, signatureOf(fn).inputs.at(-1) ?? NullType) ? own : undefined;
+  const called = callWithArguments(fn, stateType, argTypes, [narrowed?.type ?? editType], NullType);
+  // The body as the program runs it, `(State, Args, Edit) → Null`: handed the capability, or its own made from it.
+  const body = narrowed === undefined ? called : East.function([stateType, argsType, editType], NullType, ($, state, args, whole) => {
+    const call = $.const(called);
+    const ownOf = $.const(narrowed.of);
+    $(call(state, args, ownOf(whole)));
+  });
   const resolve = East.function([stateType, editsType, emitType], opsType, ($, state, edits, emit) => {
     const diff = $.const(rows.diff);
     const ops = $.let(new Map(), opsType);
@@ -991,6 +1017,60 @@ function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWr
     $(run(state, args, capability));
     return resolveFn(state, edits, emit);
   });
+}
+
+/**
+ * The capability a composite record's `edit` body writes through when it
+ * declares the one over its own sources' keys: its type, and the function
+ * that makes it from the capability over every key, `(Edit) → OwnEdit`.
+ *
+ * @remarks
+ * Each of its functions takes a key of the solution's own cases, puts it under
+ * the same case of the record's key and calls the capability over every key,
+ * so a write through either is folded the same way. A key of an external
+ * source has no case to be written under, which is what holds a body to the
+ * sources it may write as it is written.
+ *
+ * @param ownKeyType - The variant of the record's solution sources' cases
+ * @param editType - The capability over every key of the record
+ * @param types - The record's write types
+ * @returns The capability's type, and the function making it
+ */
+function ownCapability(
+  ownKeyType: VariantType<Record<string, EastType>>,
+  editType: StructType<{
+    set: FunctionType<[EastType, EastType], NullType>;
+    delete: FunctionType<[EastType], NullType>;
+    update: FunctionType<[EastType, EastType], NullType>;
+  }>,
+  types: DictWrite,
+) {
+  const { keyType, valueType, rows } = types;
+  const patchType: EastType = rows.patchType;
+  const type = StructType({
+    set: FunctionType([ownKeyType, valueType], NullType),
+    delete: FunctionType([ownKeyType], NullType),
+    update: FunctionType([ownKeyType, patchType], NullType),
+  });
+  // A key of one of the solution's cases, under the same case of the record's key: a variant of fewer cases is
+  // another type than the record's key, so each case is put on again.
+  const cases = Object.fromEntries(Object.keys(ownKeyType.cases).map((name) => [name, (_$: unknown, id: unknown) => East.inCase(keyType, name, id)]));
+  const widen = East.function([ownKeyType], keyType, (_$, key) => key.match(cases));
+  const of = East.function([editType], type, ($, whole) => {
+    const widenFn = $.const(widen);
+    return {
+      set: East.function([ownKeyType, valueType], NullType, ($, key, value) => {
+        $(whole.set(widenFn(key), value));
+      }),
+      delete: East.function([ownKeyType], NullType, ($, key) => {
+        $(whole.delete(widenFn(key)));
+      }),
+      update: East.function([ownKeyType, patchType], NullType, ($, key, patch) => {
+        $(whole.update(widenFn(key), patch));
+      }),
+    };
+  });
+  return { type, of };
 }
 
 /**
@@ -1153,10 +1233,10 @@ function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[]
   let steps: WriteSteps;
   let argumentOps: FunctionExpr<[EastType, EastType, EastType], EastType> | undefined;
   if (recordType.type === 'Dict') {
-    const indexes = Object.values(rec.indexes).map((index) => builtIndex(rec, index)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const indexes = builtIndexes(rec);
     const types = dictWrite(recordType.key, recordType.value, indexes);
     steps = dictSteps(types, indexes);
-    argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types)
+    argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types, rec.sources === undefined ? undefined : solutionKeyType(rec.sources))
       : mut.form === 'reduce' ? reduceOps(bodyOf(mut), mut.argTypes, steps)
       : undefined;
   } else if (recordType.type === 'Set') {
@@ -1186,6 +1266,247 @@ function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[]
     }));
 }
 
+// ── A composite record's loads ───────────────────────────────────────────────
+
+/**
+ * What a load's programs are built over: its record's write types and
+ * indexes, its source's entries by the source's own key, and the author's
+ * function over them.
+ *
+ * @param rec - The composite record
+ * @param source - One of its external sources
+ * @returns The parts
+ * @throws {Error} When the source has no load, or is no case of the record's key
+ */
+function loadWrite(rec: RecordDef, source: RecordSourceDef) {
+  const where = `e3.recordComposite '${rec.name}': source '${source.name}'`;
+  const { load, name } = source;
+  if (load === undefined) throw new Error(`${where} is written by the record's mutations, and has no load to build a program from`);
+  const recordType: EastType = rec.type;
+  const recordKey: EastType = recordType.type === 'Dict' ? recordType.key : NullType;
+  if (recordType.type !== 'Dict' || recordKey.type !== 'Variant' || !(name in recordKey.cases)) {
+    throw new Error(`${where} is no case of the key of ${printType(recordType)}, which a composite record's sources are`);
+  }
+  const indexes = builtIndexes(rec);
+  const types = dictWrite(recordKey, recordType.value, indexes);
+  // The source's entries as its function reads and patches them: by the source's own key, no case on it.
+  const entries = dictWrite(source.key, recordType.value, []);
+  const delivered: EastType = load.delivery;
+  return {
+    name, keyed: load.keyed, indexes, types, entries, delivered,
+    /** The record's key, a variant of its sources' cases. */
+    recordKey,
+    /** The run of the record the load is handed: its source's entries, each under the source's case. */
+    runType: DictType(recordKey, types.valueType),
+    /** The author's function, `(Delivery, Entries) → Patch`. */
+    fn: functionAt(load.fn, [delivered, entries.stateType], entries.patchType),
+  };
+}
+
+/** What a load's programs are built over ({@link loadWrite}). */
+type LoadWrite = ReturnType<typeof loadWrite>;
+
+/**
+ * Refuses a keyed load's patch that names a key of neither its piece of the
+ * delivery nor its entries: `(Delivery, Entries, Ops, Emit) → Null`, emitting
+ * the delta's conflict naming each such key.
+ *
+ * @remarks
+ * A keyed load runs a piece at a time, each over one range of the source's
+ * keys, and a piece's patch is its own range's: a key from outside it would
+ * be written by two pieces, or by one that never read its entry. It is
+ * emitted, not thrown, as a mutation's stale write is, so the load fails with
+ * the message and nothing commits. A delivery that runs as one piece holds
+ * every key, and is checked for none.
+ */
+function strayKeys(parts: LoadWrite) {
+  const { name, keyed, entries, types, delivered } = parts;
+  if (!keyed) return East.function([delivered, entries.stateType, entries.opsType, types.emitType], NullType, () => null);
+  const delivers = deliveryHolds(delivered, entries.keyType);
+  return East.function([delivered, entries.stateType, entries.opsType, types.emitType], NullType, ($, delivery, current, ops, emit) => {
+    const holds = $.const(delivers);
+    $.for(ops, ($, _op, key) => {
+      $.if(holds(delivery, key).not().and(() => current.has(key).not()), ($) => {
+        $(emit(
+          variant(DELTA_CONFLICT, East.str`load '${name}' names ${East.print(key)}, which is in neither its piece of the delivery nor its entries`),
+          variant(DELTA_CONFLICT, null)));
+      });
+    });
+  });
+}
+
+/** Whether a keyed delivery holds a key, `(Delivery, K) → Boolean`: a Dict's key, or a Set's element. */
+function deliveryHolds(delivered: EastType, keyType: EastType) {
+  const holds = delivered.type === 'Dict' ? East.function([delivered, keyType], BooleanType, (_$, delivery, key) => delivery.has(key))
+    : delivered.type === 'Set' ? East.function([delivered, keyType], BooleanType, (_$, delivery, key) => delivery.has(key))
+    : undefined;
+  if (holds === undefined) throw new Error(`a keyed delivery is a Dict or a Set keyed as its source, not ${printType(delivered)}`);
+  // One signature for either collection, over the delivery's type as the load's programs hold it.
+  return functionAt(holds, [delivered, keyType], BooleanType);
+}
+
+/**
+ * A load's ops: `(Delivery, Run, Emit) → Ops`, the per-key ops of the record
+ * its function's patch of the source's entries comes to.
+ *
+ * @remarks
+ * The run's entries are keyed by the case's value, in memory; the author's
+ * function patches them; the patch is folded into per-key ops over them, as a
+ * patch mutation's is — a `replace` into the inserts, updates and deletes of
+ * these entries alone, never of the record — and each op is put back under the
+ * source's case of the record's key.
+ */
+function loadOps(parts: LoadWrite) {
+  const { name, types, entries, delivered, recordKey, runType, fn } = parts;
+  const patchOps = dictPatchOps({ ...entries, emitType: types.emitType });
+  const stray = strayKeys(parts);
+  return East.function([delivered, runType, types.emitType], types.opsType, ($, delivery, run, emit) => {
+    const load = $.const(fn);
+    const opsOf = $.const(patchOps);
+    const refuseStray = $.const(stray);
+    const current = $.let(new Map(), entries.stateType);
+    $.for(run, ($, row, key) => {
+      $.if(key.hasTag(name).not(), ($) => {
+        $.error(East.str`load '${name}' was handed ${East.print(key)}, an entry of another source`);
+      });
+      $(current.insert(key.unwrap(name), row));
+    });
+    const own = $.let(opsOf(current, load(delivery, current), true, emit));
+    $(refuseStray(delivery, current, own, emit));
+    const ops = $.let(new Map(), types.opsType);
+    $.for(own, ($, op, key) => {
+      $(ops.insert(East.inCase(recordKey, name, key), op));
+    });
+    return ops;
+  });
+}
+
+/**
+ * A load's write, `(Delivery, Run, Emit) → Null`: its ops, then the delta a
+ * patch mutation's program emits for them — each op under its key, and each
+ * index's changes for the rows the ops touch.
+ */
+function loadDelta(parts: LoadWrite) {
+  const { types, delivered, runType } = parts;
+  const opsOfLoad = loadOps(parts);
+  const apply = dictApply(parts.indexes, types);
+  return East.function([delivered, runType, types.emitType], NullType, ($, delivery, run, emit) => {
+    const opsOf = $.const(opsOfLoad);
+    const applyFn = $.const(apply);
+    const ops = $.let(opsOf(delivery, run, emit));
+    $(applyFn(run, ops, emit));
+  });
+}
+
+/**
+ * The program a load of a composite record's external source runs over each
+ * piece of a delivery: the author's function in front of the program a patch
+ * mutation runs, over the source's entries.
+ *
+ * @remarks
+ * It is handed a piece of the delivery and the source's run of the record at
+ * the same keys — the record's entries of the source's case — and emits the
+ * mutation delta of what its function's patch changes: the `primary` arm, each
+ * key under the source's case, and every index's arm, maintained as a patch
+ * mutation maintains them. e3 applies the delta as it applies a mutation's, and
+ * evaluates none of the author's East itself.
+ *
+ * A delivery keyed as its source (a Dict or a Set of the source's key) runs in
+ * pieces: the program is `(Delivery, Run, Emit) → Null`, emitting the delta
+ * entry by entry in any order, and the pieces' deltas are merged by
+ * {@link buildLoadMergeProgram}. A patch that names a key of neither its piece
+ * of the delivery nor its entries is emitted as a {@link DELTA_CONFLICT} entry
+ * naming it, so the load fails and nothing commits. Any other delivery runs as
+ * one piece, over the whole of the source: the program is `(Delivery, Run) →
+ * Delta`, returning the delta.
+ *
+ * Built with no source location of its own, as every record program is, so
+ * its bytes are the declaration's alone.
+ *
+ * @param rec - The composite record, carrying its indexes
+ * @param source - One of its external sources
+ * @returns The program's IR bundle
+ * @throws {Error} When the source has no load, or is no source of the record
+ */
+export function buildLoadProgram(rec: RecordDef, source: RecordSourceDef) {
+  return locationFree((): FunctionExpr<EastType[], EastType> => {
+    const parts = loadWrite(rec, source);
+    const write = loadDelta(parts);
+    if (parts.keyed) return write;
+    const { types, delivered, runType } = parts;
+    const delta = mutationDeltaType(deltaTargets(types.stateType, parts.indexes));
+    return East.function([delivered, runType], delta, ($, delivery, run) => {
+      const writeFn = $.const(write);
+      const out = $.let(new Map(), delta);
+      // One piece emits no key twice: its summaries are summed before they are emitted, and a conflict names its key.
+      const emit = $.const(East.function([delta.key, delta.value], NullType, ($, key, op) => {
+        $(out.insert(key, op));
+      }));
+      $(writeFn(delivery, run, emit));
+      return out;
+    });
+  });
+}
+
+/**
+ * The merge of a keyed load's pieces: `(DeltaKey, DeltaOp, DeltaOp) → DeltaOp`,
+ * what two pieces' deltas come to under a key both wrote.
+ *
+ * @remarks
+ * Pieces name different primary keys, and so different entries `{ik, k}` of
+ * every index that files a row's own. A summary's totals, and a nested series
+ * index's span's, are kept under a key many rows share, so two pieces may each
+ * change one: their `add`s are summed, by the index's own merge
+ * ({@link summaryMergeProgram}). Two pieces that report a conflict under one
+ * key say the same thing, and either is kept. Any other key two pieces share
+ * fails the merge — "two pieces of load 'erp' wrote one entry …" — rather than
+ * commit a guess: the planner cuts no two pieces over one key, so this guards
+ * the planner. A keyed load always names its merge, a record with no summary
+ * included.
+ *
+ * @param rec - The composite record, carrying its indexes
+ * @param source - One of its external sources
+ * @returns The merge's IR bundle
+ * @throws {Error} When the source has no load, or is no source of the record
+ */
+export function buildLoadMergeProgram(rec: RecordDef, source: RecordSourceDef) {
+  return locationFree(() => {
+    const { name, indexes, types } = loadWrite(rec, source);
+    const delta = mutationDeltaType(deltaTargets(types.stateType, indexes));
+    const keyType = delta.key;
+    const opType = delta.value;
+    const refused = East.function([keyType, opType, opType], opType, ($, key, _a, _b) =>
+      $.error(East.str`two pieces of load '${name}' wrote one entry ${East.print(key)}`));
+    const conflicts = East.function([keyType, opType, opType], opType, ($, key, a, b) => {
+      const otherwise = $.const(refused);
+      $.if(key.hasTag(DELTA_CONFLICT), ($) => {
+        $.return(a);
+      });
+      return otherwise(key, a, b);
+    });
+    // Each summed index in turn: a function summing its own arm, and calling the ones before it for any other.
+    return indexes.filter((index) => summed(index)).reduce((earlier, index) => {
+      // The index's arm of the delta, by its types as the delta holds them: its entry key, and its op.
+      const { keyType: entryKey, opType: arm } = summaryArm(index);
+      const sum = functionAt(summaryMerge(index), [entryKey, RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType);
+      const add = functionAt(PROGRAM_FNS.summaryAdd, [arm], RecordSummaryTotalsType);
+      const totalsOf = East.function([opType], RecordSummaryTotalsType, ($, op) => {
+        const addOf = $.const(add);
+        return addOf(op.unwrap(index.name));
+      });
+      return East.function([keyType, opType, opType], opType, ($, key, a, b) => {
+        const otherwise = $.const(earlier);
+        const sumFn = $.const(sum);
+        const added = $.const(totalsOf);
+        $.if(key.hasTag(index.name), ($) => {
+          $.return(East.inCase(opType, index.name, variant('add', sumFn(key.unwrap(index.name), added(a), added(b)))));
+        });
+        return otherwise(key, a, b);
+      });
+    }, conflicts);
+  });
+}
+
 // ── The functions, each built the first time it is read ──────────────────────
 
 /**
@@ -1203,5 +1524,9 @@ export const PROGRAM_FNS = lazyBuilds({
   get addedTotals() {
     return East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
       ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
+  },
+  /** `(op) → totals`: the change to a key's totals a summary's op carries, its `add`. */
+  get summaryAdd() {
+    return East.function([RecordSummaryOpType], RecordSummaryTotalsType, (_$, op) => op.unwrap('add'));
   },
 });

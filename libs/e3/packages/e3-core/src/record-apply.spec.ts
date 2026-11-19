@@ -22,13 +22,13 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
 import {
-  DictType, IntegerType, NullType, SEGMENT_RULE_KEYED, SetType, SortedMap, SortedSet, StringType, StructType,
+  DictType, IntegerType, NullType, SEGMENT_RULE_KEYED, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
   compareFor, decodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
+import { DELTA_CONFLICT, RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { datasetWrite } from './trees.js';
-import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries } from './record-apply.js';
+import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries } from './record-apply.js';
 import { createTestRepo, encodeInSegmentsOf, removeTestRepo, seededStream, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './index.js';
@@ -405,6 +405,100 @@ describe('applying a mutation delta', () => {
       applyDelta(storage, repo, new Map([['primary', hash]]),
         await delta('by_nothing', StringType, PlansType, [[id(0), variant('delete', row(0))]])),
       /does not hold/);
+  });
+
+  describe('a write held to some cases of a composite record\'s key', () => {
+    const SourceKeyType = VariantType({ erp: StringType, own: StringType });
+    const OrdersType = DictType(SourceKeyType, RowType);
+    type SourceKey = ValueTypeOf<typeof SourceKeyType>;
+    const ordersOrder = compareFor(SourceKeyType);
+    /** The record: an entry of each source. */
+    const orders = (): SortedMap<SourceKey, Row> => new SortedMap<SourceKey, Row>(
+      [[variant('erp', 'SO-1001'), row(1)], [variant('own', 'P-1'), row(2)]], ordersOrder);
+    const OWN = { cases: new Set(['own']) };
+    /** The refusal of an op on the ERP's entry: the key, its source, and the words. */
+    const refused = (key: string) => (err: unknown) => err instanceof ExternalEntryError && err.source === 'erp' && err.printed === `.erp "${key}"`
+      && ordersOrder(err.key as SourceKey, variant('erp', key)) === 0
+      && err.message === `.erp "${key}" is an entry of source 'erp', which this write may not write`;
+
+    it('takes every op on a key of its cases, and writes what the door writes', async () => {
+      const hash = await store(OrdersType, orders());
+      const after = orders();
+      after.delete(variant('own', 'P-1'));
+      after.set(variant('own', 'P-2'), row(3));
+      const written = await applyDelta(storage, repo, new Map([['primary', hash]]), await delta('primary', SourceKeyType, OrdersType, [
+        [variant('own', 'P-1'), variant('delete', row(2))],
+        [variant('own', 'P-2'), variant('insert', row(3))],
+      ]), OWN);
+      assert.equal(written.get('primary'), await store(OrdersType, after));
+    });
+
+    it('refuses an op on a key of any other case as it is taken, naming the key and its source, whatever the state holds', async () => {
+      const hash = await store(OrdersType, orders());
+      const apply = async (ops: Array<[unknown, unknown]>, options?: { cases: Set<string> }) =>
+        applyDelta(storage, repo, new Map([['primary', hash]]), await delta('primary', SourceKeyType, OrdersType, ops), options);
+
+      await assert.rejects(apply([[variant('erp', 'SO-1001'), variant('delete', row(1))]], OWN), refused('SO-1001'), 'an entry the state holds');
+      await assert.rejects(apply([[variant('erp', 'SO-9'), variant('insert', row(9))]], OWN), refused('SO-9'), 'and one it does not');
+      // The case is read before the state is: a delete that would not fit is refused for its case, not as a stale write
+      await assert.rejects(apply([[variant('erp', 'SO-9'), variant('delete', row(9))]], OWN), refused('SO-9'));
+      await assert.rejects(apply([[variant('erp', 'SO-9'), variant('insert', row(9))], [variant('own', 'P-2'), variant('insert', row(3))]], OWN),
+        refused('SO-9'), 'with an op of its own cases beside it, the write is refused whole');
+
+      // Held to no case — the source's own load, or a replay of commits each checked as it committed — the same delta applies
+      const after = orders();
+      after.set(variant('erp', 'SO-9'), row(9));
+      assert.equal((await apply([[variant('erp', 'SO-9'), variant('insert', row(9))]])).get('primary'), await store(OrdersType, after));
+    });
+
+    it('R4 — refuses a stale write that names an entry of another case for the entry, not as a conflict: its ops are read before its conflict is answered', async () => {
+      const EntryType = StructType({ ik: StringType, k: SourceKeyType });
+      const primary = await store(OrdersType, orders());
+      const index = await store(DictType(EntryType, NullType), new SortedMap<ValueTypeOf<typeof EntryType>, null>(
+        [[{ ik: 'Plan 1', k: variant('erp', 'SO-1001') }, null], [{ ik: 'Plan 2', k: variant('own', 'P-1') }, null]], compareFor(EntryType)));
+      const targets = new Map([['primary', primary], ['by_title', index]]);
+      // What a write's program emits when the state moved under it: the conflict, which sorts first, and its ops all the same
+      const stale = { target: DELTA_CONFLICT, key: 'update of .erp "SO-1001", whose row no longer matches the patch', op: null };
+      const retitled = variant('update', variant('patch', { due: variant('unchanged', null), title: variant('replace', { before: 'Plan 0', after: 'RETITLED' }) }));
+      const ofTheErp = { target: 'primary', key: variant('erp', 'SO-1001'), op: retitled };
+      const ofItsOwn = { target: 'primary', key: variant('own', 'P-1'), op: retitled };
+      const indexed = { target: 'by_title', key: { ik: 'Plan 1', k: variant('erp', 'SO-1001') }, op: variant('delete', null) };
+      const conflict = (err: unknown) => err instanceof DeltaConflictError && err.message === stale.key;
+
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, ofTheErp], OWN), refused('SO-1001'));
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, indexed, ofTheErp, ofItsOwn], OWN), refused('SO-1001'),
+        'past an index\'s arm, whose entries are held to no case');
+      // A stale write of its own cases alone is the conflict it was, and so is any write held to no case
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, indexed, ofItsOwn], OWN), conflict);
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale], OWN), conflict, 'one that names no key');
+      await assert.rejects(applyDeltaEntries(storage, repo, targets, [stale, ofTheErp]), conflict);
+    });
+
+    it('holds the record\'s own collection alone: an index\'s entries follow its rows', async () => {
+      const EntryType = StructType({ ik: StringType, k: SourceKeyType });
+      const IndexType = DictType(EntryType, NullType);
+      const primary = await store(OrdersType, orders());
+      const index = await store(IndexType, new SortedMap<ValueTypeOf<typeof EntryType>, null>(
+        [[{ ik: 'Plan 1', k: variant('erp', 'SO-1001') }, null], [{ ik: 'Plan 2', k: variant('own', 'P-1') }, null]], compareFor(EntryType)));
+      const targets = new Map([['primary', primary], ['by_title', index]]);
+
+      const written = await applyDeltaEntries(storage, repo, targets, [
+        { target: 'by_title', key: { ik: 'Plan 2', k: variant('own', 'P-1') }, op: variant('delete', null) },
+        { target: 'primary', key: variant('own', 'P-1'), op: variant('delete', row(2)) },
+      ], OWN);
+      assert.deepEqual([...written.keys()].sort(), ['by_title', 'primary'], 'the index\'s arm is applied, its struct keys unheld');
+    });
+
+    it('refuses a record whose key is no variant: a package that mixes two builds', async () => {
+      const hash = await store(PlansType, plansOf(10));
+      await assert.rejects(applyPlansHeld(hash), { message: 'a write held to the sources own names a key of \'primary\' that is no source\'s' });
+    });
+
+    /** A write of a record keyed by a String, held to a source as no export holds one. */
+    async function applyPlansHeld(hash: string): Promise<Map<string, string>> {
+      return applyDelta(storage, repo, new Map([['primary', hash]]),
+        await delta('primary', StringType, PlansType, [[id(3), variant('delete', row(3))]]), OWN);
+    }
   });
 
   describe("a summary index's arm (#1039)", () => {

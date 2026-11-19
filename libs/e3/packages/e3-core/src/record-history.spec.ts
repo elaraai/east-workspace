@@ -11,21 +11,29 @@
  * object over {@link RECORD_ARGS_READ_BYTES} not read at all, so a page of
  * history reads at most that much of a commit's arguments however large a
  * patch is.
+ *
+ * And a composite record's description: what each of its sources is, and what
+ * its ref keeps of each one's last delivery.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  ArrayType, BlobType, DictType, East, EastTypeType, IntegerType, StringType, StructType, encodeBeast2For, equalFor, toEastTypeValue,
+  ArrayType, BlobType, DictType, East, EastTypeType, IntegerType, StringType, StructType, encodeBeast2For, equalFor, none, some,
+  toEastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { RECORD_ARGS_READ_BYTES, RECORD_ARG_TEXT_BYTES, RECORD_ARG_TEXT_CHARS, type RecordCommitArgs } from '@elaraai/e3-types';
-import { recordCommitArgs, recordHistory, recordMutate } from './records.js';
+import {
+  RECORD_ARGS_READ_BYTES, RECORD_ARG_TEXT_BYTES, RECORD_ARG_TEXT_CHARS, RecordLoadArgsType, RecordSignatureType, type RecordCommitArgs,
+} from '@elaraai/e3-types';
+import { recordCommitArgs, recordCompact, recordDescribe, recordHistory, recordMutate } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import {
+  ErpDeliveryType, at, createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources, sourceDelivered,
+} from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend } from './index.js';
@@ -122,6 +130,21 @@ describe("a record commit's arguments, previewed", () => {
     assert.deepEqual([got!.bytes, got!.text, got!.truncated], [BigInt(broken.length), '', true]);
   });
 
+  it('R33 — previews a load commit\'s arguments as any commit\'s: a tuple of the one value that says what the load did, by its type, and names the object that holds it whole', async () => {
+    const loaded = encodeBeast2For(RecordLoadArgsType)({
+      delivery: 'd'.repeat(64), load: 'l'.repeat(64), asOf: some(at('2026-11-02T03:00:00.000')), first: true,
+      execution: { inputsHash: 'i'.repeat(64), executionId: '019a3f52-7c1e-7b3a-9d0e-4f6a8b2c1d3e' }, set: 1_204n, deleted: 31n, unchanged: 98_112n,
+    });
+    const { hash, got } = await preview([loaded]);
+    assert.equal(got.values.length, 1);
+    assert.ok(sameType(got.values[0]!.type, toEastTypeValue(RecordLoadArgsType)), 'its type says it is a load\'s');
+    assert.equal(got.values[0]!.bytes, BigInt(loaded.length));
+    // Its text is cut as any argument's is: a reader that says the load in words decodes the object the preview names
+    assert.deepEqual([[...got.values[0]!.text].length, got.values[0]!.truncated], [RECORD_ARG_TEXT_CHARS, true]);
+    assert.match(got.values[0]!.text, /^\(delivery="d{64}", load="l{64}", asOf=\.some 2026-11-02T03:00:00\.000, first=true, /);
+    assert.equal(got.hash, hash);
+  });
+
   it('names arguments that are not East values, as a system commit may record them, and previews none', async () => {
     // A caller's own bytes beside an East value: no argument has a type to give
     const { bytes, hash, got } = await preview([encodeInt(1n), new TextEncoder().encode('backup-42')]);
@@ -185,5 +208,60 @@ describe("a record's history, each commit's arguments previewed", () => {
 
     const [plain] = await recordHistory(storage, repo, 'main', 'plans');
     assert.equal(plain!.args, undefined, 'a walk not asked for them previews none');
+  });
+});
+
+describe('a composite record, described', () => {
+  const sameSources = equalFor(RecordSignatureType.fields.sources);
+  type Sources = ValueTypeOf<typeof RecordSignatureType.fields.sources>;
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  it('R33 — describes each source: whether its load alone writes it, what it is delivered, its last delivery with its commit and as-of, and whether the record waits for it', async () => {
+    const plain = e3.record('notes', DictType(StringType, StringType), { initial: new Map() });
+    const zip = join(tempDir, 'sales.zip');
+    await e3.export(e3.package('sales', '1.0.0', ordersOverSources(), plain), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, 'main');
+    await workspaceDeploy(storage, repo, 'main', 'sales', '1.0.0');
+    const sources = async (record = 'orders'): Promise<Sources> => {
+      const described = await recordDescribe(storage, repo, 'main', record);
+      assert.ok(described !== null, `the workspace has a record ${record}`);
+      return described.sources;
+    };
+    const erp = { name: 'erp', key: toEastTypeValue(StringType), external: true, delivery: some(toEastTypeValue(ErpDeliveryType)), feed: none };
+    const own = { name: 'own', key: toEastTypeValue(IntegerType), external: false, delivery: none, feed: none, last: none, pending: false };
+
+    // As deployed: erp has delivered nothing, and the record waits for it
+    assert.ok(sameSources(await sources(), [{ ...erp, last: none, pending: true }, own]), 'each source, in the order of their names');
+
+    // Once erp has delivered: the delivery, the commit that applied it, and when it was as of
+    const applied = await sourceDelivered(storage, repo, 'main', 'records/orders', 'erp', '2026-11-02T03:00:00.000');
+    const [delivered] = await sources();
+    assert.equal(delivered!.pending, false);
+    if (delivered!.last.type !== 'some') assert.fail('erp holds a delivery');
+    assert.ok(sameSources([delivered!], [{
+      ...erp, pending: false,
+      last: some({ delivery: delivered!.last.value.delivery, commit: some(applied), asOf: some(at('2026-11-02T03:00:00.000')) }),
+    }]));
+
+    // A compaction cuts the commit from the chain: the source still holds its delivery, and names no commit
+    assert.equal((await recordCompact(storage, repo, 'main', 'orders', { actor: 'cli:test' })).kind, 'committed');
+    const [compacted] = await sources();
+    assert.ok(sameSources([compacted!], [{ ...delivered!, last: some({ ...delivered!.last.value, commit: none }) }]));
+
+    assert.deepEqual(await sources('notes'), [], 'a record with no sources has none to describe');
   });
 });

@@ -29,7 +29,6 @@ import {
 } from '@elaraai/e3-types';
 import { inputsHash } from './executions.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
-import { taskInputRead } from './dataset-open.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -38,8 +37,10 @@ import {
   type LockHolderInfo,
 } from './errors.js';
 import type { TaskRunner } from './execution/interfaces.js';
+import { taskInputRead } from './input-read.js';
 import { computeHash } from './objects.js';
 import { packageObjectRead } from './packages.js';
+import { pendingSources } from './record-slots.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { taskObjectRead } from './tasks.js';
 
@@ -510,6 +511,10 @@ function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType
  * (`taskInputRead`, which the run decides by too): a state is read once and
  * then from memory, so a status polled over an unchanged record reads nothing
  * more for it.
+ *
+ * An input that is a composite record, or an index of one, that waits for an
+ * external source's first delivery makes the task wait, as a run leaves it
+ * waiting: its ref says so, which `taskInputRead` asks before its state.
  */
 async function inputsOf(
   storage: StorageBackend,
@@ -524,9 +529,9 @@ async function inputsOf(
 
   for (const [at, inputPath] of node.inputPaths.entries()) {
     const inputPathStr = pathToString(inputPath);
-    const { refType, hash } = refOf(refs, inputPath);
+    const ref = refs.get(treePathToRefPath(inputPath));
 
-    if (refType === 'unassigned' || hash === null) {
+    if (ref?.type !== 'value') {
       hasUnsetInputs = true;
 
       // Check if this is produced by another task
@@ -539,8 +544,9 @@ async function inputsOf(
       }
     } else {
       const index = node.task.inputs[at]!.index;
-      // A state that holds no such index: the task waits until a deploy has built it
-      const read = await taskInputRead(storage, repo, inputPathStr, hash, index.type === 'some' ? index.value : null);
+      // A record yet to hear from an external source, or a state that holds no such index: the task waits, in the run's words
+      const held = { hash: ref.value.hash, pending: pendingSources(ref.value.versions) };
+      const read = await taskInputRead(storage, repo, inputPathStr, held, index.type === 'some' ? index.value : null);
       if ('waiting' in read) return { type: 'waiting', reason: read.waiting };
       currentInputHashes.push(read.object);
     }

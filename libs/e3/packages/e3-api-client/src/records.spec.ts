@@ -42,6 +42,14 @@ function serve(body: Uint8Array): void {
 describe('record responses', () => {
   it('reads each field as sent', async () => {
     const applied = some({ at: some(AT), commit: some(HASH) });
+    // A composite's sources: one a load writes, its last delivery's commit cut by a compaction, and one the mutations write
+    const sources = [
+      {
+        name: 'erp', key: toEastTypeValue(StringType), external: true, delivery: some(toEastTypeValue(ArrayType(StringType))), feed: none,
+        last: some({ delivery: HASH, commit: none, asOf: some(AT) }), pending: false,
+      },
+      { name: 'own', key: toEastTypeValue(IntegerType), external: false, delivery: none, feed: none, last: none, pending: false },
+    ];
     serve(encodeBeast2For(ResponseType(RecordSignatureType))(variant('success', {
       name: 'plans', mutations: [{ name: 'patch', argTypes: [], form: 'patch' }],
       indexes: [
@@ -49,6 +57,7 @@ describe('record responses', () => {
         { name: 'by_week_totals', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(RecordSummaryTotalsType), multi: true, summary: true, built: true },
       ],
       migrations: [{ name: 'add_owner', form: 'rows', from: toEastTypeValue(StringType), to: toEastTypeValue(IntegerType), applied }],
+      sources,
     })));
     const signature = await workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null });
     assert.equal(signature.mutations[0]!.form, 'patch');
@@ -56,6 +65,7 @@ describe('record responses', () => {
       [['by_status', true, false, false], ['by_week_totals', true, true, true]]);
     assert.deepEqual(signature.migrations.map(({ name, form }) => [name, form]), [['add_owner', 'rows']]);
     assert.ok(equalFor(OptionType(RecordMigrationAppliedType))(signature.migrations[0]!.applied, applied));
+    assert.ok(equalFor(RecordSignatureType.fields.sources)(signature.sources, sources), 'each source as sent');
 
     const args = some({
       hash: HASH,

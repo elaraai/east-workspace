@@ -20,9 +20,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType,
-  canonicalTypeValue, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue, variant,
-  type ValueTypeOf,
+  ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, PatchType, RecursiveType, SetType, SortedMap, StringType, StructType,
+  VariantType, canonicalTypeValue, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue,
+  variant, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type IndexBuilder, type MigrationBuilder, type MigrationDraft, type MutationBuilder, type PackageDef } from '@elaraai/e3';
 import {
@@ -43,10 +43,11 @@ import { workspaceCreate, workspaceGetPackage, type WorkspaceDeployOptions } fro
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceStatus } from './workspaceStatus.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withEnv } from './test-helpers.js';
+import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, sourceDelivered, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
-import type { StorageBackend, TaskRunner } from './index.js';
+import type { InputWait, StorageBackend, TaskRunner } from './index.js';
 
 const RowV1Type = StructType({ title: StringType });
 const RowV2Type = StructType({ title: StringType, owner: StringType });
@@ -139,6 +140,71 @@ function renumbered(bytes: Uint8Array): Uint8Array {
     : variant('struct', new SortedMap([...structure.value].map(([name, child]): [string, Structure] => [name, renumber(child)]),
       compareFor(StringType)));
   return encodeBeast2For(PackageObjectType)({ ...pkg, data: { ...pkg.data, structure: renumber(pkg.data.structure) } });
+}
+
+const OrderV1Type = StructType({ customer: StringType, qty: IntegerType });
+const OrderV2Type = StructType({ customer: StringType, qty: IntegerType, note: StringType });
+/** The orders' key: the source each order is of. */
+const OrderKeyType = VariantType({ crm: StringType, erp: StringType, own: StringType });
+const OrdersV1Type = DictType(OrderKeyType, OrderV1Type);
+const OrdersV2Type = DictType(OrderKeyType, OrderV2Type);
+/** What a loaded source is delivered: its whole order book, by its own id. */
+const DeliveredV1Type = DictType(StringType, OrderV1Type);
+const DeliveredV2Type = DictType(StringType, OrderV2Type);
+const ordersPath: TreePath = [variant('field', 'records'), variant('field', 'orders')];
+type OrderKey = ValueTypeOf<typeof OrderKeyType>;
+type OrderV1 = ValueTypeOf<typeof OrderV1Type>;
+/** What one touched key of a patch of the orders carries, derived from the patch type. */
+type OrderOp = Extract<ValueTypeOf<PatchTypeOf<typeof OrdersV1Type>>, { type: 'patch' }>['value'] extends Map<OrderKey, infer Op> ? Op : never;
+
+// A load of a source's whole delivery answers what takes the source's entries to it
+const loadV1 = East.function([DeliveredV1Type, DeliveredV1Type], PatchType(DeliveredV1Type), (_$, delivery, current) => East.diff(current, delivery));
+const loadV2 = East.function([DeliveredV2Type, DeliveredV2Type], PatchType(DeliveredV2Type), (_$, delivery, current) => East.diff(current, delivery));
+
+const acme: OrderV1 = { customer: 'Acme', qty: 5n };
+const birch: OrderV1 = { customer: 'Birch', qty: 2n };
+
+/**
+ * A release of `sales`, whose record `orders` is a composite over the sources
+ * `crm`, `erp` and `own`. `own` is the solution's in each; which of `crm` and
+ * `erp` is loaded, and which the record's mutations write, is the release's:
+ * - `1.0.0`: `erp` loaded, `crm` entered by hand, holding one order
+ * - `1.1.0`: `erp` handed back to the mutations, `crm` handed to its load
+ * - `1.2.0`: both loaded
+ * - `2.0.0`: 1.0.0's sources, each order given a note by a `rows` step
+ * - `3.0.0`: 1.0.0's sources at 2.0.0's type, with no step to carry an order
+ */
+function sales(version: '1.0.0' | '1.1.0' | '1.2.0' | '2.0.0' | '3.0.0'): PackageDef<Record<string, unknown>> {
+  switch (version) {
+    case '1.0.0': return e3.package('sales', version, e3.recordComposite('orders', OrderV1Type, {
+      sources: (source) => ({ erp: source.load(StringType, DeliveredV1Type, loadV1), crm: source.mutations(StringType), own: source.mutations(StringType) }),
+      initial: { crm: new Map([['C-1', acme]]), own: new Map([['P-1', birch]]) },
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    }));
+    case '1.1.0': return e3.package('sales', version, e3.recordComposite('orders', OrderV1Type, {
+      sources: (source) => ({ erp: source.mutations(StringType), crm: source.load(StringType, DeliveredV1Type, loadV1), own: source.mutations(StringType) }),
+      initial: { own: new Map([['P-1', birch]]) },
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    }));
+    case '1.2.0': return e3.package('sales', version, e3.recordComposite('orders', OrderV1Type, {
+      sources: (source) => ({
+        erp: source.load(StringType, DeliveredV1Type, loadV1), crm: source.load(StringType, DeliveredV1Type, loadV1), own: source.mutations(StringType),
+      }),
+      initial: { own: new Map([['P-1', birch]]) },
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    }));
+    case '2.0.0': return e3.package('sales', version, e3.recordComposite('orders', OrderV2Type, {
+      sources: (source) => ({ erp: source.load(StringType, DeliveredV2Type, loadV2), crm: source.mutations(StringType), own: source.mutations(StringType) }),
+      initial: { own: new Map() },
+      migrations: (migration, { key }) => [
+        migration.rows('add_note', East.function([key, OrderV1Type], OrderV2Type, ($, _key, order) => ({ customer: order.customer, qty: order.qty, note: '' }))),
+      ],
+    }));
+    case '3.0.0': return e3.package('sales', version, e3.recordComposite('orders', OrderV2Type, {
+      sources: (source) => ({ erp: source.load(StringType, DeliveredV2Type, loadV2), crm: source.mutations(StringType), own: source.mutations(StringType) }),
+      initial: { own: new Map([['P-9', { customer: 'Cedar', qty: 1n, note: 'after the reset' }]]) },
+    }));
+  }
 }
 
 describe('a deploy\'s record migrations', () => {
@@ -910,10 +976,10 @@ describe('a deploy\'s record migrations', () => {
       // ever runs on an empty state
       const status = await workspaceStatus(storage, runner, repo, ws);
       assert.equal(status.tasks.find((task) => task.name === 'count')?.status.type, 'waiting');
-      const waiting: [string, string[]][] = [];
-      const run = await dataflowExecute(storage, repo, ws, { onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      const waiting: [string, InputWait[]][] = [];
+      const run = await dataflowExecute(storage, repo, ws, { onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
       assert.deepEqual([run.success, run.executed, run.waiting], [true, 0, 1], JSON.stringify(run));
-      assert.deepEqual(waiting, [['count', ['.records.plans']]]);
+      assert.deepEqual(waiting, [['count', [{ input: '.records.plans', kind: 'unset' }]]]);
       assert.equal((await storage.datasets.read(repo, ws, 'tasks/count/output'))?.type ?? 'unassigned', 'unassigned');
 
       const refused = [
@@ -1047,6 +1113,136 @@ describe('a deploy\'s record migrations', () => {
       assert.equal(restored.kind, 'invalid', JSON.stringify(restored));
       assert.match((restored as { message: string }).message, /holds record 'plans' whole, not as the manifest of its segments/);
       assert.deepEqual(await history(), ['$init']);
+    });
+  });
+
+  describe('a composite record\'s sources', () => {
+    /** The time `erp`'s delivery says its data is as of, as East prints it. */
+    const AS_OF = '2026-11-02T03:00:00.000';
+    const sameOrders = equalFor(OrdersV1Type);
+
+    /** The record's ref in `workspace`. */
+    async function ordersRef(workspace = ws): Promise<{ hash: string; versions: Map<string, string> }> {
+      const held = await storage.datasets.read(repo, workspace, 'records/orders');
+      assert.ok(held && held.type === 'value');
+      return held.value;
+    }
+    /** The names of the record's commits, newest first. */
+    const commits = async (workspace = ws): Promise<string[]> =>
+      (await recordHistory(storage, repo, workspace, 'orders')).map((entry) => entry.commit.mutation);
+    /** What the ref keeps of a source's last delivery: each slot it holds, by what the slot holds. */
+    const deliveryOf = (versions: ReadonlyMap<string, string>, source: string): Record<string, string> =>
+      Object.fromEntries(Object.entries(sourceLoadSlots(source)).flatMap(([part, slot]) => {
+        const held = versions.get(slot);
+        return held === undefined ? [] : [[part, held]];
+      }));
+    /** `erp`'s first delivery, as its load's commit leaves the ref. */
+    const erpDelivered = (workspace = ws): Promise<string> => sourceDelivered(storage, repo, workspace, 'records/orders', 'erp', AS_OF);
+
+    it('R24 — mints a composite at its solution sources\' initial entries, every external source waiting for its first delivery', async () => {
+      const plans: RecordPlan[] = [];
+      await deploy(sales('1.0.0'), { onRecordPlan: (plan) => plans.push(plan) });
+      assert.deepEqual(plans, [{ record: 'records/orders', action: variant('mint', null) }]);
+      assert.deepEqual(await commits(), ['$init']);
+      const { versions } = await ordersRef();
+      assert.deepEqual([versions.get(PENDING_SLOT), versions.get(EXTERNAL_SLOT)], ['erp', 'erp'], 'its one external source, waited for');
+      assert.ok(sameOrders(await workspaceGetDataset(storage, repo, ws, ordersPath) as ValueTypeOf<typeof OrdersV1Type>,
+        new SortedMap<OrderKey, OrderV1>([[variant('crm', 'C-1'), acme], [variant('own', 'P-1'), birch]], compareFor(OrderKeyType))),
+      'it holds the entries its solution sources declare');
+
+      // Sources that are all external: the record holds a state of no entry, never none, and each is named, sorted
+      const stock = e3.recordComposite('stock', OrderV1Type, {
+        sources: (source) => ({ wms: source.load(StringType, DeliveredV1Type, loadV1), erp: source.load(StringType, DeliveredV1Type, loadV1) }),
+      });
+      // And sources that are all the solution's: nothing waits, and neither slot is held
+      const plan = e3.recordComposite('plan', OrderV1Type, {
+        sources: (source) => ({ crm: source.mutations(StringType), own: source.mutations(StringType) }),
+      });
+      const other = 'other';
+      await workspaceCreate(storage, repo, other);
+      const minted: RecordPlan[] = [];
+      await deploy(e3.package('stores', '1.0.0', stock, plan), { onRecordPlan: (decided) => minted.push(decided) }, other);
+      assert.deepEqual(minted.map(({ action }) => action.type), ['mint', 'mint'], 'a composite always has a state to mint');
+      const held = async (record: string): Promise<Map<string, string>> => {
+        const stored = await storage.datasets.read(repo, other, `records/${record}`);
+        assert.ok(stored && stored.type === 'value', `${record} holds a state`);
+        return stored.value.versions;
+      };
+      assert.deepEqual([(await held('stock')).get(PENDING_SLOT), (await held('stock')).get(EXTERNAL_SLOT)], ['erp,wms', 'erp,wms']);
+      assert.equal((await workspaceGetDataset(storage, repo, other, [variant('field', 'records'), variant('field', 'stock')]) as Map<unknown, unknown>).size, 0);
+      assert.deepEqual([(await held('plan')).has(PENDING_SLOT), (await held('plan')).has(EXTERNAL_SLOT)], [false, false]);
+    });
+
+    it('R25 — a deploy that keeps a composite reconciles what waits: a source handed to its load joins the external set, and one handed back to the mutations leaves it, its delivery forgotten', async () => {
+      await deploy(sales('1.0.0'));
+      const applied = await erpDelivered();
+      const delivered = (await ordersRef()).versions;
+      assert.equal(delivered.has(PENDING_SLOT), false, 'erp has delivered');
+      assert.equal(deliveryOf(delivered, 'erp').commit, applied);
+
+      // erp is handed back to the mutations; crm, which holds an order, to its load
+      const plans: RecordPlan[] = [];
+      await deploy(sales('1.1.0'), { onRecordPlan: (plan) => plans.push(plan) });
+      assert.deepEqual(plans, [{ record: 'records/orders', action: variant('keep', { deploy: true }) }]);
+      assert.deepEqual((await commits())[0], '$deploy');
+      const swapped = (await ordersRef()).versions;
+      assert.equal(swapped.get(EXTERNAL_SLOT), 'crm');
+      assert.equal(swapped.has(PENDING_SLOT), false, 'the order crm holds counts as delivered: nothing waits');
+      assert.deepEqual(deliveryOf(swapped, 'erp'), {}, 'erp is external no longer: its delivery is forgotten, as-of and all');
+
+      // erp is handed to its load again, holding no order
+      await deploy(sales('1.2.0'));
+      const both = (await ordersRef()).versions;
+      assert.deepEqual([both.get(PENDING_SLOT), both.get(EXTERNAL_SLOT)], ['erp', 'crm,erp'], 'a source that holds no entry waits for its first delivery');
+
+      // The same package again writes nothing
+      const before = await ordersRef();
+      await workspaceDeploy(storage, repo, ws, 'sales', '1.2.0', { runner });
+      assert.deepEqual(await ordersRef(), before);
+    });
+
+    it('R25 — a deploy that migrates a composite forgets each external source\'s delivery but its as-of, and a source that waited still waits', async () => {
+      await deploy(sales('1.0.0'));
+      await erpDelivered();
+      await deploy(sales('2.0.0'));
+      assert.deepEqual((await commits())[0], '$migrate:add_note');
+      const { versions } = await ordersRef();
+      assert.deepEqual(deliveryOf(versions, 'erp'), { asOf: AS_OF },
+        'the entries were written again, so the record no longer holds what the delivery said: only when it was as of is kept');
+      assert.deepEqual([versions.has(PENDING_SLOT), versions.get(EXTERNAL_SLOT)], [false, 'erp'], 'and erp, which had delivered, does not wait again');
+      const rows = await workspaceGetDataset(storage, repo, ws, ordersPath) as ValueTypeOf<typeof OrdersV2Type>;
+      assert.ok(equalFor(OrdersV2Type)(rows, new SortedMap<OrderKey, ValueTypeOf<typeof OrderV2Type>>(
+        [[variant('crm', 'C-1'), { ...acme, note: '' }], [variant('own', 'P-1'), { ...birch, note: '' }]], compareFor(OrderKeyType))));
+
+      // A source still waited for when the record is migrated waits after it
+      const other = 'other';
+      await workspaceCreate(storage, repo, other);
+      await deploy(sales('1.0.0'), {}, other);
+      await deploy(sales('2.0.0'), {}, other);
+      const waited = (await ordersRef(other)).versions;
+      assert.deepEqual([waited.get(PENDING_SLOT), waited.get(EXTERNAL_SLOT)], ['erp', 'erp']);
+    });
+
+    it('R26 — a reset takes a composite back to its solution sources\' initial entries: every delivery forgotten, every external source waiting again, and the record never unassigned', async () => {
+      await deploy(sales('1.0.0'));
+      await erpDelivered();
+      const planned = await recordMutate(storage, runner, repo, ws, 'orders', 'patch', [encodeBeast2For(PatchType(OrdersV1Type))(
+        variant('patch', new SortedMap<OrderKey, OrderOp>([[variant('own', 'P-2'), variant('insert', acme)]], compareFor(OrderKeyType))))], { actor: 'cli:test' });
+      assert.equal(planned.kind, 'committed', JSON.stringify(planned));
+
+      await assert.rejects(deploy(sales('3.0.0')),
+        /record 'records\/orders' changed type with no migration[\s\S]*Deploy with --schema=reset to reset it to the package's initial value\./);
+      const plans: RecordPlan[] = [];
+      await deploy(sales('3.0.0'), { schema: 'reset', onRecordPlan: (plan) => plans.push(plan) });
+      assert.equal(plans[0]!.action.type, 'reset', 'reset to a value, not sent back to unassigned');
+      assert.deepEqual(await commits(), ['$reset'], 'a root commit: the history starts over');
+      const { versions } = await ordersRef();
+      assert.deepEqual([versions.get(PENDING_SLOT), versions.get(EXTERNAL_SLOT)], ['erp', 'erp'], 'erp waits for its first delivery again');
+      assert.deepEqual(deliveryOf(versions, 'erp'), {}, 'and nothing is kept of the delivery it had, its as-of among it');
+      const rows = await workspaceGetDataset(storage, repo, ws, ordersPath) as ValueTypeOf<typeof OrdersV2Type>;
+      assert.ok(equalFor(OrdersV2Type)(rows, new SortedMap<OrderKey, ValueTypeOf<typeof OrderV2Type>>(
+        [[variant('own', 'P-9'), { customer: 'Cedar', qty: 1n, note: 'after the reset' }]], compareFor(OrderKeyType))),
+      'it holds the entries the package\'s solution sources declare');
     });
   });
 });

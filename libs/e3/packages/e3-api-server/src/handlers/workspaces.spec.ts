@@ -64,7 +64,7 @@ async function seedIndexedPackage(storage: InMemoryStorage): Promise<string> {
     form: variant('entries', null),
   }));
   const record = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
-    path: 'records/plans', mutations: new Map(), indexes: new Map([['by_value', index]]), migrations: [],
+    path: 'records/plans', mutations: new Map(), indexes: new Map([['by_value', index]]), migrations: [], sources: new Map(),
   }));
   const structure = variant('struct', new Map([
     ['records', variant('struct', new Map([

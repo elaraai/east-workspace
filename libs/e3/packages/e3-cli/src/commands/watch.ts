@@ -35,7 +35,7 @@ import { loadPackageFile } from './load-package.js';
 import { readFunctionManifests } from './function-manifests.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
-import { catchUpLine, describeDeferral, describeUnset } from './start.js';
+import { catchUpLine, describeDeferral, waitLine } from './start.js';
 import { formatSize } from '../format.js';
 import type { RackRunnerHandle } from '@elaraai/e3-rack';
 import { openRack, rackAsked, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
@@ -245,8 +245,8 @@ export async function watchCommand(
           const duration = taskResult.duration > 0 ? ` [${taskResult.duration}ms]` : '';
           console.log(`  [${status}] ${taskResult.name}${cached}${duration}`);
         },
-        onTaskWaiting: (name, inputs) => {
-          console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+        onTaskWaiting: (name, waits) => {
+          console.log(`  ${waitLine(name, waits)}`);
         },
         onTaskDeferred: (name, reason) => {
           console.log(`  [DEFER] ${name}: ${describeDeferral(reason)}`);
@@ -259,7 +259,7 @@ export async function watchCommand(
       const result = await orchestrator.wait(handle);
 
       if (result.success) {
-        const waiting = result.waiting > 0 ? `, ${result.waiting} waiting on an input that is not set` : '';
+        const waiting = result.waiting > 0 ? `, ${result.waiting} waiting on an input or a load` : '';
         console.log(`[${timestamp()}] Dataflow complete (${result.executed} executed, ${result.cached} cached${waiting})`);
       } else {
         console.log(`[${timestamp()}] Dataflow failed (${result.failed} failed)`);

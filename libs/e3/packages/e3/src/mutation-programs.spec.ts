@@ -20,14 +20,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, equalFor, isVariant, parseFor, printFor, toEastTypeValue, variant, type EastType, type ValueTypeOf,
+  DateTimeType, DictType, East, IntegerType, NullType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
+  compareFor, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { DELTA_CONFLICT, RecordSummaryOpType, editTypeOf, mutationDeltaType } from '@elaraai/e3-types';
+import { RecordSummaryOpType, editTypeOf } from '@elaraai/e3-types';
 import e3 from './index.js';
 import { record } from './record.js';
-import type { MutationBuilder, MutationDraft } from './record-builders.js';
+import type { MutationBuilder, MutationDraft, SourceBuilder } from './record-builders.js';
 import { buildMutationProgram, deltaTargets } from './record-programs.js';
+import { conflictOf, deltaOf, partOf, shape, type Emitted } from './test-helpers.js';
 import type { MutationDef, RecordDef } from './types.js';
 
 const RowType = StructType({ status: StringType, due: IntegerType, title: StringType });
@@ -57,26 +58,6 @@ function indexedPlans<M extends Readonly<Record<string, MutationDraft>>>(mutatio
   });
 }
 
-/** A delta's key or op, as the variant it is: the target it is of, and what it carries. */
-function partOf(part: unknown): variant {
-  assert.ok(isVariant(part), 'a delta entry is a variant of its target');
-  return part;
-}
-
-/** One entry a write's program emitted: the target it changes, its key there, and its op. */
-interface Emitted {
-  /** `primary`, an index's name, or the conflict. */
-  readonly target: string;
-  /** The key, as East prints it at the target's key type. */
-  readonly key: string;
-  /** The key's value. */
-  readonly keyValue: unknown;
-  /** The target's op — `insert`, `delete`, `update`, `add` — or a conflict's Null. */
-  readonly op: unknown;
-  /** What went stale, in words, for the conflict's entry. */
-  readonly conflict?: string;
-}
-
 /** The delta a mutation's program writes for `state` and `args`: the `(key, op)` pairs it emits, sorted by the delta's
  *  key as the runner sorts them, none emitted twice. */
 function emitted(rec: RecordDef, mut: MutationDef, state: ValueTypeOf<EastType>, args: ValueTypeOf<EastType>[]): Emitted[] {
@@ -86,32 +67,7 @@ function emitted(rec: RecordDef, mut: MutationDef, state: ValueTypeOf<EastType>,
     out.push([key, op]);
     return null;
   });
-  const targets = deltaTargets(rec.type, Object.values(rec.indexes));
-  const compare = compareFor(toEastTypeValue(mutationDeltaType(targets).key));
-  out.sort(([a], [b]) => compare(a, b));
-  for (let i = 1; i < out.length; i++) {
-    assert.notEqual(compare(out[i - 1]![0], out[i]![0]), 0, 'the delta is a dict with no merge: no key is emitted twice');
-  }
-  const printers = new Map(targets.map((target) => [target.name, printFor(toEastTypeValue(target.keyType))]));
-  printers.set(DELTA_CONFLICT, printFor(toEastTypeValue(StringType)));
-  return out.map(([key, op]) => {
-    const { type: target, value } = partOf(key);
-    const print = printers.get(target);
-    assert.ok(print !== undefined, `the delta's targets name '${target}'`);
-    const conflict: string | undefined = target === DELTA_CONFLICT ? value : undefined;
-    return { target, key: print(value), keyValue: value, op: partOf(op).value, ...(conflict !== undefined && { conflict }) };
-  });
-}
-
-/** The conflict a delta names, if it names one: it sorts first. */
-function conflictOf(out: Emitted[]): string | undefined {
-  return out[0]?.conflict;
-}
-
-/** The delta's `(target, key)` / `(target, op-tag)` pairs, which is what the
- *  apply keys on — the payloads are asserted where they matter. */
-function shape(out: Emitted[]): string[] {
-  return out.map((entry) => `${entry.target}:${entry.key}=${partOf(entry.op).type}`);
+  return deltaOf(rec, out);
 }
 
 describe('the mutation delta — targets and canonical order', () => {
@@ -291,6 +247,76 @@ describe('the edit form', () => {
     assert.throws(
       () => record('n', IntegerType, { initial: 0n, mutations: (mutation) => ({ scalar: mutation.edit(East.function([IntegerType], NullType, ($) => { void $; }) as never) }) }),
       /needs a Dict or Set record/);
+  });
+});
+
+describe('the edit form over a composite record', () => {
+  const Order = StructType({ customer: StringType, qty: IntegerType });
+  const Entries = DictType(StringType, Order);
+  const OrdersKey = VariantType({ erp: StringType, own: StringType });
+  const loadErp = East.function([Entries, Entries], PatchType(Entries), ($, delivery, current) => East.diff(current, delivery));
+  /** An ERP's orders and the solution's own. */
+  const sources = (source: SourceBuilder<typeof Order>) => ({ erp: source.load(StringType, Entries, loadErp), own: source.mutations(StringType) });
+  // One order of each source, in the record's key order: a source's entries are one run of it.
+  const held = new SortedMap<ValueTypeOf<typeof OrdersKey>, ValueTypeOf<typeof Order>>([
+    [variant('erp', 'SO-1'), { customer: 'Acme', qty: 5n }],
+    [variant('own', 'P-1'), { customer: 'Acme', qty: 2n }],
+  ], compareFor(OrdersKey));
+
+  it('writes through the capability over its own sources\' keys: each op under the record\'s key, each index\'s entry beside it', () => {
+    const rec = e3.recordComposite('orders', Order, {
+      sources,
+      indexes: (index) => ({ by_customer: index.on(['customer']) }),
+      mutations: (mutation, { state, edit }) => ({
+        plan: mutation.edit(East.function([state, StringType, Order, edit], NullType, ($, _orders, id, order, edit) => {
+          $(edit.set(variant('own', id), order));
+        })),
+        drop: mutation.edit(East.function([state, StringType, edit], NullType, ($, _orders, id, edit) => {
+          $(edit.delete(variant('own', id)));
+        })),
+        requantify: mutation.edit(East.function([state, StringType, IntegerType, edit], NullType, ($, orders, id, qty, edit) => {
+          const order = $.let(orders.get(variant('own', id)));
+          const next = $.let({ customer: order.customer, qty }, Order);
+          $(edit.update(variant('own', id), East.diff(order, next)));
+        })),
+      }),
+    });
+    assert.deepEqual(shape(emitted(rec, rec.mutations.plan, held, ['P-2', { customer: 'Birch', qty: 1n }])), [
+      'by_customer:(ik="Birch", k=.own "P-2")=insert',
+      'primary:.own "P-2"=insert',
+    ]);
+    assert.deepEqual(shape(emitted(rec, rec.mutations.plan, held, ['P-1', { customer: 'Acme', qty: 3n }])), ['primary:.own "P-1"=update'],
+      'a set of a key the record holds under the same case is an update');
+    assert.deepEqual(shape(emitted(rec, rec.mutations.drop, held, ['P-1'])), [
+      'by_customer:(ik="Acme", k=.own "P-1")=delete',
+      'primary:.own "P-1"=delete',
+    ]);
+    assert.deepEqual(shape(emitted(rec, rec.mutations.requantify, held, ['P-1', 7n])), ['primary:.own "P-1"=update']);
+    // The ERP's SO-1 is another entry than the solution's own of that id: a write under 'own' never reaches it.
+    assert.equal(conflictOf(emitted(rec, rec.mutations.drop, held, ['SO-1'])), 'delete of .own "SO-1", which the record does not hold');
+  });
+
+  it('writes the same delta through the capability over every key, which a body may still declare', () => {
+    const narrowed = e3.recordComposite('orders', Order, {
+      sources,
+      mutations: (mutation, { state, edit }) => ({
+        plan: mutation.edit(East.function([state, StringType, Order, edit], NullType, ($, _orders, id, order, edit) => {
+          $(edit.set(variant('own', id), order));
+        })),
+      }),
+    });
+    const whole = e3.recordComposite('orders', Order, {
+      sources,
+      mutations: (mutation, { state }) => ({
+        plan: mutation.edit(East.function([state, StringType, Order, e3.mutation.editType(state)], NullType, ($, _orders, id, order, edit) => {
+          $(edit.set(variant('own', id), order));
+        })),
+      }),
+    });
+    const args = ['P-2', { customer: 'Birch', qty: 1n }];
+    const expected = ['primary:.own "P-2"=insert'];
+    assert.deepEqual(shape(emitted(narrowed, narrowed.mutations.plan, held, args)), expected);
+    assert.deepEqual(shape(emitted(whole, whole.mutations.plan, held, args)), expected);
   });
 });
 

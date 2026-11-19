@@ -3,7 +3,9 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from '@elaraai/east';
+import {
+  East, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, none, some, variant,
+} from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { example } from './example.js';
 
@@ -110,6 +112,47 @@ export const recordIndexInput = example({
     const watchedJobs = e3.task('watched_jobs', [byPress, watched],
       East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
     return e3.package('pressroom', '1.0.0', jobsOnPress, titlesOnPress, watchedJobs);
+  },
+});
+
+// ---
+// e3.recordComposite
+// ---
+
+export const recordCompositeSources = example({
+  keywords: ['e3', 'record', 'recordComposite', 'composite', 'source', 'source.load', 'source.mutations', 'delivery', 'external system', 'ERP', 'variant key', 'first delivery'],
+  description: 'Declare a composite record: one record over several sources, each the authority for its own entries — `source.load` for the entries another system delivers, which only its load writes, and `source.mutations` for the solution\'s own — keyed by a Variant with a case for each source',
+  fn: () => {
+    const OrderType = StructType({ customer: StringType, status: StringType, qty: IntegerType });
+    // What the ERP sends: its whole order book, keyed by its own order id.
+    const ErpOrderType = StructType({ cust: StringType, state: StringType, qty: IntegerType });
+    const ErpDeliveryType = DictType(StringType, ErpOrderType);
+    const ErpEntriesType = DictType(StringType, OrderType);
+    // The load: the delivery and the source's entries as they stand, to a patch of them. It sees the ERP's own ids:
+    // e3 puts the source's case on each key. It gives the right entries from one delivery alone, whatever was loaded before.
+    const loadErp = East.function([ErpDeliveryType, ErpEntriesType], PatchType(ErpEntriesType),
+      ($, delivery, current) => East.diff(current, delivery.map(($, sent) => ({ customer: sent.cust, status: sent.state, qty: sent.qty }))));
+    const orders = e3.recordComposite('orders', OrderType, {
+      // Declared first: the parts after it are handed the types it makes.
+      sources: (source) => ({
+        erp: source.load(StringType, ErpDeliveryType, loadErp),   // the ERP's orders: written by this load alone
+        own: source.mutations(StringType),                        // the solution's own: written by the mutations
+      }),
+      initial: { own: new Map() },                                // a solution source's entries, by its own key
+      indexes: (index) => ({ by_customer: index.on(['customer']) }),
+      // `state` is the record's type, Dict<Variant{ erp: String, own: String }, Order>, and `edit` writes the
+      // solution's own entries alone: a write of an ERP entry does not compile, and is refused where it is tried.
+      mutations: (mutation, { state, edit }) => ({
+        plan_order: mutation.edit(East.function([state, StringType, OrderType, edit], NullType,
+          ($, _current, id, order, edit) => { $(edit.set(variant('own', id), order)); })),
+        patch: mutation.patch(),
+      }),
+    });
+    // Read, paged, indexed and bound as any record is: a task over it reads every order, whichever source it is of.
+    // It waits until the ERP has delivered once, so it never computes on the solution's own entries alone.
+    const openOrders = e3.task('open_orders', [orders], East.function([orders.type], IntegerType,
+      ($, held) => held.filter(($, order) => East.equal(order.status, 'open')).size()));
+    return e3.package('order_book', '1.0.0', openOrders);
   },
 });
 

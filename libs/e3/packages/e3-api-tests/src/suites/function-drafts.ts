@@ -62,10 +62,12 @@ import { assertDataflowSucceeded, assertMutationCommitted } from '../assertions.
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { templateWorkspace } from '../template.js';
-import { createDraftsPackageZip, DraftJobRowType, DraftJobsType } from '../fixtures.js';
+import { CompositeOrdersType, createCompositeRecordPackageZip, createDraftsPackageZip, DraftJobRowType, DraftJobsType } from '../fixtures.js';
 
 const PKG = 'function-drafts-pkg';
 const VERSION = '1.0.0';
+/** The package whose record is a composite, deployed a version after the other. */
+const ORDERS_PKG = 'function-drafts-orders-pkg';
 
 /** The fixture's records, as a function's input of each names it. */
 const JOBS_PATH: TreePath = [variant('field', 'records'), variant('field', 'jobs')];
@@ -82,6 +84,7 @@ const DraftEndType = ExecuteResultType.fields.draftEnd;
 const DraftArgsType = ArrayType(BlobType);
 
 type Jobs = ValueTypeOf<typeof DraftJobsType>;
+type Orders = ValueTypeOf<typeof CompositeOrdersType>;
 type Job = ValueTypeOf<typeof DraftJobRowType>;
 type Inputs = ValueTypeOf<typeof InputsType>;
 type Drafted = ValueTypeOf<typeof DraftedType>;
@@ -89,6 +92,7 @@ type Drafted = ValueTypeOf<typeof DraftedType>;
 const encodeInt = encodeBeast2For(IntegerType);
 const encodeString = encodeBeast2For(StringType);
 const encodeJobsPatch = encodeBeast2For(PatchType(DraftJobsType));
+const encodeOrdersPatch = encodeBeast2For(PatchType(CompositeOrdersType));
 const decodeJobs = decodeBeast2For(DraftJobsType);
 const decodeDraftArgs = decodeBeast2For(DraftArgsType);
 const jobKeys = compareFor(StringType);
@@ -129,6 +133,11 @@ function edited(from: Jobs, change: (rows: Jobs) => void): Jobs {
 /** A draft of the jobs' `patch`: the edit that takes them from `before` to `after`. */
 function patchDraft(before: Jobs, after: Jobs): FunctionDraft {
   return { record: 'jobs', mutation: 'patch', args: [encodeJobsPatch(diffFor(DraftJobsType)(before, after))] };
+}
+
+/** A draft of the composite orders' `patch`: the edit that takes them from `before` to `after`. */
+function ordersDraft(before: Orders, after: Orders): FunctionDraft {
+  return { record: 'orders', mutation: 'patch', args: [encodeOrdersPatch(diffFor(CompositeOrdersType)(before, after))] };
 }
 
 /** A draft of the jobs' `move`: that job on that press. */
@@ -239,6 +248,18 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       await ctx.importPackage(await createDraftsPackageZip(ctx.tempDir, PKG, VERSION));
       await ctx.createWorkspace(ws);
       await ctx.deployPackage(ws, `${PKG}@${VERSION}`);
+    });
+
+    /** A copy of a workspace the composite fixture is deployed to, a version
+     *  after the other: `orders` holds `.erp "SO-1001"` (Acme, 5), entered by
+     *  hand before the source was handed to its load, and `.own "P-1"`
+     *  (Birch, 2). Deployed once for the suite. */
+    const withOrders = templateWorkspace(setup, async (ctx, ws) => {
+      await ctx.createWorkspace(ws);
+      for (const version of ['1.0.0', '2.0.0'] as const) {
+        await ctx.importPackage(await createCompositeRecordPackageZip(ctx.tempDir, ORDERS_PKG, version));
+        await ctx.deployPackage(ws, `${ORDERS_PKG}@${version}`);
+      }
     });
 
     it('a drafted insert, update and delete are read through the record\'s rows, at the state a Save of them leaves, which the result names', async (t) => {
@@ -498,6 +519,50 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
 
       // The one commit stored since is the other Save's
       assert.deepEqual((await commitsOf(ctx, ws, 'jobs', opts)).slice(1), before, 'neither call saved anything, nor either Save that was refused');
+    });
+
+    it('R84 — a draft that writes an entry of a composite record\'s external source ends the call invalid in the words a Save of it is refused in, and the function does not run', async (t) => {
+      const { ctx, workspace: ws } = await withOrders(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      const before = await commitsOf(ctx, ws, 'orders', opts);
+      const orderKeys = compareFor(CompositeOrdersType.key);
+      /** The orders the record holds: one of the ERP's, and one of the solution's own. */
+      const held: Orders = new SortedMap([
+        [variant('erp', 'SO-1001'), { customer: 'Acme', qty: 5n }],
+        [variant('own', 'P-1'), { customer: 'Birch', qty: 2n }],
+      ], orderKeys);
+      const planned = new SortedMap(held, orderKeys);
+      planned.set(variant('own', 'P-2'), { customer: 'Cedar', qty: 1n });
+      const cancelled = new SortedMap(held, orderKeys);
+      cancelled.delete(variant('erp', 'SO-1001'));
+
+      // A call that drafts one of the solution's own orders runs, and says so as it starts
+      const own = ordersDraft(held, planned);
+      const ran = await called(ctx, ws, 'order_count', request([], [own]), opts);
+      assert.equal(valueOf(ran.result, IntegerType), 3n, 'the two orders held, and the one drafted');
+      assert.match(ran.result.stdout, /counting the orders/);
+
+      // The ERP's order deleted: a Save of the edit is refused, naming the key and the source
+      const erp = ordersDraft(held, cancelled);
+      const refused = await save(ctx, ws, erp, opts);
+      if (refused.outcome.type !== 'invalid') assert.fail(`expected the Save to be invalid, got ${printSave(refused)}`);
+      assert.equal(refused.outcome.value.message, 'mutation \'patch\' writes .erp "SO-1001", an entry of source \'erp\', which only its load writes');
+
+      // And so is the call that drafts it, after a draft that lays
+      const { id, result } = await called(ctx, ws, 'order_count', request([], [own, erp]), opts);
+      assert.deepEqual(refusals(result), [`draft orders.patch (2 of 2): ${refused.outcome.value.message}`]);
+      assert.equal(result.stdout, '', 'the function did not run');
+      assertInputs(result, [], 'a call a draft ended invalid');
+      assertDrafted(result, [], 'a call a draft ended invalid');
+      const call = await workspaceCallGet(base, ctx.repoName, ws, id, opts);
+      assert.equal(call.state.type, 'invalid');
+      assert.equal(call.drafts.length, 2, 'the kept call holds both its drafts: it was refused as it ran, not as it started');
+      // The sync route answers the same
+      assert.deepEqual(refusals(await workspaceFunctionCallSync(base, ctx.repoName, ws, 'order_count', request([], [erp]), opts)),
+        [`draft orders.patch (1 of 1): ${refused.outcome.value.message}`]);
+
+      assert.deepEqual(await commitsOf(ctx, ws, 'orders', opts), before, 'nothing was saved');
     });
 
     it('a Save that lands while a drafted call runs is saved, and the call reads the state it was started over', async (t) => {

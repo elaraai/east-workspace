@@ -26,7 +26,7 @@ import { withSharedWorkspaceLock } from '../records.js';
 import { withRunningWork } from '../running-work.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceFunctionResolve } from './functionCall.js';
-import { callDraftsRead, checkCallDrafts, draftedInputs, layAndStage, type StagedCallArg } from './functionDrafts.js';
+import { callDraftsRead, callEndRead, checkCallDrafts, draftedInputs, layAndStage, type StagedCallArg } from './functionDrafts.js';
 import type { TaskRunner } from './interfaces.js';
 import { detachedToExecuteResult, invalidExecuteResult, pinCallArguments } from './oneShot.js';
 
@@ -84,7 +84,9 @@ export interface FunctionCallUnkeptOptions {
  * The result names what the call read, as a kept call's does: each input and
  * dataset argument with the hash it was read at, the drafted state's for an
  * input of a drafted record, and each drafted record with the commit it stood
- * at. A call a draft ended names its inputs as they were pinned.
+ * at. A call a draft ended names its inputs as they were pinned, but one a
+ * draft ended `invalid` — a write of an entry of a composite record's external
+ * source — which names nothing read, as every `invalid` result does.
  *
  * @param storage - Storage backend
  * @param runner - The runner its drafts' programs run on, and its function
@@ -164,8 +166,7 @@ export async function functionCallUnkept(
           stderr: staged.end.stderr,
           stdoutTruncated: false,
           stderrTruncated: staged.end.stderrTruncated,
-          inputs: staged.read,
-          drafts: read,
+          ...callEndRead(staged.end, { inputs: staged.read, drafts: read }),
           draftEnd: staged.end.draftEnd,
         };
       case 'staged': {

@@ -877,8 +877,10 @@ export const TaskExecutionResultType = StructType({
  * @property cached - Number of tasks that used cached results
  * @property failed - Number of tasks that failed
  * @property skipped - Number of tasks that were skipped
- * @property waiting - Number of tasks left waiting on an unassigned input,
- *   and of their dependents, which the run went on without
+ * @property waiting - Number of tasks left waiting on an input they cannot
+ *   read — an unassigned one, or a composite record that waits for an external
+ *   source's first delivery — and of their dependents, which the run went on
+ *   without
  * @property tasks - Per-task execution results
  * @property duration - Total execution time in seconds
  */
@@ -987,10 +989,11 @@ export const ApiExecutionStatusType = VariantType({
  * @property cached - Tasks served from the execution cache
  * @property failed - Tasks that failed
  * @property skipped - Tasks skipped because a task they depend on failed
- * @property waiting - Tasks left waiting on an unassigned input — one nothing
- *   has set, or a record whose first state is not yet committed — and their
- *   dependents, which the run went on without: they run once the input is
- *   assigned
+ * @property waiting - Tasks left waiting on an input they cannot read — one
+ *   nothing has set, a record whose first state is not yet committed, or a
+ *   composite record that waits for an external source's first delivery — and
+ *   their dependents, which the run went on without: they run once the input
+ *   is assigned, or the source has delivered
  * @property duration - Total execution time in milliseconds
  */
 export const DataflowExecutionSummaryType = StructType({
@@ -1365,7 +1368,10 @@ export const InputReadType = StructType({
  *
  * - `success`: beast2-encoded result value; decode with the function's `outputType`
  * - `failed`: process exited non-zero (see stderr)
- * - `invalid`: signature/IR error; nothing ran
+ * - `invalid`: the call was refused, and its body did not run: a signature/IR
+ *   error, or a draft that writes an entry of a composite record's external
+ *   source, which only that source's load writes — refused in the words a Save
+ *   of the draft is, after the draft's own (`draft orders.patch (2 of 2): …`)
  * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
  * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
  * - `conflict`: a draft the call passed no longer fits its record, and the
@@ -1656,7 +1662,8 @@ export const SplitCallStatusType = VariantType({
  *   mutation failed before its body ran, which its `draftEnd` names
  * - `invalid`: it was refused before it ran: a wrong arity, a runner the
  *   caller may not name, an input with no value, a draft the function does not
- *   take or one its record's mutation does not
+ *   take or one its record's mutation does not; or, as its drafts were laid, a
+ *   draft that writes an entry of a composite record's external source
  * - `too_large`: its value was over its `maxResultBytes`, and was not kept
  * - `timed_out`: it ran past its timeout, and was stopped, its body or a
  *   draft's mutation before it
@@ -1743,7 +1750,8 @@ export const FunctionCallSummaryType = StructType({
  *   laid, the drafted state
  * @property drafts - The drafts it passed, in order; none for a call that
  *   passed none, and for one refused as it started, which keeps no argument
- *   either. Its result names the commit each drafted record stood at
+ *   either. A call a draft ended as it was laid keeps them all. Its result
+ *   names the commit each drafted record stood at
  * @property draftEnd - How its drafts ended it before its function ran
  *   ({@link FunctionDraftEndType}); `none` while it runs, and for a call they
  *   did not end
@@ -1843,7 +1851,9 @@ export const MutationCallRequestType = StructType({
  * The terminal result of a mutation call. Only `committed` wrote anything.
  *
  * - `committed`: the new commit + state hashes
- * - `invalid`: record/mutation lookup or arity error; nothing ran
+ * - `invalid`: record/mutation lookup or arity error, and nothing ran; or the
+ *   write names an entry of a composite record's external source, which only
+ *   that source's load writes: the message names the key and the source
  * - `failed`: the mutation's program failed (incl. a body's `$.error`; see stderr)
  * - `timed_out`: the program exceeded its time budget
  * - `conflict`: the compare-and-swap lost the race `attempts` times, or the
@@ -1876,10 +1886,43 @@ export const RecordMigrationAppliedType = StructType({
 });
 
 /**
+ * One source of a composite record, as the record's description answers it.
+ *
+ * @property name - The source's name: its case of the record's key
+ * @property key - The source's key type, the type of that case
+ * @property external - Whether its load alone writes its entries; false for a
+ *   source of the solution's own, which the record's mutations write
+ * @property delivery - The type of what an external source is delivered;
+ *   `none` for a source of the solution's own
+ * @property feed - The dataset of the package that feeds it, which the
+ *   dataflow loads each time it changes; `none` for a source delivered by
+ *   `e3 load`, and for a source of the solution's own
+ * @property last - Its last delivery: the delivery's stored hash, the commit
+ *   that applied it — `none` once a compaction has cut that commit from the
+ *   chain — and the latest time any of its deliveries said its data was as
+ *   of; `none` for a source that holds no delivery: one yet to be delivered,
+ *   one whose delivery a rollback, a restore or a migration made it forget,
+ *   and a source of the solution's own
+ * @property pending - Whether the record waits for the source's first
+ *   delivery: its readers wait with it, as on an input nothing has set
+ */
+export const RecordSourceInfoType = StructType({
+  name:     StringType,
+  key:      EastTypeType,
+  external: BooleanType,
+  delivery: OptionType(EastTypeType),
+  feed:     OptionType(TreePathType),
+  last:     OptionType(StructType({ delivery: StringType, commit: OptionType(StringType), asOf: OptionType(DateTimeType) })),
+  pending:  BooleanType,
+});
+
+/**
  * A record's callable surface, returned by `describe` so dynamic callers can
  * encode mutation arguments and read through its indexes, and a console can
  * show the record whole without reading its history. The mutation `argTypes`
- * are the EXTRA parameters after the implicit current state.
+ * are the EXTRA parameters after the implicit current state. A composite
+ * record's `sources` say which of its entries its mutations write, and which
+ * a load does.
  */
 export const RecordSignatureType = StructType({
   name: StringType,
@@ -1931,6 +1974,91 @@ export const RecordSignatureType = StructType({
      *  when it has not applied it. */
     applied: OptionType(RecordMigrationAppliedType),
   })),
+  /** A composite record's sources, in the order of their names, each a case
+   *  of the record's key ({@link RecordSourceInfoType}); none for a record
+   *  that has no sources. */
+  sources: ArrayType(RecordSourceInfoType),
+});
+
+/**
+ * A request to load a delivery into an external source of a composite record.
+ *
+ * @property delivery - The stored hash of the delivery: an object the
+ *   repository holds. A delivery never travels by value
+ * @property actor - Who asks; the server may take it from its auth instead
+ * @property asOf - The time the delivery says its data is as of. A delivery
+ *   older than the source's last is answered `superseded`, and nothing runs
+ */
+export const RecordLoadRequestType = StructType({
+  delivery: StringType,
+  actor:    OptionType(StringType),
+  asOf:     OptionType(DateTimeType),
+});
+
+/**
+ * What a load did.
+ *
+ * @property commit - The commit that applied the delivery; `none` for a
+ *   delivery `superseded`, and for one loaded `again` whose commit a
+ *   compaction has cut from the chain
+ * @property state - The state that commit left; `none` where `commit` is
+ * @property delivery - The stored hash of the delivery
+ * @property set - How many entries it set; 0 unless `loaded`
+ * @property deleted - How many it deleted; 0 unless `loaded`
+ * @property unchanged - How many the delivery named that the source already
+ *   held as delivered; 0 unless `loaded`
+ * @property outcome - `loaded`: the delivery was applied, in one commit;
+ *   `again`: the source's last delivery was this one, under the same load, so
+ *   nothing ran; `superseded`: the source holds a delivery as of a later time,
+ *   which the case carries, so nothing ran
+ */
+export const RecordLoadResultType = StructType({
+  commit:    OptionType(StringType),
+  state:     OptionType(StringType),
+  delivery:  StringType,
+  set:       IntegerType,
+  deleted:   IntegerType,
+  unchanged: IntegerType,
+  outcome:   VariantType({ again: NullType, loaded: NullType, superseded: DateTimeType }),
+});
+
+/**
+ * How far a load's job has got.
+ *
+ * - `queued`: it waits for an earlier load of its source to finish
+ * - `intake`: its delivery is being taken into the store
+ * - `pieces`: its pieces run: how many are done of the total, and how many of
+ *   those the execution cache answered
+ * - `commit`: its pieces are done, and it commits
+ * - `restarted`: its commit found the source's entries changed under it, and
+ *   sent it back to its pieces; the case carries why
+ * - `stopped`: a deploy holds the workspace, and the load goes on once the
+ *   deploy is done
+ */
+export const RecordLoadProgressType = VariantType({
+  commit:    NullType,
+  intake:    IntakeFileType,
+  pieces:    StructType({ done: IntegerType, total: IntegerType, cached: IntegerType }),
+  queued:    NullType,
+  restarted: StringType,
+  stopped:   NullType,
+});
+
+/**
+ * A load job's status, as its poll answers it. Every case but `processing` is
+ * an end, which the job never leaves.
+ *
+ * - `processing`: the job runs, and how far it has got once it has said
+ * - `completed`: what the load did
+ * - `failed`: why it did not
+ * - `cancelled`: it was cancelled before its commit: nothing was committed,
+ *   and the pieces that finished are cached
+ */
+export const RecordLoadStatusType = VariantType({
+  cancelled:  NullType,
+  completed:  RecordLoadResultType,
+  failed:     StructType({ message: StringType }),
+  processing: OptionType(RecordLoadProgressType),
 });
 
 /** One commit in a record's history (its hash plus the commit fields). */
@@ -2106,7 +2234,12 @@ export type SplitCallReport = ValueTypeOf<typeof SplitCallReportType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;
+export type RecordSourceInfo = ValueTypeOf<typeof RecordSourceInfoType>;
 export type RecordSignature = ValueTypeOf<typeof RecordSignatureType>;
+export type RecordLoadRequest = ValueTypeOf<typeof RecordLoadRequestType>;
+export type RecordLoadResult = ValueTypeOf<typeof RecordLoadResultType>;
+export type RecordLoadProgress = ValueTypeOf<typeof RecordLoadProgressType>;
+export type RecordLoadStatus = ValueTypeOf<typeof RecordLoadStatusType>;
 export type RecordCommitInfo = ValueTypeOf<typeof RecordCommitInfoType>;
 export type RecordArgPreview = ValueTypeOf<typeof RecordArgPreviewType>;
 export type RecordCommitArgs = ValueTypeOf<typeof RecordCommitArgsType>;

@@ -10,8 +10,9 @@
  * called and polled, the sync route, a task read, a dataflow run, the
  * workspace's status — against a real server and runner, and holds the index
  * to what its record holds: the run of one index key, the record's state both
- * are read at, the drafts a call lays over the record, and when a task runs
- * again.
+ * are read at, the drafts a call lays over the record, when a task runs
+ * again, and that a task over an index waits with its record while the record
+ * waits for an external source's first delivery.
  *
  * No case leans on a timing: each reads what a call names it read, or what a
  * run says it ran.
@@ -50,7 +51,7 @@ import { assertDataflowSucceeded, assertMutationCommitted, describeDataflowResul
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { templateWorkspace } from '../template.js';
-import { createIndexInputsPackageZip, DraftJobRowType, DraftJobsType } from '../fixtures.js';
+import { COMPOSITE_ORDERS_PATH, createCompositeRecordPackageZip, createIndexInputsPackageZip, DraftJobRowType, DraftJobsType } from '../fixtures.js';
 
 const PKG = 'index-inputs-pkg';
 const VERSION = '1.0.0';
@@ -296,6 +297,31 @@ export function indexInputTests(setup: TestSetup<TestContext>): void {
       assert.equal(run.waiting, 1n, `the backlog's task waits:\n${describeDataflowResult(run)}`);
       const waiting = (await workspaceStatus(base, ctx.repoName, ws, opts)).tasks.find(({ name }) => name === 'watched_backlog');
       assert.equal(waiting?.status.type, 'waiting');
+    });
+
+    it('R83 — a task whose input is an index of a composite record waiting for a source\'s first delivery waits, as one that takes the record does, and its status says for which source', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      const pkg = 'index-inputs-composite-pkg';
+      const ws = 'index-inputs-composite-ws';
+      // Deployed with its ERP source loaded from the first: nothing has been delivered
+      await ctx.importPackage(await createCompositeRecordPackageZip(ctx.tempDir, pkg, '2.1.0'));
+      await ctx.createWorkspace(ws);
+      await ctx.deployPackage(ws, `${pkg}@2.1.0`);
+      assert.equal((await datasetGetStatus(base, ctx.repoName, ws, COMPOSITE_ORDERS_PATH, opts)).hash.type, 'some',
+        'the record holds a state: the solution\'s own order');
+
+      const run = await dataflowExecute(base, ctx.repoName, ws, {}, opts);
+      assertDataflowSucceeded(run, 'the run goes on without the tasks that wait');
+      assert.deepEqual([run.executed, run.waiting], [0n, 2n], `neither task ran on part of the record:\n${describeDataflowResult(run)}`);
+      const { tasks } = await workspaceStatus(base, ctx.repoName, ws, opts);
+      // `tally` takes the record, and `customers` an index of it, which the state holds
+      for (const name of ['tally', 'customers']) {
+        const status = tasks.find((task) => task.name === name)?.status;
+        if (status?.type !== 'waiting') assert.fail(`${name} reads ${status?.type ?? 'no status'}`);
+        assert.equal(status.value.reason, 'record \'orders\' waits for the first delivery of erp', name);
+      }
     });
 
     it('a call through the package, which reads no workspace, is refused, naming the index and the record', async (t) => {

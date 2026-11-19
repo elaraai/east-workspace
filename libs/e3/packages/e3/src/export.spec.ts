@@ -10,8 +10,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { BlobType, East, DictType, FloatType, IntegerType, NullType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
-import { E3_RELEASE, PackageObjectType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
+import { ArrayType, BlobType, East, DictType, FloatType, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType, SEGMENT_RULE_KEYED, beast2HasIndex, compareFor, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, isTypeValueEqual, none, openBeast2PagesFor, readBeast2Type, some, toEastTypeValue, variant } from '@elaraai/east';
+import { E3_RELEASE, PackageObjectType, EnvironmentSpecType, RECORD_LOAD_KIND, TASK_OBJECT_KIND, decodeCollectionManifest, decodeMutationObject, decodePackageObject, decodeRecordLoadObject, decodeRecordObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
 import { customTask, partition, streamTask, task } from './task.js';
@@ -21,6 +21,8 @@ import { index } from './index-input.js';
 import { input } from './input.js';
 import { mutation } from './mutation.js';
 import { record } from './record.js';
+import { recordComposite } from './record-composite.js';
+import { deltaOf, shape } from './test-helpers.js';
 
 describe('addObject', () => {
   it('returns correct SHA256 hash for empty buffer', () => {
@@ -586,6 +588,19 @@ describe('path-initialised inputs (source variants)', () => {
   });
 });
 
+/** Exports `items` as version 1.0.0 of a package into `dir`, and returns its package object and a reader of the bundle's objects. */
+async function exportedBundle(dir: string, name: string, ...items: Parameters<typeof package_>[2][]) {
+  const zipPath = path.join(dir, `${name}.zip`);
+  await export_(package_(name, '1.0.0', ...items), zipPath);
+  const entries = await readZip(zipPath);
+  const object = (hash: string): Uint8Array => {
+    const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+    assert.ok(bytes, `missing object ${hash}`);
+    return new Uint8Array(bytes);
+  };
+  return { object, pkg: decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!))) };
+}
+
 describe('the typed task object', () => {
   let tempDir: string;
   const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
@@ -599,15 +614,7 @@ describe('the typed task object', () => {
 
   /** Exports `items` and returns each task's object, and a reader of the bundle's objects. */
   async function exported(name: string, ...items: Parameters<typeof package_>[2][]) {
-    const zipPath = path.join(tempDir, `${name}.zip`);
-    await export_(package_(name, '1.0.0', ...items), zipPath);
-    const entries = await readZip(zipPath);
-    const object = (hash: string): Uint8Array => {
-      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
-      assert.ok(bytes, `missing object ${hash}`);
-      return new Uint8Array(bytes);
-    };
-    const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(`packages/${name}/1.0.0.beast2`)!)));
+    const { pkg, object } = await exportedBundle(tempDir, name, ...items);
     const tasks = new Map<string, TaskObject>([...pkg.tasks].map(([task, hash]) => [task, decodeTaskObject(object(hash))]));
     return { pkg, tasks, object };
   }
@@ -725,5 +732,144 @@ describe('the typed task object', () => {
     assert.deepStrictEqual(command.compile([])(['in.beast2'], 'out.beast2'), ['bash', '-c', 'cp in.beast2 out.beast2']);
 
     assert.deepStrictEqual(tasks.get('view')!.role, role);
+  });
+});
+
+describe('a composite record\'s export', () => {
+  let tempDir: string;
+  const Order = StructType({ customer: StringType, qty: IntegerType });
+  const Orders = DictType(StringType, Order);
+  const OrdersKey = VariantType({ erp: StringType, lines: StringType, own: StringType });
+  const Lines = ArrayType(StructType({ id: StringType, order: Order }));
+  // The ERP's whole order book, keyed as its source; and a list of order lines, which is not.
+  const loadBook = East.function([Orders, Orders], PatchType(Orders), (_$, delivery, current) => East.diff(current, delivery));
+  const loadLines = East.function([Lines, Orders], PatchType(Orders), ($, lines, current) => {
+    const next = $.let(new Map(), Orders);
+    $.for(lines, ($, line) => {
+      $(next.insertOrUpdate(line.id, line.order));
+    });
+    return East.diff(current, next);
+  });
+  /** The orders: two external sources, one delivered keyed and one not, beside the solution's own. */
+  const declared = () => recordComposite('orders', Order, {
+    sources: (source) => ({
+      erp: source.load(StringType, Orders, loadBook),
+      lines: source.load(StringType, Lines, loadLines, { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } }),
+      own: source.mutations(StringType),
+    }),
+    initial: { own: new Map([['P-1', { customer: 'Acme', qty: 2n }]]) },
+    indexes: (index) => ({ by_customer: index.on(['customer']) }),
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, Order, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+      patch: mutation.patch(),
+    }),
+  });
+
+  before(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-export-composite-'));
+  });
+  after(async () => {
+    await fs.promises.rm(tempDir, { recursive: true });
+  });
+
+  /** Exports a record as a package of its own, and returns the package object and a reader of the bundle's objects. */
+  const exported = (name: string, rec: Parameters<typeof package_>[2]) => exportedBundle(tempDir, name, rec);
+
+  it('writes the record object\'s sources: a solution source as its mutations\', an external one naming its load object', async () => {
+    const orders = declared();
+    const { pkg, object } = await exported('composite-pkg', orders);
+    const recordObject = decodeRecordObject(object(pkg.records.get('orders')!));
+    assert.deepStrictEqual([...recordObject.sources].map(([name, source]) => [name, source.type]), [['erp', 'load'], ['lines', 'load'], ['own', 'mutations']]);
+
+    // The initial state travels as any record's: the solution's own entries, each under its source's case
+    const ref = pkg.data.refs.get('records/orders');
+    assert.ok(ref?.type === 'value', 'a composite always holds a state');
+    const structure = pkg.data.structure;
+    assert.ok(structure.type === 'struct');
+    const recordsTree = structure.value.get('records');
+    assert.ok(recordsTree?.type === 'struct');
+    const leaf = recordsTree.value.get('orders');
+    assert.ok(leaf?.type === 'value' && isTypeValueEqual(leaf.value.type, toEastTypeValue(DictType(OrdersKey, Order))), 'the type its sources make');
+
+    // Each mutation names the cases of the record's key it may write: the solution's own sources
+    for (const [name, hash] of recordObject.mutations) {
+      const { cases } = decodeMutationObject(object(hash));
+      assert.ok(cases.type === 'some', `${name} names the sources it may write`);
+      assert.deepStrictEqual([...cases.value], ['own'], name);
+    }
+  });
+
+  it('writes a keyed load\'s object and task object: split over the delivery and the source\'s run, its pieces folded by its merge', async () => {
+    const orders = declared();
+    const { pkg, object } = await exported('keyed-load-pkg', orders);
+    const source = decodeRecordObject(object(pkg.records.get('orders')!)).sources.get('erp');
+    assert.ok(source?.type === 'load');
+    const load = decodeRecordLoadObject(object(source.value));
+    assert.strictEqual(load.kind, RECORD_LOAD_KIND);
+    assert.ok(isTypeValueEqual(load.key, toEastTypeValue(StringType)), 'the source\'s key type');
+    assert.ok(isTypeValueEqual(load.delivery, toEastTypeValue(Orders)), 'what it is delivered');
+    assert.deepStrictEqual(load.feed, none, 'no dataset of the package feeds it');
+
+    const loadTask = decodeTaskObject(object(load.task));
+    assert.deepStrictEqual(loadTask.inputs, [
+      { path: [], index: none, partition: some({ by: [] }) },
+      { path: [], index: none, partition: some({ by: ['erp'] }) },
+    ], 'the delivery by its key, the run through its source\'s case');
+    assert.deepStrictEqual(loadTask.output.path, []);
+    assert.deepStrictEqual(loadTask.runner, variant('east_c', { platforms: [], decode: variant('lazy', null) }), 'the records\' default runner');
+    assert.deepStrictEqual([loadTask.role, loadTask.environment], [variant('data', null), none]);
+    assert.ok(pkg.tasks.size === 0, 'a load is no task of the package\'s dataflow');
+
+    // Its program is the load's: a piece of the book and the source's run in, the record's delta out
+    assert.ok(loadTask.body.type === 'east');
+    const program = decodeEastIR(object(loadTask.body.value.program)).compile([]) as (delivery: unknown, run: unknown, emit: (key: unknown, op: unknown) => null) => unknown;
+    const emitted: Array<[unknown, unknown]> = [];
+    program(new Map([['SO-1', { customer: 'Acme', qty: 5n }]]), new SortedMap([], compareFor(OrdersKey)), (key, op) => {
+      emitted.push([key, op]);
+      return null;
+    });
+    assert.deepStrictEqual(shape(deltaOf(orders, emitted)), ['by_customer:(ik="Acme", k=.erp "SO-1")=insert', 'primary:.erp "SO-1"=insert']);
+
+    // And its output a dict the load's merge folds: two pieces' reports of one conflict are one
+    const kind = loadTask.output.kind;
+    assert.ok(kind.type === 'dict' && kind.value.merge.type === 'some', 'a keyed load always names its merge');
+    const merge = decodeEastIR(object(kind.value.merge.value)).compile([]) as (key: unknown, a: unknown, b: unknown) => unknown;
+    assert.deepStrictEqual(merge(variant('$conflict', 'stale'), variant('$conflict', null), variant('$conflict', null)), variant('$conflict', null));
+  });
+
+  it('writes a load whose delivery is not keyed as its source as one piece: no input split, its output the delta it returns', async () => {
+    const { pkg, object } = await exported('whole-load-pkg', declared());
+    const source = decodeRecordObject(object(pkg.records.get('orders')!)).sources.get('lines');
+    assert.ok(source?.type === 'load');
+    const load = decodeRecordLoadObject(object(source.value));
+    assert.ok(isTypeValueEqual(load.delivery, toEastTypeValue(Lines)));
+    const loadTask = decodeTaskObject(object(load.task));
+    assert.deepStrictEqual(loadTask.inputs, [{ path: [], index: none, partition: none }, { path: [], index: none, partition: none }]);
+    assert.deepStrictEqual(loadTask.output, { path: [], kind: variant('value', null) });
+    assert.deepStrictEqual(loadTask.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), 'the runner its source names');
+  });
+
+  it('writes a record with no sources as naming none, its mutations free to write every key', async () => {
+    const plain = record('plain', Orders, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+    const { pkg, object } = await exported('plain-pkg', plain);
+    const recordObject = decodeRecordObject(object(pkg.records.get('plain')!));
+    assert.strictEqual(recordObject.sources.size, 0);
+    assert.deepStrictEqual(decodeMutationObject(object(recordObject.mutations.get('patch')!)).cases, none);
+  });
+
+  it('produces identical output for a composite\'s load programs, wherever it is exported from', async () => {
+    const pkg = package_('loads', '1.0.0', declared());
+    const zipPath1 = path.join(tempDir, 'loads1.zip');
+    const zipPath2 = path.join(tempDir, 'loads2.zip');
+    await export_(pkg, zipPath1);
+    await export_(pkg, zipPath2);
+    const entries1 = await readZip(zipPath1);
+    const entries2 = await readZip(zipPath2);
+    assert.deepStrictEqual([...entries1.keys()].sort(), [...entries2.keys()].sort());
+    for (const [entry, data1] of entries1) {
+      assert.ok(data1.equals(entries2.get(entry)!), `Content mismatch at ${entry}`);
+    }
   });
 });

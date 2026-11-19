@@ -27,14 +27,15 @@ import {
   type VersionVector,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
-import type { CatchUpRun, DataflowExecutionState, DeferReason } from './dataflow/types.js';
-import { taskInputRead } from './dataset-open.js';
+import type { CatchUpRun, DataflowExecutionState, DeferReason, InputWait } from './dataflow/types.js';
 import { keypathToRefPath, madeAt, refPathToKeypath, sameVersion, versionRoots } from './dataset-refs.js';
 import {
   executionGetOutput,
   inputsHash,
 } from './executions.js';
+import { taskInputRead, type InputHeld } from './input-read.js';
 import { packageObjectRead } from './packages.js';
+import { pendingSources } from './record-slots.js';
 import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import {
@@ -162,9 +163,9 @@ export interface DataflowResult {
   /** Number of tasks skipped due to upstream failure */
   skipped: number;
   /** Number of tasks left waiting on an input they cannot read — an
-   *  unassigned one, or an index its record's state does not hold — and of
-   *  their dependents, which the run went on without: they run once it can be
-   *  read */
+   *  unassigned one, an index its record's state does not hold, or a composite
+   *  record that waits for an external source's first delivery — and of their
+   *  dependents, which the run went on without: they run once it can be read */
   waiting: number;
   /** Number of tasks re-executed due to input changes */
   reexecuted: number;
@@ -217,9 +218,11 @@ export interface DataflowOptions {
    *  there */
   onCatchUp?: (task: string, forTask: string, phase: CatchUpPhase) => void;
   /** Callback when a task is left waiting on an input it cannot read — an
-   *  unassigned one, or an index its record's state does not hold — and for
-   *  each of its dependents, naming the inputs each waits on */
-  onTaskWaiting?: (taskName: string, inputs: string[]) => void;
+   *  unassigned one, an index its record's state does not hold, or a
+   *  composite record that waits for an external source's first delivery —
+   *  and for each of its dependents, naming the inputs each waits on, with
+   *  why */
+  onTaskWaiting?: (taskName: string, waits: InputWait[]) => void;
 }
 
 /**
@@ -594,9 +597,10 @@ export function dataflowGetDependentsToSkip(
  * otherwise.
  *
  * An input the task cannot read now is `null`, whichever way: a dataset with
- * no value, or an index its record's state does not hold. The run leaves such
- * a task waiting and goes on without it, the gc's history keeps no execution
- * over its inputs, and its status says why it waits.
+ * no value, a composite record that waits for an external source's first
+ * delivery, or an index its record's state does not hold (`taskInputRead`).
+ * The run leaves such a task waiting and goes on without it, the gc's history
+ * keeps no execution over its inputs, and its status says why it waits.
  *
  * @param storage - Storage backend
  * @param repo - Repository path
@@ -615,22 +619,22 @@ export async function dataflowResolveInputHashes(
   // Which index each input reads is the task object's, read once and then
   // from memory; the graph names each input by its dataset's path alone.
   const { inputs } = await taskObjectRead(storage, repo, task.hash);
-  const held = new Map<string, string | null>();
+  const held = new Map<string, InputHeld | null>();
 
   for (const [at, inputPathStr] of task.inputs.entries()) {
-    let hash = held.get(inputPathStr);
-    if (hash === undefined) {
-      const ref = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(inputPathStr));
-      hash = ref.refType === 'value' ? ref.hash : null;
-      held.set(inputPathStr, hash);
+    let ref = held.get(inputPathStr);
+    if (ref === undefined) {
+      const { hash, versions } = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(inputPathStr));
+      ref = hash === null || versions === null ? null : { hash, pending: pendingSources(versions) };
+      held.set(inputPathStr, ref);
     }
-    if (hash === null) {
+    if (ref === null) {
       hashes.push(null);
       continue;
     }
     const index = inputs[at]?.index.type === 'some' ? inputs[at].index.value : null;
-    // An index its record's state does not hold: the task waits, as its status says
-    const read = await taskInputRead(storage, repo, inputPathStr, hash, index);
+    // A record that waits for a first delivery, or an index its state does not hold: the task waits, as its status says
+    const read = await taskInputRead(storage, repo, inputPathStr, ref, index);
     hashes.push('object' in read ? read.object : null);
   }
 
@@ -947,9 +951,10 @@ export function catchUpKey(run: Pick<CatchUpRun, 'task' | 'inputsHash'>): string
 export type ResolvedInputs =
   /** Every input is at hand: each one's object, in the task's input order */
   | { readonly kind: 'resolved'; readonly hashes: string[] }
-  /** Inputs the task cannot read, as keypaths in its input order: one with
-   *  no value, or an index its record's state does not hold */
-  | { readonly kind: 'unassigned'; readonly inputs: string[] }
+  /** The inputs the task cannot read, in its input order, each with why: one
+   *  with no value, an index its record's state does not hold, or a composite
+   *  record that waits for an external source's first delivery */
+  | { readonly kind: 'unassigned'; readonly waits: InputWait[] }
   /** A result the task reads is not at hand at its versions: the catch-up
    *  runs that make it, those whose own inputs are at hand, the deepest
    *  first */
@@ -965,8 +970,17 @@ export interface ResolveInputsOptions {
   forced?: (task: string) => boolean;
 }
 
-/** One input of a task, or one task's result, as read at a set of versions. */
-type ReadAt = { readonly kind: 'object'; readonly hash: string } | { readonly kind: 'unassigned' } | { readonly kind: 'behind' };
+/** One input of a task, or one task's result, as read at a set of versions:
+ *  its object; that it cannot be read, `pending` naming the external sources
+ *  its record waits for when that is why; or that it is behind. */
+type ReadAt =
+  | { readonly kind: 'object'; readonly hash: string }
+  | { readonly kind: 'unassigned'; readonly pending?: readonly string[] }
+  | { readonly kind: 'behind' };
+
+/** A root as read at its version: its dataset object there, with the sources
+ *  its ref says it waits for; or that it has no value. */
+type RootAt = ({ readonly kind: 'object' } & InputHeld) | { readonly kind: 'unassigned' };
 
 /**
  * Resolve a task's inputs at the versions it reads: the object each input
@@ -992,6 +1006,15 @@ type ReadAt = { readonly kind: 'object'; readonly hash: string } | { readonly ki
  * task that reads an index is decided again whenever its record's commit
  * moves, and the execution cache answers it when the index it reads did not.
  *
+ * A composite record that waits for an external source's first delivery
+ * (`$pending`, in its ref's version vector) cannot be read, though it holds a
+ * state: the solution's own entries alone. Its ref says so as it stands now,
+ * whichever version of the record the task would read, and is asked before an
+ * index of it is looked for (`taskInputRead`, where every reader of an input
+ * decides): so a task reading the record, or an index of it, waits naming the
+ * sources yet to deliver, and a task reading that task's output waits on an
+ * output not set.
+ *
  * @param storage - Storage backend
  * @param state - The run's state
  * @param task - The task, from the run's graph
@@ -1011,27 +1034,26 @@ export async function dataflowResolveInputs(
   const graph = state.graph.type === 'some' ? state.graph.value : null;
   if (graph === null) throw new DataflowError('Execution state has no graph');
   const producerOf = taskProducers(graph);
-  const roots = new Map<string, Promise<string | null>>();
+  const roots = new Map<string, Promise<RootAt>>();
   const outputs = new Map<string, Promise<ReadAt>>();
   const runs = new Map<string, CatchUpRun>();
 
-  // A root's dataset object at its version; null for one with no value
-  const rootAt = (path: string): Promise<string | null> => {
+  // A root's dataset object at its version, with the sources its ref says it
+  // waits for; or that it has no value
+  const rootAt = (path: string): Promise<RootAt> => {
     let read = roots.get(path);
     if (read === undefined) {
-      read = (async () => {
+      read = (async (): Promise<RootAt> => {
         const wanted = versions.get(path);
-        if (wanted === undefined) return null;
+        if (wanted === undefined) return { kind: 'unassigned' };
         const ref = await storage.datasets.read(repo, workspace, keypathToRefPath(path));
-        if (ref !== null && ref.type === 'value' && sameVersion(ref.value.versions.get(path) ?? ref.value.hash, wanted)) {
-          return ref.value.hash;
-        }
+        const held = ref !== null && ref.type === 'value' ? ref.value : null;
+        const pending = held === null ? [] : pendingSources(held.versions);
+        if (held !== null && sameVersion(held.versions.get(path) ?? held.hash, wanted)) return { kind: 'object', hash: held.hash, pending };
         // It has moved on since the run's snapshot: a record's commit is
         // read from its history, and a plain input's version is its value
-        if ((await dataflowRecords(storage, state)).has(path)) {
-          return decodeRecordCommit(await storage.objects.read(repo, wanted)).state;
-        }
-        return wanted;
+        const hash = (await dataflowRecords(storage, state)).has(path) ? decodeRecordCommit(await storage.objects.read(repo, wanted)).state : wanted;
+        return { kind: 'object', hash, pending };
       })();
       roots.set(path, read);
     }
@@ -1050,15 +1072,16 @@ export async function dataflowResolveInputs(
         read.push(await outputAt(producer));
         continue;
       }
-      const hash = await rootAt(path);
-      if (hash === null) {
-        read.push({ kind: 'unassigned' });
+      const root = await rootAt(path);
+      if (root.kind === 'unassigned') {
+        read.push(root);
         continue;
       }
       const index = inputs[at]?.index.type === 'some' ? inputs[at].index.value : null;
-      // An index its record's state does not hold: the task waits, as its status says
-      const object = await taskInputRead(storage, repo, path, hash, index);
-      read.push('object' in object ? { kind: 'object', hash: object.object } : { kind: 'unassigned' });
+      // A record that waits for a first delivery, or an index its state does not hold: the task waits, as its status says
+      const object = await taskInputRead(storage, repo, path, root, index);
+      read.push('object' in object ? { kind: 'object', hash: object.object }
+        : object.pending === undefined ? { kind: 'unassigned' } : { kind: 'unassigned', pending: object.pending });
     }
     return read;
   };
@@ -1099,8 +1122,13 @@ export async function dataflowResolveInputs(
   };
 
   const inputs = await inputsAt(task);
-  const unassigned = task.inputs.filter((_, at) => inputs[at]!.kind === 'unassigned');
-  if (unassigned.length > 0) return { kind: 'unassigned', inputs: unassigned };
+  const waits: InputWait[] = [];
+  for (const [at, input] of task.inputs.entries()) {
+    const read = inputs[at]!;
+    if (read.kind !== 'unassigned') continue;
+    waits.push(read.pending === undefined ? { input, kind: 'unset' } : { input, kind: 'pending', sources: [...read.pending] });
+  }
+  if (waits.length > 0) return { kind: 'unassigned', waits };
   if (inputs.some((input) => input.kind === 'behind')) return { kind: 'behind', runs: [...runs.values()] };
   return { kind: 'resolved', hashes: inputs.map((input) => (input as { hash: string }).hash) };
 }

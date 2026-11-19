@@ -49,7 +49,7 @@ import { ExecuteResultType, FunctionCallType, type RunnerValue, type TreePath } 
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createFunctionPackageZip } from '../fixtures.js';
+import { COMPOSITE_ORDERS_PATH, CompositeOrdersType, createCompositeRecordPackageZip, createFunctionPackageZip } from '../fixtures.js';
 
 const PKG = 'calls-test-pkg';
 const VERSION = '1.0.0';
@@ -332,6 +332,34 @@ export function callTests(setup: TestSetup<TestContext>): void {
       const call = await workspaceCallGet(ctx.config.baseUrl, ctx.repoName, WS, answer.id, opts);
       assert.equal(call.state.type, 'invalid');
       assert.equal(call.args.length, 0, 'a call refused names nothing it would have read');
+    });
+
+    it('R81 — a call of a function whose declared input is a record waiting for a source\'s first delivery is kept as an invalid call, naming the record and the source; a caller that names the record as a dataset argument reads it as it stands', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      const pkg = 'calls-composite-pkg';
+      // Deployed with its ERP source loaded from the first: nothing has been delivered
+      await ctx.importPackage(await createCompositeRecordPackageZip(ctx.tempDir, pkg, '2.0.0'));
+      await ctx.createWorkspace(WS);
+      await ctx.deployPackage(WS, `${pkg}@2.0.0`);
+      const waits = 'The function\'s input .records.orders waits for the first delivery of erp: a task reading it would wait too, and nothing ran';
+      const refusal = (result: ExecuteResult): string[] => {
+        if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+        return result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message);
+      };
+
+      // `order_count` declares the record among its inputs, and says so as it starts
+      const answer = await workspaceFunctionStart(base, ctx.repoName, WS, 'order_count', request([]), opts);
+      const result = completed(answer.status);
+      assert.deepEqual(refusal(result), [waits]);
+      assert.equal(result.stdout, '', 'the function did not run');
+      assert.equal((await workspaceCallGet(base, ctx.repoName, WS, answer.id, opts)).state.type, 'invalid');
+      assert.deepEqual(refusal(await workspaceFunctionCallSync(base, ctx.repoName, WS, 'order_count', request([]), opts)), [waits], 'the sync route answers the same');
+
+      // R82: a program handed the record as a dataset argument reads it as it stands, the solution's own order alone
+      const size = East.function([CompositeOrdersType], IntegerType, ($, orders) => orders.size());
+      assert.equal(successValue(await oneShotCall(base, ctx.repoName, WS, oneShotOf(size, [variant('dataset', COMPOSITE_ORDERS_PATH)]), opts)), 1n);
     });
 
     it('the sync route answers its result within its request, and keeps its call too', async (t) => {

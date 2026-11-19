@@ -8,18 +8,23 @@
  * driven by the orchestrator with a mock runner, through nothing but the
  * backend's stores — its order, its outputs and its run record, the execution
  * cache, a failure, a change that lands mid-run, a task left waiting on an
- * input nothing has set, and a cancel; and, a step at a time on a runner that
+ * input nothing has set, or on a composite record that has yet to hear from
+ * an external source, and a cancel; and, a step at a time on a runner that
  * holds each task (`dataflow-follow.ts`), a run that follows its inputs.
  */
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import {
+  DictType, East, IntegerType, PatchType, SortedMap, StringType, StructType, VariantType, compareFor, decodeBeast2For, equalFor, none, printFor, some,
+  variant,
+} from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowForceType, PackageObjectType, dataflowForce } from '@elaraai/e3-types';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
+import type { InputWait } from '../dataflow/types.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DataflowAbortedError, DataflowError, TaskNotFoundError } from '../errors.js';
 import { inputsHash } from '../executions.js';
@@ -29,6 +34,7 @@ import { workspaceSetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
+import { workspaceStatus } from '../workspaceStatus.js';
 import { dataflowFollowCases } from './dataflow-follow.js';
 import type { BackendContext, BackendSetup } from './setup.js';
 import { inputPath, scratch, stateStoreOf } from './support.js';
@@ -74,6 +80,48 @@ async function deployPartial(t: TestContext, { storage, repo }: BackendContext):
   await workspaceDeploy(storage, repo, 'ws', 'partial', '1.0.0');
   const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
   return { double: deployed.tasks.get('double')!, sum: deployed.tasks.get('sum')!, report: deployed.tasks.get('report')! };
+}
+
+/** An order of the composite record {@link deployOrders} deploys, and what its `erp` source is delivered. */
+const OrderType = StructType({ customer: StringType, qty: IntegerType });
+const ErpOrdersType = DictType(StringType, OrderType);
+/** The record's type: each entry keyed by the source it is of. */
+const OrdersType = DictType(VariantType({ erp: StringType, own: StringType }), OrderType);
+
+/**
+ * Deploys a version of a package over a composite record to workspace `ws`:
+ * `orders`, over the ERP's entries and the solution's own, which holds one of
+ * its own; `tally` over the record, `report` over what `tally` writes, and
+ * `double` over an input.
+ *
+ * In `1.0.0` the ERP's entries are written by a load, so the record waits for
+ * its first delivery from its first deploy. In `2.0.0` the record's mutations
+ * write them, and it waits for nothing.
+ *
+ * @returns Each task's hash
+ */
+async function deployOrders(
+  t: TestContext, { storage, repo }: BackendContext, version: '1.0.0' | '2.0.0',
+): Promise<{ double: string; tally: string; report: string }> {
+  const loadErp = East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType), (_$, delivery, current) => East.diff(current, delivery));
+  const orders = e3.recordComposite('orders', OrderType, {
+    sources: (source) => ({
+      erp: version === '1.0.0' ? source.load(StringType, ErpOrdersType, loadErp) : source.mutations(StringType),
+      own: source.mutations(StringType),
+    }),
+    initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+  });
+  const a = e3.input('a', IntegerType, variant('value', 1n));
+  const double = e3.task('double', [a], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
+  const tally = e3.task('tally', [orders], East.function([OrdersType], IntegerType, ($, held) => held.size()));
+  const report = e3.task('report', [tally.output], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
+  const zip = join(scratch(t), `orders-${version}.zip`);
+  await e3.export(e3.package('orders', version, orders, a, double, tally, report), zip);
+  await packageImport(storage, repo, zip);
+  if (version === '1.0.0') await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'orders', version);
+  const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+  return { double: deployed.tasks.get('double')!, tally: deployed.tasks.get('tally')!, report: deployed.tasks.get('report')! };
 }
 
 /**
@@ -378,14 +426,15 @@ export function dataflowTests(setup: BackendSetup): void {
       runner.setResult(report, (inputs) => ({ state: 'success', cached: false, outputHash: `report-of-${inputs[0]}` }));
       const stateStore = stateStoreOf(context);
       const orchestrator = new LocalOrchestrator(stateStore);
-      const waiting: [string, string[]][] = [];
-      const handle = await orchestrator.start(storage, repo, 'ws', { runner, onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      const waiting: [string, InputWait[]][] = [];
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
       const result = await orchestrator.wait(handle);
 
       assert.equal(result.success, true, 'a task left waiting fails nothing');
       assert.deepEqual([result.executed, result.waiting, result.failed, result.skipped], [1, 2, 0, 0]);
       assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double], 'double ran; sum and report did not');
-      assert.deepEqual(waiting, [['sum', ['.inputs.b']], ['report', ['.tasks.sum.output']]], 'each names what it waits on');
+      assert.deepEqual(waiting, [['sum', [{ input: '.inputs.b', kind: 'unset' }]], ['report', [{ input: '.tasks.sum.output', kind: 'unset' }]]],
+        'each names what it waits on');
       const ended = await stateStore.read(repo, 'ws', handle.id);
       assert.equal(ended?.status, 'completed');
       assert.deepEqual([ended?.tasks.get('sum')?.status, ended?.tasks.get('report')?.status], ['waiting', 'waiting']);
@@ -407,6 +456,48 @@ export function dataflowTests(setup: BackendSetup): void {
       assert.deepEqual([next.success, next.executed, next.waiting], [true, 3, 0]);
       assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double, sum, report]);
       assert.deepEqual(runner.getCalls()[2]!.inputHashes, ['sum-out'], 'report reads what sum wrote');
+    });
+
+    it('R27 — leaves a task that reads a composite record waiting until each external source has delivered once, naming the sources, and its dependents with it', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { double, tally, report } = await deployOrders(t, context, '1.0.0');
+      const runner = new MockTaskRunner();
+      runner.setResult(double, { state: 'success', cached: false, outputHash: 'double-out' });
+      runner.setResult(tally, { state: 'success', cached: false, outputHash: 'tally-out' });
+      runner.setResult(report, { state: 'success', cached: false, outputHash: 'report-out' });
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const waiting: [string, InputWait[]][] = [];
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
+      const result = await orchestrator.wait(handle);
+
+      // The record holds a state, the solution's own order: a task over it would compute on part of the record
+      assert.equal((await storage.datasets.read(repo, 'ws', 'records/orders'))?.type, 'value');
+      assert.equal(result.success, true, 'a task left waiting fails nothing');
+      assert.deepEqual([result.executed, result.waiting, result.failed, result.skipped], [1, 2, 0, 0]);
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double], 'double ran; tally and report did not');
+      assert.deepEqual(waiting, [
+        ['tally', [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]],
+        ['report', [{ input: '.tasks.tally.output', kind: 'unset' }]],
+      ], 'tally names the source yet to deliver, and report the output it reads');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.deepEqual([ended?.status, ended?.tasks.get('tally')?.status, ended?.tasks.get('report')?.status], ['completed', 'waiting', 'waiting']);
+      // The workspace's status says the same of it, in the run's words
+      const status = await workspaceStatus(storage, runner, repo, 'ws');
+      assert.deepEqual(status.tasks.find((task) => task.name === 'tally')?.status,
+        { type: 'waiting', reason: 'record \'orders\' waits for the first delivery of erp' });
+      assert.equal(status.tasks.find((task) => task.name === 'report')?.status.type, 'waiting');
+
+      // Its ERP entries handed back to the record's own mutations, the record waits for nothing, and the next run runs them
+      const next = await deployOrders(t, context, '2.0.0');
+      for (const [task, output] of [[next.double, 'double-out'], [next.tally, 'tally-out'], [next.report, 'report-out']] as const) {
+        runner.setResult(task, { state: 'success', cached: false, outputHash: output });
+      }
+      runner.clearCalls();
+      const ran = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
+      assert.deepEqual([ran.success, ran.executed, ran.waiting], [true, 3, 0]);
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [next.double, next.tally, next.report]);
     });
 
     it('runs a waiting task in the same run when its input is set while the run is in flight', async (t) => {

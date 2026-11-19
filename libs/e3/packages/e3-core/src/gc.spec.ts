@@ -14,8 +14,8 @@ import assert from 'node:assert';
 import { existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
-import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, WorkspaceRecordType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
-import type { PackageObject, TaskObject } from '@elaraai/e3-types';
+import { PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, DataRefType, RecordCommitType, RecordIndexObjectType, RecordObjectType, MigrationObjectType, MutationObjectType, EnvironmentSpecType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_LOAD_KIND, RECORD_STATE_KIND, RecordLoadObjectType, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, WorkspaceRecordType, encodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
+import type { PackageObject, RecordSource, TaskObject } from '@elaraai/e3-types';
 import { gcTests } from './contract/index.js';
 import { GcReadError } from './errors.js';
 import { repoGc, markReachable, sweepBatch } from './gc.js';
@@ -829,7 +829,7 @@ describe('gc', () => {
       const BODY = 'c'.repeat(64);
       const PROGRAM = 'd'.repeat(64);
       const root = 'real-mutation'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: PROGRAM })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: PROGRAM, cases: none })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
@@ -839,7 +839,7 @@ describe('gc', () => {
     it('a MutationObject that names no program marks its body alone: no empty name is reachable', async () => {
       const BODY = 'e'.repeat(64);
       const root = 'reducer-only'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: '' })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), form: variant('reduce', null), programIr: '', cases: none })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.deepStrictEqual([...reachable].sort(), [root, BODY].sort());
@@ -858,6 +858,7 @@ describe('gc', () => {
         [root, encodeBeast2For(RecordObjectType)({
           path: 'records/counts', mutations: new Map(), indexes: new Map(),
           migrations: [{ name: 'repair', migration: VALUE_STEP }, { name: 'relabel', migration: ROWS_STEP }],
+          sources: new Map(),
         })],
         [VALUE_STEP, encodeBeast2For(MigrationObjectType)({ form: variant('value', null), from: counts, to: counts, bodyIr: VALUE_BODY, programIr: '', runner })],
         [ROWS_STEP, encodeBeast2For(MigrationObjectType)({
@@ -868,6 +869,41 @@ describe('gc', () => {
       const reachable = await markReachable(trace(objects), new Set([root]));
       // A value step runs its own function, and names no program.
       assert.deepStrictEqual([...reachable].sort(), [root, VALUE_STEP, ROWS_STEP, VALUE_BODY, ROWS_BODY, ROWS_PROGRAM].sort());
+    });
+
+    it('R70 — a composite\'s record object reaches each external source\'s load object, and a load object its task object, its program and its merge', async () => {
+      const LOAD = 'a-load-object'.padEnd(64, '0');
+      const TASK = 'a-load-task'.padEnd(64, '0');
+      const PROGRAM = '8'.repeat(64);
+      const MERGE = '9'.repeat(64);
+      const text = toEastTypeValue(StringType);
+      const root = 'a-composite-record'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(RecordObjectType)({
+          path: 'records/orders', mutations: new Map(), indexes: new Map(), migrations: [],
+          // One source its load writes, and one the record's mutations write, which names no object
+          sources: new Map<string, RecordSource>([['erp', variant('load', LOAD)], ['own', variant('mutations', null)]]),
+        })],
+        [LOAD, encodeBeast2For(RecordLoadObjectType)({
+          kind: RECORD_LOAD_KIND, key: text, delivery: toEastTypeValue(DictType(StringType, IntegerType)), feed: none, task: TASK,
+        })],
+        [TASK, encodeBeast2For(TaskObjectType)({
+          kind: TASK_OBJECT_KIND,
+          body: variant('east', { program: PROGRAM }),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
+          inputs: [{ path: [], index: none, partition: some({ by: [] }) }, { path: [], index: none, partition: some({ by: ['erp'] }) }],
+          output: { path: [], kind: variant('dict', { merge: some(MERGE) }) },
+          role: variant('data', null),
+          environment: none,
+        } as TaskObject)],
+      ]);
+
+      // With and without head reads, as a store that serves none walks it
+      const readHead = async (hash: string, length: number) => objects.get(hash)?.subarray(0, length) ?? null;
+      for (const options of [{}, { readHead }]) {
+        const reachable = await markReachable(trace(objects), new Set([root]), options);
+        assert.deepStrictEqual([...reachable].sort(), [root, LOAD, TASK, PROGRAM, MERGE].sort());
+      }
     });
   });
 
@@ -1194,6 +1230,36 @@ describe('gc', () => {
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(PRIMARY) && reachable.has(INDEX_MANIFEST), 'the primary and the index manifest must survive');
+    });
+
+    it('R70 — walks a load object by its tag: a later one, which appends a field, for its task, and one carrying another kind not at all', async () => {
+      const TASK = 'a'.repeat(64);
+      const load = {
+        kind: RECORD_LOAD_KIND, key: toEastTypeValue(StringType), delivery: toEastTypeValue(DictType(StringType, IntegerType)),
+        feed: some([variant('field', 'inputs'), variant('field', 'erp_extract')]), task: TASK,
+      };
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(RecordLoadObjectType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const later = 'a-newer-load'.padEnd(64, '0');
+      const other = 'not-a-load'.padEnd(64, '0');
+      const objects = new Map([
+        [later, encodeBeast2For(grown as never)({ ...load, a_field_appended_later: 0n } as never)],
+        [other, encodeBeast2For(RecordLoadObjectType)({ ...load, kind: '$something-else' })],
+      ]);
+
+      // The task object is not in the store: named, it is asked for, and an absent node keeps nothing
+      const asked: string[] = [];
+      const read = async (hash: string): Promise<Uint8Array | null> => {
+        asked.push(hash);
+        return objects.get(hash) ?? null;
+      };
+      assert.deepStrictEqual([...await markReachable(read, new Set([later]))], [later]);
+      assert.ok(asked.includes(TASK), 'the later load object\'s task is walked');
+      asked.length = 0;
+      assert.deepStrictEqual([...await markReachable(read, new Set([other]))], [other]);
+      assert.ok(!asked.includes(TASK), 'an object carrying another kind is not traversed as a load');
     });
 
     it('walks a later unit plan, which appends a field, for what its stage names', async () => {

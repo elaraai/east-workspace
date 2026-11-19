@@ -57,6 +57,7 @@ import type {
   DeferReason,
   TaskState,
   InitializeResult,
+  InputWait,
   PrepareTaskBehind,
   PrepareTaskResult,
   PrepareTaskWaiting,
@@ -878,10 +879,11 @@ function uncountResult(state: DataflowExecutionState, taskState: Mutable<TaskSta
  *    reads as made from those versions
  * 2. Checks if there's a valid cached execution
  *
- * A task an input of which is unassigned — one nothing has set, or a record
- * whose first state is not yet committed — cannot run: the answer names the
- * inputs, and the loop leaves the task waiting ({@link stepTasksWaiting})
- * rather than fail the run.
+ * A task an input of which cannot be read — one nothing has set, a record
+ * whose first state is not yet committed, or a composite record that waits
+ * for an external source's first delivery — cannot run: the answer names the
+ * inputs, each with why, and the loop leaves the task waiting
+ * ({@link stepTasksWaiting}) rather than fail the run.
  *
  * A task that reads a result made from newer versions than its own, which
  * the execution cache does not hold at its own, is behind: the answer names
@@ -917,8 +919,8 @@ export async function stepPrepareTask(
     forced: (name) => stepTaskForced(state, name),
   });
 
-  // An unassigned input: the task waits for it
-  if (resolved.kind === 'unassigned') return { kind: 'waiting', task: taskName, unassigned: resolved.inputs };
+  // An input it cannot read: the task waits for it
+  if (resolved.kind === 'unassigned') return { kind: 'waiting', task: taskName, waits: resolved.waits };
   // A result it reads is not at hand at its versions: catch-up runs make it
   if (resolved.kind === 'behind') return { kind: 'behind', task: taskName, runs: resolved.runs };
   const validInputHashes = resolved.hashes;
@@ -977,7 +979,7 @@ function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, 
 }
 
 /**
- * Leave a task waiting on an unassigned input, and its dependents with it.
+ * Leave a task waiting on an input it cannot read, and its dependents with it.
  *
  * Mutates the execution state: the task's status is `waiting`, and so is
  * every task downstream of it that has not run — within the filter's run set,
@@ -994,15 +996,16 @@ function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, 
  * ({@link waitingTasks}), and a store derives the summary's count from them.
  *
  * @param state - Execution state to mutate
- * @param taskName - The task whose input is unassigned
- * @param unassigned - The task's inputs that are unassigned, as keypaths
- * @returns Each task left waiting, the named one first, with the inputs it
- *   waits on
+ * @param taskName - The task that cannot read an input
+ * @param waits - The task's inputs it cannot read, each with why
+ * @returns Each task left waiting, the named one first, with what it waits
+ *   on: a dependent waits on the outputs of the waiting tasks it reads, which
+ *   are unset
  */
 export function stepTasksWaiting(
   state: DataflowExecutionState,
   taskName: string,
-  unassigned: readonly string[],
+  waits: readonly InputWait[],
 ): TasksWaitingResult {
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!taskState) {
@@ -1010,7 +1013,7 @@ export function stepTasksWaiting(
   }
   const graph = getGraph(state);
   taskState.status = 'waiting';
-  const waiting: TasksWaitingResult['waiting'] = [{ task: taskName, inputs: [...unassigned] }];
+  const waiting: TasksWaitingResult['waiting'] = [{ task: taskName, waits: [...waits] }];
 
   // Its dependents that have not run wait with it, as a failure's are
   // skipped: those in the filter's run set, and none already settled
@@ -1033,10 +1036,12 @@ export function stepTasksWaiting(
     const task = graph.tasks.find((each) => each.name === name)!;
     waiting.push({
       task: name,
-      inputs: task.inputs.filter((input) => {
-        const producer = producerOf.get(input);
-        return producer !== undefined && nowWaiting.has(producer.name);
-      }),
+      waits: task.inputs
+        .filter((input) => {
+          const producer = producerOf.get(input);
+          return producer !== undefined && nowWaiting.has(producer.name);
+        })
+        .map((input): InputWait => ({ input, kind: 'unset' })),
     });
   }
   return { waiting };

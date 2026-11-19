@@ -17,9 +17,9 @@
  */
 
 import {
-  variant, some, none, isVariant, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
-  decodeBeast2For, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
-  toEastTypeValue, type EastType, type EastTypeValue,
+  variant, some, none, isVariant, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, StringType, compareFor, decodeBeast2,
+  encodeBeast2For, decodeBeast2For, equalFor, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary,
+  readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import {
   RECORD_ARGS_READ_BYTES,
@@ -35,6 +35,7 @@ import {
   decodePackageObject,
   decodeRecordCommit,
   decodeRecordIndexObject,
+  decodeRecordLoadObject,
   decodeRecordObject,
   encodeDatasetBlob,
   indexCollectionType,
@@ -50,9 +51,13 @@ import {
   type RecordIndexObject,
   type RecordIndexPlan,
   type RecordSignature,
+  type RecordSource,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import {
+  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery,
+} from './record-slots.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
@@ -75,6 +80,10 @@ const decodeArgsTuple = decodeBeast2For(ArrayType(BlobType));
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
 const printTime = printFor(DateTimeType);
 const parseTime = parseFor(DateTimeType);
+
+/** How East orders two sources' names, and whether they are one. */
+const bySourceName = compareFor(StringType);
+const sameSource = equalFor(StringType);
 
 /** How long a mutation's program may run, and how much of its stderr a
  *  failure returns. Its output is stored as segments and never read whole, so
@@ -296,8 +305,7 @@ export interface RecordRef {
  *   deployed before a migration could be declared
  */
 export function appliedMigrations(versions: ReadonlyMap<string, string>): string[] {
-  const slot = versions.get(SCHEMA_SLOT);
-  return slot === undefined || slot === '' ? [] : slot.split(',');
+  return slotNames(versions, SCHEMA_SLOT);
 }
 
 /** A list of migration steps' names as a refusal says it. */
@@ -497,6 +505,47 @@ export interface ResolvedRecord {
   /** The migration chain the deployed package declares, in order: each
    *  step's name and MigrationObject hash. */
   migrations: ReadonlyArray<{ name: string; migration: string }>;
+  /** A composite record's sources, by name, as the deployed package declares
+   *  them: a solution source as `mutations`, an external one naming its load
+   *  object. None for a record that has no sources. */
+  sources: Map<string, RecordSource>;
+}
+
+/**
+ * The external sources of a record, by name: those a load writes, and no
+ * mutation.
+ *
+ * @param record - The record's sources, as {@link resolveRecord} finds them
+ * @returns Their names, sorted; none for a record that has no sources
+ *
+ * @example
+ * ```ts
+ * // `orders` is a composite over erp and wms, which loads write, and own, which its mutations write
+ * const orders = await resolveRecord(storage, repo, 'production', 'orders');
+ * externalSources(orders!); // ['erp', 'wms']
+ * ```
+ */
+export function externalSources(record: Pick<ResolvedRecord, 'sources'>): string[] {
+  return [...record.sources].filter(([, source]) => source.type === 'load').map(([name]) => name).sort(bySourceName);
+}
+
+/**
+ * Why a write of a composite record that names an entry of a source it may
+ * not write is refused, in the words every door refuses it with: a Save, the
+ * patch door, and a call's draft.
+ *
+ * @param mutationName - The mutation that wrote it
+ * @param entry - The entry's key, as East prints it, and the source it is of
+ * @returns The refusal
+ *
+ * @example
+ * ```ts
+ * externalWriteRefusal('patch', { printed: '.erp "SO-1001"', source: 'erp' });
+ * // mutation 'patch' writes .erp "SO-1001", an entry of source 'erp', which only its load writes
+ * ```
+ */
+export function externalWriteRefusal(mutationName: string, entry: { readonly printed: string; readonly source: string }): string {
+  return `mutation '${mutationName}' writes ${entry.printed}, an entry of source '${entry.source}', which only its load writes`;
 }
 
 /**
@@ -771,14 +820,16 @@ export async function recordOfPackage(
     mutations: new Map(recObj.mutations),
     indexes: new Map(recObj.indexes),
     migrations: recObj.migrations.map((step) => ({ ...step })),
+    sources: new Map(recObj.sources),
   };
 }
 
 /**
  * A record's mutation by its name, checked as every write of the record checks
  * it before anything runs: the record declares it, the write passes as many
- * arguments as it takes, and it is no whole-state write of a record with
- * indexes.
+ * arguments as it takes, it is no whole-state write of a record with indexes
+ * or with sources, and, for a record with sources, each source it may write
+ * is one the record's mutations write.
  *
  * @remarks
  * What a Save resolves its mutation with ({@link recordMutate}) and what a
@@ -798,7 +849,7 @@ export async function recordOfPackage(
 async function resolveMutation(
   storage: StorageBackend,
   repo: string,
-  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes' | 'sources'>,
   recordName: string,
   mutationName: string,
   argCount: number,
@@ -814,6 +865,28 @@ async function resolveMutation(
   // that does not came from a package that mixes the two.
   if (mutation.programIr === '' && record.indexes.size > 0) {
     return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
+  }
+  // Nor is a whole state held to the sources its mutation may write: a
+  // composite is a Dict, whose every mutation writes a delta, so this too is
+  // a package that mixes two builds, and it could write an external entry.
+  if (mutation.programIr === '' && record.sources.size > 0) {
+    return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has sources: re-export its package` };
+  }
+  // A composite's mutation names the sources it may write, and the apply holds
+  // its write to them. Which those may be is the record's to say, not the
+  // mutation's alone: each is a source the record's mutations write. One that
+  // names none, or names another — an external one's, which only its load
+  // writes — is no build's of this record, and would write such an entry.
+  if (record.sources.size > 0) {
+    const named = mutation.cases.type === 'some' ? [...mutation.cases.value] : null;
+    const other = named?.find((source) => record.sources.get(source)?.type !== 'mutations');
+    if (named === null || other !== undefined) {
+      return {
+        invalid: `mutation '${mutationName}' of record '${recordName}' `
+          + (named === null ? 'names no source it may write' : `may write source '${other}', which the record's mutations do not write`)
+          + ': re-export its package',
+      };
+    }
   }
   return { hash, mutation };
 }
@@ -1013,6 +1086,8 @@ export async function recordMutate(
           : await writeDelta(storage, runner, repo, mutObj, state, args, run, program);
         if ('failure' in write) return write.failure;
         if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
+        // An entry of a source the mutation may not write: nothing is written, and no retry answers it
+        if ('external' in write) return { kind: 'invalid', message: externalWriteRefusal(mutationName, write.external) };
 
         const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
         const { stateHash: newStateHash, commitHash } = await storeCommit(storage, repo,
@@ -1125,7 +1200,10 @@ type MutationWrite =
   | { primary: string; indexes: Map<string, { manifest: string; index: string }>; delta?: string }
   | UnitFailure
   /** A delta op disagreed with the state it landed on — the key is in the text. */
-  | { conflictDetail: string };
+  | { conflictDetail: string }
+  /** The write names an entry of a source its mutation may not write: the
+   *  entry's key, as East prints it, and the source it is of. */
+  | { external: { printed: string; source: string } };
 
 /** How a program's run is bounded: the limits, and the caller's cancellation
  *  and verbosity. */
@@ -1185,6 +1263,12 @@ async function writeWholeState(
  * there is no user East to run. That is the interactive door — its cost is the
  * rows the edit touched, with no process anywhere.
  *
+ * A composite record's mutation names the sources it may write (its object's
+ * `cases`), and the apply holds the write to them on both paths: an op on an
+ * entry of any other source — an external one, which only its load writes —
+ * is refused as it is taken, and the write answers `external`. So a Save, the
+ * patch door and a draft's laying refuse one alike, by the one check.
+ *
  * `program` is the run's task object and arguments, stored, when the caller
  * stored them already ({@link storeProgram}).
  */
@@ -1204,6 +1288,8 @@ async function writeDelta(
   const patch = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
     ? await patchDelta(storage, repo, state.primary, args[0])
     : null;
+  // The sources the mutation may write, for a composite record: none named for any other, which writes every key
+  const held = mutObj.cases.type === 'some' ? { cases: mutObj.cases.value } : {};
 
   // A program that found the write stale says so in the delta's first entry,
   // as the apply says so of an op that disagrees with the state: a caller
@@ -1216,7 +1302,7 @@ async function writeDelta(
       // The client's patch is the delta, held here: it is applied from the
       // entries in hand while it is stored, and never read back
       [written, deltaHash] = await bothSettled(
-        applyDeltaEntries(storage, repo, targets, heldEntries(patch)),
+        applyDeltaEntries(storage, repo, targets, heldEntries(patch), held),
         storeDelta(storage, repo, patch),
       );
     } else {
@@ -1224,10 +1310,11 @@ async function writeDelta(
       const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
       if ('failure' in ran) return ran;
       deltaHash = ran.output;
-      written = await applyDelta(storage, repo, targets, deltaHash);
+      written = await applyDelta(storage, repo, targets, deltaHash, held);
     }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };
+    if (err instanceof ExternalEntryError) return { external: { printed: err.printed, source: err.source } };
     // A summary that disagrees with its record (#1039) is no stale write, so no
     // retry answers it: the write fails, saying which total and how to rebuild it.
     if (err instanceof SummaryIntegrityError) return { failure: { kind: 'failed', exitCode: -1, stderr: err.message } };
@@ -1431,7 +1518,7 @@ export async function recordHead(
 export async function recordDraftMutation(
   storage: StorageBackend,
   repo: string,
-  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes' | 'sources'>,
   recordName: string,
   mutationName: string,
   args: readonly Uint8Array[],
@@ -1470,6 +1557,11 @@ export type RecordDraftLaid =
   /** A write disagreed with the state it was laid over: `detail` is the
    *  refusal's words, as a Save's conflict carries them. */
   | { kind: 'conflict'; detail: string }
+  /** The draft writes an entry of a source its mutation may not write, an
+   *  external one's, as a Save of it is refused `invalid`
+   *  ({@link externalWriteRefusal}): the entry's key, as East prints it, and
+   *  the source it is of. */
+  | { kind: 'external'; printed: string; source: string }
   /** The caller's signal stopped the laying. */
   | { kind: 'aborted' };
 
@@ -1546,6 +1638,7 @@ export async function recordLayDraft(
     throw new Error(`a draft's write ended ${failure.kind}, which no write's run does`);
   }
   if ('conflictDetail' in write) return { kind: 'conflict', detail: write.conflictDetail };
+  if ('external' in write) return { kind: 'external', ...write.external };
   return { kind: 'laid', state: { primary: write.primary, indexes: write.indexes } };
 }
 
@@ -1904,21 +1997,26 @@ export async function commitDeployIndexes(
 }
 
 /**
- * What a deploy commits to one record once its refs are written.
+ * What a deploy commits to one record once its refs are written. Each but an
+ * `unassign` names the record's external sources, as the package being
+ * deployed declares them: none for a record that has no sources.
  */
 export type DeployRecordCommit =
   /** Minted from the package's initial value: a `$init` root commit, and the
    *  whole chain counted applied, since the value is at the package's type. */
-  | { kind: 'mint'; path: string; state: string; applied: readonly string[] }
+  | { kind: 'mint'; path: string; state: string; applied: readonly string[]; external: readonly string[] }
   /** Kept as the workspace holds it: its ref restored, and a `$deploy` commit
    *  when the package under it changed, so its history says so. */
-  | { kind: 'keep'; path: string; prior: RecordRef; deployed: boolean }
+  | { kind: 'keep'; path: string; prior: RecordRef; deployed: boolean; external: readonly string[] }
   /** Migrated: a `$migrate:<name>` commit per step over that step's state,
    *  chained onto the ref's head, and the whole chain counted applied. */
-  | { kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[] }
+  | {
+    kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[];
+    external: readonly string[];
+  }
   /** Reset to the package's initial value: a `$reset` root commit, and the
    *  whole chain counted applied. */
-  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[] }
+  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[]; external: readonly string[] }
   /** Sent back to unassigned under the `reset` policy, for a record declared
    *  with no initial value: its ref unassigned and its chain dropped, as a
    *  `$reset` drops it, for its first state to be committed again. */
@@ -1945,6 +2043,18 @@ export type DeployRecordCommit =
  * - an `unassign` writes no commit: the ref goes back to unassigned, and the
  *   chain and every slot go with it, as a `$reset` drops them, for the
  *   record's first state to be committed again.
+ *
+ * And to the slots of a composite record's external sources
+ * (`record-slots.ts`):
+ * - `$init` and `$reset` name every external source in `$external`, and in
+ *   `$pending` each one the state committed holds no entry of
+ *   ({@link genesisSourceSlots}): its readers wait for that source's first
+ *   delivery. A `$reset` drops every delivery the ref remembered;
+ * - `$deploy` and `$migrate` reconcile them ({@link deploySourceSlots}): a
+ *   source new to the external set waits only when the state committed holds
+ *   no entry of it, one no longer external has its delivery forgotten, and a
+ *   migration forgets each external source's delivery but its as-of;
+ * - a record kept under the same package keeps its ref as it is.
  *
  * Deploy holds the workspace lock exclusively, so every ref write here is
  * uncontended, and the tasks lock, since a migration's states are named by
@@ -1983,6 +2093,7 @@ export async function commitDeployRecords(
           versions: nextVersions(undefined, selfKeypath, head, {
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
+            ...await genesisSourceSlots(storage, repo, undefined, commit.external, commit.state),
           }),
         }));
         break;
@@ -1990,7 +2101,8 @@ export async function commitDeployRecords(
       case 'keep': {
         const versions = commit.deployed
           ? nextVersions(commit.prior.versions, selfKeypath,
-            await system(commit.prior.versions.get(selfKeypath), commit.prior.hash, '$deploy'))
+            await system(commit.prior.versions.get(selfKeypath), commit.prior.hash, '$deploy'),
+            await deploySourceSlots(storage, repo, commit.prior.versions, commit.external, commit.prior.hash, false))
           : new Map(commit.prior.versions);
         await storage.datasets.write(repo, ws, commit.path, variant('value', { hash: commit.prior.hash, versions }));
         break;
@@ -2004,9 +2116,11 @@ export async function commitDeployRecords(
           head = await system(head, step.state, `$migrate:${step.name}`);
           applied.set(step.name, { at, commit: head });
         }
+        const migrated = commit.steps[commit.steps.length - 1]!.state;
         await storage.datasets.write(repo, ws, commit.path, variant('value', {
-          hash: commit.steps[commit.steps.length - 1]!.state,
+          hash: migrated,
           versions: nextVersions(commit.prior.versions, selfKeypath, head!, {
+            ...await deploySourceSlots(storage, repo, commit.prior.versions, commit.external, migrated, true),
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.flatMap((name) => {
               const known = applied.get(name);
@@ -2026,6 +2140,7 @@ export async function commitDeployRecords(
             [IDEM_COMMIT_SLOT]: undefined,
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
+            ...await genesisSourceSlots(storage, repo, commit.prior.versions, commit.external, commit.state),
           }, []),
         }));
         break;
@@ -2133,10 +2248,22 @@ export async function recordIndexNames(storage: StorageBackend, repo: string, st
  *  `RecordSignature`, the value the describe route carries. */
 export type { RecordSignature } from '@elaraai/e3-types';
 
+/** The type of a source's own key: its case of a composite record's key. */
+function sourceKeyType(recordName: string, record: EastTypeValue, source: string): EastTypeValue {
+  const type = fromEastTypeValue(record);
+  const key: EastType | undefined = type.type === 'Dict' ? type.key : undefined;
+  const held: EastType | undefined = key?.type === 'Variant' ? key.cases[source] : undefined;
+  if (held === undefined) {
+    throw new Error(`record '${recordName}' names a source '${source}' that is no case of its key: re-export its package`);
+  }
+  return toEastTypeValue(held);
+}
+
 /**
  * Describe a record: its mutations, so a dynamic caller can encode arguments;
- * its indexes, so it can read through them; and its migration chain, so a
- * console can show the record whole without reading its history.
+ * its indexes, so it can read through them; its migration chain, so a console
+ * can show the record whole without reading its history; and, for a composite
+ * record, its sources.
  *
  * @remarks
  * Each mutation gives its name, write form and EXTRA arg types: the form says
@@ -2146,7 +2273,11 @@ export type { RecordSignature } from '@elaraai/e3-types';
  * its window by, whether it is multi, and whether the record's state holds it
  * built under its declaration. Each migration gives its name, form and types,
  * and, for a step the record has applied, when it was applied and by which
- * commit, as the ref's reserved slots name them.
+ * commit, as the ref's reserved slots name them. Each source gives its name
+ * and its key's type; whether it is external, written by its load alone, and
+ * then what it is delivered and the dataset that feeds it; its last delivery,
+ * with the commit that applied it and the latest as-of; and whether the
+ * record waits for its first delivery.
  *
  * The declarations are the deployed package's. What the record holds is read
  * from its ref and its state object, and nothing of its history.
@@ -2205,7 +2336,26 @@ export async function recordDescribe(
         : none,
     });
   }
-  return { name: recordName, mutations, indexes, migrations };
+  const waits = held === undefined ? [] : pendingSources(held.versions);
+  const sources: RecordSignature['sources'] = [];
+  for (const [name, source] of resolved.sources) {
+    const load = source.type === 'load' ? decodeRecordLoadObject(await storage.objects.read(repo, source.value)) : undefined;
+    const last = held === undefined ? null : sourceLastDelivery(held.versions, name);
+    sources.push({
+      name,
+      key: sourceKeyType(recordName, resolved.type, name),
+      external: load !== undefined,
+      delivery: load === undefined ? none : some(load.delivery),
+      feed: load === undefined ? none : load.feed,
+      last: last === null ? none : some({
+        delivery: last.delivery,
+        commit: last.commit === undefined ? none : some(last.commit),
+        asOf: last.asOf === undefined ? none : some(last.asOf),
+      }),
+      pending: waits.some((each) => sameSource(each, name)),
+    });
+  }
+  return { name: recordName, mutations, indexes, migrations, sources };
 }
 
 /** What {@link recordCompact} commits as, and how it retries. */
@@ -2230,7 +2380,9 @@ export interface RecordCompactOptions {
  * (`parent: none`) over the current state and swing the ref to it. The prior
  * commit chain becomes unreachable and is reclaimed by GC; the state itself is
  * unchanged. The ref still says when each migration was applied, and names no
- * commit that applied one, since the chain no longer holds it.
+ * commit that applied one, since the chain no longer holds it; and so with the
+ * commit that applied each external source's last delivery, of a composite
+ * record.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -2285,6 +2437,9 @@ export async function recordCompact(
           owned[MIGRATIONS_SLOT] = migrationsSlot(
             [...migrationsApplied(existing.ref.value.versions)].map(([name, { at }]) => [name, { at }] as const));
         }
+        // And the commit that applied each source's last delivery: the slot
+        // still says the source holds the delivery, and names no commit
+        Object.assign(owned, compactedSourceSlots(existing.ref.value.versions));
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {

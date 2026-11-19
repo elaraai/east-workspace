@@ -79,12 +79,14 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     form: variant('reduce', null),
     programIr: '',
+    cases: none,
   }));
   const recHash = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
     path: 'records/counter',
     mutations: new Map([['increment', mutHash]]),
     indexes: new Map(),
     migrations: [],
+    sources: new Map(),
   }));
 
   const structure = variant('struct', new Map([

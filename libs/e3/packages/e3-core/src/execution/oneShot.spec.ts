@@ -177,6 +177,20 @@ describe('oneShotExecute', () => {
     ]);
   });
 
+  it('reads each dataset it pins through the one reader of a dataset\'s ref, which answers the ref\'s version vector beside its hash', async () => {
+    const ref = await storage.datasets.read(REPO, WS, 'inputs/value');
+    assert.ok(ref?.type === 'value');
+    assert.deepEqual(await workspaceGetDatasetHash(storage, REPO, WS, [variant('field', 'inputs'), variant('field', 'value')]),
+      { refType: 'value', hash: ref.value.hash, versions: ref.value.versions });
+    assert.deepEqual(await workspaceGetDatasetHash(storage, REPO, WS, [variant('field', 'inputs'), variant('field', 'unset')]),
+      { refType: 'unassigned', hash: null, versions: null });
+    // A call refuses what the reader finds unassigned, in the words it always has
+    const refused = await run(request(twice, [datasetArg('unset')]), 'platform_free');
+    assert.ok(refused.outcome.type === 'invalid');
+    assert.equal(refused.outcome.value.diagnostics[0]!.message, 'Dataset argument 0 is not assigned (ref type: unassigned)');
+    await assert.rejects(run(request(twice, [variant('dataset', [])]), 'platform_free'), /Cannot get dataset at root path/);
+  });
+
   it('answers invalid for an unassigned dataset argument, running nothing', async () => {
     const result = await run(request(twice, [datasetArg('unset')]), 'platform_free');
     assert.equal(result.outcome.type, 'invalid');

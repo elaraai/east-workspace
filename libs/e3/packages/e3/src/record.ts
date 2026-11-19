@@ -13,14 +13,68 @@
  * write protocol differs.
  */
 
-import type { EastType, ValueTypeOf } from '@elaraai/east';
+import type { DictType, EastType, FunctionType, NullType, PatchTypeOf, SetType, StructType, ValueTypeOf } from '@elaraai/east';
 import { isValueOf, printType, variant } from '@elaraai/east';
-import type { DataTreeDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import { editTypeOf } from '@elaraai/e3-types';
+import type { DataTreeDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef } from './types.js';
 import {
   INDEX_BUILDER, MIGRATION_BUILDER, MUTATION_BUILDER, RECORD_PART,
   type IndexBuilder, type IndexDraft, type IndexesOf, type MigrationBuilder, type MigrationDraft, type MutationBuilder, type MutationDraft, type MutationsOf,
 } from './record-builders.js';
 import { sameEastType } from './record-guards.js';
+
+/**
+ * The capability an `edit` body writes a Dict record through, as an East type:
+ * `set`, `delete` and `update` over the keys it may write.
+ *
+ * @typeParam K - The key type it writes
+ * @typeParam V - The record's row type
+ */
+export type EditCapability<K extends EastType, V extends EastType> = StructType<{
+  set: FunctionType<[K, V], NullType>;
+  delete: FunctionType<[K], NullType>;
+  update: FunctionType<[K, PatchTypeOf<V>], NullType>;
+}>;
+
+/** A Dict record's key type, or a Set record's element type; none for any other record. */
+export type RecordKeyOf<T> = T extends DictType<infer K, EastType> ? K : T extends SetType<infer K> ? K : undefined;
+
+/** The capability a Dict record's `edit` bodies write through, over its every key; none for any other record. */
+export type RecordEditOf<T> = T extends DictType<infer K extends EastType, infer V extends EastType> ? EditCapability<K, V> : undefined;
+
+/**
+ * A record's types, as its declaration is handed them: the second argument of
+ * `indexes`, `mutations` and `migrations`, beside each one's builder, so a
+ * part's function is typed by the record without naming its type again.
+ *
+ * @typeParam T - The record's state type
+ * @typeParam E - The type of the capability its `edit` bodies write through
+ *
+ * @example
+ * ```ts
+ * const plans = e3.record('plans', DictType(StringType, PlanType), {
+ *   initial: new Map(),
+ *   mutations: (mutation, { state, edit }) => ({
+ *     // The body's state and its capability are the record's, by its own types
+ *     retitle: mutation.edit(East.function([state, StringType, StringType, edit], NullType, ($, plans, id, title, edit) => {
+ *       const plan = $.let(plans.get(id));
+ *       $(edit.set(id, { title, owner: plan.owner }));
+ *     })),
+ *   }),
+ * });
+ * ```
+ */
+export interface RecordTypes<T extends EastType, E = RecordEditOf<T>> {
+  /** The record's state type. */
+  readonly state: T;
+  /** A Dict record's key type, or a Set record's element type; undefined for
+   *  any other record. */
+  readonly key: RecordKeyOf<T>;
+  /** The capability an `edit` body writes through, its last parameter: what
+   *  `e3.mutation.editType(state)` gives. Undefined for a record that is not
+   *  a Dict, which an `edit` does not write. */
+  readonly edit: E;
+}
 
 /**
  * What `e3.record` takes beside its name and type: its initial state, and its
@@ -38,12 +92,27 @@ export interface RecordConfig<T extends EastType, I extends object, M extends ob
    * reads it. Omitted for a record whose first state is committed from outside.
    */
   readonly initial?: NoInfer<ValueTypeOf<T>> | (() => NoInfer<ValueTypeOf<T>>);
-  /** Its indexes by name, from the `index` builder. */
-  readonly indexes?: (index: IndexBuilder<T>) => I;
-  /** Its mutations by name, from the `mutation` builder. */
-  readonly mutations?: (mutation: MutationBuilder<T>) => M;
-  /** Its migrations in order, each named, from the `migration` builder. */
-  readonly migrations?: (migration: MigrationBuilder) => readonly MigrationDraft[];
+  /** Its indexes by name, from the `index` builder, which is handed the record's types beside it. */
+  readonly indexes?: (index: IndexBuilder<T>, types: RecordTypes<T>) => I;
+  /** Its mutations by name, from the `mutation` builder, which is handed the record's types beside it. */
+  readonly mutations?: (mutation: MutationBuilder<T>, types: RecordTypes<T>) => M;
+  /** Its migrations in order, each named, from the `migration` builder, which is handed the record's types beside it. */
+  readonly migrations?: (migration: MigrationBuilder, types: RecordTypes<T>) => readonly MigrationDraft[];
+}
+
+/**
+ * A record's types as its declaration is handed them ({@link RecordTypes}),
+ * read off its state type.
+ *
+ * @param type - The record's state type
+ * @returns Its types: the state, a Dict's key or a Set's element type, and a Dict's edit capability
+ */
+function typesOf(type: EastType): RecordTypes<EastType, EastType | undefined> {
+  return {
+    state: type,
+    key: type.type === 'Dict' || type.type === 'Set' ? type.key : undefined,
+    edit: type.type === 'Dict' ? editTypeOf(type) : undefined,
+  };
 }
 
 /**
@@ -90,10 +159,14 @@ export function isRecord(value: unknown): value is RecordDef {
  * Its parts are declared through the builders it hands each: `indexes` gets
  * `index` and returns them by name, `mutations` gets `mutation` and returns
  * them by name, and `migrations` gets `migration` and returns its steps in
- * order, each named. Each is built and checked here, every refusal naming the
- * record and the part, and the record's type carries each by its name — so a
- * binding names them, and TypeScript holds each name to the record. The parts
- * are frozen: nothing adds to a record once declared.
+ * order, each named. Each is handed the record's types as a second argument,
+ * `{ state, key, edit }` ({@link RecordTypes}), so a part's function is typed
+ * by the record without naming its type again:
+ * `mutations: (mutation, { state, edit }) => …`. Each is built and checked
+ * here, every refusal naming the record and the part, and the record's type
+ * carries each by its name — so a binding names them, and TypeScript holds each
+ * name to the record. The parts are frozen: nothing adds to a record once
+ * declared.
  *
  * @typeParam Name - Record name (literal type)
  * @typeParam T - The East type of the record state
@@ -146,7 +219,40 @@ export function record<
 ): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>], IndexesOf<I, T>, MutationsOf<M, T>>;
 export function record(name: string, type: EastType, declared?: unknown): RecordDef {
   const where = `e3.record '${name}'`;
-  const config = declared === undefined ? undefined : declarationOf(where, type, declared);
+  return declareRecord(where, name, type, declared === undefined ? undefined : declarationOf(where, type, declared));
+}
+
+/**
+ * What a composite record's declaration adds to a record's: its sources, and
+ * the capability its `edit` bodies are handed.
+ *
+ * @internal
+ */
+export interface RecordExtras {
+  /** The record's sources, by name. */
+  readonly sources: Readonly<Record<string, RecordSourceDef>>;
+  /** The capability its parts are handed as `edit`: over its solution sources'
+   *  keys alone, or undefined where it has none. */
+  readonly edit: EastType | undefined;
+}
+
+/**
+ * Builds a record from its declaration, checked: the dataset, and each part
+ * through its builder, over the record itself. What `e3.record` and
+ * `e3.recordComposite` both declare a record by.
+ *
+ * @param where - The declaration, as a refusal names it: `e3.record 'orders'`
+ * @param name - The record's name
+ * @param type - Its state type
+ * @param config - Its initial state and its parts' functions
+ * @param extras - A composite record's sources and edit capability
+ * @returns The record, its parts frozen
+ * @throws {Error} For anything a part's builder refuses, naming the record and the part
+ * @internal
+ */
+export function declareRecord(
+  where: string, name: string, type: EastType, config: RecordConfig<EastType, object, object> | undefined, extras?: RecordExtras,
+): RecordDef {
   const initial = config?.initial;
   // A function makes the state; a record whose state is a function holds it as given.
   const made = typeof initial === 'function' && type.type !== 'Function' && type.type !== 'AsyncFunction';
@@ -161,6 +267,7 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     mutations: {} as Record<string, MutationDef>,
     indexes: {} as Record<string, RecordIndexDef>,
     migrations: [] as MigrationDef[],
+    ...(extras !== undefined && { sources: extras.sources }),
     deps: new Set([...recordsTree.deps, recordsTree]),
   };
   if (made) {
@@ -168,8 +275,9 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     Object.defineProperty(rec, 'default', { enumerable: true, get: () => (state ??= { value: (initial as () => unknown)() }).value });
   }
   // Each part is built in the order declared, over the record itself: an index or a mutation under its key, a
-  // migration after the step before it.
-  for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
+  // migration after the step before it. Each part's function is handed the record's types beside its builder.
+  const types = { ...typesOf(type), ...(extras !== undefined && { edit: extras.edit }) } as RecordTypes<EastType>;
+  for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>, types))) {
     rec.indexes[key] = builderOf(where, 'index', key, draft).build(rec, key);
   }
   checkEntries(where, Object.values(rec.indexes));
@@ -183,10 +291,10 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     }
     rec.indexes[companion.name] = companion;
   }
-  for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
+  for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>, types))) {
     rec.mutations[key] = builderOf(where, 'mutation', key, draft).build(rec, key);
   }
-  const steps: unknown = config?.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder);
+  const steps: unknown = config?.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder, types);
   if (steps !== undefined) {
     if (!Array.isArray(steps)) {
       throw new Error(`${where}: migrations returns the steps in order, as a list — [migration.rows('add_site', fn), …]`);
@@ -249,12 +357,31 @@ const CONFIG_KEYS: readonly string[] = ['initial', 'indexes', 'mutations', 'migr
  */
 function declarationOf(where: string, type: EastType, declared: unknown): RecordConfig<EastType, object, object> {
   const value = isValueOf(declared, type) ? ' — its initial value is declared as { initial: value }' : '';
+  return declaredObject(where, declared, CONFIG_KEYS, [], value) as RecordConfig<EastType, object, object>;
+}
+
+/**
+ * A record's declaration, checked: a plain object of the keys its kind of
+ * record takes and nothing else, each part a function of its builder.
+ *
+ * @param where - The record, as a refusal names it
+ * @param declared - What was given
+ * @param keys - The keys it takes, in the order a refusal lists them
+ * @param required - Those of them it cannot be declared without
+ * @param hint - What a refusal adds, where what was given says what was meant
+ * @returns The declaration
+ * @throws {Error} For anything else, naming the keys it takes
+ * @internal
+ */
+export function declaredObject(
+  where: string, declared: unknown, keys: readonly string[], required: readonly string[], hint = '',
+): Record<string, unknown> {
   if (typeof declared !== 'object' || declared === null || Object.getPrototypeOf(declared) !== Object.prototype) {
-    throw new Error(`${where} takes its declaration as { initial?, indexes?, mutations?, migrations? }${value}`);
+    throw new Error(`${where} takes its declaration as { ${keys.map((key) => (required.includes(key) ? key : `${key}?`)).join(', ')} }${hint}`);
   }
-  const extra = Object.keys(declared).filter((key) => !CONFIG_KEYS.includes(key));
+  const extra = Object.keys(declared).filter((key) => !keys.includes(key));
   if (extra.length > 0) {
-    throw new Error(`${where} takes initial, indexes, mutations and migrations, not ${extra.map((key) => `'${key}'`).join(', ')}${value}`);
+    throw new Error(`${where} takes ${keys.slice(0, -1).join(', ')} and ${keys.at(-1)}, not ${extra.map((key) => `'${key}'`).join(', ')}${hint}`);
   }
   for (const part of ['indexes', 'mutations', 'migrations'] as const) {
     const builds = (declared as Record<string, unknown>)[part];
@@ -262,32 +389,59 @@ function declarationOf(where: string, type: EastType, declared: unknown): Record
       throw new Error(`${where}: ${part} is a function of its builder — ${part}: (${part === 'indexes' ? 'index' : part.slice(0, -1)}) => …`);
     }
   }
-  return declared as RecordConfig<EastType, object, object>;
+  return declared as Record<string, unknown>;
 }
 
-/** The parts a builder's function returned, by name: an object of them, or none. */
-function partsOf(where: string, what: string, returned: unknown): [string, unknown][] {
+/**
+ * The parts a builder's function returned, by name: an object of them, or none.
+ *
+ * @param where - The record, as a refusal names it
+ * @param what - Which of its declaration's functions returned them
+ * @param returned - What it returned
+ * @param example - How they are returned, for the refusal
+ * @returns Each part under its name, in the order declared
+ * @throws {Error} When they are not returned as an object
+ * @internal
+ */
+export function partsOf(where: string, what: string, returned: unknown, example = "{ orders_by_status: index.on(['status']) }"): [string, unknown][] {
   if (returned === undefined) return [];
   if (typeof returned !== 'object' || returned === null || Array.isArray(returned)) {
-    throw new Error(`${where}: ${what} returns its parts by name, as an object — { orders_by_status: index.on(['status']) }`);
+    throw new Error(`${where}: ${what} returns its parts by name, as an object — ${example}`);
   }
   return Object.entries(returned);
 }
 
-/** How each kind of part is built: an index or a mutation under its name, a migration after the step before it. */
+/** How each kind of part is built: an index or a mutation under its name, a migration after the step before it, and a
+ *  composite's source under its name, over its record's row. */
 interface PartBuilds {
   readonly index: (record: RecordDef, name: string) => RecordIndexDef;
   readonly mutation: (record: RecordDef, name: string) => MutationDef;
   readonly migration: (record: RecordDef, previous: MigrationDef | undefined) => MigrationDef;
+  readonly source: (declared: string, name: string, row: EastType) => RecordSourceDef;
 }
 
-/** A part's builder, as its draft carries it; refused, naming the part, for anything its builder did not make. */
-function builderOf<P extends keyof PartBuilds>(where: string, part: P, name: string, draft: unknown): { readonly build: PartBuilds[P] } {
+/** How a part of each kind is declared, for the refusal of one its builder did not make. */
+const PART_FORMS: Readonly<Record<keyof PartBuilds, string>> = {
+  index: 'index.on([…])', mutation: 'mutation.reduce(fn)', migration: "migration.rows('name', fn)", source: 'source.mutations(key)',
+};
+
+/**
+ * A part's builder, as its draft carries it.
+ *
+ * @param where - The record, as a refusal names it
+ * @param part - The kind of part
+ * @param name - The part, as a refusal names it
+ * @param draft - What was declared under the name
+ * @returns How the record builds the part
+ * @throws {Error} Naming the part, for anything its builder did not make
+ * @internal
+ */
+export function builderOf<P extends keyof PartBuilds>(where: string, part: P, name: string, draft: unknown): { readonly build: PartBuilds[P] } {
   const made = typeof draft === 'object' && draft !== null
     ? (draft as { readonly [RECORD_PART]?: { readonly part: string; readonly build: PartBuilds[P] } })[RECORD_PART]
     : undefined;
   if (made === undefined || made.part !== part) {
-    throw new Error(`${where}: ${part} '${name}' is not one the ${part} builder made — declare it as ${part}.${part === 'index' ? 'on([…])' : part === 'mutation' ? 'reduce(fn)' : "rows('name', fn)"} and the like`);
+    throw new Error(`${where}: ${part} '${name}' is not one the ${part} builder made — declare it as ${PART_FORMS[part]} and the like`);
   }
   return made;
 }

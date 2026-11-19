@@ -269,6 +269,8 @@ export {
   recordHead,
   recordDraftMutation,
   recordLayDraft,
+  externalSources,
+  externalWriteRefusal,
   encodeMutationArgs,
   decodeMutationArgs,
   withSharedWorkspaceLock,
@@ -288,6 +290,8 @@ export {
   type RecordHistoryEntry,
   type RecordSignature,
 } from './records.js';
+// What a composite record's readers wait for: the external sources yet to deliver
+export { PENDING_SLOT, pendingSources, pendingWaitWords } from './record-slots.js';
 
 // Tree and dataset operations (low-level, by hash)
 export {
@@ -310,10 +314,13 @@ export {
   readDatasetChunks,
   readDatasetWhole,
   inputObject,
-  taskInputRead,
   readRecordStateObject,
   recordIndexManifests,
 } from './dataset-open.js';
+
+// What a reader is handed of a task's or a function's input, as its dataset's
+// ref stands: the one place that decides whether it can be read now
+export { taskInputRead, type InputHeld, type TaskInputRead } from './input-read.js';
 
 // The store's door: the one way a collection reaches the object store, from a
 // stored collection, chunks, elements, or a file or a directory on this machine
@@ -324,11 +331,14 @@ export {
 } from './store-collection-file.js';
 export { storeDatasetBytes } from './store-collection.js';
 
-// The write path a mutation delta takes: only the segments it touched
+// The write path a mutation delta takes: only the segments it touched, and
+// only the sources of a composite record its writer may write
 export {
   applyDelta,
   summarizeDelta,
   DeltaConflictError,
+  ExternalEntryError,
+  type ApplyDeltaOptions,
   type DeltaArmSummary,
 } from './record-apply.js';
 
@@ -492,6 +502,7 @@ export {
   // Result types (TypeScript-only)
   type InitializeResult,
   type PrepareTaskResult,
+  type InputWait,
   type PrepareTaskWaiting,
   type PrepareTaskBehind,
   type CatchUpRun,

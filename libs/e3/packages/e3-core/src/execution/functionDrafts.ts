@@ -60,7 +60,8 @@ import {
   type TreePath,
 } from '@elaraai/e3-types';
 import {
-  decodeMutationArgs, encodeMutationArgs, readRecordState, recordDraftMutation, recordHead, recordLayDraft, recordOfPackage, writeRecordState,
+  decodeMutationArgs, encodeMutationArgs, externalWriteRefusal, readRecordState, recordDraftMutation, recordHead, recordLayDraft, recordOfPackage,
+  writeRecordState,
   type RecordStateRefs, type ResolvedRecord,
 } from '../records.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -285,6 +286,10 @@ export type CallDraftsLaid =
     readonly kind: 'conflict'; readonly record: string; readonly mutation: string;
     readonly place: number; readonly of: number; readonly message: string;
   }
+  /** A draft writes an entry of a composite record its mutation may not
+   *  write, an external source's: the draft, then the words a Save of it is
+   *  refused with (`externalWriteRefusal`). */
+  | { readonly kind: 'invalid'; readonly message: string }
   /** The caller's signal stopped the laying. */
   | { readonly kind: 'aborted' };
 
@@ -294,16 +299,19 @@ export type CallDraftsLaid =
  * result both hold it, what ended it, and the stderr that says why.
  */
 export interface CallDraftsEnd {
-  /** `failed` or `timed_out`, as a Save of the draft would have ended, or
+  /** `failed` or `timed_out`, as a Save of the draft would have ended;
    *  `conflict`, naming the record, the mutation, the draft's place among the
-   *  call's and the refusal's words. */
-  readonly outcome: Extract<ExecuteResult['outcome'], { type: 'failed' | 'timed_out' | 'conflict' }>;
+   *  call's and the refusal's words; or `invalid`, for a draft that writes an
+   *  entry of a source its mutation may not write, its one diagnostic naming
+   *  the draft and saying so in a Save's words. */
+  readonly outcome: Extract<ExecuteResult['outcome'], { type: 'failed' | 'timed_out' | 'conflict' | 'invalid' }>;
   /**
    * What ended the call, as its result and its kept form name it
    * (`FunctionDraftEndType`): the draft, for a `failed` or `timed_out` a
    * draft's mutation ended, or that did not start; `laid`, for a call whose
    * timeout ended once every draft was laid. `none` for a `conflict`, whose
-   * outcome names its draft, and for a call that passed no draft.
+   * outcome names its draft, for an `invalid`, whose diagnostic names it, and
+   * for a call that passed no draft.
    */
   readonly draftEnd: ExecuteResult['draftEnd'];
   /**
@@ -312,9 +320,9 @@ export interface CallDraftsEnd {
    * the draft that did not start, for a call whose timeout ended between two
    * drafts' runs; `drafts laid (n of n), and the call's timeout ended before
    * its function ran` for one whose timeout ended once every draft was laid
-   * (`functionDraftsLaidLine`). Empty for a `conflict`, whose outcome says it
-   * all, and for a call that passed no draft and whose timeout ended before
-   * its function ran.
+   * (`functionDraftsLaidLine`). Empty for a `conflict` and an `invalid`, whose
+   * outcome says it all, and for a call that passed no draft and whose timeout
+   * ended before its function ran.
    */
   readonly stderr: string;
   /** Whether the mutation's stderr is the tail of a longer log. */
@@ -337,10 +345,17 @@ export interface CallDraftsEnd {
  * ```
  */
 export function callDraftsEnd(
-  ended: Extract<CallDraftsLaid, { kind: 'failed' | 'timed_out' | 'conflict' }>,
+  ended: Extract<CallDraftsLaid, { kind: 'failed' | 'timed_out' | 'conflict' | 'invalid' }>,
   timeoutMs: bigint,
 ): CallDraftsEnd {
   switch (ended.kind) {
+    case 'invalid':
+      return {
+        outcome: variant('invalid', { diagnostics: [{ message: ended.message, filename: none, line: none, column: none }] }),
+        draftEnd: none,
+        stderr: '',
+        stderrTruncated: false,
+      };
     case 'failed':
       return {
         outcome: variant('failed', { exitCode: BigInt(ended.exitCode) }), draftEnd: some(variant('draft', ended.draft)),
@@ -361,6 +376,25 @@ export function callDraftsEnd(
         stderrTruncated: false,
       };
   }
+}
+
+/**
+ * What the result of a call its drafts ended names as read: its inputs and
+ * the records it drafted, as given — or neither, for a call ended `invalid`,
+ * as a call refused `invalid` as it started names neither.
+ *
+ * @param end - How the call ended before its function ran
+ * @param read - What the call read: each input and dataset argument, and each
+ *   record it drafted
+ * @returns What its result names
+ *
+ * @example
+ * ```ts
+ * if (staged.kind === 'ended') return { outcome: staged.end.outcome, ...streams, ...callEndRead(staged.end, { inputs: staged.read, drafts }) };
+ * ```
+ */
+export function callEndRead(end: CallDraftsEnd, read: Pick<ExecuteResult, 'inputs' | 'drafts'>): Pick<ExecuteResult, 'inputs' | 'drafts'> {
+  return end.outcome.type === 'invalid' ? { inputs: [], drafts: [] } : read;
 }
 
 /**
@@ -392,7 +426,9 @@ function timedOutBeforeRun(drafts: number, timeoutMs: bigint): CallDraftsEnd {
  * each over the state the draft before it left its record, by the mutation's
  * own program (`recordLayDraft`): so every index of the record holds the
  * drafts, as it would after the Save. The first draft that does not lay ends
- * the laying as a Save of it would have ended, and nothing after it runs. A
+ * the laying as a Save of it would have ended, and nothing after it runs: one
+ * that writes an entry of a composite record's external source ends it
+ * `invalid`, as the Save is refused. A
  * draft carries no limits of its own: its mutation runs for what is left of
  * the call's timeout. Each drafted record's last state is stored, side by
  * side.
@@ -467,6 +503,8 @@ export async function layCallDrafts(
         return { kind: 'timed_out', draft: timedOut, stderr: `${ends(timedOut)}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'conflict':
         return { kind: 'conflict', ...named, message: laid.detail };
+      case 'external':
+        return { kind: 'invalid', message: `${functionDraftLabel(draft, named.place, named.of)}: ${externalWriteRefusal(draft.mutation, laid)}` };
       case 'aborted':
         return laid;
     }

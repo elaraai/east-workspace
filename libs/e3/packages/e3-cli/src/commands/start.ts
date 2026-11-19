@@ -21,11 +21,13 @@ import {
   LocalOrchestrator,
   LocalTaskRunner,
   FileStateStore,
+  pendingWaitWords,
   sweepScratchDirs,
   workspaceGetTree,
   type Budget,
   type CatchUpPhase,
   type DeferReason,
+  type InputWait,
   type OrchestratorStartOptions,
   type TaskCompletedCallback,
   type TreeNode,
@@ -188,8 +190,8 @@ export function runCallbacks(): Pick<
     onTaskComplete: (taskResult: TaskCompletedCallback) => {
       printTaskResult(taskResult);
     },
-    onTaskWaiting: (name, inputs) => {
-      console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+    onTaskWaiting: (name, waits) => {
+      console.log(`  ${waitLine(name, waits)}`);
     },
     onTaskDeferred: (name, reason) => {
       console.log(`  [DEFER] ${name}: ${describeDeferral(reason)}`);
@@ -558,16 +560,71 @@ interface Summary {
   cached: number;
   failed: number;
   skipped: number;
-  /** Tasks left waiting on an input that is not set, and their dependents */
+  /** Tasks left waiting on an input that is not set, or on a record yet to
+   *  hear from a source, and their dependents */
   waiting: number;
   duration: number;
 }
 
-/** The inputs a task waits on, as the run's `[WAIT]` line and the watch's say
- *  them: unset, whether nothing has set them or the task that writes them
- *  waits itself. */
-export function describeUnset(inputs: readonly string[]): string {
-  return `${inputs.length === 1 ? 'input' : 'inputs'} ${inputs.map((input) => `'${input}'`).join(', ')} not set`;
+/**
+ * What a task waits on, as the run's `[WAIT]` line and the watch's say it.
+ *
+ * @remarks
+ * - Inputs that are unset — nothing has set them, or the task that writes
+ *   them waits itself — are named together: `inputs 'a', 'b' not set`.
+ * - A record that has yet to hear from external sources is said once, however
+ *   many of the task's inputs read it or an index of it: `record 'orders'
+ *   waits for the first delivery of erp`.
+ *
+ * @param waits - The task's inputs it cannot read, each with why
+ * @returns The words after the task's name
+ *
+ * @example
+ * ```ts
+ * describeWaits([{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]);
+ * // "record 'orders' waits for the first delivery of erp"
+ * ```
+ */
+export function describeWaits(waits: readonly InputWait[]): string {
+  const said: string[] = [];
+  const unset = waits.filter((wait) => wait.kind === 'unset').map((wait) => wait.input);
+  if (unset.length > 0) said.push(`${unset.length === 1 ? 'input' : 'inputs'} ${unset.map((input) => `'${input}'`).join(', ')} not set`);
+  for (const wait of waits) {
+    if (wait.kind !== 'pending') continue;
+    const words = pendingWaitWords(wait.input, wait.sources);
+    if (!said.includes(words)) said.push(words);
+  }
+  return said.join('; ');
+}
+
+/**
+ * A waiting task's line, as a run and the watch print it.
+ *
+ * @param task - The task left waiting
+ * @param waits - Its inputs it cannot read, each with why
+ * @returns The line, without its indent
+ */
+export function waitLine(task: string, waits: readonly InputWait[]): string {
+  return `[WAIT] ${task}: ${describeWaits(waits)}`;
+}
+
+/**
+ * What a run that left tasks waiting says after its summary: what they wait
+ * on, and what to do about it. It names every remedy: an input is set, a
+ * record declared with no first value is seeded, and a composite record's
+ * sources are loaded.
+ *
+ * @param waiting - How many tasks the run left waiting
+ * @returns The line
+ *
+ * @example
+ * ```ts
+ * if (summary.waiting > 0) console.log(waitingLine(summary.waiting));
+ * ```
+ */
+export function waitingLine(waiting: number): string {
+  return `${waiting} ${waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set, or on a record's load: `
+    + 'set the input, seed the record, or load the record\'s sources, and run again.';
 }
 
 /** Names as a sentence lists them: `a`, `a and b`, `a, b and c`. */
@@ -623,7 +680,7 @@ function printSummary(summary: Summary): void {
   console.log(`  Duration: ${Math.round(summary.duration)}ms`);
   if (summary.waiting > 0) {
     console.log('');
-    console.log(`${summary.waiting} ${summary.waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set: set it, or seed the record, and run again.`);
+    console.log(waitingLine(summary.waiting));
   }
 }
 

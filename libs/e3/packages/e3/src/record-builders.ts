@@ -11,12 +11,15 @@
  * `migration` — and builds what they return under its name, as the record is
  * declared: its indexes and mutations by their keys, its migrations in order.
  * Each part is checked there, every refusal naming the record and the part, and
- * TypeScript reads each part's name and types off the one call.
+ * TypeScript reads each part's name and types off the one call. A composite
+ * record, `e3.recordComposite`, hands its `sources` the `source` builder
+ * first, typed by its row.
  */
 
 import type { CallableFunctionExpr, DictType, EastType, FunctionExpr, NullType, PatchTypeOf, StructType } from '@elaraai/east';
 import type { RecordSummaryTotalsType } from '@elaraai/e3-types';
-import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef } from './types.js';
+import { loadDefinition, mutationsDefinition } from './record-sources.js';
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
   AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
@@ -101,6 +104,94 @@ export interface MutationDraft<Args extends readonly EastType[] = readonly EastT
 export interface MigrationDraft {
   /** How the record builds it, after the step before it in the list (none for the first). */
   readonly [RECORD_PART]: { readonly part: 'migration'; readonly build: (record: RecordDef, previous: MigrationDef | undefined) => MigrationDef };
+}
+
+/**
+ * A source the `source` builder makes, which `e3.recordComposite` builds under
+ * its key.
+ *
+ * @typeParam K - The source's key type
+ * @typeParam External - Whether its load alone writes its entries
+ */
+export interface SourceDraft<K extends EastType = EastType, External extends boolean = boolean> {
+  /** How the record builds it under its name, over its row type, as it is declared: `e3.recordComposite 'orders'`. */
+  readonly [RECORD_PART]: { readonly part: 'source'; readonly build: (declared: string, name: string, row: EastType) => RecordSourceDef };
+  /** Its types, for TypeScript alone: never set. */
+  readonly types?: { readonly key: K; readonly external: External };
+}
+
+/**
+ * The `source` builder a composite record hands its `sources`: who writes
+ * each source's entries, each source typed by the record's row.
+ *
+ * A source is one case of the record's key, so its name is an identifier. An
+ * external source's entries are another system's, written only by its load; a
+ * source of the solution's own is written by the record's mutations.
+ *
+ * @typeParam Row - The record's row type
+ *
+ * @example
+ * ```ts
+ * const Order = StructType({ customer: StringType, status: StringType, qty: IntegerType });
+ * // What the ERP sends: its whole order book, keyed by its own order id
+ * const ErpDelivery = DictType(StringType, StructType({ cust: StringType, state: StringType, qty: IntegerType }));
+ * const loadErp = East.function(
+ *   [ErpDelivery, DictType(StringType, Order)], PatchType(DictType(StringType, Order)),
+ *   ($, delivery, current) => East.diff(current, delivery.map(($, o) => ({ customer: o.cust, status: o.state, qty: o.qty }))),
+ * );
+ *
+ * const orders = e3.recordComposite('orders', Order, {
+ *   sources: (source) => ({
+ *     erp: source.load(StringType, ErpDelivery, loadErp),  // the ERP's orders: written by this load alone
+ *     own: source.mutations(StringType),                   // the solution's own: written by the mutations
+ *   }),
+ * });
+ * ```
+ */
+export interface SourceBuilder<Row extends EastType> {
+  /**
+   * An external source: its entries are another system's, written only by its
+   * load and never by a mutation, a patch or a view's save.
+   *
+   * The load's function takes a delivery and the source's entries as they
+   * stand, keyed by the source's own key, and returns a patch of them; e3 puts
+   * the source's case on each key, and takes it off again. It is pure,
+   * synchronous East, as a mutation's body is.
+   *
+   * It must give the right entries from one delivery alone, whatever was
+   * loaded before it: a whole snapshot of the source, as
+   * `East.diff(current, snapshot)` gives, or an upsert of the latest state that
+   * gives the same entries however often it is applied. e3 cannot check this.
+   *
+   * A delivery that is a Dict or a Set keyed by the source's key is cut with
+   * the source's entries at the same keys, and the function runs once a piece,
+   * so a piece's patch names that piece's keys alone; any other delivery runs
+   * as one piece.
+   *
+   * @param key - The source's key type: the system's own key of an entry
+   * @param delivery - The type of what the source is delivered
+   * @param fn - `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`
+   * @param options - Its runner
+   * @returns The source
+   * @throws {Error} As the record is declared, naming the record and the source: when the key is no type a Dict is
+   *   keyed by; the delivery is not a type; the function is async, calls a platform function, or is not of that
+   *   signature
+   */
+  load<K extends EastType, D extends EastType>(
+    key: K,
+    delivery: D,
+    fn: FunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>> | CallableFunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>>,
+    options?: PartRunner,
+  ): SourceDraft<K, true>;
+  /**
+   * A source of the solution's own: its entries are written by the record's
+   * mutations, each naming an entry by the record's key, `variant(source, key)`.
+   *
+   * @param key - The source's key type
+   * @returns The source
+   * @throws {Error} As the record is declared, when the key is no type a Dict is keyed by
+   */
+  mutations<K extends EastType>(key: K): SourceDraft<K, false>;
 }
 
 /**
@@ -636,9 +727,30 @@ export const MIGRATION_BUILDER = {
   rekey: stepForm('rekey'),
 };
 
-/** A refusal's subject: the builder, on its record. */
+/** The `source` builder: each method a draft `e3.recordComposite` builds under its key. */
+export const SOURCE_BUILDER = {
+  load: (key: unknown, delivery: unknown, fn: IndexFunction, options?: unknown) => sourceDraft('source.load', options, (where, name, row) =>
+    loadDefinition(where, name, row, key, delivery, fn, runnerOf(options))),
+  mutations: (key: unknown) => sourceDraft('source.mutations', undefined, (where, name, row) => mutationsDefinition(where, name, row, key)),
+};
+
+/** A source draft, its options checked as it is built. */
+function sourceDraft(builder: string, options: unknown, build: (where: string, name: string, row: EastType) => RecordSourceDef): SourceDraft {
+  return {
+    [RECORD_PART]: {
+      part: 'source',
+      build: (declared, name, row) => {
+        const where = `${declared}: ${builder}`;
+        checkOptions(where, name, options, ['runner']);
+        return build(where, name, row);
+      },
+    },
+  };
+}
+
+/** A refusal's subject: the builder, on its record, named as it was declared. */
 function wordsOf(record: RecordDef, builder: string): string {
-  return `e3.record '${record.name}': ${builder}`;
+  return `${record.sources === undefined ? 'e3.record' : 'e3.recordComposite'} '${record.name}': ${builder}`;
 }
 
 /** Refuses options a builder does not take, naming those it does, and why where `why` says. */

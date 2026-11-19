@@ -20,11 +20,12 @@
 
 import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
-  OptionType, PatchType, RecursiveType, StringType, StructType, VariantType,
+  OptionType, PatchType, RecursiveType, SetType, StringType, StructType, VariantType,
   decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue, variant,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
+import { TreePathType } from './structure.js';
 
 /**
  * A single commit in a record's history.
@@ -134,6 +135,14 @@ export const MutationObjectType = StructType({
    *  runs, whatever the form. For the `patch` form `bodyIr` names it too,
    *  there being no author body. */
   programIr: StringType,
+  /** The sources of a composite record this mutation may write: the cases of
+   *  the record's key its solution sources are, by name. A write of an entry
+   *  of any other case is refused, since only that source's load writes it.
+   *  None for a record with no sources, every key of which it may write.
+   *  Written at export from the record's declaration, so every write of the
+   *  record — a save, a patch, a call's draft — is checked from the mutation's
+   *  object alone. */
+  cases: OptionType(SetType(StringType)),
 });
 export type MutationObjectType = typeof MutationObjectType;
 export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
@@ -642,9 +651,23 @@ export function decodeMigrationObject(data: Uint8Array): MigrationObject {
 }
 
 /**
+ * A source of a composite record, as its record object names it: who writes
+ * the entries under the source's case of the record's key.
+ *
+ * @property load - An external source, written by its load alone: the hash of
+ *   its {@link RecordLoadObjectType}
+ * @property mutations - A source of the solution's own, written by the
+ *   record's mutations
+ */
+export const RecordSourceType = VariantType({ load: StringType, mutations: NullType });
+export type RecordSourceType = typeof RecordSourceType;
+export type RecordSource = ValueTypeOf<typeof RecordSourceType>;
+
+/**
  * Record object stored in the object store, referenced by name from
  * `PackageObject.records`. Carries the record's dataset path, its mutations,
- * its secondary indexes and its migration chain.
+ * its secondary indexes, its migration chain and, for a composite record, its
+ * sources.
  */
 export const RecordObjectType = StructType({
   /** refPath of the record's dataset, e.g. `records/orders`. */
@@ -657,6 +680,9 @@ export const RecordObjectType = StructType({
    *  unique on the record, and its MigrationObject hash. Empty when the
    *  record declares none. */
   migrations: ArrayType(StructType({ name: StringType, migration: StringType })),
+  /** A composite record's sources by name, each a case of the record's key
+   *  ({@link RecordSourceType}). Empty for a record that is not a composite. */
+  sources: DictType(StringType, RecordSourceType),
 });
 export type RecordObjectType = typeof RecordObjectType;
 export type RecordObject = ValueTypeOf<typeof RecordObjectType>;
@@ -684,6 +710,127 @@ export function decodeRecordObject(data: Uint8Array): RecordObject {
       `(${err instanceof Error ? err.message : String(err)})`,
     );
   }
+}
+
+/** The `kind` tag a composite record's load object carries: what tells a
+ *  collector that the object names another, its task object. */
+export const RECORD_LOAD_KIND = '$recordLoad';
+
+/**
+ * The load of one external source of a composite record: what the source is
+ * delivered, and the task that applies a delivery to the source's entries.
+ *
+ * @remarks
+ * A record object's `sources` names one for each external source. Its task is
+ * an ordinary task object, built as a split call's is: the delivery and the
+ * source's entries are its inputs, cut at the same keys when the delivery is
+ * keyed by the source's key, and its output is the delta the load commits.
+ */
+export const RecordLoadObjectType = StructType({
+  /** Always {@link RECORD_LOAD_KIND}. */
+  kind: StringType,
+  /** The source's key type: the type of its case of the record's key. */
+  key: EastTypeType,
+  /** The type of what the source is delivered. */
+  delivery: EastTypeType,
+  /** The dataset of the package that feeds the source, which the dataflow
+   *  loads each time it changes; none for a source delivered by `e3 load`. */
+  feed: OptionType(TreePathType),
+  /** Hash of the load's task object. */
+  task: StringType,
+});
+export type RecordLoadObjectType = typeof RecordLoadObjectType;
+export type RecordLoadObject = ValueTypeOf<typeof RecordLoadObjectType>;
+
+const decodeCurrentRecordLoad = decodeBeast2For(RecordLoadObjectType);
+
+/**
+ * Decode a `RecordLoadObject`.
+ *
+ * @remarks
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
+ *
+ * @param data - the stored bytes
+ * @returns the load object
+ * @throws {Error} When the bytes are not a current load object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
+ */
+export function decodeRecordLoadObject(data: Uint8Array): RecordLoadObject {
+  try {
+    return decodeCurrentRecordLoad(data);
+  } catch (err) {
+    throw new Error(
+      `the load object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
+/**
+ * What a load's commit says of itself: the one value of its `args` tuple.
+ *
+ * @remarks
+ * Stored in commits. A rollback that passes the commit reads it: the source
+ * forgets the delivery, and waits for a first delivery again when `first`
+ * says this one was its first.
+ *
+ * @property delivery - The stored hash of the delivery it applied
+ * @property load - The hash of the load object it ran under
+ * @property asOf - The time the delivery says its data is as of, when it gave one
+ * @property first - Whether the commit took the source out of the sources the
+ *   record waits on for a first delivery
+ * @property execution - The execution that made its delta, by its inputs' hash and its id
+ * @property set - How many entries it set
+ * @property deleted - How many it deleted
+ * @property unchanged - How many the delivery named that the source already held as delivered
+ */
+export const RecordLoadArgsType = StructType({
+  delivery: StringType,
+  load: StringType,
+  asOf: OptionType(DateTimeType),
+  first: BooleanType,
+  execution: StructType({ inputsHash: StringType, executionId: StringType }),
+  set: IntegerType,
+  deleted: IntegerType,
+  unchanged: IntegerType,
+});
+export type RecordLoadArgsType = typeof RecordLoadArgsType;
+export type RecordLoadArgs = ValueTypeOf<typeof RecordLoadArgsType>;
+
+/** What a load's commit is named by, before its source's name: colon-joined,
+ *  as a migration's `$migrate:<name>` is. */
+const LOAD_COMMIT_PREFIX = '$load:';
+
+/**
+ * The name of the commit a load of a source writes.
+ *
+ * @param source - The source's name
+ * @returns `$load:<source>`
+ *
+ * @example
+ * ```ts
+ * loadCommitName('erp');  // '$load:erp'
+ * ```
+ */
+export function loadCommitName(source: string): string {
+  return `${LOAD_COMMIT_PREFIX}${source}`;
+}
+
+/**
+ * The source a commit loaded, read from the commit's name.
+ *
+ * @param mutation - A commit's `mutation`
+ * @returns The source's name, or null for a commit that is no load's
+ *
+ * @example
+ * ```ts
+ * loadCommitSource('$load:erp');   // 'erp'
+ * loadCommitSource('plan_order');  // null
+ * ```
+ */
+export function loadCommitSource(mutation: string): string | null {
+  return mutation.startsWith(LOAD_COMMIT_PREFIX) ? mutation.slice(LOAD_COMMIT_PREFIX.length) : null;
 }
 
 /** The `kind` tag a record's state object carries once the record has an

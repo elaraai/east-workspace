@@ -14,11 +14,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
-  parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
-  type ValueTypeOf,
+  DateTimeType, DictType, East, IntegerType, PatchType, StringType, StructType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor,
+  encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf,
+  toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
-import type { PartRunner } from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
@@ -26,6 +26,7 @@ import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
 import type { DetachedResult } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
+import { PENDING_SLOT, pendingSources, sourceLoadSlots, sourcesSlot } from './record-slots.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
@@ -344,6 +345,74 @@ export function writableStrings(names: readonly string[]): Structure {
   return variant('struct', new Map(names.map((name): [string, Structure] => [
     name, variant('value', { type: toEastTypeValue(StringType), writable: true }),
   ])));
+}
+
+/** A row of {@link ordersOverSources}: an order's customer, and how many it asks for. */
+export const SourcedOrderType = StructType({ customer: StringType, qty: IntegerType });
+
+/** What {@link ordersOverSources}' `erp` source is delivered: the ERP's whole order book, by its own order id. */
+export const ErpDeliveryType = DictType(StringType, SourcedOrderType);
+
+/**
+ * A composite record for a spec: `orders`, over two sources. `erp` is keyed by
+ * a String and loaded from a delivery of the ERP's whole order book
+ * ({@link ErpDeliveryType}), its load answering what takes its entries to the
+ * delivery. `own` is the solution's, keyed by an Integer, and holds order 1
+ * (Birch, 2). The record declares no mutation and no index.
+ *
+ * @returns The record's definition, for a spec's package
+ */
+export function ordersOverSources() {
+  return e3.recordComposite('orders', SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, ErpDeliveryType, East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType),
+        (_$, delivery, current) => East.diff(current, delivery))),
+      own: source.mutations(IntegerType),
+    }),
+    initial: { own: new Map([[1n, { customer: 'Birch', qty: 2n }]]) },
+  });
+}
+
+/**
+ * Writes a composite record's ref as a load's commit leaves it for one of its
+ * external sources: the source's last delivery named — by the record's state
+ * and its head commit, which stand in for the delivery's objects — as of
+ * `asOf`, and the source no longer waited for.
+ *
+ * @remarks
+ * For a spec of what a deploy or a compaction does to the slots of a
+ * delivery, which needs no load to have run: the record's rows and its
+ * history are left as they are.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - The workspace
+ * @param refPath - The record's ref path, such as `records/orders`
+ * @param source - The external source
+ * @param asOf - The time the delivery says its data is as of, as East prints
+ *   a DateTime
+ * @returns The commit the slots name as the one that applied the delivery
+ * @throws {Error} When the record holds no state
+ */
+export async function sourceDelivered(
+  storage: StorageBackend, repo: string, ws: string, refPath: string, source: string, asOf: string,
+): Promise<string> {
+  const held = await storage.datasets.read(repo, ws, refPath);
+  if (held === null || held.type !== 'value') throw new Error(`record '${refPath}' holds no state`);
+  const head = held.value.versions.get(`.${refPath.split('/').join('.')}`);
+  if (head === undefined) throw new Error(`record '${refPath}' names no head commit`);
+  const slots = sourceLoadSlots(source);
+  const versions = new Map(held.value.versions);
+  versions.set(slots.delivery, held.value.hash);
+  versions.set(slots.load, held.value.hash);
+  versions.set(slots.commit, head);
+  versions.set(slots.execution, `${held.value.hash}/${head}`);
+  versions.set(slots.asOf, asOf);
+  const waiting = sourcesSlot(pendingSources(versions).filter((name) => name !== source));
+  if (waiting === undefined) versions.delete(PENDING_SLOT);
+  else versions.set(PENDING_SLOT, waiting);
+  await storage.datasets.write(repo, ws, refPath, variant('value', { hash: held.value.hash, versions }));
+  return head;
 }
 
 /**
