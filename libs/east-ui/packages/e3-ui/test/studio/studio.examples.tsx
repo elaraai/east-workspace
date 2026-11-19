@@ -654,7 +654,7 @@ export const studioOrders = e3.input("studio_orders", ArrayType(StructType({
 const vis = Studio.visual;
 
 /** The orders' fields, as every page over them lists them: each one's label, and how a number of it prints. */
-const orderFields = {
+export const orderFields = {
     ordered_at: { label: "Ordered" },
     region: { label: "Region" },
     category: { label: "Category" },

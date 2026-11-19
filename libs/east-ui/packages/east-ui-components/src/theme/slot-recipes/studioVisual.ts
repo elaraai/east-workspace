@@ -17,6 +17,14 @@
  * answer is awaited. Every numeral is mono and tabular, every label mono at the label
  * sizes (TIL-5); colour is the theme's alone.
  *
+ * A KPI stands whole at every width a page gives its tile (#1692): its
+ * number's row wraps — the change on a line of its own under the number, the
+ * unit under the number where the two do not fit — and its number steps down
+ * the design system's sizes, 26 to 20 to 16, as its own width narrows, so the
+ * longest number a KPI prints (nine characters: a negative amount under ten
+ * thousand, with its cents) is never cut. Its annotation stays one line,
+ * ended in an ellipsis, its whole on hover.
+ *
  * @packageDocumentation
  */
 
@@ -26,6 +34,13 @@ import { centredLine } from "../one-line-box.js";
 
 /** The room a tile's eyebrow strip centres its row in: its 36px less its rule and the pixel of padding over the row. */
 const HEAD_ROOM = 34;
+
+/**
+ * Under these widths a KPI's number steps down a size: the longest number it prints — nine characters, a mono
+ * face's 0.615em each — takes 144px at 26px and 111px at 20px (#1692).
+ */
+const KPI_AT_20 = "@container (max-width: 143.98px)";
+const KPI_AT_16 = "@container (max-width: 110.98px)";
 
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
@@ -87,13 +102,20 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
         },
-        /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well. */
-        kpi: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0" },
-        /* The number's row: the number with its unit, and the change at the row's end, on one baseline. */
-        kpiRow: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "{spacing.2}", minWidth: "0" },
-        kpiValue: { display: "flex", alignItems: "baseline", gap: "{spacing.1}", minWidth: "0" },
-        /* The number: mono 26 / 600, tabular, on its own 26px line at the body's top. */
-        kpiNumber: { textStyle: "num-lg", fontSize: "{fontSizes.num}", lineHeight: "26px", color: "fg", whiteSpace: "nowrap" },
+        /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well.
+           Its width is what its number's size answers (#1692). */
+        kpi: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0", containerType: "inline-size" },
+        /* The number's row: the number with its unit, and the change at the row's end, on one baseline — the change on a
+           line of its own, at the start, where the row has no room for it beside them. */
+        kpiRow: { display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", columnGap: "{spacing.2}", rowGap: "6px", minWidth: "0" },
+        /* The number with its unit: the unit under the number where the two do not fit on a line. */
+        kpiValue: { display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "{spacing.1}", minWidth: "0" },
+        /* The number: mono 26 / 600, tabular, on its own 26px line at the body's top; narrower, 20 on 20, then 16 on 16. */
+        kpiNumber: {
+            textStyle: "num-lg", fontSize: "{fontSizes.num}", lineHeight: "26px", color: "fg", whiteSpace: "nowrap",
+            [KPI_AT_20]: { fontSize: "{fontSizes.title.lg}", lineHeight: "20px" },
+            [KPI_AT_16]: { fontSize: "{fontSizes.title.sm}", lineHeight: "16px" },
+        },
         /* Its unit: a small label, mono 10.5 `--ink-4`, 4 after it. */
         kpiUnit: { fontFamily: "mono", fontSize: "label.md", lineHeight: "13px", color: "fg.subtle", whiteSpace: "nowrap" },
         /* The change: the DeltaPill, kept whole. */
@@ -104,8 +126,12 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         goal: { position: "relative", flexShrink: "0" },
         goalTick: { position: "absolute", insetInlineEnd: "0", top: "-3px", width: "1px", height: "12px", background: "fg.muted", pointerEvents: "none" },
         trend: { height: "36px", width: "100%", flexShrink: "0" },
-        /* The annotation: one line, mono 10 `--ink-4`, on a 15px line. */
-        anno: { fontFamily: "mono", fontSize: "label.sm", lineHeight: "15px", color: "fg.subtle" },
+        /* The annotation: one line, mono 10 `--ink-4`, on a 15px line; where it runs past its width, ended in an ellipsis, its
+           whole on hover. */
+        anno: {
+            fontFamily: "mono", fontSize: "label.sm", lineHeight: "15px", color: "fg.subtle",
+            minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        },
         /* A pivot's heat legend (TBL-4): under the grid on the tile's own surface, over a `--rule`, padded 12 20 16 —
            its ramp over its steps' lower edges, 4 apart. */
         heat: {

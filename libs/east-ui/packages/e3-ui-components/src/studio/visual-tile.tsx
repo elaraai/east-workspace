@@ -199,7 +199,8 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
     return (
         <Box css={styles.tile} data-studio-visual-tile="" data-studio-placement={placement} data-pick={pick}>
             <Box css={styles.head} data-studio-visual-head="">
-                <Box as="span" css={styles.name} data-studio-visual-name="">{name}</Box>
+                {/* Its name, cut with an ellipsis in a narrow tile: whole on hover (#1692). */}
+                <Box as="span" css={styles.name} data-studio-visual-name="" title={name}>{name}</Box>
                 <Box css={styles.end}>
                     {led > 0 && (
                         <Box as="span" css={styles.follow} data-studio-visual-leads={led} data-following="canvas">

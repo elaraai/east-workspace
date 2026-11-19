@@ -11,7 +11,10 @@
  * square progress bar with a tick at the goal; its trend, a sparkline; and one
  * line of annotation — what the change is against, how far to the goal and
  * the gap (KPI-1 to KPI-3). Each part is gone with its well. What it shows and
- * says is {@link kpiModel}'s; this draws it.
+ * says is {@link kpiModel}'s; this draws it. At every width a page gives its
+ * tile it stands whole (#1692): the `studioVisual` recipe wraps its row and
+ * steps its number down; its annotation, cut where it runs past, is whole on
+ * hover.
  *
  * @packageDocumentation
  */
@@ -96,7 +99,7 @@ export function KpiVisual({ kpi, asks, answers, source }: KpiVisualProps) {
                     <EastChakraSparkline value={trend} />
                 </Box>
             )}
-            {model.annotation !== undefined && <Box css={styles.anno} data-studio-kpi-note="">{model.annotation}</Box>}
+            {model.annotation !== undefined && <Box css={styles.anno} data-studio-kpi-note="" title={model.annotation}>{model.annotation}</Box>}
         </Box>
     );
 }
