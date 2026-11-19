@@ -64,11 +64,11 @@ interface Filtered {
     readonly read: PrintSource;
 }
 
-/** A filter's editor: its condition rows over its source, each finished edit written to the page. */
+/** A filter's editor: its condition rows over its source, each finished edit written to the page; a new one's open on its field's list. */
 function FilterEditor({ id, where, read, onChange }: { id: string; where: JqNode | undefined; read: PrintSource; onChange: (where: JqNode) => void }) {
     const root = useVisualRoot();
     // A page whose sources cannot be queried has no rows to edit a condition over.
-    return root === undefined ? null : <FilterConditions id={id} where={where} read={read} root={root} onChange={onChange} />;
+    return root === undefined ? null : <FilterConditions id={id} where={where} read={read} root={root} onChange={onChange} autoOpen={where === undefined} />;
 }
 
 /** Props of {@link NewFilter}. */
@@ -144,8 +144,9 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
                     onChange={(where) => page.set(changeFilter(page.filters, i, { source: filter.source, where }))} />),
         };
     });
+    // Each finished condition is the page's at once: the popovers say no Done or Cancel.
     return (
-        <SliceFilterChips chips={chips} density={density} foldChips={foldChips}
+        <SliceFilterChips chips={chips} density={density} foldChips={foldChips} live
             onRemove={(i) => page.set(removeFilter(page.filters, i))} onClear={() => page.set([])}
             add={() => <NewFilter sources={sources} page={page} />} />
     );

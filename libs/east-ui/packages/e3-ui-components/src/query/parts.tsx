@@ -101,6 +101,22 @@ export function slotKey(slot: SlotRef): string {
 }
 
 /**
+ * The element in a block of rows that carries a slot's key: what a slot's
+ * list hangs from once the rows have drawn again.
+ *
+ * @param root - The block: the builder, or a host's rows in place
+ * @param key - The slot's key ({@link slotKey})
+ * @returns The element, or `undefined` when the block draws no such slot
+ */
+export function slotElement(root: HTMLElement | null, key: string): HTMLElement | undefined {
+    if (root === null) return undefined;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-slot-key]")) {
+        if (el.getAttribute("data-slot-key") === key) return el;
+    }
+    return undefined;
+}
+
+/**
  * A tooltip over a control: the design system's, after a moment's hover.
  *
  * @param props - The words it shows, and the control

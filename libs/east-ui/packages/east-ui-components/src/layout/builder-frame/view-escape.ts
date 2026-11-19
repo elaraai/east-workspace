@@ -52,6 +52,21 @@ export function layerOpenOver(own: Element | null, from: Element | null): boolea
 }
 
 /**
+ * Whether an Esc is a control's own that takes the key itself and says so
+ * (`data-escape-layer`: a Chooser laid in a pane, or in a popover's body),
+ * inside what would otherwise close on it — a pane's region, a popover's
+ * content: the control closes, and what it lies in stays.
+ *
+ * @param event - The key's event
+ * @param within - What would close on it
+ * @returns Whether the Esc is the control's
+ */
+export function escapeTakenWithin(event: Event, within: Element | null): boolean {
+    const layer = event.target instanceof Element ? event.target.closest("[data-escape-layer]") : null;
+    return layer !== null && within !== null && within.contains(layer);
+}
+
+/**
  * Closes a view that lies over another on an Esc from anywhere while it shows,
  * ahead of the one under it, which stays: heard first and taken. A layer open over
  * it keeps its own.

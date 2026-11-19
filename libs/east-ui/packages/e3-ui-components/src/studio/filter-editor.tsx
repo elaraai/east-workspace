@@ -5,10 +5,11 @@
 
 /**
  * A page filter's conditions, edited (#1673): the query builder's condition
- * rows over one source's rows, in place — a field, a comparison, a value from
- * the values the source holds with their counts, add a condition, all or any,
- * and a line of jq where the words run out. Never the builder's frame, its
- * tabs or its toolbar.
+ * rows over one source's rows, in place (`ConditionRows`) — a field, a
+ * comparison, a value from the values the source holds with their counts, add
+ * a condition, all or any, and a line of jq where the words run out — the
+ * shared picker under them while a slot is open. Never the builder's frame,
+ * its tabs or its toolbar: the popover they lie in is their one frame.
  *
  * It is the query builder's own editor (`useQueryEditor`) over a query of one
  * Keep rows where step (`filterQuery`), its drafts held here, not in an
@@ -18,14 +19,14 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { useCallback, useRef, useState } from "react";
+import { Box } from "@chakra-ui/react";
 import { JqType, equalFor, none, type JqNode } from "@elaraai/east";
+import { ConditionRows, type ConditionRowsProps } from "../query/condition-rows.js";
 import { useQueryCall, useQuerySummaries } from "../query/hooks.js";
 import type { SavedOffer } from "../query/model/slots.js";
 import type { QueryRoot } from "../query/one-shot.js";
-import { Lines, Parts, usePartStyles, type Styles } from "../query/parts.js";
-import { SlotAutocomplete } from "../query/autocomplete.js";
+import { usePartStyles } from "../query/parts.js";
 import { QUERY_HEADER_ID, entriesQuery, queryEntries, type QueryEntry, type QueryHeader } from "../query/session.js";
 import type { QueryView } from "../query/toolbar.js";
 import { useQueryEditor } from "../query/use-query-editor.js";
@@ -46,7 +47,7 @@ function headerOf(source: string): QueryHeader {
 }
 
 /** Props of {@link FilterConditions}. */
-export interface FilterConditionsProps {
+export interface FilterConditionsProps extends Pick<ConditionRowsProps, "autoOpen"> {
     /** What the filter is among the page's: another opened starts its rows afresh. */
     readonly id: string;
     /** The filter's condition over one row; `undefined` for one still to be written. */
@@ -63,12 +64,11 @@ export interface FilterConditionsProps {
  * A filter's condition rows — see the module docs.
  *
  * @param props - The filter's condition, its source, the page's root, and where an edit goes
- * @returns The rows, and the open slot's autocomplete
+ * @returns The rows, and the open slot's picker
  */
-export function FilterConditions({ id, where, read, root, onChange }: FilterConditionsProps) {
+export function FilterConditions({ id, where, read, root, onChange, autoOpen = false }: FilterConditionsProps) {
     const words = useQueryWords();
     const ps = usePartStyles(words);
-    const styles = useSlotRecipe({ key: "studioFilters" })() as Styles;
     const call = useQueryCall();
     const summaries = useQuerySummaries(root, call);
     // The rows' drafts: the filter as a query of one step, as it stood when it was opened.
@@ -98,18 +98,9 @@ export function FilterConditions({ id, where, read, root, onChange }: FilterCond
         saved: NO_SAVED, onOpenSaved: noop, onShowQuery: noop, bounds: boundsOf, sourceId: id,
     });
     const [card] = editor.cards;
-    const popover = editor.popover;
-    const lines = useMemo(() => card?.lines ?? [], [card]);
     return (
-        <Box ref={setBounds} css={styles.rows} data-studio-filter-rows="" {...(popover !== undefined ? { "data-choosing": "" } : {})}>
-            {card !== undefined && card.head.length > 0 && <Box css={ps.styles.row} data-query-line="head"><Parts parts={card.head} ps={ps} actions={editor.actions} /></Box>}
-            <Lines lines={lines} ps={ps} actions={editor.actions} />
-            {popover !== undefined && bounds !== null && (
-                <SlotAutocomplete key={popover.generation} anchor={popover.slot.anchor} bounds={bounds}
-                    label={popover.label} placeholder={popover.placeholder} hint={popover.hint} empty={popover.empty} keys={popover.keys}
-                    items={popover.items} text={popover.text} onText={popover.onText} initialActive={popover.initialActive}
-                    onPick={popover.onPick} onClose={popover.onClose} />
-            )}
+        <Box data-studio-filter-rows="">
+            {card !== undefined && <ConditionRows card={card} popover={editor.popover} ps={ps} actions={editor.actions} autoOpen={autoOpen} rootRef={setBounds} />}
         </Box>
     );
 }

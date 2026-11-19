@@ -42,7 +42,7 @@ import {
 import { summaryAt, summaryHashes, summaryNeeded, type SummaryCache } from "./model/summaries.js";
 import { fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
-import { slotKey } from "./parts.js";
+import { slotElement, slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";
 import type { CardActions } from "./step-card.js";
 import type { QueryCheckLine, QueryGivesLine } from "./status-line.js";
@@ -198,15 +198,6 @@ function givesLine(shape: Shape, words: QueryWords): QueryGivesLine | undefined 
         hover: m.typeHover({ type: describeJqType(shape.type, { maxDepth: 2 }), multiplicity: shape.multiplicity ?? "" }),
         fields: m.givesFields({ fields: shape.kind === "rows" ? fieldLabels(shape) : [] }),
     };
-}
-
-/** The element in the builder that carries a slot's key. */
-function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | undefined {
-    if (bounds === null) return undefined;
-    for (const el of bounds.querySelectorAll<HTMLElement>("[data-slot-key]")) {
-        if (el.getAttribute("data-slot-key") === key) return el;
-    }
-    return undefined;
 }
 
 /**
