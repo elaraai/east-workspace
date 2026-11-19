@@ -430,6 +430,15 @@ export const queryMessages: QueryMessages = {
         const words = cmp === "inYear" || cmp === "inMonth" ? "is in" : COMPARISON[cmp];
         return value === "" ? `${field} ${words}` : `${field} ${words} ${value}`;
     },
+    chipCondition: ({ field, cmp, value, n }) => {
+        // What it holds after its field, the comparison's "is" left out: `Region: NSW`, `Units: more than 1`.
+        const unit = unitWords(cmp);
+        const held = unit !== undefined ? `in the last ${value} ${unit[n === 1 ? 0 : 1]}`
+            : cmp === "eq" ? value
+            : `${(cmp === "inYear" || cmp === "inMonth" ? "is in" : COMPARISON[cmp]).replace(/^is /, "")}${value === "" ? "" : ` ${value}`}`;
+        return `${capital(field)}: ${held}`;
+    },
+    chipMore: ({ count }) => `+${count}`,
     describeWith: ({ lookups }) => (lookups.length === 0 ? "" : `, with ${lookups.map(l => `${l.fields} from ${l.dataset}`).join(" and ")}`),
     describeSorted: ({ field, desc }) => `, sorted by ${field}${desc ? ", highest first" : ""}`,
     describeBy: ({ field }) => ` by ${field}`,

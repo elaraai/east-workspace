@@ -176,6 +176,8 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         // The folded families' trigger — their summary chips (one terminal
         // chip, or the icon alone, as the cluster folds further) and a caret;
         // on a coarse pointer a 44px tap target from its halo (#346, #1221).
+        // A filter chip whose host gives its whole words for its hover
+        // (`data-chip-cut`, #1673) cuts its label past 220px with an ellipsis.
         railTrigger: {
             display: "inline-flex",
             alignItems: "center",
@@ -183,6 +185,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             cursor: "pointer",
             "& [data-rail-caret]": { fontSize: "8px", opacity: 0.6 },
+            "&[data-chip-cut] > span:first-of-type": { maxWidth: "220px", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
             ...coarseHitArea({ position: true }),
         },
         // The sectioned editor the trigger opens: every family, flat, under its caption.

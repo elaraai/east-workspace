@@ -14,4 +14,4 @@
 
 export { foldedAt, railForms, railSet, type RailAffordance, type RailCluster, type RailForm, type RailForms, type RailShow } from "./forms.js";
 export { HOST_RANK, KIND_RANK, MID_RANK, RAIL_RANK, SUMMARY_RANK } from "./ranks.js";
-export { railClusters, useRail, type RailClusterState, type RailHeld, type RailSource } from "./use-rail.js";
+export { railClusters, useRail, type RailClusterState, type RailHeld, type RailHoldUpdate, type RailSource } from "./use-rail.js";

@@ -15,11 +15,48 @@ import type { CheckedSteps } from "../steps/check.js";
 import { fieldByRef, itemRecordOf, type StepField } from "../steps/fields.js";
 import { scalarFieldsOf } from "../steps/print.js";
 import { singular, unwrapRecursive, type Shape } from "../steps/shape.js";
-import { groupFields, isComplete, needsValue, type Condition, type Step, type StepQuery } from "../steps/values.js";
+import { groupFields, isComplete, needsValue, type ComparisonKind, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
 import { human, plural, refLabel, rowsWords, valueWords, type QueryWords } from "./words.js";
 
 /** The most a generated description holds (`Query Editor Spec.md` §4.13). */
 export const DESCRIPTION_MAX = 140;
+
+/** A test's parts, as words say them: its field's label, its comparison, its value in words, and the value's number. */
+interface TestParts {
+    readonly field: string;
+    readonly cmp: ComparisonKind;
+    readonly value: string;
+    readonly n?: number;
+}
+
+/**
+ * A test's parts in words: what {@link conditionWords} and {@link conditionChip} each say their way.
+ *
+ * @param condition - the test
+ * @param shape - the rows it tests
+ * @param words - the words
+ * @returns its parts; `undefined` for a test not finished
+ */
+function testParts(condition: TestCondition, shape: Shape, words: QueryWords): TestParts | undefined {
+    const { field, cmp, value, inner } = condition.value;
+    if (field.type === "none" || cmp.type === "none") return undefined;
+    const kind = cmp.value.type;
+    const label = refLabel(shape, field.value);
+    if (kind === "anyWhere") {
+        if (inner.type === "none") return undefined;
+        const item = fieldByRef(shape, field.value);
+        const record = item === undefined ? undefined : itemRecordOf(item);
+        const itemShape: Shape = { ...shape, kind: "rows", type: record ?? shape.type, row: record, narrowed: new Map(), noun: singular(field.value) };
+        return { field: label, cmp: kind, value: conditionWords(inner.value, itemShape, words) };
+    }
+    if (!needsValue(kind)) return { field: label, cmp: kind, value: "" };
+    if (value.type === "none") return undefined;
+    const v = value.value;
+    // A year or a month reads as written; any other number grouped, as a person writes it.
+    const text = v.type === "number" && kind !== "inYear" && kind !== "inMonth" ? words.formatters.number(v.value) : valueWords(v, words);
+    // A count's number, for an "is in the last" unit's plural (#1670).
+    return { field: label, cmp: kind, value: text, ...(v.type === "number" ? { n: v.value } : {}) };
+}
 
 /**
  * A condition in a sentence: `status is shipped`, `lines has any where SKU
@@ -36,24 +73,24 @@ export function conditionWords(condition: Condition, shape: Shape, words: QueryW
         const parts = condition.value.conds.map(c => conditionWords(c, shape, words)).filter(p => p !== "");
         return m.describeGroup({ match: condition.value.match.type, conditions: parts });
     }
-    const { field, cmp, value, inner } = condition.value;
-    if (field.type === "none" || cmp.type === "none") return "";
-    const kind = cmp.value.type;
-    const label = refLabel(shape, field.value);
-    if (kind === "anyWhere") {
-        if (inner.type === "none") return "";
-        const item = fieldByRef(shape, field.value);
-        const record = item === undefined ? undefined : itemRecordOf(item);
-        const itemShape: Shape = { ...shape, kind: "rows", type: record ?? shape.type, row: record, narrowed: new Map(), noun: singular(field.value) };
-        return m.describeCondition({ field: label, cmp: kind, value: conditionWords(inner.value, itemShape, words) });
-    }
-    if (!needsValue(kind)) return m.describeCondition({ field: label, cmp: kind, value: "" });
-    if (value.type === "none") return "";
-    const v = value.value;
-    // A year or a month reads as written; any other number grouped, as a person writes it.
-    const text = v.type === "number" && kind !== "inYear" && kind !== "inMonth" ? words.formatters.number(v.value) : valueWords(v, words);
-    // A count's number, for an "is in the last" unit's plural (#1670).
-    return m.describeCondition({ field: label, cmp: kind, value: text, ...(v.type === "number" ? { n: v.value } : {}) });
+    const parts = testParts(condition, shape, words);
+    return parts === undefined ? "" : m.describeCondition(parts);
+}
+
+/**
+ * A condition as a filter's chip says it, short (#1673): its field, then what
+ * it holds — `Region: NSW`, `Ordered at: in the last 7 days`; a group as
+ * {@link conditionWords} says it.
+ *
+ * @param condition - the condition
+ * @param shape - the rows it tests
+ * @param words - the words
+ * @returns the words, or `""` for a condition not finished
+ */
+export function conditionChip(condition: Condition, shape: Shape, words: QueryWords): string {
+    if (condition.type === "group") return conditionWords(condition, shape, words);
+    const parts = testParts(condition, shape, words);
+    return parts === undefined ? "" : words.messages.chipCondition(parts);
 }
 
 /**

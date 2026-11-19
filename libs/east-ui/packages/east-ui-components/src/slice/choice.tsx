@@ -11,14 +11,14 @@ import { useCoarsePointer } from "../contracts/adaptive.js";
 import { useFormatters } from "../format/index.js";
 import { useSlotStyles } from "../theme/slot-styles.js";
 
-/** Shared field chip. The enclosing editor owns focus transfer after removal. */
+/** Shared field chip. The enclosing editor owns focus transfer after removal. Its hover says its `title`, else its label. */
 export const SliceFieldChip = forwardRef<HTMLButtonElement, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color"> & {
     label: string; active: boolean; caret?: boolean; removeLabel?: string; onRemove?: () => void;
-}>(function SliceFieldChip({ label, active, caret = false, removeLabel = "Remove filter", onRemove, onKeyDown, ...props }, ref) {
+}>(function SliceFieldChip({ label, active, caret = false, removeLabel = "Remove filter", onRemove, onKeyDown, title, ...props }, ref) {
     const chip = useRecipe({ key: "chip" });
     const frame = useSlotRecipe({ key: "sliceFrame" })();
     const coarse = useCoarsePointer();
-    return <chakra.button {...props} ref={ref} type="button" title={label}
+    return <chakra.button {...props} ref={ref} type="button" title={title ?? label}
         css={[frame.railTrigger, chip({ tone: active ? "brand" : "neutral" })]}
         onKeyDown={event => { onKeyDown?.(event); if (!event.defaultPrevented && event.key === "Delete" && onRemove !== undefined) { event.preventDefault(); onRemove(); } }}>
         <Box as="span">{label}</Box>

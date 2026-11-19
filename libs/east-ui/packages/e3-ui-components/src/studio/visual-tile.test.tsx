@@ -288,22 +288,25 @@ describe("a KPI's tile (#1671)", () => {
         await waitFor(() => expect(values()).toEqual(["1", "3"]));
     });
 
-    test("the page's rail says each filter as a chip in the query builder's words, over the grid; its × takes the filter out, and every visual follows (#1673)", async () => {
+    test("the page's rail says each filter as a chip over the grid, short — its field, then what it holds — and whole on its hover, in the query builder's words; its × takes the filter out, and every visual follows (#1673)", async () => {
         const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         const rail = () => container.querySelector<HTMLElement>("[data-studio-filters]")!;
-        const chips = () => [...rail().querySelectorAll<HTMLElement>("[data-slice-clause]")].map((chip) => chip.getAttribute("title"));
+        const chips = () => [...rail().querySelectorAll<HTMLElement>("[data-slice-clause]")].map((chip) => [chip.textContent, chip.getAttribute("title")]);
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("3"));
         // With no filter the rail is its + FILTER chip alone, before the grid.
         expect([chips(), rail().querySelector("[data-slice-add=filter]") !== null]).toEqual([[], true]);
         expect(rail().compareDocumentPosition(container.querySelector("[data-studio-kpi-value]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         await filterPage(`.region == "SA"`, ".units > 1");
-        await waitFor(() => expect(chips()).toEqual(["region is SA", "units is more than 1"]));
+        await waitFor(() => expect(chips()).toEqual([["Region: SA", "region is SA"], ["Units: more than 1", "units is more than 1"]]));
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("2"));
         // A chip's ×, as a pointer presses it.
         const remove = rail().querySelector<HTMLElement>("[data-slice-clause] [data-chip-remove]");
         expect(remove).not.toBeNull();
         await act(async () => { fireEvent.click(remove!); });
-        await waitFor(() => expect(chips()).toEqual(["units is more than 1"]));
+        await waitFor(() => expect(chips()).toEqual([["Units: more than 1", "units is more than 1"]]));
+        // A filter of two conditions, one of them twice: its first short, how many more, each said once on its hover.
+        await filterPage(`.region == "SA" and .units > 1 and .region == "SA"`);
+        await waitFor(() => expect(chips()).toEqual([["Region: SA +1", "region is SA and units is more than 1"]]));
     });
 
     test("a page whose placements read no source has no rail (#1673)", async () => {

@@ -417,6 +417,13 @@ export interface QueryMessages {
     describeGroup: (p: { match: "all" | "any"; conditions: readonly string[] }) => string;
     /** A condition — `total is at least 100`, `ordered is in the last 7 days`; `n` the value's number, for a unit's plural. */
     describeCondition: (p: { field: string; cmp: ComparisonKind; value: string; n?: number }) => string;
+    /**
+     * A condition as a filter's chip says it, short (#1673): its field, then what it holds, the comparison's "is" left
+     * out — `Region: NSW`, `Units: more than 1`, `Ordered at: in the last 7 days`; `n` the value's number, for a unit's plural.
+     */
+    chipCondition: (p: { field: string; cmp: ComparisonKind; value: string; n?: number }) => string;
+    /** How many conditions a filter's chip holds past its first, each said once — `+2`; `count` is formatted. */
+    chipMore: (p: { count: string; n: number }) => string;
     /** Look ups — `, with name and region from customers`. */
     describeWith: (p: { lookups: readonly { fields: string; dataset: string }[] }) => string;
     /** A sort — `, sorted by total, highest first`. */

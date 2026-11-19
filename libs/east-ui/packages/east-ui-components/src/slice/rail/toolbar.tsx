@@ -25,6 +25,7 @@ import { SliceEditPopover } from "../edit/index.js";
 import { SliceClearButton } from "../choice.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { SliceFiltersView } from "./filters-view.js";
+import { SliceRailHold } from "./hold.js";
 
 /**
  * One affordance's display, independent of its query engine: what the rail
@@ -205,7 +206,7 @@ function railItems(
         </Box>
     );
 
-    return rail.map(({ cluster, forms, ranks, every, held, set, setOpen }): ToolbarItem => {
+    return rail.map(({ cluster, forms, ranks, every, held, open, set, setOpen, hold }): ToolbarItem => {
         const kinds = cluster.kinds;
 
         // The affordances a form folds, as the engine orders them: labels and ordering independent of selections, so
@@ -240,7 +241,7 @@ function railItems(
 
         const editor = (form: RailForm, button?: ReactElement): ReactNode => (
             <SliceEditPopover
-                open={held}
+                open={open}
                 onOpenChange={setOpen}
                 label={<>Narrowing · <Box as="span" css={styles.railActiveCount}>{`${activeCount} active`}</Box></>}
                 size="lg"
@@ -275,24 +276,27 @@ function railItems(
 
         // One form: the live affordances in mount order — the filter showing
         // the chips this form leaves it — then the folded families' trigger.
+        // An editor of the live row holds the cluster while it is open (#1673).
         const render = (form: RailForm): ReactNode => {
             return (
                 <SliceDensityContext.Provider value="compact">
-                    <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                        {form.live.map((i) => {
-                            const kind = kinds[i]!;
-                            const meta = model.describe(kind);
-                            return (
-                                <Box key={`af-${kind}-${i}`} css={styles.railAffordance} title={meta?.label}>
-                                    <Box as="span" css={styles.frameAffordanceIcon}>
-                                        {meta !== undefined && <FontAwesomeIcon icon={meta.icon} />}
+                    <SliceRailHold.Provider value={hold}>
+                        <Box css={styles.railCluster} data-slice-rail={cluster.key}>
+                            {form.live.map((i) => {
+                                const kind = kinds[i]!;
+                                const meta = model.describe(kind);
+                                return (
+                                    <Box key={`af-${kind}-${i}`} css={styles.railAffordance} title={meta?.label}>
+                                        <Box as="span" css={styles.frameAffordanceIcon}>
+                                            {meta !== undefined && <FontAwesomeIcon icon={meta.icon} />}
+                                        </Box>
+                                        {model.render(kind, i, kind === "filter" ? form.chips : undefined)}
                                     </Box>
-                                    {model.render(kind, i, kind === "filter" ? form.chips : undefined)}
-                                </Box>
-                            );
-                        })}
-                        {form.folded > 0 && editor(form)}
-                    </Box>
+                                );
+                            })}
+                            {form.folded > 0 && editor(form)}
+                        </Box>
+                    </SliceRailHold.Provider>
                 </SliceDensityContext.Provider>
             );
         };
@@ -303,14 +307,14 @@ function railItems(
         const button = (onClick?: () => void, ref?: Ref<HTMLButtonElement>) => (
             <chakra.button ref={ref} type="button" css={phoneStyles.filters} data-slot="railTrigger" data-rail-phone=""
                 data-active={set > 0 ? "" : undefined} aria-label={`Filters: ${folded(every).map((d) => d.text).join(" · ")}`}
-                aria-expanded={onClick === undefined ? undefined : held} onClick={onClick}>
+                aria-expanded={onClick === undefined ? undefined : open} onClick={onClick}>
                 <FontAwesomeIcon icon={faFilter} />
                 {set > 0 && <Box as="span" data-rail-set="">{set}</Box>}
             </chakra.button>
         );
         const phone = (
             <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                <RailPhoneFilters model={model} kinds={kinds} open={held} button={button} popover={editor(every, button())}
+                <RailPhoneFilters model={model} kinds={kinds} open={open} button={button} popover={editor(every, button())}
                     onOpenChange={setOpen} />
             </Box>
         );

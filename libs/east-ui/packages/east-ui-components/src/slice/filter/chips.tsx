@@ -22,10 +22,20 @@
  * (`live`): their popovers then hold no Done and no Cancel, which would say an
  * edit waits for them, and a filter's keeps Remove filter.
  *
+ * While one of the row's editors is open — a filter's, a new filter's,
+ * `+N more`'s — the row stands as it stood as the editor opened (#1673): its
+ * chips' words, how many there are and how many show; and the rail it is drawn
+ * in holds its form (`../rail/hold.ts`). The popover hanging from the row then
+ * never moves as an edit applies; the editors themselves are drawn live, and
+ * the row takes what they did once no editor is open and the press that shut
+ * the last has clicked (`../../pointer/press-wait.ts`) — a press on another
+ * chip opens that chip's editor where the row stood, and the row stays held.
+ * A filter taken out meanwhile leaves the row at once.
+ *
  * @packageDocumentation
  */
 
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -33,17 +43,39 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { SliceFieldChip } from "../choice.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { SliceEditPopover } from "../edit";
+import { SliceRailHold } from "../rail/hold.js";
+import { usePressWait } from "../../pointer/press-wait.js";
 
 /** One filter of the row, as its chip shows it. */
 export interface SliceFilterChip {
     /** Its words. */
     readonly label: string;
+    /** Its whole words, where its label says them short: what its hover says, its label cut with an ellipsis where it runs long (#1673). */
+    readonly whole?: string | undefined;
     /** Its editor's head. */
     readonly editLabel: ReactNode;
     /** Its editor, drawn while it is open; `close` puts it away. */
     readonly editor: (close: () => void) => ReactNode;
     /** Its editor's popover at its large size; its default unless given. */
     readonly large?: boolean | undefined;
+}
+
+/** The row as it stood as an editor opened: each chip's words, and how many showed. */
+interface Frozen {
+    readonly labels: readonly string[];
+    readonly wholes: readonly (string | undefined)[];
+    readonly visible: number;
+}
+
+/**
+ * The row as it stands, to hold while an editor is open.
+ *
+ * @param chips - Its chips
+ * @param visible - How many of them show
+ * @returns Each chip's words, and how many show
+ */
+function rowAsItStands(chips: readonly SliceFilterChip[], visible: number): Frozen {
+    return { labels: chips.map((held) => held.label), wholes: chips.map((held) => held.whole), visible };
 }
 
 /** Slice's own view inside `+N more`: the filters saved as a cohort under a name. */
@@ -94,20 +126,65 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     const edit = useSlotRecipe({ key: "sliceEdit" })();
     const compact = density === "compact";
 
+    // null = closed; "add" = a new filter's editor; "more" = overflow list;
+    // "save" = save-as-a-set form; a number = editing the filter at that index.
+    const [open, setOpen] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
+    const close = () => setOpen(null);
+
+    // The row as it stood as an editor opened, while one is open (#1673): its chips' words, and how many show.
+    const [frozen, setFrozen] = useState<Frozen | null>(null);
+    const rowChips = frozen === null ? chips
+        : chips.slice(0, frozen.labels.length).map((held, i) => ({ ...held, label: frozen.labels[i]!, whole: frozen.wholes[i] }));
+
     // Compact eyebrow is one row that never wraps/clips — Priority+ overflow: as
     // many chips as fit, the rest collapse into `+N more`. The hook measures the
     // rendered chips once per resize / count change (see its doc) — unless the
     // shared toolbar decides the fold (`foldChips`, #952).
     const controlled = foldChips !== undefined;
-    const ownFold = useOverflowCount(chips.length, !controlled);
+    const ownFold = useOverflowCount(rowChips.length, !controlled);
     const rowRef = ownFold.rowRef;
-    const visibleCount = controlled ? Math.max(0, chips.length - foldChips) : ownFold.visibleCount;
+    const visibleNow = controlled ? Math.max(0, chips.length - foldChips) : ownFold.visibleCount;
+    const visibleCount = frozen?.visible ?? visibleNow;
     const measuring = !controlled && ownFold.measuring;
 
-    // null = closed; "add" = a new filter's editor; "more" = overflow list;
-    // "save" = save-as-a-set form; a number = editing the filter at that index.
-    const [open, setOpen] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
-    const close = () => setOpen(null);
+    // An editor opening holds the row as it stands, and the rail it is drawn in. The row lets both go once no editor is
+    // open and the press that shut the last has clicked — on another chip, where the row stood; an editor that click
+    // opens keeps them held. A row that never held — one drawn to be measured — lets go of nothing.
+    const holdRail = useContext(SliceRailHold);
+    const holding = useRef(holdRail);
+    const holds = useRef(false);
+    const letGo = useRef<() => void>(() => undefined);
+    const afterPress = usePressWait();
+    useLayoutEffect(() => { holding.current = holdRail; });
+    useLayoutEffect(() => {
+        if (open !== null) {
+            letGo.current();
+            if (!holds.current) {
+                holds.current = true;
+                holding.current(true);
+            }
+            setFrozen((was) => was ?? rowAsItStands(chips, visibleNow));
+            return;
+        }
+        if (!holds.current) return;
+        letGo.current = afterPress(() => {
+            holds.current = false;
+            setFrozen(null);
+            holding.current(false);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the row as it stood as the editor opened: its chips then, not as its edits change them
+    }, [open]);
+    // A filter taken out while the row is held: the row says what is left at once, folding where it stood.
+    const seen = useRef(chips.length);
+    useLayoutEffect(() => {
+        const was = seen.current;
+        seen.current = chips.length;
+        if (chips.length < was) setFrozen((held) => (held === null ? null : rowAsItStands(chips, Math.min(held.visible, chips.length))));
+    }, [chips]);
+    useLayoutEffect(() => () => {
+        letGo.current();
+        if (holds.current) holding.current(false);
+    }, []);
 
     // A filter removed by Delete hands the focus on once the chips have drawn
     // again, as a Sheet tab's close does (#860): to the filter that takes its
@@ -143,7 +220,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setOpen(null); onRemove(i); }}>Remove filter</chakra.button>}
             footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Cancel</chakra.button>}
             trigger={
-                <SliceFieldChip label={held.label} active data-slice-clause={i}
+                <SliceFieldChip label={held.label} title={held.whole} active data-slice-clause={i} data-chip-cut={held.whole === undefined ? undefined : ""}
                     onKeyDown={onClauseKey(i)} onRemove={() => onRemove(i)} />
             }
         >
@@ -182,7 +259,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         // editor-density disclosure.
         return (
             <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="wrap" minWidth="0" data-slice-filter="">
-                {chips.map((held, i) => clausePill(held, i))}
+                {rowChips.map((held, i) => clausePill(held, i))}
                 {addPopover}
             </Box>
         );
@@ -191,11 +268,11 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     if (compact) {
         // During the measure pass every chip is in flow; once measured we show
         // the leading `visibleCount` and collapse the rest into `+N more`.
-        const shown = measuring ? chips : chips.slice(0, visibleCount);
-        const overflow = chips.length - (measuring ? 0 : visibleCount);
+        const shown = measuring ? rowChips : rowChips.slice(0, visibleCount);
+        const overflow = rowChips.length - (measuring ? 0 : visibleCount);
         // Reserve the `+N more` chip's width during measuring (worst-case count)
         // so it never collapses one chip too many once it appears.
-        const showMore = measuring ? chips.length > 0 : overflow > 0;
+        const showMore = measuring ? rowChips.length > 0 : overflow > 0;
         const saving = save !== undefined && open === "save";
         // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
         return (
@@ -230,7 +307,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                                 // A 44px touch target on a coarse pointer, by its halo (#1231).
                                 <chakra.button type="button" css={[chip({ tone: "more" }), coarseHitArea({ position: true })]} cursor="pointer"
                                     data-slice-more="">
-                                    <Box as="span">{`+${measuring ? chips.length : overflow} more`}</Box>
+                                    <Box as="span">{`+${measuring ? rowChips.length : overflow} more`}</Box>
                                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
                                 </chakra.button>
                             }
@@ -243,7 +320,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                             )}
                             {(open === "more" || open === "save") && chips.map((held, i) => (
                                 <Box key={i} css={edit.moreRow}>
-                                    <Box as="span">{held.label}</Box>
+                                    <Box as="span">{held.whole ?? held.label}</Box>
                                     {open === "more" && (
                                         <chakra.button type="button" css={edit.moreRowRemove} onClick={() => onRemove(i)} aria-label="Remove filter">
                                             <FontAwesomeIcon icon={faXmark} />
@@ -261,7 +338,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
 
     return (
         <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center" data-slice-filter="">
-            {chips.map((held, i) => clausePill(held, i))}
+            {rowChips.map((held, i) => clausePill(held, i))}
             {addPopover}
         </Box>
     );
