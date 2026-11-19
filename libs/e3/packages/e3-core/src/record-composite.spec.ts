@@ -154,6 +154,10 @@ function ordersPackage(): ReturnType<typeof e3.package> {
         $(next.insertOrUpdate(at, order));
         return next;
       })),
+      // Deletes the entry at a key its caller passes
+      drop: mutation.edit(East.function([state, key, e3.mutation.editType(state)], NullType, ($, _orders, at, edit) => {
+        $(edit.delete(at));
+      })),
       patch: mutation.patch(),
     }),
   });
@@ -517,6 +521,20 @@ describe('a composite record: an external entry is never written (the mutation\'
     // The same stale write of the solution's own entries alone is the conflict it was
     assert.deepEqual(await replaces(ordersOf([variant('own', 'P-2'), acme])),
       { kind: 'conflict', attempts: 1, detail: 'the patch replaces a state the record no longer holds' });
+
+    assert.deepEqual(await storage.datasets.read(repo, WS, 'records/orders'), before, 'the record stands where it stood');
+  });
+
+  it('ruling 45 — an edit that deletes an external entry the record does not hold is answered conflict, as a delete of any entry that is not there: its delta names no key', async () => {
+    const before = await storage.datasets.read(repo, WS, 'records/orders');
+
+    // The ERP has delivered nothing, so the record holds no SO-9: the program writes the conflict, and no op
+    const external = await mutate('drop', [encodeKey(variant('erp', 'SO-9'))]);
+    assert.equal(external.kind, 'conflict', JSON.stringify(external));
+    assert.match(external.kind === 'conflict' ? external.detail ?? '' : '', /SO-9/, 'the conflict names the entry that is not there');
+    // The same edit of an entry of the solution's own that is not there is answered the same way
+    const own = await mutate('drop', [encodeKey(variant('own', 'P-9'))]);
+    assert.equal(own.kind, 'conflict', JSON.stringify(own));
 
     assert.deepEqual(await storage.datasets.read(repo, WS, 'records/orders'), before, 'the record stands where it stood');
   });

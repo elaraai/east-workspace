@@ -216,6 +216,14 @@ export async function applyDelta(
  * says the write is stale is read on to the end of its `primary` ops first,
  * and refused for an entry of another case where it names one.
  *
+ * A stale write is refused for such an entry only where its delta names the
+ * entry's key. A program writes no op for an entry it found the state does
+ * not hold: an edit that deletes, or updates, an entry of another case that
+ * is not there emits the conflict alone. Its delta names no key to read, so
+ * it is answered as the conflict it is, as the same edit of any entry that is
+ * not there is. Telling the two apart would take a slot in every delta for
+ * the keys a write named and did not change.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param targets - target name -> the manifest hash it currently holds
