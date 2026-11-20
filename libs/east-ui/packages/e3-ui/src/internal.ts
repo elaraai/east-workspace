@@ -66,6 +66,7 @@ export {
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
+    type RecordKeyField,
     recordBindPlatformFn,
     RecordBindPrimitives,
 } from './bind/record.js';
