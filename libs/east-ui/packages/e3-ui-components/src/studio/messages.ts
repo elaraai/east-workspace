@@ -129,6 +129,8 @@ export interface StudioMessages {
     filtersSet: (p: { n: number; count: string }) => string;
     /** A filter's editor's head: the source it is on. */
     filterOf: (p: { source: string }) => string;
+    /** A new filter's editor's head, where the page's visuals read one source: the source it will be on. */
+    addFilterOf: (p: { source: string }) => string;
     /** The source a new filter is on — the chooser's label. */
     filterSource: () => string;
     /** A filter on a source the page no longer lists, in its editor. */
