@@ -99,9 +99,11 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A table, taking the room its foot leaves; a wide one scrolls inside it (TBL-5). */
         table: { flex: "1", minWidth: "0", minHeight: "0", display: "flex", flexDirection: "column" },
         /* Under a table: where its page stands, and its pages — the Frame's footer band, 37 with its `--rule`, on the
-           strip's paper, padded 0 20. Its 24px pager and its 12px line are each centred in the even 36 under the rule. */
+           strip's paper, padded 0 20. Its 24px pager and its 12px line are each centred in the even 36 under the rule, on
+           one line: the pager's room the rest of the line — the room it reads to draw its strip or its readout (#1268) —
+           and its strip at the room's end, as the room's justification places it. */
         foot: {
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.3}", flexShrink: "0", flexWrap: "wrap",
+            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "center", justifyContent: "flex-end", columnGap: "{spacing.3}", flexShrink: "0",
             minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
         },

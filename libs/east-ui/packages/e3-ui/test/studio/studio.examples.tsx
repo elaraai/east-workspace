@@ -14,13 +14,14 @@
  * placements hold content (#1669) — a text block and visuals over a source the
  * surface lists — and declares the one step that carries a workspace's pages
  * stored before a placement held content. A third holds a page of every form
- * a visual draws (#1671), over the quarter's orders; a fourth, a page of the
- * options a chart and a value take (#1672).
+ * a visual draws (#1671), over two years of a trade supplier's orders, its
+ * readers starting in the latest quarter; a fourth, a page of the options a
+ * chart and a value take (#1672).
  */
 
 import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor,
-    example, none, some, variant, type ValueTypeOf,
+    example, none, parseJq, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
@@ -643,27 +644,77 @@ export const studioContent = example({
 // Visuals — every form a visual draws, from its answer (#1671)
 // ============================================================================
 
-/** The quarter's orders: each one's date, region, category, customer, revenue, units and margin — one with no margin recorded. */
-export const studioOrders = e3.input("studio_orders", ArrayType(StructType({
+/** One order: when it was placed, its region, category and customer, its revenue and units, and its margin — none where none was recorded. */
+const OrderType = StructType({
     ordered_at: DateTimeType, region: StringType, category: StringType, customer: StringType, revenue: FloatType, units: IntegerType, margin: OptionType(FloatType),
-})), variant("value", [
-    { ordered_at: new Date("2026-07-02T00:00:00Z"), region: "SA", category: "Tools", customer: "Northwind", revenue: 1840.0, units: 156n, margin: some(0.21) },
-    { ordered_at: new Date("2026-07-05T00:00:00Z"), region: "NSW", category: "Electrical", customer: "Harbour", revenue: 987.5, units: 89n, margin: none },
-    { ordered_at: new Date("2026-07-09T00:00:00Z"), region: "VIC", category: "Tools", customer: "Summit", revenue: 1230.0, units: 102n, margin: some(0.24) },
-    { ordered_at: new Date("2026-07-14T00:00:00Z"), region: "SA", category: "Electrical", customer: "Acme", revenue: 614.0, units: 58n, margin: some(0.12) },
-    { ordered_at: new Date("2026-07-21T00:00:00Z"), region: "WA", category: "Garden", customer: "Coastline", revenue: 2196.0, units: 201n, margin: some(0.27) },
-    { ordered_at: new Date("2026-07-28T00:00:00Z"), region: "QLD", category: "Tools", customer: "Northwind", revenue: 438.0, units: 36n, margin: some(0.15) },
-    { ordered_at: new Date("2026-08-03T00:00:00Z"), region: "NSW", category: "Tools", customer: "Harbour", revenue: 1520.0, units: 131n, margin: some(0.22) },
-    { ordered_at: new Date("2026-08-08T00:00:00Z"), region: "SA", category: "Garden", customer: "Summit", revenue: 742.0, units: 70n, margin: some(0.19) },
-    { ordered_at: new Date("2026-08-12T00:00:00Z"), region: "VIC", category: "Electrical", customer: "Acme", revenue: 1105.0, units: 97n, margin: some(0.16) },
-    { ordered_at: new Date("2026-08-19T00:00:00Z"), region: "WA", category: "Tools", customer: "Coastline", revenue: 1688.0, units: 140n, margin: some(0.25) },
-    { ordered_at: new Date("2026-08-26T00:00:00Z"), region: "SA", category: "Tools", customer: "Northwind", revenue: 2010.0, units: 172n, margin: some(0.23) },
-    { ordered_at: new Date("2026-09-01T00:00:00Z"), region: "QLD", category: "Garden", customer: "Harbour", revenue: 529.0, units: 48n, margin: some(0.11) },
-    { ordered_at: new Date("2026-09-07T00:00:00Z"), region: "NSW", category: "Electrical", customer: "Summit", revenue: 1394.0, units: 118n, margin: some(0.2) },
-    { ordered_at: new Date("2026-09-15T00:00:00Z"), region: "VIC", category: "Garden", customer: "Coastline", revenue: 866.0, units: 79n, margin: some(0.17) },
-    { ordered_at: new Date("2026-09-22T00:00:00Z"), region: "SA", category: "Electrical", customer: "Acme", revenue: 1278.0, units: 109n, margin: some(0.18) },
-    { ordered_at: new Date("2026-09-29T00:00:00Z"), region: "WA", category: "Tools", customer: "Northwind", revenue: 1960.0, units: 168n, margin: some(0.26) },
-]));
+});
+
+/** One part of an order, drawn from its number: the number through the part's own stride, modulo a prime — so no two parts move in step. */
+const drawPart = East.function([IntegerType, IntegerType], IntegerType, (_$, n, stride) => n.multiply(stride).add(stride.remainder(9_973n)).remainder(1_000_003n));
+
+/**
+ * A trade supplier's orders over two years, made from each order's number
+ * alone — the same rows every time, varied as real ones are:
+ *
+ * - placed on a working day from 1 October 2024 to 30 September 2026, spread
+ *   a couple of days either way, so no two weeks are alike;
+ * - for one of fourteen customers, each as often as it buys, each in its own
+ *   region — New South Wales sells the most, South Australia the least — and
+ *   of one of three categories: Tools the most, then Electrical, then Garden;
+ * - its units following its category's season — the garden's spring, the end
+ *   of the financial year in June, the trades' summer break — and its prices
+ *   rising about a tenth a year;
+ * - its margin its category's, give or take, with one order in about a
+ *   hundred recording none.
+ */
+const generateOrders = East.function([IntegerType], ArrayType(OrderType), ($, count) => {
+    const draw = $.const(drawPart);
+    // The Monday before the first working day, Tuesday 1 October 2024, and the working days from it to Wednesday 30 September 2026.
+    const monday = $.const(new Date("2024-09-30T00:00:00Z"), DateTimeType);
+    const workdays = $.const(522n);
+    // The customers, each in its region, and how often each buys: of forty orders, Harbour five, Northwind four, …
+    const customers = $.const(["Harbour", "Northwind", "Ironbark", "Bluewater", "Summit", "Redgum", "Kestrel", "Coastline", "Tallowood", "Saltbush", "Granite Peak", "Banksia", "Acme", "Mallee"]);
+    const regions = $.const(["NSW", "NSW", "NSW", "NSW", "VIC", "VIC", "VIC", "QLD", "QLD", "QLD", "WA", "WA", "SA", "SA"]);
+    const buyers = $.const([0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 2n, 2n, 3n, 4n, 4n, 4n, 4n, 5n, 5n, 5n, 6n, 6n, 6n, 7n, 7n, 7n, 7n, 8n, 8n, 9n, 9n, 10n, 10n, 10n, 10n, 11n, 11n, 12n, 12n, 12n, 13n]);
+    // The categories, how often each sells — of twenty orders, Tools nine, Electrical seven, Garden four — a unit's price and the margin of each.
+    const categories = $.const(["Tools", "Electrical", "Garden"]);
+    const sold = $.const([0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 1n, 1n, 1n, 2n, 2n, 2n, 2n]);
+    const prices = $.const([11.8, 10.9, 8.7]);
+    const margins = $.const([0.22, 0.16, 0.19]);
+    // Each category's season, January to December: the trades slow over summer and busy before the financial year ends in June; the garden's spring.
+    const seasons = $.const([
+        [0.8, 0.95, 1.05, 1.0, 1.05, 1.3, 0.95, 1.0, 1.05, 1.05, 1.1, 0.75],
+        [0.8, 0.95, 1.0, 1.0, 1.05, 1.25, 1.0, 1.0, 1.0, 1.05, 1.1, 0.8],
+        [0.9, 0.85, 0.95, 0.85, 0.7, 0.6, 0.6, 0.85, 1.35, 1.45, 1.4, 1.05],
+    ]);
+    return East.Array.generate(count, OrderType, ($2, i) => {
+        // Its working day: spread evenly over the two years, then a couple either way.
+        const spread = $2.let(i.multiply(workdays).divide(count).add(draw(i, 390_383n).remainder(5n)).subtract(1n));
+        const day = $2.let(spread.less(1n).ifElse(() => 1n, () => spread.greater(workdays).ifElse(() => workdays, () => spread)));
+        const at = $2.let(monday.addDays(day.divide(5n).multiply(7n).add(day.remainder(5n))));
+        const buyer = $2.let(buyers.get(draw(i, 479_909n).remainder(40n)));
+        const category = $2.let(sold.get(draw(i, 350_377n).remainder(20n)));
+        const season = $2.let(seasons.get(category).get(at.getMonth().subtract(1n)));
+        const units = $2.let(East.Float.roundHalf(draw(i, 611_953n).remainder(150n).add(8n).toFloat().multiply(season)));
+        // Prices about a tenth higher a year on, each order give or take eight in a hundred.
+        const growth = $2.let(day.toFloat().divide(261.0).multiply(0.1).add(1.0));
+        const noise = $2.let(draw(i, 104_729n).remainder(17n).toFloat().divide(100.0).add(0.92));
+        const revenue = $2.let(East.Float.roundHalf(units.toFloat().multiply(prices.get(category)).multiply(noise).multiply(growth).multiply(100.0)).toFloat().divide(100.0));
+        const margin = $2.let(East.Float.roundHalf(margins.get(category).add(draw(i, 746_773n).remainder(11n).subtract(5n).toFloat().divide(100.0)).multiply(100.0)).toFloat().divide(100.0));
+        return {
+            ordered_at: at,
+            region: regions.get(buyer),
+            category: categories.get(category),
+            customer: customers.get(buyer),
+            revenue,
+            units,
+            margin: draw(i, 821_641n).remainder(97n).equal(0n).ifElse(() => East.value(none, OptionType(FloatType)), () => some(margin)),
+        };
+    });
+});
+
+/** The supplier's orders, two years of them: each one's date, region, category, customer, revenue, units and margin. */
+export const studioOrders = e3.input("studio_orders", ArrayType(OrderType), variant("value", East.compile(generateOrders, [])(2_920n)));
 
 const vis = Studio.visual;
 
@@ -678,15 +729,25 @@ export const orderFields = {
     margin: { label: "Margin", format: "percent" },
 } as const;
 
-/** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records; and two that cannot draw yet — a chart with no value, and a KPI of a field its source lacks. */
+/**
+ * The Visuals page's placements: the quarter's revenue against its goal and
+ * a year ago, and its orders against the quarter before, and a donut; the
+ * series charts, the combo and the scatter; the list; the summary and the
+ * pivot; the records; and two that cannot draw yet — a chart with no value,
+ * and a KPI of a field its source lacks.
+ */
 const visualCells = [
-    { key: "v-revenue", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("revenue", { goal: 24000 }), compare: vis.mean("revenue"), trend: "ordered_at" })) },
-    { key: "v-orders", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.count(), trend: "ordered_at" })) },
+    { key: "v-revenue", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({
+        value: vis.sum("revenue", { goal: 400000 }), compare: vis.sum("revenue", { period: "year_ago" }), trend: "ordered_at",
+    })) },
+    { key: "v-orders", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({
+        value: vis.count(), compare: vis.count({ period: "previous" }), trend: "ordered_at",
+    })) },
     { key: "v-share", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true })) },
     { key: "v-months", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" })) },
     { key: "v-customers", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] })) },
     { key: "v-units", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] })) },
-    { key: "v-trend", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 8000 })] })) },
+    { key: "v-trend", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 130000 })] })) },
     { key: "v-scatter", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" })) },
     { key: "v-combo", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.combo({
         x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))],
@@ -694,7 +755,7 @@ const visualCells = [
     { key: "v-list", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true })) },
     { key: "v-summary", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
         rows: [vis.group("region", { sort: "high" }), vis.group("category")],
-        values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 11.5 })], total: true,
+        values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 13.5 })], total: true,
     })) },
     { key: "v-pivot", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pivot({
         rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
@@ -704,12 +765,21 @@ const visualCells = [
     { key: "v-missing", row: "r7", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("net_revenue") })) },
 ];
 
-/** The pages of the visuals' project: one page, Visuals, live as it was drafted. */
+/**
+ * Where every reader of the Visuals page starts: the latest quarter, July to
+ * September 2026 — the page's window on the orders' dates, which a value over
+ * another period moves.
+ */
+const latestQuarter = parseJq(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`).program;
+if (latestQuarter.type === "none") throw new Error("The latest quarter's condition does not parse");
+const visualFilters = [{ key: "f-quarter", source: "orders", where: latestQuarter.value }];
+
+/** The pages of the visuals' project: one page, Visuals, live as it was drafted, its readers starting in the latest quarter. */
 export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.Pages, {
     initial: new SortedMap<Key, Entry>([
         [{ project: "Sales desk", page: "Visuals" }, variant("page", {
-            draft: { title: "Visuals", cells: visualCells, filters: [] },
-            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells, filters: [] } }),
+            draft: { title: "Visuals", cells: visualCells, filters: visualFilters },
+            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells, filters: visualFilters } }),
         })],
     ], compareFor(Studio.Types.Key)),
     mutations: (mutation) => ({
@@ -723,7 +793,7 @@ export const studioVisuals = example({
         "Studio", "Studio.Page", "Studio.visual", "visual", "KPI", "goal", "trend", "chart", "column", "bar", "line", "area", "combo", "scatter",
         "pie", "donut", "list", "ranking bar", "table", "records", "summary", "total", "pivot", "heat", "Studio.source", "Data.bind",
     ],
-    description: "Every form a visual draws, on a published page over the quarter's orders: a KPI with its goal, its change and its trend, and a count; a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; the latest orders, a page at a time; and two tiles that say why they cannot draw — a chart with no value yet, and a KPI of a field its source lacks",
+    description: "Every form a visual draws, on a published page over two years of orders, every reader starting in the latest quarter — the page's starting filter on the orders' dates, its window: the quarter's revenue as a KPI with its goal, its change on a year ago (`period: \"year_ago\"`) and its trend, and its orders' count against the quarter before (`period: \"previous\"`); a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; the latest orders, a page at a time; and two tiles that say why they cannot draw — a chart with no value yet, and a KPI of a field its source lacks",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pages = $.let(Data.bind(studioVisualPages));
@@ -743,14 +813,17 @@ export const studioVisuals = example({
     inputs: [],
 });
 
-/** The Chart options page's placements: a pie whose legend names its slices alone, a donut with no legend, stacked columns with their legend hidden, and a summary whose revenue and margin are each printed as its field's format says and in a format of its own. */
+/** The Chart options page's placements: a pie whose legend names its slices alone, a donut with no legend, stacked columns with their legend hidden, and a summary whose average order and margin are each printed as its field's format says and in a format of its own. */
 const chartOptionCells = [
     { key: "c-names", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), legend: "names" })) },
     { key: "c-alone", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("region"), value: vis.sum("revenue"), donut: true, legend: "hidden" })) },
     { key: "c-columns", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked", legend: "hidden" })) },
     { key: "c-formats", row: "r2", span: 12n, height: some(260n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
         rows: [vis.group("region", { sort: "high" })],
-        values: [vis.sum("revenue"), vis.sum("revenue", { label: "Revenue, whole", format: "number" }), vis.mean("margin"), vis.mean("margin", { label: "Margin, as a number", format: "number" })],
+        values: [
+            vis.mean("revenue", { label: "Average order" }), vis.mean("revenue", { label: "Average order, as a number", format: "number" }),
+            vis.mean("margin"), vis.mean("margin", { label: "Margin, as a number", format: "number" }),
+        ],
     })) },
 ];
 
@@ -773,7 +846,7 @@ export const studioChartOptions = example({
         "Studio", "Studio.Page", "Studio.visual", "visual", "chart", "options", "legend", "hidden", "names", "values", "no legend", "pie", "donut", "column",
         "format", "value format", "number", "percent", "currency", "summary", "Studio.source", "Data.bind",
     ],
-    description: "The options a chart and a value take, on a published page over the quarter's orders: a pie whose legend names its slices alone (`legend: \"names\"`), a donut with no legend (`\"hidden\"`) — a pie's legend shows each slice's value and share unless it says otherwise — stacked columns with their legend hidden (a chart draws its legend where it names more than one series, `\"auto\"`, or never, `\"hidden\"`), and a summary whose revenue and margin are each printed as its field's format says — a currency, a percentage — beside the same value as a plain number (`format: \"number\"`) — a value's `format` (`\"number\"`, `\"percent\"`, `{ currency: { code: \"AUD\" } }`) takes the place of its field's wherever its numbers are printed",
+    description: "The options a chart and a value take, on a published page over two years of orders: a pie whose legend names its slices alone (`legend: \"names\"`), a donut with no legend (`\"hidden\"`) — a pie's legend shows each slice's value and share unless it says otherwise — stacked columns with their legend hidden (a chart draws its legend where it names more than one series, `\"auto\"`, or never, `\"hidden\"`), and a summary whose average order and margin are each printed as its field's format says — a currency, a percentage — beside the same value as a plain number (`format: \"number\"`) — a value's `format` (`\"number\"`, `\"percent\"`, `{ currency: { code: \"AUD\" } }`) takes the place of its field's wherever its numbers are printed",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pages = $.let(Data.bind(studioChartOptionPages));
@@ -852,7 +925,7 @@ export const studioClicks = example({
         "Studio", "Studio.Page", "Studio.visual", "visual", "click", "select", "selection", "filter", "open", "onOpen", "follow", "follower", "leader",
         "linked visuals", "master detail", "drill through", "page filters", "filter chip", "State.bind", "navigate", "Studio.source", "Data.bind",
     ],
-    description: "What a click on a visual does, on a published page over the quarter's orders: a list of customers whose click selects (a list's and a table's click, unless it says otherwise) — ⌘-click adds, Esc or a click on the selection again clears; revenue by month follows it (`follow: { leader, from, to, empty: \"all\" }`), showing every customer until one is picked, its eyebrow then saying whom; the mean margin follows it too and asks for a pick first (`empty: \"prompt\"`); a donut whose click filters the page (`click: \"filter\"`, a chart's and a KPI's unless it says otherwise) — the slice joins the page's filters as a chip over the grid, which every visual of the source reads; and the regions' bars, whose click opens the Region orders page (`click: { open: key }`) narrowed to that region: the page's `onOpen` is told its key, and the surface, which holds the open page in a State, shows it — its filter chip the reader's to clear",
+    description: "What a click on a visual does, on a published page over two years of orders: a list of customers whose click selects (a list's and a table's click, unless it says otherwise) — ⌘-click adds, Esc or a click on the selection again clears; revenue by month follows it (`follow: { leader, from, to, empty: \"all\" }`), showing every customer until one is picked, its eyebrow then saying whom; the mean margin follows it too and asks for a pick first (`empty: \"prompt\"`); a donut whose click filters the page (`click: \"filter\"`, a chart's and a KPI's unless it says otherwise) — the slice joins the page's filters as a chip over the grid, which every visual of the source reads; and the regions' bars, whose click opens the Region orders page (`click: { open: key }`) narrowed to that region: the page's `onOpen` is told its key, and the surface, which holds the open page in a State, shows it — its filter chip the reader's to clear",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pages = $.let(Data.bind(studioClickPages));

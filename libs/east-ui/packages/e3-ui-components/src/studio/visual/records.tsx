@@ -7,8 +7,9 @@
  * A records table's tile (#1671, TBL-1): a page of its rows — its own program,
  * asked through the page's answers — in the Table, filling its tile, which
  * scrolls a wide table inside it (TBL-5); a header's sort sorting every row by
- * its program, so a page is never one page reordered; and under it, where the
- * page stands among every row and the Pagination. What it shows is
+ * its program, so a page is never one page reordered; and under it, on one
+ * line, where the page stands among every row and the Pagination, at the
+ * design system's small size. What it shows is
  * {@link recordsModel}'s; this draws it with the parts' own renderers. (A
  * tile's Show rows lists any visual's rows as a value tree: `rows.tsx`.)
  *
@@ -17,7 +18,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Box } from "@chakra-ui/react";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import {
     EastChakraPagination, EastChakraTable, useFormatters, usePersistedState,
     type ColumnSort, type PaginationValue, type TableRootValue,
@@ -44,6 +45,11 @@ const readSort: KeptReader<KeptSort> = keptRead.record<KeptSort>({
 
 /** No programs: a records view that does not print. */
 const NO_ASKS: readonly VisualAsk[] = [];
+
+/** Its pager: the design system's small size, the footer band's 24px (TBL-1) — nothing else declared. */
+const PAGER_STYLE: PaginationValue["style"] = some({
+    size: some(variant("sm", null)), variant: none, color: none, background: none, activeBackground: none, activeColor: none, siblings: none, boundaries: none,
+});
 
 /** Props of {@link RecordsVisual}. */
 export interface RecordsVisualProps {
@@ -105,7 +111,7 @@ export function RecordsVisual({ visual, source, read, state, storageKey }: Recor
             setPage(Number(next));
             return null;
         },
-        style: none,
+        style: PAGER_STYLE,
     }), [drawn, page]);
     // A click on a row tells the group it stands for (TBL-6): its first column's value.
     const { raise, onClickCapture } = useGroupClicks();

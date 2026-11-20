@@ -61,15 +61,16 @@ describe("a page's visuals, asked on e3", () => {
             ["v-share", "pie"], ["v-months", "column"], ["v-customers", "bar"], ["v-units", "line"], ["v-trend", "area"], ["v-scatter", "scatter"], ["v-combo", "combo"],
         ];
         for (const [key, kind] of charts) await waitFor(() => expect(cell(key).querySelector(`[data-studio-chart="${kind}"]`), key).not.toBeNull());
-        // A KPI with its goal, its change and its trend; a count with its trend alone.
+        // The quarter's revenue with its goal, its change on a year ago and its trend; its orders with their change on the
+        // quarter before and their trend — each period moved from the page's window, its starting filter's.
         await waitFor(() => expect(cell("v-revenue").querySelector("[data-studio-kpi-goal]")).not.toBeNull());
-        expect([cell("v-revenue").querySelector("[data-studio-kpi-change]"), cell("v-orders").querySelector("[data-studio-kpi-change]")].map((el) => el !== null)).toEqual([true, false]);
-        // The five customers, each a row with its bar.
-        await waitFor(() => expect(cell("v-list").querySelectorAll("[data-studio-list-row] [data-studio-list-bar]")).toHaveLength(5));
-        // The summary's total row, the query's, after its functions; the pivot's heat legend; the records' page among every order.
+        await waitFor(() => expect([cell("v-revenue").querySelector("[data-studio-kpi-change]"), cell("v-orders").querySelector("[data-studio-kpi-change]")].map((el) => el !== null)).toEqual([true, true]));
+        // The quarter's fourteen customers, each a row with its bar.
+        await waitFor(() => expect(cell("v-list").querySelectorAll("[data-studio-list-row] [data-studio-list-bar]")).toHaveLength(14));
+        // The summary's total row, the query's, after its functions; the pivot's heat legend; the records' first page among the quarter's orders.
         await waitFor(() => expect([...cell("v-summary").querySelectorAll("tfoot [data-total-label]")].map((el) => el.textContent)).toEqual(["sum", "ratio"]));
         await waitFor(() => expect(cell("v-pivot").querySelectorAll("[data-studio-heat] [data-step]")).toHaveLength(5));
-        await waitFor(() => expect(cell("v-records").querySelector("[data-studio-visual-note]")?.textContent).toBe("Showing 1–16 of 16"));
+        await waitFor(() => expect(cell("v-records").querySelector("[data-studio-visual-note]")?.textContent).toBe("Showing 1–50 of 372"));
     });
 
     test("the publish preview draws what the canvas answered, and asks nothing again", async () => {
