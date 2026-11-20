@@ -6,8 +6,10 @@
 /**
  * Linking two visuals on the builder's canvas (#1673, LNK-6, LNK-7): with a
  * visual selected, Link — in its menu, or its Follows block — puts the canvas
- * in pick mode: a banner says what to do, the visuals that can lead are
- * outlined, the rest dim, Esc cancels, and a click on a leader links it. The
+ * in pick mode: a banner says what to do, in the canvas's frame's banners slot
+ * under its toolbar as every builder's banners stand (the `banner` recipe's
+ * `BannerView`), the visuals that can lead are outlined, the rest dim, Esc
+ * cancels, and a click on a leader links it. The
  * match fills itself where the two read one source or share a field id;
  * otherwise, or where linking switches the leader's click to select, a
  * popover hanging from the leader proposes the match and says what changes,
@@ -72,7 +74,7 @@ export interface Linking {
     readonly pick: (key: string) => boolean;
     /** What a tile is while a leader is picked. */
     readonly stateOf: (key: string) => PickState;
-    /** The banner, and the popover while a pick waits to be confirmed; nothing outside pick mode. */
+    /** The banner, for the canvas's banners slot, and the popover hanging from the leader while a pick waits to be confirmed; nothing outside pick mode. */
     readonly surface: ReactNode;
 }
 
@@ -173,7 +175,7 @@ export function useLinking({ placements, sources, onLinked }: LinkingOptions): L
             options: (own?.fields ?? []).map((listed) => ({ key: listed.id, label: listed.label, state: listed.id === picked.match.to ? "current" as const : "enabled" as const })),
         }];
         surface = (
-            <Box css={styles.linking} data-studio-linking="">
+            <Box data-studio-linking="">
                 <SliceEditPopover open={picked !== undefined} onOpenChange={(open) => { if (!open) setMode({ follower: mode.follower }); }}
                     label={picked === undefined ? "" : m.linkFollow({ leader: nameOf(picked.leader) })} size="lg"
                     hangFrom={() => (picked === undefined ? null : document.querySelector(`[data-studio-canvas] [data-studio-placement="${CSS.escape(picked.leader)}"]`)?.getBoundingClientRect() ?? null)}

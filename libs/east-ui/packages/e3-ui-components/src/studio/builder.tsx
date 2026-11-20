@@ -756,13 +756,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 <PageFiltersProvider value={starting.filters}>
                 <PageClicksProvider page={open} cells={cells} live={false}>
                 <Box css={styles.canvas} hidden={previewing} data-studio-canvas="" data-linking={linking.active ? "" : undefined}>
-                    {linking.surface}
                     <SnapGridEditor
                         value={canvas}
                         storageKey={`${storageKey}.canvas`}
                         toolbar={toolbar}
                         joined={joined}
                         head={startingRail}
+                        banners={linking.surface}
                         renderContent={renderContent}
                         onEdit={editPlacement}
                         panes={{

@@ -10,8 +10,9 @@
  * a developer's KPI rail:
  *
  *  - K1 a visual's menu's Link on the canvas puts the canvas in pick mode: a
- *    banner over the canvas's top, in its middle, on whole pixels, saying what
- *    to do; the visual that can lead outlined dashed `--brand-d` on
+ *    banner in the builder frame's banners slot, under its toolbar and inside
+ *    the slot, as every builder's banners stand — never over the toolbar —
+ *    saying what to do; the visual that can lead outlined dashed `--brand-d` on
  *    `--brand-tint` with a pointer's hand; the visual being linked as it was;
  *    every other placement dimmed.
  *  - K2 Esc leaves the mode, nothing linked.
@@ -75,19 +76,24 @@ const tiles = (entry: Locator) => entry.locator("[data-snap-grid-tile]").evaluat
 test.describe("Linking two visuals on the Studio's canvas (#1673)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
-    test("K1, K2: Link puts the canvas in pick mode — a banner in the middle of its top, the leader outlined dashed on the tint with a pointer's hand, the rest dimmed — and Esc leaves it", async ({ page }) => {
+    test("K1, K2: Link puts the canvas in pick mode — a banner in the frame's banners slot under its toolbar, the leader outlined dashed on the tint with a pointer's hand, the rest dimmed — and Esc leaves it", async ({ page }) => {
         const entry = await openBuilder(page);
         const paper = await entry.locator(`[data-snap-grid-tile="${LEADER}"]`).evaluate((el) => getComputedStyle(el).backgroundColor);
         await startLinking(page, entry);
         const banner = await entry.locator("[data-studio-linking]").evaluate((el) => {
             const box = el.getBoundingClientRect();
-            const canvas = el.closest("[data-studio-canvas]")!.getBoundingClientRect();
-            return { text: el.textContent, top: box.top - canvas.top, left: box.left - canvas.left, width: box.width, off: (box.left + box.right) / 2 - (canvas.left + canvas.right) / 2, inside: box.left >= canvas.left && box.right <= canvas.right };
+            const slot = el.closest("[data-frame-slot=banners]");
+            const toolbar = el.closest("[data-builder-frame]")?.querySelector(":scope > [data-frame-slot=toolbar]")?.getBoundingClientRect();
+            const room = slot?.getBoundingClientRect();
+            return {
+                text: el.textContent, inSlot: slot !== null, under: toolbar !== undefined && box.top >= toolbar.bottom - 0.5,
+                inside: room !== undefined && box.left >= room.left - 0.5 && box.right <= room.right + 0.5,
+            };
         });
         expect(banner.text).toContain("Click the visual Revenue by region should follow");
         expect(banner.text).toContain("The outlined visuals can lead. Esc cancels.");
-        // In the middle, 12 under the canvas's top, its edges on whole pixels.
-        expect([banner.top, Math.abs(banner.off) <= 0.5, banner.inside, Number.isInteger(banner.left), Number.isInteger(banner.width)]).toEqual([12, true, true, true, true]);
+        // In the frame's banners slot, under its toolbar and inside the slot, as every builder's banners stand.
+        expect([banner.inSlot, banner.under, banner.inside]).toEqual([true, true, true]);
         // Once the dimmed ones have faded: the note and the developer's component, neither of which can lead.
         await expect.poll(async () => (await tiles(entry)).map((tile) => [tile.key, tile.pick, tile.opacity]))
             .toEqual([["s-note", null, "0.4"], [FOLLOWER, "follower", "1"], [LEADER, "leader", "1"], ["s-kpi", null, "0.4"]]);

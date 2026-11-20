@@ -15,7 +15,8 @@
  * hears the rows it draws. With `applies`, a screen asks it for an Apply
  * through the bound `apply` ({@link EditingSnapGrid.hostAsksApply}, #998).
  * With `joined` or `head`, a host's own sessions join the canvas's history and
- * its band stands over the grid (#1673): the canvas is mounted as a host
+ * its band stands over the grid (#1673), and with `banners` the host says what
+ * it says in the frame's banners slot: the canvas is mounted as a host
  * renderer mounts it ({@link SnapGridEditor}), its value the same.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
@@ -132,9 +133,11 @@ export interface CanvasOptions {
     joined?: SnapGridJoined | undefined;
     /** What the host draws over the grid (#1673); nothing by default. */
     head?: ReactNode | undefined;
+    /** What the host says in the frame's banners slot (#1673); nothing by default. */
+    banners?: ReactNode | undefined;
 }
 
-type Resolved = Required<Omit<CanvasOptions, "joined" | "head">> & Pick<CanvasOptions, "joined" | "head">;
+type Resolved = Required<Omit<CanvasOptions, "joined" | "head" | "banners">> & Pick<CanvasOptions, "joined" | "head" | "banners">;
 
 /** The canvas's program — the factory's, compiled. */
 function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
@@ -303,9 +306,9 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             <DragLayerProvider>
                 <Card card="orders" />
                 <Card card={BLOCKED} />
-                {o.joined === undefined && o.head === undefined
+                {o.joined === undefined && o.head === undefined && o.banners === undefined
                     ? <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
-                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} />}
+                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} banners={o.banners} />}
             </DragLayerProvider>
         </ChakraProvider>
     );

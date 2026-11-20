@@ -17,7 +17,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const studioBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-studio-builder",
-    slots: ["root", "canvas", "linking", "linkNote"],
+    slots: ["root", "canvas", "linkNote"],
     base: {
         root: {
             display: "flex",
@@ -42,11 +42,8 @@ export const studioBuilderSlotRecipe = defineSlotRecipe({
                 outline: "1.5px dashed", outlineColor: "brand.solid", outlineOffset: "-1px", background: "brandTint", cursor: "pointer",
             },
         },
-        /* The banner that says what to do, over the canvas's top, in the middle: as wide as its words, never the canvas. */
-        linking: {
-            position: "absolute", top: "{spacing.3}", insetInline: "0", marginInline: "auto", width: "fit-content", maxWidth: "calc(100% - 32px)", zIndex: "2",
-        },
-        /* What the link's popover says under its fields: 12 / 16, `--ink-3`, a line each. */
+        /* What the link's popover says under its fields: 12 / 16, `--ink-3`, a line each. The banner that says what to do is
+           the `banner` recipe's, in the canvas's frame's banners slot, as every builder's banners are. */
         linkNote: { fontSize: "{fontSizes.body.sm}", lineHeight: "16px", color: "fg.muted", margin: "0", "& + &": { marginTop: "{spacing.1}" } },
     },
 });
