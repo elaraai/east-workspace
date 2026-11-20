@@ -46,8 +46,9 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
                 placed("n-note", "r1", 12n, note), placed("n-sales", "r2", 8n, bars), placed("n-stock", "r2", 4n, stock),
                 placed("n-kpi", "r3", 12n, Studio.visual.component("kpi_rail")),
             ],
+            filters: [],
         },
-        live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-note", "r1", 12n, noteWas), placed("n-sales", "r2", 8n, columns)] } }),
+        live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-note", "r1", 12n, noteWas), placed("n-sales", "r2", 8n, columns)], filters: [] } }),
     });
 
     /** A builder that lists the sales as a source, its surface holding the Notes page open. */
@@ -194,8 +195,8 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
     test("the publish preview's change list says a component by its name, never its key: one swapped for another names both", async () => {
         // The Notes page, live with the KPI rail; its draft holds the revenue trend in its place.
         const swapped: Entry = variant("page", {
-            draft: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("revenue_trend"))] },
-            live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("kpi_rail"))] } }),
+            draft: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("revenue_trend"))], filters: [] },
+            live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("kpi_rail"))], filters: [] } }),
         });
         await h.patch(ex.studioPages, withEntry(NOTES, swapped)(PAGES));
         const { container } = await h.mount(notesBuilder, { storageKey: "studio-builder" });

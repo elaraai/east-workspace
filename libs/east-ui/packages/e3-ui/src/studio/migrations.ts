@@ -131,7 +131,9 @@ const ContentV1 = VariantType({
     }),
     text: StructType({ heading: OptionType(StringType), body: StringType }),
 });
-/** A page's layout: its title, and its placements. */
+/** One of a page's starting filters. */
+const PageFilterV1 = StructType({ key: StringType, source: StringType, where: JqType });
+/** A page's layout: its title, its placements and its starting filters. */
 const PageV1 = StructType({
     title: StringType,
     cells: ArrayType(StructType({
@@ -143,6 +145,7 @@ const PageV1 = StructType({
         title: OptionType(StringType),
         content: ContentV1,
     })),
+    filters: ArrayType(PageFilterV1),
 });
 /** A published version of a page. */
 const LiveV1 = StructType({ version: IntegerType, page: PageV1 });
@@ -200,7 +203,8 @@ const EntryBeforeContentType = VariantType({
 /**
  * Carries one entry of the pages record to the type whose placements hold
  * content: every placement's component key becomes `component(key)`, in a
- * page's draft, its live version and a template, and nothing else changes.
+ * page's draft, its live version and a template; each starts with no
+ * starting filters; and nothing else changes.
  *
  * @remarks
  * A solution lists it as a rows step of its pages record:
@@ -225,6 +229,7 @@ export const cellContent = East.function(
                 title: cell.title,
                 content: East.value(variant("component", cell.component), ContentV1),
             })),
+            filters: East.value([], ArrayType(PageFilterV1)),
         })));
         return entry.match({
             page: (_$2, held) => East.value(variant("page", {

@@ -60,6 +60,7 @@ export const studioPage = example({
                         { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                         { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "breakdown_bars") },
                     ],
+                    filters: [],
                 },
                 live: some({
                     version: 1n,
@@ -70,6 +71,7 @@ export const studioPage = example({
                             { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                             { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: some("Revenue by region"), content: variant("component", "breakdown_bars") },
                         ],
+                        filters: [],
                     },
                 }),
             })],

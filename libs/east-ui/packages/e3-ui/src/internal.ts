@@ -125,6 +125,10 @@ export {
     StudioStatusType,
     StudioVersionType,
     saveCells,
+    // A page's starting filters (#1673): what every reader's filters of it start as, and the builder's Apply of them.
+    StudioPageFilterType,
+    StudioPageFilterChangesType,
+    saveFilters,
     type StudioNamespace,
     type StudioInternalNamespace,
     type StudioTypes,

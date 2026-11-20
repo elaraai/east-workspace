@@ -42,6 +42,7 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         draft: {
             title: "Board",
             cells: [placed("b-note", "r1", 12n, note), placed("b-sales", "r2", 8n, bars), placed("b-kpi", "r2", 4n, Studio.visual.component("kpi_rail"))],
+            filters: [],
         },
         live: none,
     });

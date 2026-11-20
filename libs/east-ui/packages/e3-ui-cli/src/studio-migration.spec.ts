@@ -14,7 +14,8 @@
  *
  * - **M1**: the deploy plans the one step and applies it in a commit of its
  *   own, and every placement's key is `component(key)` after it, in a page's
- *   draft, its live version and a template, its layout and title as they were.
+ *   draft, its live version and a template, its layout and title as they were,
+ *   each layout with no starting filters (#1673).
  * - **M2**: the record at the new type, without the step, is refused, and the
  *   workspace keeps what it held.
  *
@@ -91,14 +92,14 @@ const SEED = new SortedMap<Key, unknown>([
     [STARTER, variant('template', { title: 'Starter', cells: cellsBefore(HELD.starter) })],
 ], keys);
 
-/** The same record, carried. */
+/** The same record, carried: each layout with no starting filters. */
 const CARRIED: Pages = new SortedMap<Key, Entry>([
     [OVERVIEW, variant('page', {
-        draft: { title: 'Overview', cells: cellsAfter(HELD.overview) },
-        live: some({ version: 3n, page: { title: 'Overview', cells: cellsAfter(HELD.live) } }),
+        draft: { title: 'Overview', cells: cellsAfter(HELD.overview), filters: [] },
+        live: some({ version: 3n, page: { title: 'Overview', cells: cellsAfter(HELD.live), filters: [] } }),
     })],
-    [DETAIL, variant('page', { draft: { title: 'Detail', cells: cellsAfter(HELD.detail) }, live: none })],
-    [STARTER, variant('template', { title: 'Starter', cells: cellsAfter(HELD.starter) })],
+    [DETAIL, variant('page', { draft: { title: 'Detail', cells: cellsAfter(HELD.detail), filters: [] }, live: none })],
+    [STARTER, variant('template', { title: 'Starter', cells: cellsAfter(HELD.starter), filters: [] })],
 ], keys);
 
 /** The release a workspace was on: its pages stored with a component's key in each placement. */

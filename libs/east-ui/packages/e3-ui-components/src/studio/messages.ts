@@ -109,6 +109,22 @@ export interface StudioMessages {
     needsWindowHint: () => string;
     /** The page's filters — the rail's name, and its folded chip's. */
     filters: () => string;
+    /**
+     * The page's starting filters (#1673): what every reader of it starts with — the caption of their rail over the
+     * builder's canvas, its folded chip's word, their session's name in its banners, and their row in the publish
+     * preview's change list.
+     */
+    startingFilters: () => string;
+    /** On the caption's hover: what they are. */
+    startingFiltersHint: () => string;
+    /** A starting filter added, as its step is named in the history. */
+    addStartingFilter: () => string;
+    /** A starting filter changed, as its step is named in the history. */
+    changeStartingFilter: () => string;
+    /** A starting filter removed, as its step is named in the history. */
+    removeStartingFilter: () => string;
+    /** Every starting filter removed, as its step is named in the history. */
+    clearStartingFilters: () => string;
     /** How many filters narrow the page, as the rail's folded chip says it. */
     filtersSet: (p: { n: number; count: string }) => string;
     /** A filter's editor's head: the source it is on. */
@@ -589,8 +605,8 @@ export interface StudioMessages {
     changesFirst: (p: { n: number; count: string }) => string;
     /** The change list's head while nothing changed — `No changes since v4`. */
     noChangesSince: (p: { version: string }) => string;
-    /** A change's verb, before the placement's name — `Added`, `Resized`. */
-    changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" | "configured" }) => string;
+    /** A change's verb, before the placement's name — `Added`, `Resized` — or the page's starting filters' — `Changed`. */
+    changeVerb: (p: { change: "filters" | "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" | "configured" }) => string;
     /** The Audience row's label. */
     audience: () => string;
     /** The Rollout row's label. */

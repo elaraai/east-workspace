@@ -24,6 +24,7 @@ import {
     StudioKeyType,
     StudioLiveType,
     StudioPageEntryType,
+    StudioPageFilterType,
     StudioPageType,
     StudioPages,
     StudioPagesType,
@@ -69,11 +70,14 @@ export {
     StudioKeyType,
     StudioLiveType,
     StudioPageEntryType,
+    StudioPageFilterChangesType,
+    StudioPageFilterType,
     StudioPageType,
     StudioPagesHandleType,
     StudioPagesType,
     StudioStatusType,
     saveCells,
+    saveFilters,
     type StudioPagesHandle,
 } from "./pages.js";
 export {
@@ -251,10 +255,12 @@ export interface StudioTypes {
     PageEntry: typeof StudioPageEntryType;
     /** A published version of a page ({@link StudioLiveType}). */
     Live: typeof StudioLiveType;
-    /** A page's layout: its title and its placements ({@link StudioPageType}). */
+    /** A page's layout: its title, its placements and its starting filters ({@link StudioPageType}). */
     Page: typeof StudioPageType;
     /** One placement on a page ({@link StudioCellType}). */
     Cell: typeof StudioCellType;
+    /** One of a page's starting filters: what every reader's filters of it start as ({@link StudioPageFilterType}). */
+    PageFilter: typeof StudioPageFilterType;
     /** Which layout of a page to draw ({@link StudioVersionType}). */
     Version: typeof StudioVersionType;
     /** What a placement holds: a component's key, a visual or a text block ({@link StudioContentType}). */
@@ -321,6 +327,7 @@ const types: StudioTypes = {
     Live: StudioLiveType,
     Page: StudioPageType,
     Cell: StudioCellType,
+    PageFilter: StudioPageFilterType,
     Version: StudioVersionType,
     Content: StudioContentType,
     Visual: StudioVisualType,
@@ -366,6 +373,8 @@ export const Studio: StudioNamespace = {
 export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> {
     /** Saves a page's placements — the builder canvas's Apply, one patch to the page's draft. */
     save: typeof StudioPages.save;
+    /** Saves a page's starting filters — the builder's Apply of them, one patch to the page's draft. */
+    saveFilters: typeof StudioPages.saveFilters;
     /** Publishes a page: the patch that makes its draft its next live version. */
     publish: typeof StudioPages.publish;
     /** Reverts a page: the patch that makes its live version's layout its draft. */
@@ -404,6 +413,7 @@ export const StudioInternal: StudioInternalNamespace = {
     Library: StudioLibrary,
     Page: StudioPage,
     save: StudioPages.save,
+    saveFilters: StudioPages.saveFilters,
     publish: StudioPages.publish,
     revert: StudioPages.revert,
     newPage: StudioPages.newPage,

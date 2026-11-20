@@ -29,7 +29,7 @@ import {
 import {
     clickDone, clickedOf, followingOf, isMarked, isSelected, openedFilters, withCondition, type Clicked, type ClickedGroup, type Following,
 } from "../query/visual/clicks.js";
-import { markedBy, type PageFilter } from "../query/visual/filters.js";
+import { markedBy, readerFilters, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource, PrintState } from "../query/visual/print.js";
 import { changeStoredValue, storedCodec, useStoredValue } from "../shared/stored-value.js";
 import { usePageFilters, usePageState, type PageKey } from "./page-filters.js";
@@ -91,6 +91,8 @@ export interface PageClicksProviderProps {
     readonly live: boolean;
     /** Told the key of the page a click opens, once its filters hold the clicked group; `undefined` where a click opens nothing. */
     readonly onOpen?: ((page: PageKey) => void) | undefined;
+    /** The filters a reader of a page starts with — its starting filters — which a click that opens it narrows from; none when omitted. */
+    readonly startsWith?: ((page: PageKey) => readonly PageFilter[]) | undefined;
     /** The page. */
     readonly children?: ReactNode;
 }
@@ -98,15 +100,16 @@ export interface PageClicksProviderProps {
 /**
  * Holds a page's clicks for its tiles: its selections, read from the UI store
  * under the page's key and written there, and what a click that opens a page
- * does — the clicked group written to that page's filters, then its host
- * told. While a placement has a selection, Esc clears it: the selection of
- * the tile the key is pressed in, else every selection of the page — never an
- * Esc an open popover, a menu or a field takes for itself.
+ * does — the clicked group written to that page's filters, from those its
+ * reader holds or else starts with, then its host told. While a placement has
+ * a selection, Esc clears it: the selection of the tile the key is pressed
+ * in, else every selection of the page — never an Esc an open popover, a menu
+ * or a field takes for itself.
  *
- * @param props - The page's key, its placements, whether clicks run, and who is told a page opens
+ * @param props - The page's key, its placements, whether clicks run, who is told a page opens, and what a page's reader starts with
  * @returns The page, its visuals' clicks run
  */
-export function PageClicksProvider({ page, cells, live, onOpen, children }: PageClicksProviderProps) {
+export function PageClicksProvider({ page, cells, live, onOpen, startsWith, children }: PageClicksProviderProps) {
     const [held, write] = useStoredValue(SELECTIONS, studioSelectionsKey(page));
     const selections: ReadonlyMap<string, readonly Clicked[]> = held ?? NO_SELECTIONS;
     const select = useCallback((placement: string, selection: readonly Clicked[]) => {
@@ -116,10 +119,11 @@ export function PageClicksProvider({ page, cells, live, onOpen, children }: Page
         write(next);
     }, [held, write]);
     const open = useMemo(() => (onOpen === undefined ? undefined : (target: PageKey, filter: PageFilter) => {
-        // The target page's filters first: it shows the clicked group as a chip when its host shows it (LNK-9).
-        changeStoredValue(FILTERS, studioFiltersKey(target), (filters) => openedFilters(filters ?? [], filter));
+        // The target page's filters first — its reader's, else the page's starting filters: it shows the clicked group as
+        // a chip, in place of what it held on that source, when its host shows it (LNK-9).
+        changeStoredValue(FILTERS, studioFiltersKey(target), (filters) => openedFilters(readerFilters(filters, startsWith?.(target) ?? []), filter));
         onOpen(target);
-    }), [onOpen]);
+    }), [onOpen, startsWith]);
     // Esc clears a selection (LNK-2): the tile's the key is pressed in, where it holds one; else every one of the page.
     const some = live && selections.size > 0;
     useEffect(() => {

@@ -298,6 +298,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
                     { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -310,6 +311,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
                     { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 3n,
@@ -320,6 +322,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                         { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, content: variant("component", "revenue_trend") },
                         { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -331,6 +334,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
                     { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 1n,
@@ -341,6 +345,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                         { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
                         { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -351,8 +356,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
                     { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
+                filters: [],
             },
-            live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
+            live: some({ version: 2n, page: { title: "Weekly export", cells: [], filters: [] } }),
         })],
         [{ project: "Ops console", page: "Ops board" }, variant("template", {
             title: "Ops board",
@@ -360,6 +366,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
                 { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
+            filters: [],
         })],
         [{ project: "Ops console", page: "Report brief" }, variant("template", {
             title: "Report brief",
@@ -368,6 +375,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
                 { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
             ],
+            filters: [],
         })],
         [{ project: "Ops console", page: "Summary" }, variant("template", {
             title: "Summary",
@@ -376,6 +384,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
+            filters: [],
         })],
         [{ project: "Finance portal", page: "Ledger" }, variant("page", {
             draft: {
@@ -383,6 +392,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 cells: [
                     { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -392,6 +402,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 cells: [
                     { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 1n,
@@ -400,6 +411,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     cells: [
                         { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -467,6 +479,7 @@ const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$,
         span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
         height: cell.height, align: cell.align, title: cell.title, content: cell.content,
     })),
+    filters: page.filters,
 }));
 
 /** The pages the conflicts example edits, as the builder's start, in a record of their own so no other example's edits meet them. */
@@ -581,6 +594,7 @@ export const studioContentPages = e3.record("studio_content_pages", Studio.Types
                     { key: "s-top", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: topRegions },
                     { key: "s-kpi", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: Studio.visual.component("kpi_rail") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -694,8 +708,8 @@ const visualCells = [
 export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.Pages, {
     initial: new SortedMap<Key, Entry>([
         [{ project: "Sales desk", page: "Visuals" }, variant("page", {
-            draft: { title: "Visuals", cells: visualCells },
-            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells } }),
+            draft: { title: "Visuals", cells: visualCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells, filters: [] } }),
         })],
     ], compareFor(Studio.Types.Key)),
     mutations: (mutation) => ({
@@ -744,8 +758,8 @@ const chartOptionCells = [
 export const studioChartOptionPages = e3.record("studio_chart_option_pages", Studio.Types.Pages, {
     initial: new SortedMap<Key, Entry>([
         [{ project: "Sales desk", page: "Chart options" }, variant("page", {
-            draft: { title: "Chart options", cells: chartOptionCells },
-            live: some({ version: 1n, page: { title: "Chart options", cells: chartOptionCells } }),
+            draft: { title: "Chart options", cells: chartOptionCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Chart options", cells: chartOptionCells, filters: [] } }),
         })],
     ], compareFor(Studio.Types.Key)),
     mutations: (mutation) => ({
@@ -819,12 +833,12 @@ const regionCells = [
 export const studioClickPages = e3.record("studio_click_pages", Studio.Types.Pages, {
     initial: new SortedMap<Key, Entry>([
         [{ project: "Sales desk", page: "Customers" }, variant("page", {
-            draft: { title: "Customers", cells: customerCells },
-            live: some({ version: 1n, page: { title: "Customers", cells: customerCells } }),
+            draft: { title: "Customers", cells: customerCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Customers", cells: customerCells, filters: [] } }),
         })],
         [{ project: "Sales desk", page: "Region orders" }, variant("page", {
-            draft: { title: "Region orders", cells: regionCells },
-            live: some({ version: 1n, page: { title: "Region orders", cells: regionCells } }),
+            draft: { title: "Region orders", cells: regionCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Region orders", cells: regionCells, filters: [] } }),
         })],
     ], compareFor(Studio.Types.Key)),
     mutations: (mutation) => ({

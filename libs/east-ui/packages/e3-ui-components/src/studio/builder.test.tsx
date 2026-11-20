@@ -317,7 +317,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         // Another operator's save lands between this Save's read and its commit: the Overview's trend removed.
         const stored = (await readRecord()).get(OVERVIEW)!;
         if (stored.type !== "page") throw new Error("expected a page");
-        const after: Entry = variant("page", { draft: { title: stored.value.draft.title, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
+        const after: Entry = variant("page", { draft: { ...stored.value.draft, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
         await h.race(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), withEntry(OVERVIEW, after));
         // The commit is refused, and the canvas, reading the page back, carries its drafts over to it: the tile it moved,
         // the other save removed — a conflict, and Save waits for it.
@@ -338,7 +338,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
             const stored = now.get(OVERVIEW)!;
             if (stored.type !== "page") throw new Error("expected a page");
             const cells = stored.value.draft.cells.map((cell) => (cell.key === "c-trend" ? { ...cell, align: variant("center", null) } : cell));
-            return withEntry(OVERVIEW, variant("page", { draft: { title: stored.value.draft.title, cells }, live: stored.value.live }))(now);
+            return withEntry(OVERVIEW, variant("page", { draft: { ...stored.value.draft, cells }, live: stored.value.live }))(now);
         });
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");

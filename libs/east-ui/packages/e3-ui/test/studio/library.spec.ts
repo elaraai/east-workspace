@@ -72,6 +72,7 @@ const PAGES = new SortedMap<Key, Entry>([
                 { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
                 { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
+            filters: [],
         },
         live: some({
             version: 2n,
@@ -82,6 +83,7 @@ const PAGES = new SortedMap<Key, Entry>([
                     { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
                     { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
         }),
     })],
@@ -91,12 +93,13 @@ const PAGES = new SortedMap<Key, Entry>([
             cells: [
                 { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
+            filters: [],
         },
         live: none,
     })],
     [{ project: "ops", page: "c-weekly" }, variant("page", {
-        draft: { title: "Weekly", cells: [] },
-        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [] } }),
+        draft: { title: "Weekly", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } }),
     })],
     [{ project: "ops", page: "t-summary" }, variant("template", {
         title: "Summary",
@@ -105,11 +108,12 @@ const PAGES = new SortedMap<Key, Entry>([
             { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
             { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
         ],
+        filters: [],
     })],
-    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [] })],
+    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [], filters: [] })],
     [{ project: "retail", page: "home" }, variant("page", {
-        draft: { title: "Home", cells: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [] } }),
+        draft: { title: "Home", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
     })],
 ], compareFor(StudioKeyType));
 

@@ -45,6 +45,12 @@
  *    `+ FILTER`, and a press held on `+ FILTER`'s very edge — the popover
  *    shutting under it — opens the new filter's editor where it stood. Shut,
  *    the chip says its first condition and how many more: `Region: SA +1`.
+ *  - F10 the page's starting filters — what every reader starts with — stand
+ *    on a rail of their own in the builder canvas's band, between its
+ *    selection bar and its grid: captioned before the rail, on the chip's
+ *    line; a 28px row with no border; each dataset's chips after its name; and
+ *    the canvas narrows by them. At every width the band holds the rail and
+ *    nothing scrolls sideways.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -53,12 +59,39 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, parseJq, variant, type ValueTypeOf } from "@elaraai/east";
+import { Studio } from "@elaraai/e3-ui";
+import * as studio from "@elaraai/e3-ui/examples/studio/studio";
+import { installE3Faults, mutateE3 } from "./e3-faults";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { openVisuals } from "./studio-visuals-page";
 
 /** The showcase's builder over a page of content, whose visuals read one source. */
 const BUILDER = "e3/studio/studio/studioContent";
+
+type Key = ValueTypeOf<typeof Studio.Types.Key>;
+type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
+
+/**
+ * Starts the builder's page's readers on a condition over the sales: its draft's one starting filter, as another
+ * session's save writes it, through its pages record's patch.
+ *
+ * @param page - The browser's page
+ * @param where - The condition, as jq over one sale
+ */
+async function writeStartingFilter(page: Page, where: string): Promise<void> {
+    const { type, name, default: seeded } = studio.studioContentPages;
+    if (seeded === undefined) throw new Error("the content pages are seeded");
+    const parsed = parseJq(where);
+    if (parsed.program.type === "none") throw new Error(`does not parse: ${where}`);
+    const filter = { key: "f-spec", source: "sales", where: parsed.program.value };
+    const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
+    const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => [
+        key, entry.type === "page" ? variant("page", { draft: { ...entry.value.draft, filters: [filter] }, live: entry.value.live }) : entry,
+    ]), compareFor(Studio.Types.Key));
+    await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
+}
 
 /** The page's first KPI's value: the quarter's revenue. */
 const revenue = (grid: Locator) => grid.locator('[data-snap-grid-cell="v-revenue"] [data-studio-kpi-value]');
@@ -346,7 +379,10 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const preview = builder.locator("[data-studio-preview]");
         await expect(preview).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        await expect(builder.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
+        // The toolbar — its Preview's row — holds no filter rail.
+        const toolbar = builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").first();
+        await expect(toolbar.locator("[data-studio-preview]")).toBeVisible();
+        await expect(toolbar.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
         await preview.click();
         const rail = builder.locator("[data-studio-publish] [data-publish-frame] [data-studio-filters]");
         await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
@@ -414,7 +450,10 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const bar = builder.locator("[data-studio-phone-bar]");
         await expect(bar).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        await expect(builder.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
+        // The toolbar — the phone's bar is its row — holds no filter rail.
+        const toolbar = builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").first();
+        await expect(toolbar.locator("[data-studio-phone-bar]")).toBeVisible();
+        await expect(toolbar.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
         await bar.locator("[data-studio-preview]").click();
         const rail = builder.locator("[data-publish-phone] [data-publish-frame=mobile] [data-studio-filters]");
         await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
@@ -436,5 +475,62 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             return { inside: box.left >= 0 && box.right <= document.documentElement.clientWidth, fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth };
         });
         expect(editor).toEqual({ inside: true, fits: true });
+    });
+
+    test("F10: the page's starting filters stand on a rail of their own in the builder canvas's band — captioned, a 28px row with no border, each dataset's chips after its name — and the canvas narrows by them; at every width the band holds them and nothing scrolls sideways (#1673)", async ({ page }) => {
+        // A page of its own: the record this test writes goes with it.
+        await installE3Faults(page);
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        const builder = await openBuilder(page);
+        const band = builder.locator("[data-snap-grid-head]");
+        const rail = band.locator("[data-studio-starting-filters]");
+        // The page's visuals read the sales: the rail stands, its + FILTER chip alone, and the top regions list every region.
+        await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
+        const regions = builder.locator('[data-snap-grid-tile="s-top"] [data-studio-list-row]');
+        await expect(regions).toHaveCount(3, { timeout: 60_000 });
+        // Its readers started on the North: the chip, and the canvas narrowed to the North alone.
+        await writeStartingFilter(page, `.region == "North"`);
+        await expect(rail.locator("[data-slice-clause]")).toHaveText("Region: North", { timeout: 30_000 });
+        await expect(regions).toHaveCount(1, { timeout: 60_000 });
+        await settled(page);
+        const measured = await band.evaluate((el) => {
+            const box = (node: Element) => node.getBoundingClientRect();
+            const mid = (r: DOMRect) => (r.top + r.bottom) / 2;
+            const starting = el.querySelector("[data-studio-starting-filters]")!;
+            const caption = starting.querySelector("[data-studio-starting-caption]")!;
+            const row = starting.querySelector("[data-slice-rail='studio-filters']")!;
+            const name = starting.querySelector("[data-slice-chip-group]")!;
+            const chip = starting.querySelector("[data-slice-clause]")!;
+            const look = getComputedStyle(row);
+            return {
+                order: [...el.parentElement!.children].map((child) => (child.hasAttribute("data-snap-grid-selection") ? "selection"
+                    : child === el ? "band" : child.querySelector("[data-snap-grid-canvas]") !== null ? "grid" : "?")),
+                caption: [caption.textContent, box(caption).right <= box(row).left, Math.abs(mid(box(caption)) - mid(box(chip))) <= 0.5],
+                row: [box(row).height, [look.borderTopWidth, look.borderBottomWidth, look.borderLeftWidth, look.borderRightWidth]],
+                named: [name.textContent, box(name).right <= box(chip).left],
+                inside: box(starting).left >= box(el).left && box(starting).right <= box(el).right,
+            };
+        });
+        expect(measured).toEqual({
+            order: ["selection", "band", "grid"],
+            caption: ["Starting filters", true, true],
+            row: [28, ["0px", "0px", "0px", "0px"]],
+            named: ["Sales", true],
+            inside: true,
+        });
+        for (const width of [1440, 1024, 900, 480, 390]) {
+            await page.setViewportSize({ width, height: 1000 });
+            await settled(page);
+            const held = await builder.evaluate((root) => {
+                const holder = root.querySelector("[data-snap-grid-head]");
+                const starting = holder?.querySelector("[data-studio-starting-filters]");
+                if (holder === null || holder === undefined || starting === null || starting === undefined) return "no rail";
+                const b = holder.getBoundingClientRect();
+                const s = starting.getBoundingClientRect();
+                const sideways = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+                return s.left >= b.left - 0.5 && s.right <= b.right + 0.5 && !sideways ? "held" : JSON.stringify({ band: [b.left, b.right], rail: [s.left, s.right], sideways });
+            });
+            expect(held, `at ${width}px`).toBe("held");
+        }
     });
 });

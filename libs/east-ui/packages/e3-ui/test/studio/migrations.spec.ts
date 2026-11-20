@@ -47,17 +47,18 @@ describe("Studio.migrations.cellContent (#1669)", () => {
             draft: { title: "Overview", cells: [before("c-kpi", "kpi_rail", 8n), before("c-trend", "revenue_trend", 4n)] },
             live: some({ version: 3n, page: { title: "Overview (v3)", cells: [before("c-kpi", "kpi_rail")] } }),
         }));
+        // Each layout starts with no starting filters (#1673).
         assert.deepEqual(carried, variant("page", {
-            draft: { title: "Overview", cells: [after("c-kpi", "kpi_rail", 8n), after("c-trend", "revenue_trend", 4n)] },
-            live: some({ version: 3n, page: { title: "Overview (v3)", cells: [after("c-kpi", "kpi_rail")] } }),
+            draft: { title: "Overview", cells: [after("c-kpi", "kpi_rail", 8n), after("c-trend", "revenue_trend", 4n)], filters: [] },
+            live: some({ version: 3n, page: { title: "Overview (v3)", cells: [after("c-kpi", "kpi_rail")], filters: [] } }),
         }));
     });
 
     test("a page never published keeps none live; a template and a page with no placements are carried", () => {
         assert.deepEqual(carry(KEY, variant("page", { draft: { title: "Blank", cells: [] }, live: none })),
-            variant("page", { draft: { title: "Blank", cells: [] }, live: none }));
+            variant("page", { draft: { title: "Blank", cells: [], filters: [] }, live: none }));
         assert.deepEqual(carry(KEY, variant("template", { title: "Starter", cells: [before("t-kpi", "kpi_rail")] })),
-            variant("template", { title: "Starter", cells: [after("t-kpi", "kpi_rail")] }));
+            variant("template", { title: "Starter", cells: [after("t-kpi", "kpi_rail")], filters: [] }));
     });
 
     test("it leaves the record as the type the Studio reads, so a solution lists it as its pages record's rows step", () => {
@@ -84,7 +85,7 @@ describe("Studio.migrations.cellContent (#1669)", () => {
         // The pages record's type as a release that adds a kind of content would declare it: this step still leaves the
         // type it shipped with, which is that type no longer.
         const WiderCell = StructType({ ...Studio.Types.Cell.fields, content: VariantType({ ...Studio.Types.Content.cases, embed: StringType }) });
-        const WiderPage = StructType({ title: StringType, cells: ArrayType(WiderCell) });
+        const WiderPage = StructType({ ...Studio.Types.Page.fields, cells: ArrayType(WiderCell) });
         const WiderEntry = VariantType({
             page: StructType({ draft: WiderPage, live: OptionType(StructType({ version: IntegerType, page: WiderPage })) }),
             template: WiderPage,

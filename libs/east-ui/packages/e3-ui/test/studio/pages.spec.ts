@@ -7,16 +7,17 @@
  * The Studio's pages (#992): each write is one patch of the one entry it
  * writes, and publish and revert are exact (R3); a write drafted on a stale
  * page no longer applies (R2); `Studio.changes` is exact for every layout edit
- * and a retitle (R5), and for a placement whose content changed (#1669); and
- * a page's status. Each surface's manifest (R4) is its own spec's.
+ * and a retitle (R5), for a placement whose content changed (#1669), and for
+ * the page's starting filters (#1673), which a template and a new page from it
+ * carry; and a page's status. Each surface's manifest (R4) is its own spec's.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    East, SortedMap, applyFor, compareFor, none, some, variant,
-    type ValueTypeOf,
+    East, SortedMap, applyFor, compareFor, none, parseJq, some, variant,
+    type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 
 import { Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui/internal";
@@ -41,6 +42,16 @@ const COMPONENTS = new Map([["kpi_rail", "KPI rail"], ["revenue_trend", "Revenue
 const changes = (before: Page, after: Page) => changesOf(before, after, SOURCES, COMPONENTS);
 const status = East.compile(Studio.status, []);
 
+/** A jq condition over one row, parsed. */
+function jq(text: string): JqNode {
+    const parsed = parseJq(text);
+    if (parsed.program.type === "none") assert.fail(`does not parse: ${text}`);
+    return parsed.program.value;
+}
+
+/** A starting filter on the orders: New South Wales's (#1673). */
+const NSW = { key: "f-nsw", source: "orders", where: jq(`.region == "NSW"`) };
+
 /** The Overview: a KPI rail alone on row 1, a chart and bars on row 2, three tiles on row 3. */
 const OVERVIEW: Page = {
     title: "Overview",
@@ -52,10 +63,11 @@ const OVERVIEW: Page = {
         { key: "c-spark", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
         { key: "c-roster", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
     ],
+    filters: [],
 };
 
-/** The Overview's draft once the KPI rail is taken off. */
-const EDITED: Page = { title: "Overview", cells: OVERVIEW.cells.slice(1) };
+/** The Overview's draft once the KPI rail is taken off, and its readers start on New South Wales. */
+const EDITED: Page = { title: "Overview", cells: OVERVIEW.cells.slice(1), filters: [NSW] };
 
 const OVERVIEW_KEY: Key = { project: "ops", page: "overview" };
 const TEMPLATE_KEY: Key = { project: "ops", page: "tpl-kpis" };
@@ -68,6 +80,7 @@ const PAGES = new SortedMap<Key, Entry>([
         cells: [
             { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
         ],
+        filters: [NSW],
     })],
 ], keys);
 
@@ -103,7 +116,7 @@ describe("Studio writes (#992)", () => {
         assert.throws(() => applyPages(first, stale), /Cannot apply/);
     });
 
-    test("a new page starts from a template's cells, or blank, with no live version, in one inserting patch", () => {
+    test("a new page starts from a template's cells and starting filters, or blank, with no live version, in one inserting patch", () => {
         const key: Key = { project: "ops", page: "detail" };
         const fromTemplate = newPage(PAGES, key, "Detail", some(TEMPLATE_KEY));
         if (fromTemplate.type !== "patch") assert.fail(`expected a patch by key, got ${fromTemplate.type}`);
@@ -114,22 +127,23 @@ describe("Studio writes (#992)", () => {
                 cells: [
                     { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
                 ],
+                filters: [NSW],
             },
             live: none,
         }));
-        assert.deepEqual(applyPages(PAGES, newPage(PAGES, key, "Blank", none)).get(key), variant("page", { draft: { title: "Blank", cells: [] }, live: none }));
+        assert.deepEqual(applyPages(PAGES, newPage(PAGES, key, "Blank", none)).get(key), variant("page", { draft: { title: "Blank", cells: [], filters: [] }, live: none }));
 
         assert.throws(() => newPage(PAGES, OVERVIEW_KEY, "Again", none), /already exists/);
         assert.throws(() => newPage(PAGES, key, "Detail", some(OVERVIEW_KEY)), /is a page, not a template/);
         assert.throws(() => newPage(PAGES, key, "Detail", some({ project: "ops", page: "gone" })), /No template/);
     });
 
-    test("save as template inserts a template of a page's draft, in one patch", () => {
+    test("save as template inserts a template of a page's draft — its placements and its starting filters — in one patch", () => {
         const key: Key = { project: "ops", page: "tpl-overview" };
         const patch = saveTemplate(SAVED, OVERVIEW_KEY, key, "Overview layout");
         if (patch.type !== "patch") assert.fail(`expected a patch by key, got ${patch.type}`);
         assert.deepEqual([...patch.value.entries()].map(([k, op]) => [k, op.type]), [[key, "insert"]]);
-        assert.deepEqual(applyPages(SAVED, patch).get(key), variant("template", { title: "Overview layout", cells: EDITED.cells }));
+        assert.deepEqual(applyPages(SAVED, patch).get(key), variant("template", { title: "Overview layout", cells: EDITED.cells, filters: [NSW] }));
 
         assert.throws(() => saveTemplate(PAGES, OVERVIEW_KEY, TEMPLATE_KEY, "Taken"), /already exists/);
         assert.throws(() => saveTemplate(PAGES, TEMPLATE_KEY, key, "From a template"), /is a template, not a page/);
@@ -210,6 +224,24 @@ describe("Studio.changes (#992, R5)", () => {
     });
 });
 
+describe("Studio.changes — a page's starting filters (#1673)", () => {
+    const SA = { key: "f-sa", source: "orders", where: jq(`.region == "SA"`) };
+
+    test("starting filters added or taken off say how many the page starts with, before any placement's change", () => {
+        const [kpi, trend, bars, orders, spark, roster] = OVERVIEW.cells;
+        assert.deepEqual(changes(OVERVIEW, { ...OVERVIEW, filters: [NSW, SA] }), [variant("filters", { detail: "0 → 2" })]);
+        assert.deepEqual(changes({ ...OVERVIEW, filters: [NSW, SA] }, { ...OVERVIEW, filters: [SA] }), [variant("filters", { detail: "2 → 1" })]);
+        assert.deepEqual(changes(OVERVIEW, { ...OVERVIEW, cells: [kpi!, { ...trend!, span: 6n }, bars!, orders!, spark!, roster!], filters: [NSW] }).map((change) => change.type),
+            ["filters", "resized"]);
+    });
+
+    test("as many, one in place of another — or the same condition as another filter — say they changed; the same filters, nothing", () => {
+        assert.deepEqual(changes({ ...OVERVIEW, filters: [NSW] }, { ...OVERVIEW, filters: [SA] }), [variant("filters", { detail: "changed" })]);
+        assert.deepEqual(changes({ ...OVERVIEW, filters: [NSW] }, { ...OVERVIEW, filters: [{ ...NSW, key: "f-nsw-2" }] }), [variant("filters", { detail: "changed" })]);
+        assert.deepEqual(changes({ ...OVERVIEW, filters: [NSW, SA] }, { ...OVERVIEW, filters: [NSW, SA] }), []);
+    });
+});
+
 describe("Studio.changes — a placement's content (#1669)", () => {
     const column = Studio.visual.of("orders", Studio.visual.column({
         x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")],
@@ -217,12 +249,15 @@ describe("Studio.changes — a placement's content (#1669)", () => {
     const at = (content: Page["cells"][number]["content"]): Page => ({
         title: "Board",
         cells: [{ key: "c-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content }],
+        filters: [],
     });
     const configured = (before: Page["cells"][number]["content"], after: Page["cells"][number]["content"]) => {
         const listed = changes(at(before), at(after));
-        assert.deepEqual(listed.map((change) => [change.type, change.value.cell]), [["configured", "c-1"]]);
-        assert.deepEqual(listed[0]!.value.content, after, "the change holds the content it has now");
-        return listed[0]!.value.detail;
+        const only = listed[0];
+        if (listed.length !== 1 || only?.type !== "configured") assert.fail(`expected one configured change, got ${listed.map((change) => change.type).join(", ")}`);
+        assert.equal(only.value.cell, "c-1");
+        assert.deepEqual(only.value.content, after, "the change holds the content it has now");
+        return only.value.detail;
     };
 
     test("a visual's source, its view and how many values it holds each say what changed, joined when several did", () => {

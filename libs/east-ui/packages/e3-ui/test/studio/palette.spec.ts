@@ -48,21 +48,21 @@ const aNote = Studio.visual.text("Figures are to last night.");
 /** The record: the Overview live, the Weekly drafted past its live version, the Detail never published, a template, and another project's page. */
 const PAGES = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "a-overview" }, variant("page", {
-        draft: { title: "Overview", cells: [] },
-        live: some({ version: 2n, page: { title: "Overview", cells: [] } }),
+        draft: { title: "Overview", cells: [], filters: [] },
+        live: some({ version: 2n, page: { title: "Overview", cells: [], filters: [] } }),
     })],
     [{ project: "ops", page: "b-weekly" }, variant("page", {
-        draft: { title: "Weekly figures", cells: [] },
-        live: some({ version: 1n, page: { title: "Weekly", cells: [] } }),
+        draft: { title: "Weekly figures", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Weekly", cells: [], filters: [] } }),
     })],
     [{ project: "ops", page: "c-detail" }, variant("page", {
-        draft: { title: "Detail", cells: [] },
+        draft: { title: "Detail", cells: [], filters: [] },
         live: none,
     })],
-    [{ project: "ops", page: "d-starter" }, variant("template", { title: "Starter", cells: [] })],
+    [{ project: "ops", page: "d-starter" }, variant("template", { title: "Starter", cells: [], filters: [] })],
     [{ project: "retail", page: "home" }, variant("page", {
-        draft: { title: "Home", cells: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [] } }),
+        draft: { title: "Home", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
     })],
 ], compareFor(StudioKeyType));
 

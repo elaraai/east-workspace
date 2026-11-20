@@ -17,14 +17,18 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { none, printJq, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, none, printJq, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { decodeBeast2For } from "@elaraai/east/internal";
-import { Studio, StudioFiltersType, StudioSourceType, studioFiltersKey } from "@elaraai/e3-ui/internal";
+import { Studio, StudioFiltersType, StudioKeyType, StudioSourceType, studioFiltersKey } from "@elaraai/e3-ui/internal";
 import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { act } from "../e3-web-mount.test-utils.js";
+import { startingOf } from "../query/visual/filters.js";
+import { condition } from "../query/visual/visual.test-utils.js";
 import { PAGE, SOURCE, cell, page, sized, tileHarness } from "./tile.test-utils.js";
+
+const keyEqual = equalFor(StudioKeyType);
 
 tileHarness();
 
@@ -225,6 +229,19 @@ describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
         await click(rowOf(container, "SA"));
         expect(opened).toEqual([detail, detail]);
         expect(filtersOf(detail)).toEqual([["orders", `.region == "SA"`, undefined]]);
+    });
+
+    test("opens a page its reader holds no filters of from its starting filters: they stand, and on the clicked group's source the group takes their place (#1673)", async () => {
+        const detail = { project: "Sales desk", page: "Region detail" };
+        const starting = startingOf([
+            { key: "f-big", source: "orders", where: condition(".revenue > 10") },
+            { key: "f-running", source: "assets", where: condition(".running") },
+        ]);
+        const { container } = await page([cell("c-regions", regions({ click: variant("open", detail) }))], undefined, () => {},
+            (key) => (keyEqual(key, detail) ? starting : []));
+        await waitFor(() => expect(rows(container)).toHaveLength(2));
+        await click(rowOf(container, "NSW"));
+        expect(filtersOf(detail)).toEqual([["assets", ".running", undefined], ["orders", `.region == "NSW"`, undefined]]);
     });
 
     test("a click that opens a page no host is told of, and one that does nothing, make no button of a row", async () => {

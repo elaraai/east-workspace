@@ -166,7 +166,7 @@ async function writePage(page: Page, cells: Cells): Promise<void> {
     const { type, name, default: seeded } = studio.studioVisualPages;
     if (seeded === undefined) throw new Error("the visuals' pages are seeded");
     const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
-    const written = { title: "Tiles", cells };
+    const written = { title: "Tiles", cells, filters: [] };
     const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => [
         key, entry.type === "page" ? variant("page", { draft: written, live: some({ version: 2n, page: written }) }) : entry,
     ]), compareFor(Studio.Types.Key));

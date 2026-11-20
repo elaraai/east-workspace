@@ -6,7 +6,8 @@
 /**
  * @vitest-environment jsdom
  *
- * A page's filters' rules (`filters.ts`, #1673): adding, changing, removing
+ * A page's filters' rules (`filters.ts`, #1673): the page's starting filters
+ * as a reader's; adding, changing, removing
  * and clearing; which apply to a source — for a visual, all but the one its
  * own click made, whose groups it marks; the one condition a visual of a
  * source prints them as — which narrows its program as each filter would;
@@ -26,7 +27,7 @@ import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../model/words.js";
 import {
     addFilter, changeFilter, clearFilters, filterChip, filterQuery, filterWords, filtersOn, markedBy, ownFilterAt, pageRange, printStateOf, removeFilter, selectOf,
-    whereOf,
+    readerFilters, startingOf, whereOf,
     type PageFilter,
 } from "./filters.js";
 import { printVisual } from "./print.js";
@@ -41,6 +42,27 @@ const SA = on("orders", `.region == "SA"`);
 const EXPORT = on("orders", ".export");
 const RUNNING = on("assets", ".running");
 const PAGE = [SA, RUNNING, EXPORT];
+
+describe("a page's starting filters, as a reader's (#1673)", () => {
+    it("are each on its source, by its condition, in their order — made by no visual's click, so every visual of the source narrows by it", () => {
+        const starting = [
+            { key: "f-sa", source: "orders", where: condition(`.region == "SA"`) },
+            { key: "f-running", source: "assets", where: condition(".running") },
+        ];
+        const held = startingOf(starting);
+        expect(said(held)).toEqual([`orders: .region == "SA"`, "assets: .running"]);
+        expect(held.map((filter) => filter.from)).toEqual([none, none]);
+        expect(said(filtersOn(held, "orders", "c-regions"))).toEqual([`orders: .region == "SA"`]);
+        expect(startingOf([])).toEqual([]);
+    });
+
+    it("are a reader's until they hold filters of their own — none, once they cleared them", () => {
+        const starting = startingOf([{ key: "f-sa", source: "orders", where: condition(`.region == "SA"`) }]);
+        expect(said(readerFilters(undefined, starting))).toEqual([`orders: .region == "SA"`]);
+        expect(said(readerFilters([RUNNING], starting))).toEqual(["assets: .running"]);
+        expect(readerFilters([], starting)).toEqual([]);
+    });
+});
 
 describe("a page's filters, edited", () => {
     it("adds a filter after the rest", () => {
