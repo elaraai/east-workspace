@@ -78,6 +78,7 @@ export const studioMessages: StudioMessages = {
     clearStartingFilters: () => "Clear starting filters",
     filtersSet: ({ n, count }) => (n === 0 ? "No filters" : n === 1 ? "1 filter" : `${count} filters`),
     filterOf: ({ source }) => `Filter · ${source}`,
+    addFilterOf: ({ source }) => `Add filter · ${source}`,
     filterSource: () => "Source",
     filterSourceGone: ({ source }) => `This page no longer lists ${source}. Remove the filter.`,
     ownFilter: () => "Filter",

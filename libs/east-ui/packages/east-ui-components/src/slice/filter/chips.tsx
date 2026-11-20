@@ -120,6 +120,8 @@ export interface SliceFilterChipsProps {
     readonly onClear: () => void;
     /** A new filter's editor, drawn while it is open; `close` puts it away. */
     readonly add: (close: () => void) => ReactNode;
+    /** What a new filter's editor is called — the dataset it filters, say (#1673): `Add filter` when omitted. */
+    readonly addLabel?: string | undefined;
     /** Whether it opens with a new filter's editor showing. */
     readonly seedOpen?: boolean | undefined;
     /** Saving the filters as a set, offered inside `+N more` while there are two or more; none unless given. */
@@ -133,10 +135,10 @@ export interface SliceFilterChipsProps {
 /**
  * A row of filter chips — see the module docs.
  *
- * @param props - The filters, the density, how many fold, what removing, clearing and adding do, and the groups' order
+ * @param props - The filters, the density, how many fold, what removing, clearing and adding do, a new filter's editor's name, and the groups' order
  * @returns The row
  */
-export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, seedOpen = false, save, live = false, groups }: SliceFilterChipsProps) {
+export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, addLabel, seedOpen = false, save, live = false, groups }: SliceFilterChipsProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
@@ -264,7 +266,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         <SliceEditPopover
             open={open === "add"}
             onOpenChange={o => setOpen(o ? "add" : null)}
-            label="Add filter"
+            label={addLabel ?? "Add filter"}
             size="lg"
             footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Done</chakra.button>}
             trigger={

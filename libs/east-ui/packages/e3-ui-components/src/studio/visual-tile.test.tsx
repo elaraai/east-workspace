@@ -344,6 +344,32 @@ describe("a KPI's tile (#1671)", () => {
         expect([...container.querySelectorAll("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.getAttribute("data-slice-clause"))).toEqual(["1", "2", "0"]);
     });
 
+    test("a new filter's editor names the dataset it will be on: over the page's one, `Add filter · Orders` (#1673)", async () => {
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
+        await waitFor(() => expect(container.querySelector("[data-studio-filters] [data-slice-add=filter]")).not.toBeNull());
+        await act(async () => { fireEvent.click(container.querySelector<HTMLElement>("[data-studio-filters] [data-slice-add=filter]")!); });
+        expect(await screen.findByText("Add filter · Orders")).toBeTruthy();
+        // One dataset, no choice of them.
+        expect(document.querySelector("[data-studio-filter-source]")).toBeNull();
+    });
+
+    test("over two datasets a new filter's editor is `Add filter`, its choice of them heading it and naming the one picked (#1673)", async () => {
+        const returns: ValueTypeOf<typeof StudioSourceType> = { ...SOURCE, key: "returns", name: "Returns", binding: { ...SOURCE.binding, name: "returns" } };
+        const { container } = await page([
+            cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
+            cell("c2", v.of("returns", v.kpi({ value: v.count() }))),
+        ], [SOURCE, returns]);
+        await waitFor(() => expect(container.querySelector("[data-studio-filters] [data-slice-add=filter]")).not.toBeNull());
+        await act(async () => { fireEvent.click(container.querySelector<HTMLElement>("[data-studio-filters] [data-slice-add=filter]")!); });
+        expect(await screen.findByText("Add filter")).toBeTruthy();
+        const choice = await waitFor(() => {
+            const held = document.querySelector<HTMLElement>("[data-studio-filter-source]");
+            expect(held).not.toBeNull();
+            return held!;
+        });
+        expect([...choice.querySelectorAll("button")].map((b) => [b.textContent?.trim(), b.getAttribute("aria-pressed")])).toEqual([["Orders", "true"], ["Returns", "false"]]);
+    });
+
     test("a page whose placements read no source has no rail (#1673)", async () => {
         const { container } = await page([cell("c1", v.text("Notes"))]);
         expect(container.querySelector("[data-studio-filters]")).toBeNull();

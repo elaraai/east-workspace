@@ -156,10 +156,14 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
         };
     });
     // Each finished condition is the page's at once: the popovers say no Done or Cancel. The datasets in the surface's order.
+    // A new filter's editor names the dataset it will be on, as a chip's names its own; where the page reads several, its
+    // choice of them heads the editor and names the one picked.
+    const only = sources.length === 1 ? sources[0] : undefined;
     return (
         <SliceFilterChips chips={chips} density={density} foldChips={foldChips} live groups={sources.map((held) => held.source.key)}
             onRemove={(i) => page.remove(i)} onClear={() => page.clear()}
-            add={() => <NewFilter sources={sources} page={page} />} />
+            add={() => <NewFilter sources={sources} page={page} />}
+            addLabel={only === undefined ? undefined : m.addFilterOf({ source: only.source.name })} />
     );
 }
 
