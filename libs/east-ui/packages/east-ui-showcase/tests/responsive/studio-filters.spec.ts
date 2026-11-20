@@ -56,6 +56,13 @@
  *    line; a 28px row with no border; each dataset's chips after its name; and
  *    the canvas narrows by them. At every width the band holds the rail and
  *    nothing scrolls sideways.
+ *  - F11 over a page whose visuals read two datasets, a new filter's editor
+ *    is `Add filter`, a choice of them heading it: the datasets in the order
+ *    the surface lists them, the first picked, each the shared choice chip
+ *    at its own height, as Slice's editors draw their choices (28px is a
+ *    toolbar row's alone), between the head and the rows on the rows' edge.
+ *    Another picked, the rows start again over its fields. The filter is that
+ *    dataset's — its chip after its name — and its visuals alone narrow.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -72,7 +79,7 @@ import { test } from "./kept-page";
 import { settled } from "./settle";
 import { openVisuals } from "./studio-visuals-page";
 
-/** The showcase's builder over a page of content, whose visuals read one source. */
+/** The showcase's builder over a page of content, whose visuals read two sources: the sales and the returns. */
 const BUILDER = "e3/studio/studio/studioContent";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
@@ -549,5 +556,69 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             });
             expect(held, `at ${width}px`).toBe("held");
         }
+    });
+
+    test("F11: over the page's two datasets a new filter's editor is Add filter, a choice of them heading it — the surface's order, the first picked, each the shared choice chip at its own height, on the rows' edge — and the rows start again over the one picked; the filter is that dataset's, its chip after its name, and its visuals alone narrow (#1673)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        const builder = await openBuilder(page);
+        const rail = builder.locator("[data-snap-grid-head] [data-studio-starting-filters]");
+        await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
+        // The visuals over both datasets drawn: the regions' list over the sales, the items returned over the returns.
+        const regions = builder.locator('[data-snap-grid-tile="s-top"] [data-studio-list-row]');
+        const returned = builder.locator('[data-snap-grid-tile="s-returned"] [data-studio-kpi-value]');
+        await expect(regions).toHaveCount(3, { timeout: 60_000 });
+        await expect(returned).toHaveText("218", { timeout: 60_000 });
+        await railOnTop(page, rail);
+        await rail.locator("[data-slice-add=filter]").click();
+        const choice = page.locator("[data-studio-filter-source]");
+        const chooser = page.locator("[data-studio-filter-rows] [data-chooser]");
+        await expect(choice).toBeVisible();
+        await expect(chooser).toBeVisible();
+        await settled(page);
+        /**
+         * The editor as drawn: its head's words; the choice's chips, each its name, whether it is picked and its height;
+         * whether the picked one's fill is not the others'; whether the choice stands between the head and the rows, on
+         * the rows' edge; and how many fields the rows offer.
+         */
+        const editor = () => choice.evaluate((el) => {
+            const content = el.closest("[data-scope='popover'][data-part='content']")!;
+            const head = content.querySelector("button[aria-label='Close']")!.parentElement!;
+            const rows = content.querySelector("[data-studio-filter-rows]")!.getBoundingClientRect();
+            const box = el.getBoundingClientRect();
+            const chips = [...el.querySelectorAll("button")];
+            const fills = chips.map((chip) => [chip.getAttribute("aria-pressed"), getComputedStyle(chip).backgroundColor]);
+            return {
+                head: head.querySelector("span")!.textContent,
+                chips: chips.map((chip) => [chip.textContent!.trim(), chip.getAttribute("aria-pressed"), chip.getBoundingClientRect().height]),
+                picked: fills.filter(([pressed]) => pressed === "true").every(([, fill]) => fills.every(([other, its]) => other === "true" || its !== fill)),
+                between: box.top >= head.getBoundingClientRect().bottom && box.bottom <= rows.top,
+                edge: Math.abs(box.left - rows.left) <= 0.5,
+                fields: content.querySelectorAll("[data-chooser] [role=option]").length,
+            };
+        });
+        // The sales first, as the surface lists them, and picked: the rows over their three fields. Each chip the shared
+        // choice chip at its own height, as Slice's editors draw their choices — its 11.5px mono line, 4px of padding and its
+        // edge; only a toolbar row stands a chip 28px tall (the chip recipe).
+        expect(await editor()).toEqual({
+            head: "Add filter", chips: [["Sales", "true", 21.5], ["Returns", "false", 21.5]], picked: true, between: true, edge: true, fields: 3,
+        });
+        // The returns picked: the rows start again over their five fields.
+        await choice.getByRole("button", { name: "Returns" }).click();
+        await expect(chooser.locator("[role=option]")).toHaveCount(5);
+        await settled(page);
+        expect(await editor()).toEqual({
+            head: "Add filter", chips: [["Sales", "false", 21.5], ["Returns", "true", 21.5]], picked: true, between: true, edge: true, fields: 5,
+        });
+        await chooser.locator("[role=option]", { hasText: "reason" }).first().click();
+        await expect(chooser.locator("[role=option]", { hasText: "Damaged" }).first()).toBeVisible({ timeout: 20_000 });
+        await chooser.locator("[role=option]", { hasText: "Damaged" }).first().click();
+        await expect(chooser).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        // The returns' filter: its chip after their name, said once; their visuals narrow to the damaged, the sales' do not.
+        await expect(rail.locator("[data-slice-clause]")).toHaveText("Reason: Damaged");
+        await expect(rail.locator("[data-slice-chip-group]")).toHaveText(["Returns"]);
+        await expect(returned).toHaveText("87", { timeout: 60_000 });
+        await expect(builder.locator('[data-snap-grid-tile="s-reasons"] rect.visx-bar')).toHaveCount(1);
+        await expect(regions).toHaveCount(3);
     });
 });

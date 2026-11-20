@@ -88,15 +88,17 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         expect(tile(container, "n-kpi").textContent).toContain("KPIs");
     });
 
-    test("the content example (studioContent): a text block, two visuals over the listed sales — one under its own title — and a component, on the canvas of a record that declares the migration step", async () => {
+    test("the content example (studioContent): a text block, two visuals over the listed sales — one under its own title — a component, and two visuals over the listed returns, on the canvas of a record that declares the migration step", async () => {
         const { container } = await h.mount(ex.studioContent, { storageKey: "studio-content" });
         await settle();
         await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="s-note"]')).not.toBeNull());
-        expect([...container.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual(["s-note", "s-revenue", "s-top", "s-kpi"]);
+        expect([...container.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual([
+            "s-note", "s-revenue", "s-top", "s-kpi", "s-reasons", "s-returned",
+        ]);
         expect(textIn(tile(container, "s-note"))).toEqual(["About these numbers", "Figures are to last night's close.", "Revenue is in US dollars, before returns."]);
         // Each visual's eyebrow names it (#1671, TIL-1): its own title, else a name made from its wells.
         const named = (key: string) => tile(container, key).querySelector("[data-studio-visual-name]")!.textContent;
-        expect([named("s-revenue"), named("s-top")]).toEqual(["Revenue by region", "Regions"]);
+        expect(["s-revenue", "s-top", "s-reasons", "s-returned"].map(named)).toEqual(["Revenue by region", "Regions", "Refunds by reason", "Items returned"]);
         await select(container, "s-revenue");
         expect(inspector(container).querySelector("[data-inspector-name]")!.textContent).toBe("Revenue by region");
     });
