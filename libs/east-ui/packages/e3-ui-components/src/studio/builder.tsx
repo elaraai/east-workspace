@@ -39,7 +39,9 @@
  *   order they were made, and Save sends each its own patch (`saveFilters`,
  *   `saveCells`).
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
- *   place while it shows. The canvas stays mounted, so its drafts stay its own,
+ *   place while it shows: Preview opens it on the page, its rail's change
+ *   list shut, and Publish on what changed, the list shown over the rail's
+ *   row. The canvas stays mounted, so its drafts stay its own,
  *   and it applies them when the preview asks before it publishes. The preview
  *   is the page as its readers see it — the rail of their filters over its
  *   grid, its clicks running — the reader's filters this browser holds of it,
@@ -231,10 +233,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [applying, setApplying] = useState<ApplyState>(variant("idle", null));
     const [drafted, setDrafted] = useState<{ page: string; cells: readonly Cell[] } | undefined>(undefined);
     const [previewing, setPreviewing] = useState(false);
-    // A phone's frame: the builder's own width, its open preview tab, what is being placed, and its panes' views.
+    // A phone's frame: the builder's own width, what is being placed, and its panes' views.
     const widthRef = useRef<HTMLDivElement | null>(null);
     const width = useContainerWidth(widthRef);
     const phone = width > 0 && width <= NARROW_FRAME;
+    // What the preview shows with the page — the page alone, or what changed — as Preview or Publish opened it.
     const [previewTab, setPreviewTab] = useState<"page" | "changes">("page");
     const [placing, setPlacing] = useState<SnapGridPlacing | undefined>(undefined);
     const [collapsed, setCollapsed] = useState({ start: false, end: false });
@@ -785,11 +788,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                     a click opens is the builder's to show, as its Pages tab opens one — each page starting on its
                     starting filters. */}
                 {previewing && preview !== undefined && (
-                    <StudioPublishPreview value={preview}
+                    <StudioPublishPreview value={preview} tab={previewTab} onTab={setPreviewTab}
                         page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother}
                             startsWith={previewStartsWith} />}
                         phone={!phone ? undefined : {
-                            tab: previewTab, onTab: setPreviewTab, width,
+                            width,
                             tiles: cells.map((cell) => ({
                                 key: cell.key, row: cell.row, span: Number(cell.span),
                                 name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
