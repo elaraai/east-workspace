@@ -78,6 +78,20 @@ async function openBuilder(page: Page): Promise<Locator> {
 }
 
 /**
+ * Scrolls the showcase's list of examples so a page's rail stands at the top of its view — where a reader's page holds
+ * it, under the page's head, with the screen's room below — before a test opens a filter's editor from it. The list
+ * leaves the page wherever its scroll stood: after a fresh page's first paint, or a kept page's last test, the rail
+ * stood anywhere from the screen's top to its last quarter, and an editor opened there had a quarter of the room.
+ *
+ * @param page - The browser's page
+ * @param rail - The page's rail
+ */
+async function railOnTop(page: Page, rail: Locator): Promise<void> {
+    await rail.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    await settled(page);
+}
+
+/**
  * A rail at rest, over the grid it narrows: its height, how far above the grid
  * it stands and whether it starts where the grid does, its borders, its chips,
  * and its `+ FILTER` chip's height and whether it stands after the rail's icon.
@@ -113,6 +127,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
         const all = await revenue(grid).textContent();
+        await railOnTop(page, rail);
         await rail.locator("[data-slice-add=filter]").click();
         const rows = page.locator("[data-studio-filter-rows]");
         await expect(rows).toBeVisible();
@@ -188,6 +203,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        await railOnTop(page, rail);
         await rail.locator("[data-slice-add=filter]").click();
         const rows = page.locator("[data-studio-filter-rows]");
         const chooser = rows.locator("[data-chooser]");
@@ -277,6 +293,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await chooser.locator("[role=option]", { hasText: value }).first().click();
             await expect(chooser).toHaveCount(0);
         };
+        await railOnTop(page, rail);
         await rail.locator("[data-slice-add=filter]").click();
         await pick("region", "SA");
         await page.keyboard.press("Escape");
