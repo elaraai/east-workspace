@@ -15,7 +15,11 @@
  * (#1229), the status, the history item last — so whatever a narrower frame
  * folds is the ladder's first steps (B8). Preview
  * opens the publish preview in the canvas's place: its 44px bar across the
- * frame and its 320px aside (E1, E3); the page on its panel, 24 / 28px in, at
+ * frame, and its publish panel a rail along its foot, across the frame, the
+ * page over it the frame's whole width — opened by Preview its change list
+ * shut, the rail its one row under its rule; its toggle shows the list over
+ * the row and shuts it, and a narrower frame wraps the row, never wider than
+ * the frame (E1, E3, ruled 20 November 2026); the page on its panel, 24 / 28px in, at
  * most each device's width — Desktop and Tablet laying the page out at its
  * declared spans, Mobile stacking its placements in row order at 390px (E2).
  * The canvas's Mobile does as the preview's: the canvas 390px wide, every tile
@@ -172,15 +176,52 @@ test.describe("Studio builder (#1000)", () => {
         }
     });
 
-    test("E1, E3: the preview's bar is 44px tall across the frame; the aside is 320px wide beside the page, at the frame's edge", async ({ page }) => {
+    test("E1, E3: the preview's bar is 44px tall across the frame; its publish panel is a rail along its foot, across the frame, the page over it the frame's whole width — opened by Preview, its change list shut; its toggle shows the list over its row, and shuts it", async ({ page }) => {
         const preview = await openPreview(page);
-        await expect.poll(() => preview.evaluate((root) => {
+        /** The bar, the page's panel and the rail, each against the frame: its width, whether it starts at the frame's edge, its height; and the rail's change list. */
+        const read = () => preview.evaluate((root) => {
             const r = root.getBoundingClientRect();
             const bar = root.querySelector("[data-publish-bar]")!.getBoundingClientRect();
-            const aside = root.querySelector("[data-publish-aside]")!.getBoundingClientRect();
-            return { bar: [Math.round(bar.height), Math.round(bar.width)], aside: Math.round(aside.width), asideAtRight: Math.round(r.right - aside.right) };
-        })).toEqual({ bar: [44, 1440], aside: 320, asideAtRight: 0 });
+            const main = root.querySelector("[data-publish-main]")!.getBoundingClientRect();
+            const railEl = root.querySelector("[data-publish-rail]")!;
+            const rail = railEl.getBoundingClientRect();
+            const rule = Number.parseFloat(getComputedStyle(railEl).borderTopWidth);
+            const row = root.querySelector("[data-publish-rail-row]")!.getBoundingClientRect();
+            const list = root.querySelector<HTMLElement>("[data-publish-changes]")!;
+            const shown = list.getBoundingClientRect();
+            return {
+                bar: [Math.round(bar.height), Math.round(bar.width)],
+                main: [Math.round(main.width), main.left === r.left, Math.round(rail.top - main.bottom)],
+                rail: [Math.round(rail.width), rail.left === r.left, Math.round(r.bottom - rail.bottom)],
+                // Shut, the list is hidden; shown, it stands over the row, inside the rail.
+                list: list.hidden ? "shut" : shown.bottom <= row.top + 0.5 && shown.top >= rail.top - 0.5 ? "over the row" : JSON.stringify([shown.top, shown.bottom, row.top]),
+                // The rail holds its row alone, under its rule.
+                railIsRow: Math.abs(row.bottom - rail.bottom) <= 0.5 && Math.abs(row.top - (rail.top + rule)) <= 0.5,
+                fits: root.scrollWidth <= root.clientWidth,
+            };
+        });
+        await expect.poll(read).toEqual({
+            bar: [44, 1440], main: [1440, true, 0], rail: [1440, true, 0], list: "shut", railIsRow: true, fits: true,
+        });
+        const toggle = preview.locator("[data-publish-toggle]");
+        await expect(toggle).toHaveAttribute("aria-expanded", "false");
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-expanded", "true");
+        await settled(page);
+        const open = await read();
+        expect([open.list, open.railIsRow, open.main, open.rail]).toEqual(["over the row", false, [1440, true, 0], [1440, true, 0]]);
+        await toggle.click();
+        await expect.poll(async () => (await read()).list).toBe("shut");
+        // Narrower, the rail's row stands inside the frame, nothing scrolled sideways.
+        for (const width of [1000, 760]) {
+            await preview.evaluate((root, w) => { (root.closest("[data-studio-builder]") as HTMLElement).style.width = `${w}px`; }, width);
+            await settled(page);
+            const at = await read();
+            expect([at.rail[0], at.rail[2], at.fits], `at ${width}px`).toEqual([width, 0, true]);
+        }
         // Its device, its environment and Exit, their words on whole pixels (#1646's review).
+        await preview.evaluate((root) => { (root.closest("[data-studio-builder]") as HTMLElement).style.width = "1440px"; });
+        await settled(page);
         await expectWholeBoxWords(preview.locator("[data-publish-bar]"), "the preview's bar");
     });
 

@@ -8,9 +8,9 @@
  * what changed since its live version, and the actions that publish it,
  * computed in East for the `StudioBuilder` renderer, which draws the preview
  * in the canvas's place: its bar — "● Preview", the device widths, the
- * environment and Exit — the page at the device's width, and the aside: what
- * changed since the live version, who sees it and when, and Save as draft and
- * Publish. The page it shows is
+ * environment and Exit — the page at the device's width, and the rail along
+ * its foot: where the page stands, what changed since the live version, who
+ * sees it and when, and Save as draft and Publish. The page it shows is
  * the one that publishes, the canvas's unsaved drafts in place, and it has the
  * canvas apply them before it publishes, so the canvas stays the only writer
  * of its drafts.
@@ -66,7 +66,7 @@ export const PublishChangeType = StructType({
 export type PublishChangeType = typeof PublishChangeType;
 
 /**
- * Where the open entry stands, as the preview's aside says it.
+ * Where the open entry stands, as the preview's rail says it.
  *
  * @property ready - Something to publish: a page never published, or one whose layout changed since its live version
  * @property current - Up to date: published, its layout as it went live
@@ -100,7 +100,7 @@ export const PublishSummaryType = StructType({
 export type PublishSummaryType = typeof PublishSummaryType;
 
 /**
- * The publish preview, as the `StudioBuilder` renderer draws it — beside the
+ * The publish preview, as the `StudioBuilder` renderer draws it — with the
  * page as it will publish, which the builder draws.
  *
  * @property project - The project — the page's eyebrow

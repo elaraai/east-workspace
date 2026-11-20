@@ -6,9 +6,11 @@
  *
  * `<Studio.Builder>` rendered (#1000), publishing: Save as template (D7,
  * #997); the publish preview (#998), in the canvas's place — its bar (E1), the
- * page (E2), the aside (E3, E5), every mark in it Font Awesome's (#1263), and
- * the footer (E6); and the conflicts example, a save another session's
- * overtakes. The record and the builders are `builder.test-utils.tsx`'s.
+ * page (E2), the rail along its foot (E3, E5) — its change list shut or shown
+ * by its toggle, Preview opening it shut and Publish shown (ruled 20 November
+ * 2026) — every mark in it Font Awesome's (#1263), and its actions (E6); and
+ * the conflicts example, a save another session's overtakes. The record and
+ * the builders are `builder.test-utils.tsx`'s.
  */
 
 import { describe, test, expect } from "vitest";
@@ -169,6 +171,24 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(saveButton(container).disabled).toBe(true);
     });
 
+    test("E3: the rail — Preview opens it on the page, its change list shut under the toggle that names it; the toggle shows the list and shuts it; Publish opens it on what changed", async () => {
+        const { container } = await mountBuilder();
+        await previewPage("f-regional");
+        const toggle = () => part(container, "toggle")!;
+        const list = () => part(container, "changes")!;
+        expect([markOf(toggle()), toggle().getAttribute("aria-expanded"), toggle().getAttribute("aria-controls") === list().id, list().hidden])
+            .toEqual(["fas chevron-up 2 changes since v3", "false", true, true]);
+        await act(async () => { fireEvent.click(toggle()); });
+        expect([markOf(toggle()), toggle().getAttribute("aria-expanded"), list().hidden]).toEqual(["fas chevron-down 2 changes since v3", "true", false]);
+        await act(async () => { fireEvent.click(toggle()); });
+        expect([toggle().getAttribute("aria-expanded"), list().hidden]).toEqual(["false", true]);
+        // Back on the canvas, Publish opens it on what changed: the list shown.
+        await act(async () => { fireEvent.click(part(container, "exit")!); });
+        await settle();
+        await press("Publish");
+        expect([toggle().getAttribute("aria-expanded"), list().hidden]).toEqual(["true", false]);
+    });
+
     test("E3: a page never published is its first version — every placement added", async () => {
         const { container } = await mountBuilder();
         await previewPage("a-overview");
@@ -198,7 +218,8 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "head")!.textContent).toBe("Up to date");
         expect(part(container, "versions")!.textContent).toBe("Weekly · v1 live");
         expect(part(container, "count")!.textContent).toBe("No changes since v1");
-        expect(part(container, "changes")).toBeNull();
+        // Nothing to list: the count is words, no toggle.
+        expect([part(container, "changes"), part(container, "toggle")]).toEqual([null, null]);
         expect(publishButton(container).disabled).toBe(true);
         expect(saveButton(container).disabled).toBe(true);
     });
@@ -208,7 +229,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await previewPage("e-starter");
         expect(part(container, "head")!.textContent).toBe("Templates are not published");
         expect(part(container, "versions")!.textContent).toBe("Starter · template");
-        expect(part(container, "count")).toBeNull();
+        expect([part(container, "count"), part(container, "toggle")]).toEqual([null, null]);
         expect(publishButton(container).textContent).toBe("Publish");
         expect(publishButton(container).disabled).toBe(true);
     });

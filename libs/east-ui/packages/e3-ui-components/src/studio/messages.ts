@@ -9,8 +9,8 @@
  * placeholders; the inspector's section heads, its fields and its controls'
  * names, its footer, and what it says with nothing selected; the page
  * library's toolbar, pane, section heads and cards; the popovers that name a
- * new page or a template; the publish preview's bar, its aside and its
- * footer; and what a page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
+ * new page or a template; the publish preview's bar and its rail; and what a
+ * page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
  * description, a placement's title, a project's, a page's and an
  * environment's names, the audience and the rollout — is data, and never
  * passes through it.
@@ -585,23 +585,23 @@ export interface StudioMessages {
     env: () => string;
     /** Back to the builder. */
     exit: () => string;
-    /** The aside's head while there is something to publish. */
+    /** Where the page stands, on the preview's rail, while there is something to publish. */
     readyToPublish: () => string;
-    /** The aside's head while the page is live as it stands. */
+    /** Where the page stands while it is live as it stands. */
     upToDate: () => string;
-    /** The aside's head while a template is open. */
+    /** Where it stands while a template is open. */
     templateNotPublished: () => string;
     /** A version — `v4`. */
     version: (p: { version: string }) => string;
-    /** After the live version in the aside's head — `v4 live`. */
+    /** After the live version, under where the page stands — `v4 live`. */
     liveVersion: () => string;
-    /** After a template's name in the aside's head. */
+    /** After a template's name, under where it stands. */
     templateKind: () => string;
-    /** The change list's head — `3 changes since v3`. */
+    /** How many changes — the rail's toggle of the change list, the list's name — `3 changes since v3`. */
     changesSince: (p: { n: number; count: string; version: string }) => string;
-    /** The change list's head on a first publish — `3 changes · first version`. */
+    /** How many changes on a first publish — `3 changes · first version`. */
     changesFirst: (p: { n: number; count: string }) => string;
-    /** The change list's head while nothing changed — `No changes since v4`. */
+    /** How many changes while nothing changed — `No changes since v4`. */
     noChangesSince: (p: { version: string }) => string;
     /** A change's verb, before the placement's name — `Added`, `Resized` — or the page's starting filters' — `Changed`. */
     changeVerb: (p: { change: "filters" | "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" | "configured" }) => string;
@@ -609,9 +609,9 @@ export interface StudioMessages {
     audience: () => string;
     /** The Rollout row's label. */
     rollout: () => string;
-    /** The footer's Apply. */
+    /** The rail's Apply. */
     saveAsDraft: () => string;
-    /** The footer's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
+    /** The rail's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
     publishTo: (p: { version?: string | undefined; env?: string | undefined }) => string;
     /** A phone's Components tab: what to do. */
     phoneComponentsIntro: () => string;

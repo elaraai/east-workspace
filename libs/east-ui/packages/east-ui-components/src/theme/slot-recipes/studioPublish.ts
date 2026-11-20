@@ -4,14 +4,17 @@
  */
 
 /**
- * Studio publish slot recipe — the publish preview as the Studio spec draws
- * it: the bar on the inverse ground, "● Preview", the device strip, the Env
- * pill and Exit; the page on the quiet panel, its project and title over the
- * page at the device's width; and the aside — its head, the change list, the
- * Audience and Rollout rows, and the footer.
+ * Studio publish slot recipe — the publish preview: the bar on the inverse
+ * ground, "● Preview", the device strip, the Env pill and Exit, as the Studio
+ * spec draws it; the page on the quiet panel, its project and title over the
+ * page at the device's width, the preview's whole width its own; and the rail
+ * along its foot, across it (ruled 20 November 2026) — its row: where the page
+ * stands and its versions, how many changes, the Audience and Rollout, and
+ * the actions; what refused a write over the row, and the change list, while
+ * it shows, over that, in columns as the rail's width allows.
  *
- * Only the layout and the bar are the preview's own. Its footer's buttons are
- * the `button` recipe's.
+ * Only the layout and the bar are the preview's own. Its toggle and its
+ * actions are the `button` recipe's.
  *
  * @packageDocumentation
  */
@@ -23,7 +26,7 @@ import { centredLine, oneLineBox } from "../one-line-box.js";
 const BAR_RULE = { base: "gray.600", _dark: "gray.400" } as const;
 const BAR_QUIET = { base: "gray.400", _dark: "gray.600" } as const;
 
-/** Mono caps — the bar's label, the device strip, the aside's captions. */
+/** Mono caps — the bar's label, the device strip, the page's eyebrow, the rail's Audience and Rollout. */
 const CAPS = {
     fontFamily: "mono",
     fontWeight: "600",
@@ -34,10 +37,9 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
     className: "elara-studio-publish",
     slots: [
         "root", "bar", "barLabel", "barDot", "devices", "device", "deviceIcon", "env", "envName", "envCaret", "exit",
-        "body", "main", "head", "eyebrow", "title", "frame",
-        "aside", "asideHead", "asideTitle", "asideSub", "asideVersion", "asideBody", "listHead", "list",
-        "change", "sign", "changeText", "changeLine", "changeName", "changeDetail",
-        "facts", "fact", "factLabel", "factValue", "refusal", "foot",
+        "main", "head", "eyebrow", "title", "frame",
+        "rail", "list", "change", "sign", "changeText", "changeLine", "changeName", "changeDetail", "refusal",
+        "row", "state", "stateTitle", "stateSub", "stateVersion", "count", "end", "facts", "fact", "factLabel", "factValue", "foot",
     ],
     base: {
         /* The preview's own panel, as tall as its host lets it be — no border
@@ -145,14 +147,9 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
             _disabled: { cursor: "not-allowed", opacity: "0.5", _hover: { borderColor: BAR_RULE } },
         },
-        /* The page beside the aside. */
-        body: {
-            flex: "1",
-            minHeight: "0",
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 320px",
-        },
+        /* The page, over the rail: the preview's whole width, and its height but the bar's and the rail's. */
         main: {
+            flex: "1",
             minWidth: "0",
             minHeight: "0",
             overflowY: "auto",
@@ -172,53 +169,39 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         },
         /* The page's head and the page, together at most the device's width. */
         frame: { display: "flex", flexDirection: "column", gap: "{spacing.4}", width: "100%", marginInline: "auto" },
-        aside: {
+        /* The rail along the preview's foot, under its rule: its row, and over it what refused a write and the change list. */
+        rail: {
             display: "flex",
             flexDirection: "column",
-            minHeight: "0",
-            borderLeftWidth: "1px",
-            borderLeftColor: "border.subtle",
+            flexShrink: "0",
+            minWidth: "0",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
             background: "bg.surface",
         },
-        asideHead: {
-            display: "flex",
-            flexDirection: "column",
-            gap: "5px",
+        /* The change list, while it shows: in columns as the rail's width allows, at most its own height — it scrolls past
+           it — over its rule. Shut, it is `hidden`, whatever its display. */
+        list: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            columnGap: "32px",
+            rowGap: "14px",
+            maxHeight: "232px",
+            overflowY: "auto",
+            margin: "0",
             paddingX: "20px",
-            paddingY: "18px",
+            paddingY: "16px",
+            listStyle: "none",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "&[hidden]": { display: "none" },
         },
-        asideTitle: {
-            fontFamily: "heading",
-            fontSize: "17px",
-            fontWeight: "700",
-            letterSpacing: "-0.01em",
-            color: "fg",
-        },
-        asideSub: { fontFamily: "mono", fontSize: "11px", color: "fg.subtle" },
-        asideVersion: { fontWeight: "600", color: "link" },
-        asideBody: {
-            flex: "1",
-            minHeight: "0",
-            display: "flex",
-            flexDirection: "column",
-            gap: "14px",
-            paddingX: "20px",
-            paddingY: "18px",
-            overflowY: "auto",
-        },
-        listHead: { ...CAPS, fontSize: "10px", letterSpacing: "0.16em", color: "fg.subtle" },
-        list: { display: "flex", flexDirection: "column", margin: "0", padding: "0", listStyle: "none" },
         /* One change: its sign, its words, its detail. */
         change: {
             display: "grid",
             gridTemplateColumns: "18px minmax(0, 1fr)",
             gap: "10px",
-            paddingY: "10px",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            "&:last-of-type": { borderBottomWidth: "1px", borderBottomColor: "border.subtle" },
+            minWidth: "0",
         },
         /* The sign: Font Awesome's plus, minus or plus-minus (#1263), on the
          * change line's first line, in its tone's ink, its own width, not Font
@@ -236,24 +219,48 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         changeLine: { fontSize: "13px", color: "fg.strong", overflowWrap: "anywhere" },
         changeName: { fontWeight: "600", color: "fg" },
         changeDetail: { fontFamily: "mono", fontSize: "10.5px", color: "fg.subtle", overflowWrap: "anywhere" },
-        /* Who sees it, and when. */
-        facts: { marginTop: "auto", display: "flex", flexDirection: "column", gap: "10px" },
-        fact: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "{spacing.3}" },
-        factLabel: { ...CAPS, flexShrink: "0", fontSize: "10px", letterSpacing: "0.14em", color: "fg.subtle" },
-        factValue: { fontFamily: "mono", fontSize: "11px", color: "fg", textAlign: "end", overflowWrap: "anywhere" },
-        /* What refused the drafts' apply, or the publish. */
-        refusal: { fontSize: "12px", lineHeight: "1.4", color: "fg.danger" },
-        foot: {
+        /* What refused the drafts' apply, or the publish: over the row. */
+        refusal: { paddingX: "20px", paddingTop: "12px", fontSize: "12px", lineHeight: "1.4", color: "fg.danger" },
+        /* The rail's row: where the page stands, how many changes, then — at its end — who sees it and the actions. A row
+           too narrow for them all wraps, its end under the rest, never wider than the rail. */
+        row: {
             display: "flex",
             alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "{spacing.2}",
-            flexShrink: "0",
+            flexWrap: "wrap",
+            columnGap: "20px",
+            rowGap: "10px",
+            minWidth: "0",
             paddingX: "20px",
-            paddingY: "14px",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            background: "bg.panel",
+            paddingY: "12px",
         },
+        /* Where the page stands, over the version it replaces and the one it becomes. */
+        state: { display: "flex", flexDirection: "column", gap: "3px", minWidth: "0" },
+        stateTitle: {
+            fontFamily: "heading",
+            fontSize: "17px",
+            fontWeight: "700",
+            letterSpacing: "-0.01em",
+            color: "fg",
+        },
+        stateSub: { fontFamily: "mono", fontSize: "11px", color: "fg.subtle" },
+        stateVersion: { fontWeight: "600", color: "link" },
+        /* How many changes, where there are none to list. */
+        count: { fontSize: "13px", color: "fg.subtle" },
+        end: {
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            columnGap: "20px",
+            rowGap: "10px",
+            minWidth: "0",
+            marginInlineStart: "auto",
+        },
+        /* Who sees it, and when. */
+        facts: { display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: "16px", rowGap: "4px", minWidth: "0" },
+        fact: { display: "inline-flex", alignItems: "baseline", gap: "6px", minWidth: "0" },
+        factLabel: { ...CAPS, flexShrink: "0", fontSize: "10px", letterSpacing: "0.14em", color: "fg.subtle" },
+        factValue: { fontFamily: "mono", fontSize: "11px", color: "fg", overflowWrap: "anywhere" },
+        foot: { display: "flex", alignItems: "center", gap: "{spacing.2}", flexShrink: "0" },
     },
 });
