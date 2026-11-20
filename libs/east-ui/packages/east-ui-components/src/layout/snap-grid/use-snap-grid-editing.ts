@@ -17,17 +17,24 @@
  * and hands them to the author's `editing.onDrafted` whenever they change
  * (#996), so a pane beside the canvas reads what it shows.
  *
+ * A host whose own sessions are edited beside the tiles — a page's starting
+ * filters (#1673) — joins them to the canvas's under one history it keeps
+ * ({@link SnapGridJoined}): the canvas's gestures are steps of that history,
+ * and Undo, Redo, Discard and Save its own.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
     ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { useEditSession, type EditingValue } from "../../editing/use-edit-session.js";
 import { EntryRefType } from "../../editing/keep.js";
-import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin, Placement } from "../../editing/session.js";
+import type { EditHistory } from "../../editing/history.js";
+import { historyKeyOf } from "../../editing/kept.js";
+import type { EditIssue, EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin, Placement } from "../../editing/session.js";
 import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import {
@@ -45,13 +52,48 @@ export interface SnapGridEntryRef {
 /** A drafted tile's mark — the Sheet's (#879). */
 export type SnapGridDraftMark = "pending" | "incomplete" | "invalid";
 
+/** A host's own session, edited beside the canvas's tiles (#1673): its gestures are steps of the canvas's history. */
+export interface SnapGridJoinedSession {
+    /** Its key in the history. */
+    readonly key: string;
+    /** The session. */
+    readonly session: EditSession<SnapGridEntryRef>;
+    /** What its banners call it — `Starting filters`. */
+    readonly name: string;
+    /** Where an issue of its is, in the host's words; the issue's entry by default. */
+    readonly where?: ((issue: EditIssue) => string) | undefined;
+}
+
+/**
+ * A host's sessions under one history with the canvas's (#1673): the history
+ * the host keeps (`useKeptHistory`) and records its own gestures through,
+ * which the canvas syncs its session and these into, its own first.
+ */
+export interface SnapGridJoined {
+    /** The history. */
+    readonly history: EditHistory<SnapGridEntryRef>;
+    /** The host's sessions, after the canvas's. */
+    readonly sessions: readonly SnapGridJoinedSession[];
+}
+
+/** No history to hear: a canvas whose session is its own history. */
+const NO_SUBSCRIBE = (): (() => void) => () => undefined;
+const NO_VERSION = (): number => 0;
+
 /** A row, decoded — a struct of the author's fields. */
 type Entry = Record<string, unknown>;
 
 /** What {@link useSnapGridEditing} hands the canvas. */
 export interface SnapGridEditing {
-    /** The session — the history item reads it. */
+    /** The session: the tiles' drafts, marks and conflicts. */
     session: EditSession<SnapGridEntryRef>;
+    /**
+     * What the history item, the keys and a screen's Apply act on: the one
+     * history over the session and its host's (#1673), else the session itself.
+     */
+    subject: EditSession<SnapGridEntryRef> | EditHistory<SnapGridEntryRef>;
+    /** The session's key in that history. */
+    key: string;
     /** Whether a gesture can be drafted now: a base observed, the session writable. */
     available: boolean;
     /** The session's version — moves with every change to it. */
@@ -119,9 +161,10 @@ const idOfRef = (ref: SnapGridEntryRef): string => ref.id;
  *
  * @param value - The canvas's value, its `editing` declared
  * @param storageKey - The view's key
- * @returns The session, what the canvas draws, and the gestures
+ * @param joined - A host's sessions under one history with the canvas's (#1673); omitted, the session is its own history
+ * @returns The session, what acts on it, what the canvas draws, and the gestures
  */
-export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: string): SnapGridEditing {
+export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: string, joined?: SnapGridJoined): SnapGridEditing {
     const editing = value.editing.type === "some" ? value.editing.value : undefined;
     if (editing === undefined) throw new Error("SnapGrid: the editing canvas needs its editing declaration");
     const fields = editing.fields;
@@ -164,6 +207,19 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     const { session, observed, original, available, version } = useEditSession<SnapGridEntryRef>(
         editing as unknown as EditingValue, undefined, refs, positions, storageKey, { idOf: idOfRef, ready, wireType: EntryRefType });
     sessionRef.current = session;
+
+    // ── One history over it and its host's own (#1673) ─────────────────
+    // The session's key names it as the history's keys do: its source, its view and its schema.
+    const key = useMemo(() => historyKeyOf(storageKey, editing as unknown as EditingValue),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- what names it, not the declaration's every field
+        [storageKey, editing.sourceId, editing.entryType, editing.draftType]);
+    const history = joined?.history;
+    useLayoutEffect(() => {
+        if (joined === undefined) return;
+        joined.history.sync([[key, session], ...joined.sessions.map((held) => [held.key, held.session] as const)]);
+    }, [joined, key, session]);
+    // What the history says moves the canvas's bar: a gesture of the host's, as of its own.
+    useSyncExternalStore(history?.subscribe ?? NO_SUBSCRIBE, history?.getSnapshot ?? NO_VERSION, history?.getSnapshot ?? NO_VERSION);
 
     // ── The drafted rows, and the cells they draw ───────────────────────
     const drafted = useMemo((): Entry[] => {
@@ -267,7 +323,9 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
                     : some(variant("ordered", variant("after", edit.order[at - 1]!)));
             updates.push({ id, before, after: { draft: variant("value", next), wire: { id }, place } });
         }
-        return updates.length > 0 && session.record(updates, origin, label, joins);
+        if (updates.length === 0) return false;
+        // A step of the one history where the host's sessions join it, else of the session's own.
+        return history === undefined ? session.record(updates, origin, label, joins) : history.record([{ key, updates }], origin, label, joins);
     };
     /**
      * A new row's tile: its own cell's — the key and the name the author maps
@@ -420,7 +478,8 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             return record(edit, "insert", `Add ${tile.label}`, undefined, entry) ? { key: tile.key, label: tile.label } : undefined;
         },
         action(action: HistoryAction): void {
-            if (action === "apply") void session.apply();
+            if (history !== undefined) history.act(action);
+            else if (action === "apply") void session.apply();
             else if (action === "refresh") session.refresh();
             else session[action]();
         },
@@ -461,7 +520,7 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     }, [drafted, editing.onDrafted, codec]);
 
     return {
-        session, available, version, cells, tiles, marks,
+        session, subject: history ?? session, key, available, version, cells, tiles, marks,
         creates: editing.create.type === "some",
         heights: fields.height.type === "some",
         aligns: fields.align.type === "some",

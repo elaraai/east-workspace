@@ -619,6 +619,8 @@ export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps 
 export { ChipMenu, type ChipMenuProps } from "./toolbar/chip-menu.js";
 export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor.js";
 export type { SnapGridPhoneOptions, SnapGridPlacing } from "./layout/snap-grid/phone.js";
+// A host's own sessions under the canvas's one history (#1673): what it joins, and the rows' ref they share.
+export type { SnapGridEntryRef, SnapGridJoined, SnapGridJoinedSession } from "./layout/snap-grid/use-snap-grid-editing.js";
 export { LibraryLayoutSwitch } from "./collections/library";
 // The key search as one item of a builder's toolbar (#1193) — the box, folding
 // to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet
@@ -642,13 +644,16 @@ export {
 // where another write takes it (#1583). What a builder keeps of an entry by its
 // id follows it through the session's history from a point of it
 // (`EditSession.point`, `EditSession.follow`): an entry a gesture moved under
-// another id says where it came from (`EntryUpdate.from`).
+// another id says where it came from (`EntryUpdate.from`). A host whose own
+// sessions join a collection's history keeps that history itself
+// (`useKeptHistory`, #1673).
 export {
     EditSession,
     EditHistory,
     EditingScope,
     useEditSession,
     useEditHistory,
+    useKeptHistory,
     historyKeyOf,
     EntryRefType,
     drawnFromKeys,

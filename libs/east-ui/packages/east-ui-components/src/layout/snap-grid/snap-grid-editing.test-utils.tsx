@@ -14,6 +14,9 @@
  * ({@link EditingSnapGrid.hostAsks}, #996), and with `drafted` its author
  * hears the rows it draws. With `applies`, a screen asks it for an Apply
  * through the bound `apply` ({@link EditingSnapGrid.hostAsksApply}, #998).
+ * With `joined` or `head`, a host's own sessions join the canvas's history and
+ * its band stands over the grid (#1673): the canvas is mounted as a host
+ * renderer mounts it ({@link SnapGridEditor}), its value the same.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
  * kept, every apply request's bytes kept, and the real callback answers.
@@ -32,7 +35,9 @@ import { getStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
+import { SnapGridEditor } from "./editor.js";
 import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
+import type { SnapGridJoined } from "./use-snap-grid-editing.js";
 
 // ── The page's data ─────────────────────────────────────────────────────────
 
@@ -118,9 +123,13 @@ export interface CanvasOptions {
     drafted?: boolean;
     /** Whether a screen asks the canvas for an Apply — the bound `apply`, at {@link APPLY_KEY} (default `false`, #998). */
     applies?: boolean;
+    /** A host's own sessions under the canvas's history (#1673); none by default. */
+    joined?: SnapGridJoined | undefined;
+    /** What the host draws over the grid (#1673); nothing by default. */
+    head?: ReactNode | undefined;
 }
 
-type Resolved = Required<CanvasOptions>;
+type Resolved = Required<Omit<CanvasOptions, "joined" | "head">> & Pick<CanvasOptions, "joined" | "head">;
 
 /** The canvas's program — the factory's, compiled. */
 function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
@@ -289,7 +298,9 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             <DragLayerProvider>
                 <Card card="orders" />
                 <Card card={BLOCKED} />
-                <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
+                {o.joined === undefined && o.head === undefined
+                    ? <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
+                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} />}
             </DragLayerProvider>
         </ChakraProvider>
     );

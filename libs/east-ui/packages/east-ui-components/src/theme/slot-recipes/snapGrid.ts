@@ -41,7 +41,9 @@
  * `builderFrame` recipe's frame (#1125) — the toolbar row, the panes and main
  * are its. This recipe draws the canvas's own: its bordered panel around the
  * frame (the `card` surface), and in main the sunken column that holds the
- * selection bar over the grid panel. The toolbar's own items — the grid chip,
+ * selection bar over the grid panel, and between them a band of what the host
+ * draws over the grid (`pageHead`, #1673) — the selection bar's height and
+ * rule. The toolbar's own items — the grid chip,
  * the saved time and the width readout — are the mock's toolbar markup; its
  * zoom is the shared `stepper` and its design widths the shared `seg` strip
  * (#996), each icon the strip's (`data-seg-icon`). At a phone's design width
@@ -103,7 +105,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "grid", "row", "cell", "blankBand", "blankBody",
         "editor", "column",
-        "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
+        "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint", "pageHead",
         "chip", "saved", "readout", "divider",
         "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
         "tile", "frame", "handle", "tileBadge", "tileBar", "tileAction", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
@@ -209,6 +211,21 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             fontSize: "12.5px",
             color: "fg.subtle",
             whiteSpace: "nowrap",
+        },
+        // What the host draws over the grid (#1673): a band under the selection bar, its height and rule, the content
+        // at its middle — a toolbar row's 28px in its 44.
+        pageHead: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            minWidth: 0,
+            minHeight: "44px",
+            paddingInline: "{spacing.4}",
+            paddingBlock: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            bg: "bg.panel",
         },
         // The toolbar's own items: the grid chip, the saved time, the width
         // readout and the rule before the history.

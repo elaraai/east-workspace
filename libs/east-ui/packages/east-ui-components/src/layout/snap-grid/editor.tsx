@@ -46,11 +46,19 @@
  * id asked once they land or cannot. The history shortcuts work anywhere in
  * the frame, the panes too.
  *
+ * A host's own sessions edited beside the tiles — a page's starting filters
+ * (#1673) — join the canvas's under one history ({@link SnapGridJoined}): the
+ * canvas's gestures and the host's are its steps, in the order they were made,
+ * and the history item, its keys and a screen's Apply act on it; each session
+ * keeps its banners, named. What edits them the host draws over the grid
+ * (`head`), a band between the selection bar and the grid, outside the
+ * canvas's zoom and keys.
+ *
  * In a frame of 560 px or narrower the canvas draws its phone form by itself
  * ({@link SnapGridPhoneCanvas}, `Studio Mobile Spec.md`): one column of tiles,
  * pick then place, the same session and gestures. Its toolbar is then the host's
  * items and the history; a host adds the page's head and Add a component through
- * `phone`.
+ * `phone`, and its band over the grid stands under the page's head.
  *
  * At a design width under a phone's 480 px — a host's Mobile — the canvas lays
  * the page out as a phone shows it, as the page itself does there: every tile
@@ -89,6 +97,7 @@ import { SnapGridPhoneIssues } from "./phone-issues.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
+import type { EditHistory } from "../../editing/history.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue, EditSession } from "../../editing/session.js";
 import { sessionErrorText } from "../../editing/messages.js";
@@ -98,7 +107,7 @@ import {
 } from "../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { followPointer } from "../../pointer/follow-pointer.js";
-import { useSnapGridEditing, type SnapGridDraftMark } from "./use-snap-grid-editing.js";
+import { useSnapGridEditing, type SnapGridDraftMark, type SnapGridJoined } from "./use-snap-grid-editing.js";
 import { useSnapGridWords, type SnapGridWords } from "./messages.js";
 import { ALWAYS_STACKED, useTileGrows } from "./tile-grows.js";
 import {
@@ -151,10 +160,11 @@ const VIEW_BUNDLE = "snap-grid.view";
 
 /**
  * Why the drafts cannot land, in the canvas's words: the first issue the
- * session holds, else its error, else its status line — the stale source's,
- * or the canvas's own when nothing else says.
+ * session — or the history over it and its host's — holds, else its error,
+ * else its status line: the stale source's, or the canvas's own when nothing
+ * else says.
  */
-function refusalOf<W>(session: EditSession<W>, words: SnapGridWords): string {
+function refusalOf<W>(session: EditSession<W> | EditHistory<W>, words: SnapGridWords): string {
     const readiness = session.readiness;
     const issues = readiness.type === "ready" ? session.issues : readiness.value;
     if (issues.length > 0) return issues[0]!.message;
@@ -512,6 +522,17 @@ export interface SnapGridEditorProps {
      * Edit.
      */
     onEdit?: ((key: string) => void) | undefined;
+    /**
+     * Over the grid: what the host draws there — what edits its own sessions,
+     * a page's starting filters (#1673) — a band between the selection bar and
+     * the grid, and on a phone under the page's head.
+     */
+    head?: ReactNode | undefined;
+    /**
+     * The host's own sessions under one history with the canvas's (#1673);
+     * omitted, the canvas's session is its history.
+     */
+    joined?: SnapGridJoined | undefined;
 }
 
 /**
@@ -521,7 +542,7 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
@@ -536,8 +557,11 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     // The View chip's menu is the theme's: its items' leading icons and its group labels.
     const menuRecipe = useSlotRecipe({ key: "menu" });
     const menu = useMemo(() => menuRecipe() as Styles, [menuRecipe]);
-    const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, insert, action: sessionAction } = editing;
+    const editing = useSnapGridEditing(value, storageKey, joined);
+    const {
+        session, subject, key: canvasKey, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, insert,
+        action: sessionAction,
+    } = editing;
 
     // ── A phone's frame: the canvas's phone form, by itself at 560px and narrower ──
     // Hidden, as under a preview, it stays what it was: its tiles' state is kept.
@@ -551,20 +575,21 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const onPlacing = phoneOptions?.onPlacing ?? setOwnPlacing;
 
     // ── When the source last confirmed an Apply ──────────────────────────
-    // An Apply is confirmed when the session leaves `reconciling` for `idle`
-    // — heard from the session itself, since both can pass within one render;
-    // a Discard clears the time, as it clears the drafts.
+    // An Apply is confirmed when the session — or the history over it and its
+    // host's — leaves `reconciling` for `idle`, heard from it itself, since
+    // both can pass within one render; a Discard clears the time, as it clears
+    // the drafts.
     const [savedAt, setSavedAt] = useState<Date | undefined>(undefined);
     // How many a Save carried: what a phone's band says once it lands (ST36).
     const carried = useRef(0);
     useEffect(() => {
-        let was = session.status;
-        return session.subscribe(() => {
-            if (was !== "applying" && session.status === "applying") carried.current = session.pending;
-            if (was === "reconciling" && session.status === "idle") setSavedAt(new Date());
-            was = session.status;
+        let was = subject.status;
+        return subject.subscribe(() => {
+            if (was !== "applying" && subject.status === "applying") carried.current = subject.pending;
+            if (was === "reconciling" && subject.status === "idle") setSavedAt(new Date());
+            was = subject.status;
         });
-    }, [session]);
+    }, [subject]);
     const action = useCallback((a: HistoryAction) => {
         if (a === "discard") setSavedAt(undefined);
         sessionAction(a);
@@ -854,25 +879,26 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 console.error("[SnapGrid] apply state write failed:", err);
             }
         };
-        // At every change of the session: an Apply running is waited out;
-        // with no draft left, the drafts landed; once, the drafts are applied
-        // as the history item applies them — a request of unknown outcome
-        // retried; otherwise they cannot land, and the canvas says why.
+        // At every change of the session — or of the history over it and its
+        // host's: an Apply running is waited out; with no draft left, the
+        // drafts landed; once, the drafts are applied as the history item
+        // applies them — a request of unknown outcome retried; otherwise they
+        // cannot land, and the canvas says why.
         const step = () => {
-            if (answered || session.status === "applying" || session.status === "reconciling") return;
-            if (session.pending === 0) {
+            if (answered || subject.status === "applying" || subject.status === "reconciling") return;
+            if (subject.pending === 0) {
                 answer(variant("applied", asked));
-            } else if (!started && (session.status === "unknown" || session.canApply)) {
+            } else if (!started && (subject.status === "unknown" || subject.canApply)) {
                 started = true;
-                void session.apply();
+                void subject.apply();
             } else {
-                answer(variant("refused", { id: asked, reason: refusalOf(session, words) }));
+                answer(variant("refused", { id: asked, reason: refusalOf(subject, words) }));
             }
         };
-        const unsubscribe = session.subscribe(step);
+        const unsubscribe = subject.subscribe(step);
         step();
         return () => { unsubscribe(); };
-    }, [asked, applyBind, session, words]);
+    }, [asked, applyBind, subject, words]);
 
     const onRemove = useCallback((key: string) => {
         const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;
@@ -971,12 +997,18 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     }, [select, focusTile]);
     // A tile as the page shows it, in the frame's banners and its conflicts' cards: its label — `Breakdown bars` — else its id.
     const tileWhere = useCallback((issue: EditIssue) => tilesRef.current.find((t) => t.id === issue.entry)?.label ?? issue.entry, []);
+    // An issue of the host's own session in the host's words (#1673); one of the canvas's by its tile.
+    const where = useCallback((issue: EditIssue) => {
+        const of = joined?.history.sourceOf(issue);
+        const held = of === undefined || of === canvasKey ? undefined : joined?.sessions.find((s) => s.key === of);
+        return held === undefined ? tileWhere(issue) : held.where?.(issue) ?? issue.entry;
+    }, [joined, canvasKey, tileWhere]);
     // On a phone an inspector pane the frame draws takes an Issues tab, which the second row's Issues opens (ST7, D9).
     const [phoneTab, setPhoneTab] = useState<string | undefined>(undefined);
     const hostEnd = panes?.end;
     const issuesDock = phone && hostEnd !== undefined && !("element" in hostEnd) ? hostEnd : undefined;
     const openIssues = () => { setPhoneTab("issues"); issuesDock?.onCollapsedChange?.(false); };
-    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere, onOpenIssues: issuesDock === undefined ? undefined : openIssues });
+    const history = historyToolbarItem({ session: subject, words, editing: false, onAction: action, onIssue, where, onOpenIssues: issuesDock === undefined ? undefined : openIssues });
 
     // ── The ruler: the selected tile's columns ───────────────────────────
     const guides = value.guides;
@@ -1135,14 +1167,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const eastPaneEnd = getSomeorUndefined(value.panes.end);
     const paneStart: BuilderFramePane | undefined = panes?.start ?? (eastPaneStart !== undefined
         ? { element: <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> } : undefined);
-    const issuesCount = session.unsettled + (session.readiness.type === "ready" ? session.issues.length : session.readiness.value.length);
+    const issuesCount = subject.unsettled + (subject.readiness.type === "ready" ? subject.issues.length : subject.readiness.value.length);
     const paneEnd: BuilderFramePane | undefined = issuesDock !== undefined ? {
         ...issuesDock,
         tab: phoneTab ?? issuesDock.tabs?.[0]?.key,
         onTabChange: setPhoneTab,
         tabs: [...(issuesDock.tabs ?? []), {
             key: "issues", label: m.phoneIssues(), count: words.number(issuesCount),
-            body: <SnapGridPhoneIssues session={session} rows={rows} words={words} where={tileWhere} />,
+            body: <SnapGridPhoneIssues session={subject} rows={rows} words={words} where={where} />,
         }],
     } : panes?.end ?? (eastPaneEnd !== undefined
         ? { element: <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> } : undefined);
@@ -1154,7 +1186,22 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         return spans;
     }, [value.cells]);
     const conflicted = useCallback((id: string) => session.conflicts.has(id), [session.conflicts]);
-    const banners = <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={issuesDock === undefined ? undefined : openIssues} />;
+    const choose = issuesDock === undefined ? undefined : openIssues;
+    // Each session's banners act on it alone (`EditHistory.actOn`), the host's named.
+    const actOn = (key: string, a: HistoryAction) => {
+        if (a === "discard") setSavedAt(undefined);
+        joined?.history.actOn(key, a);
+    };
+    const banners = joined === undefined
+        ? <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={choose} />
+        : (
+            <>
+                <SessionBanners session={session} words={words} onAction={(a) => actOn(canvasKey, a)} where={tileWhere} onChoose={choose} />
+                {joined.sessions.map((held) => (
+                    <SessionBanners key={held.key} session={held.session} words={words} name={held.name} where={held.where} onAction={(a) => actOn(held.key, a)} onChoose={choose} />
+                ))}
+            </>
+        );
 
     return (
         <Box
@@ -1168,13 +1215,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         >
             <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown} phonePanel phoneViews
                 banners={phone ? undefined : banners}
-                footer={phone ? <>{banners}{savedAt !== undefined && session.pending === 0 && carried.current > 0 && (
+                footer={phone ? <>{banners}{savedAt !== undefined && subject.pending === 0 && carried.current > 0 && (
                     <Box css={phoneStyles.saved} role="status" data-snap-grid-saved-band=""><Box as="span" css={phoneStyles.savedCheck} aria-hidden><FontAwesomeIcon icon={faCheck} /></Box>{m.phoneSaved({ n: carried.current, count: words.number(carried.current) })}</Box>
                 )}</> : undefined}>
                 {phone ? (
                     <SnapGridPhoneCanvas rows={rows} cellOf={cellOf} savedSpans={savedSpans} selected={selected} select={select} available={available} conflicted={conflicted}
                         words={words} storageKey={storageKey} renderContent={renderContent} register={register} options={phoneOptions} placing={placing} onPlacing={onPlacing}
-                        move={move} add={add} resize={resize} remove={onRemove} />
+                        move={move} add={add} resize={resize} remove={onRemove} head={head} />
                 ) : (
                 <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
@@ -1193,6 +1240,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                             </>
                         )}
                     </Box>
+                    {/* What the host draws over the grid: outside the canvas's zoom, its keys and its clicks (#1673). */}
+                    {head !== undefined && <Box css={styles.pageHead} data-snap-grid-head="">{head}</Box>}
                     <Box css={styles.viewport} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onClick={onClick}>
                         <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas=""
                             data-stacked={stacked ? "" : undefined}>
