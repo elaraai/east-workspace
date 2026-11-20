@@ -597,6 +597,26 @@ export interface RecordApplyInsideOptions<K extends EastType, V extends EastType
     mutation?: string;
 }
 
+/**
+ * Checks a record's key field: the field of its entries that holds each one's
+ * key ({@link RecordApplyOptions}), as every builder that takes one checks it.
+ *
+ * @param label - Who is asked, for the refusal (`Record.onApply`, `Sheet`)
+ * @param recordType - The record's type
+ * @param keyField - The field named
+ * @throws {Error} Naming the field: the entries are no struct, hold no such field, or hold one of another type than the key
+ * @internal
+ */
+export function checkKeyField(label: string, recordType: DictType<EastType, EastType>, keyField: string): void {
+    const entryType = recordType.value;
+    const held = entryType.type === "Struct" ? (entryType.fields as Record<string, EastType | undefined>)[keyField] : undefined;
+    if (held === undefined || !isTypeEqual(held, recordType.key)) {
+        throw new Error(
+            `${label}: \`keyField\` names the field of an entry that holds its key, a ${printType(recordType.key)} as the key is — ` +
+            `"${keyField}" is ${held === undefined ? "not a field" : `a ${printType(held)} field`} of ${printType(entryType)}`);
+    }
+}
+
 /** A bound record whose state is keyed, `Dict<K, V>` — what an Apply writes by key. */
 type KeyedRecordHandle<K extends EastType, V extends EastType> =
     ExprType<StructType<{ read: FunctionType<[], DictType<K, V>> }>>;
@@ -858,14 +878,7 @@ function checkWrite(
     const keyType = recordType.key;
     const entryType = recordType.value as StructType<Record<never, never>>;
     const keyField = "keyField" in options ? options.keyField : undefined;
-    if (keyField !== undefined) {
-        const held = entryType.type === "Struct" ? (entryType.fields as Record<string, EastType | undefined>)[keyField] : undefined;
-        if (held === undefined || !isTypeEqual(held, keyType)) {
-            throw new Error(
-                `Record.${what}: \`keyField\` names the field of an entry that holds its key, a ${printType(keyType)} as the key is — ` +
-                `"${keyField}" is ${held === undefined ? "not a field" : `a ${printType(held)} field`} of ${printType(entryType)}`);
-        }
-    }
+    if (keyField !== undefined) checkKeyField(`Record.${what}`, recordType, keyField);
     // An entry as it is saved under a key: its key field holding that key.
     const underKey = keyField === undefined ? undefined : East.function([keyType, entryType], entryType, (_$, key, entry) => {
         const drafted = entry as unknown as Record<string, ExprType<EastType>>;

@@ -222,8 +222,21 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             return entry === undefined ? prior : decodeRow(editing.project(encodeEntry(entry), id)) as SheetRowValue;
         };
     }, [editing]);
+    // An entry under a key, over a record whose entries hold their own key in a field: its draft and its row with the
+    // key there, as the sheet's own `underKey` gives them. None where the record has no such field.
+    const keyedAs = useMemo(() => {
+        const under = getSomeorUndefined(editing.underKey);
+        if (under === undefined) return undefined;
+        const draftType = fromEastTypeValue(editing.draftType);
+        const [encodeDraft, decodeDraft] = [encodeBeast2For(draftType), decodeBeast2For(draftType)];
+        return (id: string, version: EntryVersion): EntryVersion => {
+            if (version.draft === undefined || version.wire === undefined) return version;
+            const keyed = under(encodeDraft(version.draft), encodeWire(version.wire), id);
+            return { draft: decodeDraft(keyed.draft), wire: decodeRow(keyed.row) as SheetRowValue, place: version.place };
+        };
+    }, [editing]);
     // A new row the session makes another key — another write having added its own under the first (#1583) — goes on
-    // under it whole: its draft's identity field, where its draft holds one, and its row with it.
+    // under it whole: its draft's identity field, where its draft holds one, its record's key field, and its row with it.
     const underKey = useMemo(() => {
         const idField = editing.idField.type === "some" ? editing.idField.value : undefined;
         return (next: string, version: EntryVersion): EntryVersion => {
@@ -232,9 +245,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const renamed = idField !== undefined && idField in fields ? { ...fields, [idField]: variant("value", next) } : fields;
             const draft = isVariant(held) ? variant(held.type, renamed) : renamed;
             const prior = version.wire === undefined ? undefined : { ...version.wire, id: next };
-            return { draft, wire: wireOf(next, draft, prior), place: version.place };
+            const moved: EntryVersion = { draft, wire: wireOf(next, draft, prior), place: version.place };
+            return keyedAs?.(next, moved) ?? moved;
         };
-    }, [editing, wireOf]);
+    }, [editing, wireOf, keyedAs]);
     // Where no record Slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
     const entriesByKey = useMemo(() => (rowsId === undefined || editing.keyType.type !== "some" ? undefined
         : entriesByKeyOf(rowsId, fromEastTypeValue(editing.keyType.value), fromEastTypeValue(editing.entryType))), [rowsId, editing.keyType, editing.entryType]);
@@ -342,6 +356,11 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             if (current.draft === undefined) continue;
             updates.set(id, { id, before, after: edit(current) });
         }
+        // A new entry holds its key in its record's key field from the gesture that makes it — a duplicate its own, never
+        // the key of the row it copies.
+        if (keyedAs !== undefined) {
+            for (const [id, { before, after }] of updates) if (before.draft === undefined) updates.set(id, { id, before, after: keyedAs(id, after) });
+        }
         // A new entry, or a new line, the app left a field of empty — one no person can set — is never drafted (#1536):
         // the whole gesture is refused, and the footer names the field.
         for (const { before, after } of updates.values()) {
@@ -352,12 +371,15 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label, joins);
-    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun, day]);
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun, day, keyedAs]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);
-        return session.record(updates, origin, label);
-    }, [session, observed, replacing]);
+        // An entry the versions add holds its key in its record's key field, as one a gesture adds does.
+        const keyed = keyedAs === undefined ? updates
+            : updates.map((update) => (update.before.draft === undefined ? { ...update, after: keyedAs(update.id, update.after) } : update));
+        return session.record(keyed, origin, label);
+    }, [session, observed, replacing, keyedAs]);
     // The source position each drafted row the rows draw stood at as the layer was last made: what stands through a
     // carry-over (`standing-rows.ts`).
     const stoodRef = useRef<ReadonlyMap<string, number>>(new Map());

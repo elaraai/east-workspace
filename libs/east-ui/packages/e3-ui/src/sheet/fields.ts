@@ -314,6 +314,7 @@ function encodeOf(patchType: StructType, cells: SheetBridge["encodePatch"]): Exp
  * @param idField - The rows' identity field, which the form leaves to the header: a flat row's, a loose row's and a group's — a group's line has none
  * @param registers - The sheet's registers' names, the driver's among them: what a `reference` hint may name
  * @param data - The columns from data, described against the row type: the fields they write, which the form leaves out (#1561)
+ * @param keyField - The field of a record's entries that holds each one's key — a row's, or a grouped sheet's group's: the sheet's to keep, so the form shows it through a column over it, read only, and leaves it to the header where none shows it
  * @returns The forms on the wire
  * @throws Error naming the prop: `groupFields` on a flat sheet, and each refusal of a hint
  * @internal
@@ -326,6 +327,7 @@ export function buildForms(
     idField: string | undefined,
     registers: readonly string[],
     data: readonly SheetColumnMeta[],
+    keyField?: string,
 ): ExprType<SheetFormsType> {
     const named = new Set(registers);
     const groupHalf = bridge.group;
@@ -335,6 +337,9 @@ export function buildForms(
     // A row's identity is its header's, never a field to edit: a flat row's, and a loose row's line beside the groups (#846).
     // A group's line is its place among the lines, so a field of it named as the id is the line's own, to set here.
     const lineLeave = new Set(idField !== undefined && (groupHalf === undefined || groupHalf.loose) && idField in bridge.lineType.fields ? [idField] : []);
+    // A record's key is its entry's identity too, and the sheet's to keep.
+    const keyLeft = (shown: readonly SheetColumnMeta[]): string[] => (keyField !== undefined && !shown.some((m) => m.field === keyField) ? [keyField] : []);
+    if (groupHalf === undefined) for (const left of keyLeft(metas)) lineLeave.add(left);
     // The fields columns from data write — two columns may write one — each with those columns' keys.
     const fromData = new Map<string, string[]>();
     for (const m of data) fromData.set(m.field, [...(fromData.get(m.field) ?? []), m.key]);
@@ -346,7 +351,7 @@ export function buildForms(
     }, SheetFormType);
     if (groupHalf === undefined) return East.value({ row, group: none }, SheetFormsType);
     const groupType = groupHalf.groupType;
-    const groupLeave = new Set([groupHalf.linesField, ...(idField !== undefined && idField in groupType.fields ? [idField] : [])]);
+    const groupLeave = new Set([groupHalf.linesField, ...(idField !== undefined && idField in groupType.fields ? [idField] : []), ...keyLeft(groupHalf.cellMetas)]);
     const group = East.value({
         type: toEastTypeValue(groupType),
         fields: formFields(groupType, new Map(groupHalf.cellMetas.map((m) => [m.field, m])), groupHints ?? {}, groupLeave, "groupFields", named, new Map()),

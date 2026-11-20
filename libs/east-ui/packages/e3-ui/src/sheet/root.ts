@@ -408,6 +408,12 @@ export interface SheetInternalOptions {
     recordKinds?: boolean;
     /** The inspector's hints, when `<Sheet>` shows the pane — `fields` a row's, `groupFields` a group's: what its form lets a person set on a new entry (#1536). Left out, the sheet has no inspector. */
     inspector?: { fields?: Readonly<Record<string, unknown>> | undefined; groupFields?: Readonly<Record<string, unknown>> | undefined };
+    /**
+     * The field of a record's entries — its rows, a grouped sheet's groups — that holds each one's key, checked against
+     * the record (`<Sheet record keyField>`): the session keeps a new entry's key in it, so no person sets it and no
+     * constructor need give it.
+     */
+    keyField?: string | undefined;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -740,6 +746,8 @@ export interface SheetBuild {
     registers: readonly string[];
     /** A keyed source's key type — a record's own, a keyed paged source's String — whose rows' ids are its keys' text; `undefined` for an Array source, whose rows are keyed by their id field (#1409). */
     keyType: EastType | undefined;
+    /** The field of a record's entries that holds each one's key, where the sheet was told one ({@link SheetInternalOptions.keyField}). */
+    keyField: string | undefined;
 }
 
 /**
@@ -941,6 +949,15 @@ function buildSheet(
     const metas = described.filter((m) => m.data === undefined);
     const dataMetas = described.filter((m) => m.data !== undefined);
     const metaByKey = new Map(metas.map((m) => [m.key, m]));
+    // A record's key field is its session's to keep: a column over it shows the key and takes no edit, and no column
+    // writes it another way. On a grouped sheet the field is the group's, and its band cells are held to this below.
+    const keyField = internal.keyField;
+    for (const m of keyField !== undefined && groupDecl === undefined ? described : []) {
+        if (m.otherField === keyField || (m.data !== undefined && m.field === keyField)) {
+            throw new Error(`Sheet: column "${m.key}" writes "${keyField}", the \`keyField\` — a row's key is kept in it by the sheet, and no column writes it`);
+        }
+        if (m.field === keyField) m.editable = false;
+    }
     for (const m of described) {
         if (m.otherField !== undefined && metaByKey.has(m.otherField)) {
             throw new Error(`Sheet: link column "${m.key}" names "${m.otherField}" as its other half, which is also a column — a half's field is written through the link column, never on its own`);
@@ -1017,17 +1034,23 @@ function buildSheet(
             }
             cellMetas.push(meta);
         }
+        for (const m of keyField !== undefined ? cellMetas : []) if (m.field === keyField) m.editable = false;
     }
 
     // The fields only the app gives a new entry (#1536), on a sheet that adds that kind of entry: a row's — a line's, a
     // loose row's — and a group's. The session sets an entry's id field itself (a flat row's, a loose row's, a line's
     // beside loose rows) and a group's lines. A sheet that applies nothing drafts what it likes.
     const hinted = internal.inspector;
-    const lineLeave = new Set(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []);
+    // And a record's key field, which it keeps the entry's key in: a row's, or on a grouped sheet a group's.
+    const lineLeave = new Set([
+        ...(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []),
+        ...(keyField !== undefined && groupDecl === undefined ? [keyField] : []),
+    ]);
     const unsettable = {
         row: adds("insertRows") ? unsettableFields(lineType, described, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
         group: groupDecl !== undefined && cellMetas !== undefined && adds("insertGroups")
-            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {}, new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : [])]))
+            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {},
+                new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : []), ...(keyField !== undefined ? [keyField] : [])]))
             : [],
     };
     const lineWord = groupDecl === undefined ? "row's" : loose ? "line's or loose row's" : "line's";
@@ -1228,7 +1251,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
-        unsettable,
+        unsettable, keyField,
     }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
@@ -1303,5 +1326,5 @@ function buildSheet(
         narrow,
         ordered: ordered !== undefined,
     }, SheetRootType);
-    return { root, bridge, metas, data: dataMetas, registers: Object.keys(registers), keyType };
+    return { root, bridge, metas, data: dataMetas, registers: Object.keys(registers), keyType, keyField };
 }

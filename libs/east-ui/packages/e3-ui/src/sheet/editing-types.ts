@@ -43,7 +43,11 @@ export const SheetUnsettableType = StructType({ field: StringType, label: String
  * row, its prior draft and its prior wire row, and the renderer's day — the
  * browser's local calendar date at UTC midnight — at which a column from
  * data writes each of its cells the gesture changed, over the field as
- * drafted so far.
+ * drafted so far. `underKey`, over a record whose entries hold their own key
+ * in a field (`keyField`), takes an entry's draft, its wire row and a key's
+ * id, and answers the two with the key in that field and in the cell of any
+ * column over it: what a new entry is drafted as, and drafted again as where
+ * its session gives it another key.
  *
  * @internal
  */
@@ -58,4 +62,5 @@ export const SheetEditingType = StructType({
     driverColumn: OptionType(StringType),
     decode: FunctionType([BlobType, OptionType(BlobType), OptionType(BlobType), DateTimeType], BlobType),
     project: FunctionType([BlobType, StringType], BlobType),
+    underKey: OptionType(FunctionType([BlobType, BlobType, StringType], SheetSeedType)),
 });
