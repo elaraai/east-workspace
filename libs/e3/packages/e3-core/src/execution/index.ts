@@ -232,6 +232,10 @@ export {
 // of it said, which every backend that builds an environment asks alike
 export { lockExplainsCheck } from './environment-build.js';
 
+// What a node workspace member's environment keeps once npm has installed its
+// workspace whole, which every backend that builds an environment keeps alike
+export { keepNodeMembers } from './environment-node-tier.js';
+
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';
 

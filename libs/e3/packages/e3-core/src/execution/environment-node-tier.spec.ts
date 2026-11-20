@@ -21,6 +21,8 @@ import { nodeTierManifestOf, startTestRegistry, writeNodePackages, type TestNode
 import { environmentFitsTier, hostEnvironmentPlatform, materializeEnvironment, materializeEnvironmentFor } from './environment.js';
 import { nodeMembersShare, nodeTierShare, type LockedPackage } from './environment-node-tier.js';
 import { encodeFile } from './environment.test-utils.js';
+// What a backend that builds an environment by its own steps calls, from e3-core's own surface
+import { keepNodeMembers } from '../index.js';
 
 /** The registry a test's tier installed its East packages from. */
 const REGISTRY = 'https://registry.npmjs.org/';
@@ -330,7 +332,7 @@ describe('a node environment built over a tier, and composed over it', {
     assert.deepStrictEqual(JSON.parse(out), ['tier', 'string']);
   });
 
-  it('keeps of a workspace member\'s environment what its member and the runner need, here, for a platform and over a tier, which leaves East\'s of that to the image (#1700)', async () => {
+  it('keeps of a workspace member\'s environment what its member and the runner need, here, for a platform and over a tier, which leaves East\'s of that to the image; and a backend that installs the workspace by its own steps keeps the same (#1700)', async () => {
     const ws = path.join(tmp, 'members');
     const member = { name: '@acme/pricing', version: '1.0.0', main: 'index.js', dependencies: { '@elaraai/east': '1.0.0', 'own-dep': '1.0.0' },
       devDependencies: { 'member-dev': '1.0.0' } };
@@ -378,5 +380,25 @@ describe('a node environment built over a tier, and composed over it', {
     assert.deepStrictEqual((JSON.parse(fs.readFileSync(path.join(over.dir, NODE_TIER_LINKS), 'utf8')) as { links: { name: string }[] }).links.map((link) => link.name),
       ['@elaraai/east', '@elaraai/east-node-cli']);
     assert.deepStrictEqual(runs(await composed(over, 'members-guest')), [['tier', 'string'], 'tier cli']);
+
+    // A backend that installs the workspace by its own steps, as an image's build does, and then keeps what e3 keeps
+    /** A copy of the workspace npm installed whole, its links as npm made them. */
+    const ownInstall = (name: string): string => {
+      const dir = path.join(tmp, name);
+      fs.cpSync(ws, dir, { recursive: true, verbatimSymlinks: true });
+      return dir;
+    };
+    const mine = ownInstall('members-mine');
+    assert.deepStrictEqual(await keepNodeMembers(mine, ['packages/pricing'], []), { fromTier: null, project: [] });
+    assert.deepStrictEqual(holds(mine), whole, 'by its own steps');
+    assert.ok(!fs.existsSync(path.join(mine, 'node_modules', '.package-lock.json')));
+    assert.deepStrictEqual(runs(mine), [['registry', 'string'], 'registry cli']);
+    const mineOver = ownInstall('members-mine-over');
+    assert.strictEqual((await keepNodeMembers(mineOver, ['packages/pricing'], [], manifest.node)).fromTier, over.fromTier);
+    assert.deepStrictEqual(holds(mineOver), holds(over.dir), 'by its own steps, over the tier');
+    assert.strictEqual(fs.readFileSync(path.join(mineOver, NODE_TIER_LINKS), 'utf8'), fs.readFileSync(path.join(over.dir, NODE_TIER_LINKS), 'utf8'),
+      'the same links, the same bytes');
+    await composeEnvironmentOverTier(mineOver, manifest);
+    assert.deepStrictEqual(runs(mineOver), [['tier', 'string'], 'tier cli']);
   });
 });

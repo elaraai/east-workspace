@@ -423,15 +423,32 @@ export async function leaveNodeToTier(buildDir: string, tier: NodeTier, project:
  * lists fails alike everywhere. npm's account of the tree goes too, as it is
  * no longer the tree's.
  *
- * @internal
+ * A backend that installs a member's workspace by its own steps, as an
+ * image's build does, calls this once the install is done, and its
+ * environment is the same as the one e3 builds. What it reads is npm's
+ * account of the tree it installed (`node_modules/.package-lock.json`, which
+ * `npm ci` writes): the workspace installed whole, its root's `workspaces`
+ * naming the members, each at its path.
+ *
  * @param buildDir - The installed environment
  * @param members - The paths of the environment's members, relative to `buildDir`
- * @param project - The members' own files, relative to `buildDir`
+ * @param project - The members' own files, relative to `buildDir`, of which
+ *   it returns those still there: a build that names none gives none
  * @param tier - What the tier it is built over holds of Node, if it is built
  *   over one
  * @returns How many installed packages were left to a tier, null when it is
  *   built over none, and the members' files that are still there
  * @throws {Error} When npm left no account of the tree it installed
+ *
+ * @example
+ * ```ts
+ * import { keepNodeMembers, readTierManifest } from '@elaraai/e3-core';
+ *
+ * // `npm ci` installed the workspace in `dir`, against its root's lock
+ * const tier = readTierManifest(manifestBytes).node; // none, to build it whole
+ * const { fromTier } = await keepNodeMembers(dir, ['packages/pricing'], [], tier);
+ * // fromTier: how many installed packages the tier's image holds for it
+ * ```
  */
 export async function keepNodeMembers(
   buildDir: string, members: readonly string[], project: readonly string[], tier?: NodeTier,
