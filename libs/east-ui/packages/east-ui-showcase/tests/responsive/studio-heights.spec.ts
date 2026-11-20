@@ -72,7 +72,11 @@ function readRow(entry: Locator): Promise<RowRead> {
 }
 
 /**
- * Presses the selected tile's height handle and drags it.
+ * Presses the selected tile's height handle and drags it — scrolled to first,
+ * as a person reaches it: the canvas scrolls, and a tile dragged taller can
+ * leave its handle under the canvas's fold (the page's starting filters stand
+ * in a band over the grid, #1673), where a press at its place lands on what
+ * shows there instead.
  *
  * @param page - The browser's page
  * @param entry - The showcase's entry
@@ -80,6 +84,8 @@ function readRow(entry: Locator): Promise<RowRead> {
  */
 async function holdHeight(page: Page, entry: Locator, by: number): Promise<void> {
     const handle = entry.locator("[data-snap-grid-tile][data-selected] [data-handle=height]");
+    await handle.scrollIntoViewIfNeeded();
+    await settled(page);
     const box = (await handle.boundingBox())!;
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
