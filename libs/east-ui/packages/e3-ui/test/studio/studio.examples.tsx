@@ -11,9 +11,9 @@
  * library and a published page. The record holds the mock of record's resting
  * state: the Ops console's Overview, live as v3 and drafted since, and the page
  * library's projects, pages and templates. A second record holds a page whose
- * placements hold content (#1669) — a text block and visuals over a source the
- * surface lists — and declares the one step that carries a workspace's pages
- * stored before a placement held content. A third holds a page of every form
+ * placements hold content (#1669) — a text block and visuals over the two
+ * sources the surface lists — and declares the one step that carries a
+ * workspace's pages stored before a placement held content. A third holds a page of every form
  * a visual draws (#1671), over two years of a trade supplier's orders, its
  * readers starting in the latest quarter; a fourth, a page of the options a
  * chart and a value take (#1672).
@@ -67,6 +67,22 @@ export const studioSales = e3.input("studio_sales", ArrayType(StructType({ regio
     { region: "South", channel: "Online", revenue: 159216.0 },
     { region: "West", channel: "Store", revenue: 197604.0 },
     { region: "West", channel: "Online", revenue: 149076.0 },
+]));
+
+/** This week's returns, one row per region, channel and reason: the items that came back, and what was refunded for them. */
+export const studioReturns = e3.input("studio_returns", ArrayType(StructType({
+    region: StringType, channel: StringType, reason: StringType, items: IntegerType, refunded: FloatType,
+})), variant("value", [
+    { region: "North", channel: "Store", reason: "Damaged", items: 31n, refunded: 5208.0 },
+    { region: "North", channel: "Store", reason: "Changed mind", items: 18n, refunded: 2736.0 },
+    { region: "North", channel: "Online", reason: "Damaged", items: 22n, refunded: 3696.0 },
+    { region: "North", channel: "Online", reason: "Wrong size", items: 41n, refunded: 5699.0 },
+    { region: "South", channel: "Store", reason: "Damaged", items: 19n, refunded: 3192.0 },
+    { region: "South", channel: "Store", reason: "Changed mind", items: 12n, refunded: 1824.0 },
+    { region: "South", channel: "Online", reason: "Wrong size", items: 27n, refunded: 3753.0 },
+    { region: "West", channel: "Store", reason: "Damaged", items: 15n, refunded: 2520.0 },
+    { region: "West", channel: "Online", reason: "Changed mind", items: 9n, refunded: 1368.0 },
+    { region: "West", channel: "Online", reason: "Wrong size", items: 24n, refunded: 3336.0 },
 ]));
 
 /** Orders by week. */
@@ -558,7 +574,7 @@ export const studioLibrary = example({
 });
 
 // ============================================================================
-// Content — a text block, and visuals over a source the surface lists (#1669)
+// Content — a text block, and visuals over the sources the surface lists (#1669)
 // ============================================================================
 
 /** This week's revenue by region, as columns split by channel. */
@@ -576,9 +592,21 @@ const topRegions = Studio.visual.of("sales", Studio.visual.list({
     bar: true,
 }));
 
+/** This week's refunds by why the items came back, the largest first. */
+const refundsByReason = Studio.visual.of("returns", Studio.visual.bar({
+    x: Studio.visual.group("reason", { sort: "high" }),
+    values: [Studio.visual.sum("refunded")],
+}));
+
+/** How many items came back this week. */
+const itemsReturned = Studio.visual.of("returns", Studio.visual.kpi({
+    value: Studio.visual.sum("items", { label: "Items returned" }),
+}));
+
 /**
  * The pages of a project whose placements hold content: a text block, two
- * visuals over the sales and a developer's component. Its one migration step
+ * visuals over the sales, a developer's component, and two visuals over the
+ * returns — so a filter's editor asks which dataset it is on. Its one migration step
  * carries a workspace whose pages were stored before a placement held content
  * — each component key becomes `component(key)` — and a workspace deployed
  * fresh counts it applied.
@@ -594,6 +622,8 @@ export const studioContentPages = e3.record("studio_content_pages", Studio.Types
                     { key: "s-revenue", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: some("Revenue by region"), content: revenueByRegion },
                     { key: "s-top", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: topRegions },
                     { key: "s-kpi", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: Studio.visual.component("kpi_rail") },
+                    { key: "s-reasons", row: "r4", span: 8n, height: some(220n), align: variant("top", null), title: some("Refunds by reason"), content: refundsByReason },
+                    { key: "s-returned", row: "r4", span: 4n, height: none, align: variant("stretch", null), title: none, content: itemsReturned },
                 ],
                 filters: [],
             },
@@ -612,14 +642,15 @@ export const studioContent = example({
     keywords: [
         "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table",
         "text block", "text", "content", "Studio.Types.Content", "Studio.migrations", "cellContent", "migration.rows", "migrations",
-        "Data.bind", "Studio.Builder", "e3.record",
+        "Data.bind", "Studio.Builder", "e3.record", "two sources", "datasets", "starting filters", "filter",
     ],
-    description: "A page whose placements hold content: a text block, visuals over a source the surface lists — revenue by region as stacked columns, the top regions as a list — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — the page's seeds are built with Studio.visual, and its pages record declares Studio.migrations.cellContent, the one step that carries pages stored before a placement held content",
+    description: "A page whose placements hold content: a text block, visuals over the two sources the surface lists — over the sales, revenue by region as stacked columns and the top regions as a list; over the returns, refunds by reason as bars and the items returned as a KPI — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — and a filter is on one of the sources the page's visuals read: here two, so a new starting filter's editor asks which, and the rail names each source once before its chips. The page's seeds are built with Studio.visual, and its pages record declares Studio.migrations.cellContent, the one step that carries pages stored before a placement held content",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail]);
             const pages = $.let(Record.bind(studioContentPages));
             const sales = $.let(Data.bind(studioSales));
+            const returns = $.let(Data.bind(studioReturns));
             return (
                 <Box height="760px">
                     <Studio.Builder pages={pages} components={components} project="Sales desk" id="studioContent"
@@ -630,6 +661,16 @@ export const studioContent = example({
                                     region: { label: "Region" },
                                     channel: { label: "Channel" },
                                     revenue: { label: "Revenue", format: { currency: { code: "USD" } } },
+                                },
+                            }),
+                            returns: Studio.source(returns, {
+                                name: "Returns", icon: "rotate-left", description: "One row per region, channel and reason",
+                                fields: {
+                                    region: { label: "Region" },
+                                    channel: { label: "Channel" },
+                                    reason: { label: "Reason" },
+                                    items: { label: "Items" },
+                                    refunded: { label: "Refunded", format: { currency: { code: "USD" } } },
                                 },
                             }),
                         }} />

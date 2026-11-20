@@ -27,31 +27,36 @@ const launched = () => h.requests("one-shot").filter((request) => request.method
 /** A placement's tile on the canvas. */
 const tile = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-studio-canvas] [data-snap-grid-tile="${key}"]`)!;
 
-/** Whether both the content example's visuals have answered in an element: the revenue drawn as its chart, and the regions as its list, a row each. */
-async function bothAnswered(within_: (key: string) => HTMLElement) {
+/**
+ * Whether each of the content example's visuals has answered in an element: over the sales, the revenue drawn as its
+ * chart and the regions as its list, a row each; over the returns, the refunds as their bars and the items returned.
+ */
+async function allAnswered(within_: (key: string) => HTMLElement) {
     await waitFor(() => expect(within_("s-revenue").querySelector('[data-studio-chart="column"]')).not.toBeNull());
     await waitFor(() => expect(within_("s-top").querySelectorAll("[data-studio-list-row]")).toHaveLength(3));
+    await waitFor(() => expect(within_("s-reasons").querySelector('[data-studio-chart="bar"]')).not.toBeNull());
+    await waitFor(() => expect(within_("s-returned").querySelector("[data-studio-kpi-value]")?.textContent).toBe("218"));
 }
 
-/** Mounts the content example's builder, and waits for both its visuals to answer: revenue by region and channel, and the regions by revenue. */
+/** Mounts the content example's builder, and waits for each of its visuals to answer. */
 async function mountAnswered(storageKey: string): Promise<HTMLElement> {
     const { container } = await h.mount(ex.studioContent, { storageKey });
-    await bothAnswered((key) => tile(container, key));
+    await allAnswered((key) => tile(container, key));
     await settle();
     return container;
 }
 
 describe("a page's visuals, asked on e3", () => {
     test("asks each program once as the page loads, though its tiles ask before the poll first reads their source's hash", async () => {
-        // The calls slower than the poll, as on a server: held until the cache's poll has read the source's hash.
+        // The calls slower than the poll, as on a server: held until the cache's poll has read each source's hash.
         const calls = h.e3.hold((request) => request.kind === "one-shot");
         const { container } = await h.mount(ex.studioContent, { storageKey: "studio-answers" });
         await h.poll();
         await act(async () => { calls.release(); });
-        await bothAnswered((key) => tile(container, key));
+        await allAnswered((key) => tile(container, key));
         await settle();
-        // Two visuals, two programs: one call each.
-        expect(launched()).toHaveLength(2);
+        // Four visuals over two sources, four programs: one call each.
+        expect(launched()).toHaveLength(4);
     });
 
     test("the showcase's page of visuals draws every form from its answers: the KPIs, the seven charts, the list, the three tables (#1671)", async () => {
@@ -83,7 +88,7 @@ describe("a page's visuals, asked on e3", () => {
         });
         await settle();
         const preview = container.querySelector<HTMLElement>("[data-studio-publish]")!;
-        await bothAnswered((key) => preview.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!);
+        await allAnswered((key) => preview.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!);
         expect(launched()).toHaveLength(asked);
     });
 });

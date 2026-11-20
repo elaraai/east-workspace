@@ -6,8 +6,9 @@
 /**
  * Linking two visuals in the Studio's builder (#1673, LNK-3 to LNK-7),
  * measured in a real browser over the showcase's builder of a page of
- * content — a note, revenue by region as columns, the regions as a list, and
- * a developer's KPI rail:
+ * content — a note, revenue by region as columns and the regions as a list
+ * over the sales, a developer's KPI rail, and refunds by reason as bars and
+ * the items returned over the returns:
  *
  *  - K1 what the builder does to a selected visual stands on its tile's
  *    frame, in one row with its Edit, Duplicate and Remove — its menu a
@@ -15,9 +16,10 @@
  *    canvas in pick mode: a
  *    banner in the builder frame's banners slot, under its toolbar and inside
  *    the slot, as every builder's banners stand — never over the toolbar —
- *    saying what to do; the visual that can lead outlined dashed `--brand-d` on
- *    `--brand-tint` with a pointer's hand; the visual being linked as it was;
- *    every other placement dimmed.
+ *    saying what to do; each visual that can lead — the list, and the bars
+ *    over the other source — outlined dashed `--brand-d` on `--brand-tint`
+ *    with a pointer's hand; the visual being linked as it was; every other
+ *    placement dimmed.
  *  - K2 Esc leaves the mode, nothing linked.
  *  - K3 a click on the leader links: the mode is left, the canvas's selection
  *    is still the follower, its tile's eyebrow says whom it follows, and the
@@ -40,7 +42,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 
-/** The showcase's builder over a page of content, whose visuals read one source. */
+/** The showcase's builder over a page of content, whose visuals read two sources. */
 const HASH = "e3/studio/studio/studioContent";
 /** The columns, which follow; the list, whose click selects. */
 const FOLLOWER = "s-revenue";
@@ -115,9 +117,12 @@ test.describe("Linking two visuals on the Studio's canvas (#1673)", () => {
         expect(banner.text).toContain("The outlined visuals can lead. Esc cancels.");
         // In the frame's banners slot, under its toolbar and inside the slot, as every builder's banners stand.
         expect([banner.inSlot, banner.under, banner.inside]).toEqual([true, true, true]);
-        // Once the dimmed ones have faded: the note and the developer's component, neither of which can lead.
-        await expect.poll(async () => (await tiles(entry)).map((tile) => [tile.key, tile.pick, tile.opacity]))
-            .toEqual([["s-note", null, "0.4"], [FOLLOWER, "follower", "1"], [LEADER, "leader", "1"], ["s-kpi", null, "0.4"]]);
+        // Once the dimmed ones have faded: the note, the developer's component and the KPI, none of which can lead; the
+        // bars over the returns can, as the list over the sales can.
+        await expect.poll(async () => (await tiles(entry)).map((tile) => [tile.key, tile.pick, tile.opacity])).toEqual([
+            ["s-note", null, "0.4"], [FOLLOWER, "follower", "1"], [LEADER, "leader", "1"], ["s-kpi", null, "0.4"],
+            ["s-reasons", "leader", "1"], ["s-returned", null, "0.4"],
+        ]);
         const leader = (await tiles(entry)).find((tile) => tile.key === LEADER)!;
         expect([leader.outline, leader.cursor]).toEqual(["dashed", "pointer"]);
         expect(await entry.locator(`[data-snap-grid-tile="${LEADER}"]`).evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(paper);
@@ -127,7 +132,9 @@ test.describe("Linking two visuals on the Studio's canvas (#1673)", () => {
         await settled(page);
         expect(await entry.locator("[data-studio-linking]").count()).toBe(0);
         // Every tile as it was, once the dimmed ones have come back.
-        await expect.poll(async () => (await tiles(entry)).map((tile) => [tile.pick, tile.opacity])).toEqual([[null, "1"], [null, "1"], [null, "1"], [null, "1"]]);
+        await expect.poll(async () => (await tiles(entry)).map((tile) => [tile.pick, tile.opacity])).toEqual([
+            [null, "1"], [null, "1"], [null, "1"], [null, "1"], [null, "1"], [null, "1"],
+        ]);
         expect(await entry.locator(`[data-snap-grid-tile="${FOLLOWER}"] [data-studio-visual-follow]`).count()).toBe(0);
     });
 
