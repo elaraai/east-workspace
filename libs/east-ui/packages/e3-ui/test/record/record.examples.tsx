@@ -10,9 +10,9 @@
  * records, and its columns from data (`Record Columns From Data - DX
  * Proposal.md` §2). Each example is the proposal's, whole: the record, its
  * binding, the Record. Two page the Sheet's 50,000 work orders
- * (`sheet/sheet-records.examples.tsx`) through their indexes, and the last
- * meets someone else's save — a change, a removal and an addition — in one
- * window.
+ * (`sheet/sheet-records.examples.tsx`) through their indexes, one meets
+ * someone else's save — a change, a removal and an addition — in one window,
+ * and the last keeps each row's key in the field that holds it.
  */
 
 import {
@@ -1339,3 +1339,59 @@ export const recordConflicts = example({
     inputs: [],
 });
 
+// ============================================================================
+// Example 14 — rows that hold their own key in a field
+// ============================================================================
+
+/** A member of staff: their staff id, which their row is keyed by too, their name and their team. */
+export const StaffMember = StructType({ id: StringType, name: StringType, team: StringType });
+export const recordStaff = e3.record("record_staff", DictType(StringType, StaffMember), {
+    initial: new Map([
+        ["S-001", { id: "S-001", name: "A. Morgan", team: "Inbound" }],
+        ["S-002", { id: "S-002", name: "B. Ellis", team: "Outbound" }],
+    ]),
+    mutations: (mutation) => ({
+        // The staff list's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordStaffIds = example({
+    keywords: ["Record", "keyField", "key field", "key in a field", "row key", "id", "newKey", "newRow", "Record.patch", "Add", "read only"],
+    description: "A record whose rows hold their own key in a field: the staff list keyed by staff id, each member's `id` their key too. `keyField` names the field, so a member Add drafts shows the id the Record keyed them by at once and is saved with it — and takes the next id with their key where someone else's save took theirs first. `newRow` gives a new member their team and says nothing of their id, and the id's column is read only",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const staff = $.let(Record.bind(recordStaff));
+            // A new member's key in the list's own scheme: given every key taken, the first S-00N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`S-00${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
+                return East.str`S-00${n}`;
+            }));
+            // A new member as they join: in Inbound, their name left to type — and their id the Record's to keep.
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StaffMember), (_$) => Record.patch(StaffMember, { team: "Inbound" })));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={staff}
+                        // The field each member's key is held in too: the Record keeps it for every member it adds.
+                        keyField="id"
+                        title="Staff"
+                        noun={{ singular: "member", plural: "members" }}
+                        columns={{
+                            name: Record.column.title(StaffMember, { header: "Name", width: "176px" }),
+                            id:   Record.column.text(StaffMember, { header: "Staff id", width: "112px" }),
+                            team: Record.column.text(StaffMember, { header: "Team", width: "136px" }),
+                        }}
+                        newKey={newKey}
+                        newRow={newRow}
+                        name="recordStaffIds"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
