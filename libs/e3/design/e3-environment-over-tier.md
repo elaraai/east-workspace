@@ -719,6 +719,15 @@ python member's stopped doing in #1654. Composed over the image and run in it
 calling the scaffold's own platform function returned its value, and East was
 loaded once, from the image.
 
+Since #1700 a member's environment keeps only what its members and the runner
+need ([`e3-environment-granularity.md`](e3-environment-granularity.md) §3.2.4,
+amended), and over a tier what its members are developed with counts as theirs
+no longer: the TypeScript a member is developed with, kept as the peer
+`@elaraai/east` takes, is left with East. Of the same scaffold, over the same
+image, what ships is the member's own code and the link to the runner's
+command: 35.5 KB of layers, 212 packages from the tier. Built whole, it is
+23.4 MB. The program ran in the image as before.
+
 ### 10.8 Tests
 
 - e3-core: `nodeTierShare` over trees (what is left, removed and kept; another

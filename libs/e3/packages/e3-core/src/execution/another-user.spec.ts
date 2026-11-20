@@ -223,14 +223,18 @@ describe('a local runner whose processes run as another user', {
 
   it('builds an environment as the user, in a build directory and member directories e3 gave it, and takes it back before any runner reads it', async () => {
     // An npm saying whom it ran as, installing as npm does: into the build
-    // directory, and a member's own directory; and leaving a tool anyone may
-    // write and that runs as its owner.
+    // directory, and a member's own directory, with its account of the tree
+    // it installed; and leaving a tool anyone may write and that runs as its
+    // owner.
     const bin = join(dir, 'bin');
     mkdirSync(bin);
     writeFileSync(join(bin, 'npm'), '#!/bin/sh\nset -e\n' +
       'echo "$(id -u):$(id -g)" > ran-as\n' +
       'mkdir -p packages/common/node_modules node_modules/.bin node_modules/@acme\n' +
       'ln -s ../../packages/common node_modules/@acme/common\n' +
+      'cat > node_modules/.package-lock.json <<EOF\n' +
+      '{"lockfileVersion":3,"packages":{"node_modules/@acme/common":{"resolved":"packages/common","link":true},"packages/common":{"name":"@acme/common","version":"1.0.0"}}}\n' +
+      'EOF\n' +
       'touch node_modules/.bin/a-tool\nchmod 6777 node_modules/.bin/a-tool\n');
     chmodSync(join(bin, 'npm'), 0o755);
     const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {

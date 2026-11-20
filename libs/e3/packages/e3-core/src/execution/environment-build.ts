@@ -27,7 +27,7 @@ import {
   carryInterpreter, changedSince, EnvironmentTargetRefused, leaveToTier, refuseNativeAddon, treeEntries, unbuiltWheel, wheelOf,
   type TargetParts, type TargetPlatform,
 } from './environment-target.js';
-import { leaveNodeToTier } from './environment-node-tier.js';
+import { keepNodeMembers, leaveNodeToTier } from './environment-node-tier.js';
 
 /** An environment's files are objects holding their bytes as beast2 Blobs. */
 const FILE_TYPE = toEastTypeValue(BlobType);
@@ -688,11 +688,17 @@ async function retargetWindowsJunctions(buildDir: string, envDir: string): Promi
 /**
  * Builds a workspace environment in `buildDir`, to be put at `envDir`.
  *
+ * @remarks
+ * The workspace is installed whole from its root's lock, and then the
+ * environment keeps what its members and the runner need (`keepNodeMembers`,
+ * #1700): nothing else the workspace's root depends on, and none of the
+ * members' development dependencies, wherever it is built.
+ *
  * @internal
  * @param platform - The platform it is installed for, when not this machine's
  * @param over - What the tier it is built over holds of Node, with a
- *   platform: once all is installed, East's packages the tier holds, and what
- *   only they need, are left to it (`leaveNodeToTier`)
+ *   platform: of what the environment keeps, East's packages the tier holds,
+ *   and what only they need, are left to it
  * @returns The members' own files, relative to the build directory, when a
  *   platform is given, and how many packages were left to a tier; else none
  *   of them
@@ -755,6 +761,5 @@ export async function buildWorkspaceNode(
       throw new Error(`materialized workspace is incomplete: member '${member.name}' missing after install`);
     }
   }
-  if (over === undefined) return { interpreter: null, project: members, fromTier: null };
-  return { interpreter: null, ...await leaveNodeToTier(buildDir, over, members) };
+  return { interpreter: null, ...await keepNodeMembers(buildDir, spec.value.members.map((member) => member.path), members, over) };
 }

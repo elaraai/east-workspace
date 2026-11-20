@@ -32,7 +32,9 @@
  * over the tier its rack boots it over, without the interpreter and without
  * each distribution the tier's image holds the same (#1655). A node
  * environment built over a tier is without East's packages the image holds,
- * and what only they need (#1697).
+ * and what only they need (#1697). A workspace member's node environment,
+ * wherever it is built, keeps what its members and the runner need, and
+ * nothing else its workspace's root depends on (#1700).
  *
  * And an environment built ahead of the call that declares it is placed where
  * this module looks for one. A directory already at `<repo>/envs/<hash>` is

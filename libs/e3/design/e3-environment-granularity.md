@@ -292,6 +292,40 @@ Same temp-sibling + atomic-rename protocol; legacy builders untouched:
 
 **Invalidation:** edit member code → only its tarball hash changes → only envs whose closure contains it re-run. Third-party bump anywhere → root lock blob changes → all workspace envs re-run. Member version bump → tarball + lock change (over-invalidates on npm — accepted). Code edits never touch the lock. Unlike python, node env *contents* are member-scoped (closure-only skeleton) — the asymmetry is documented.
 
+> **Amended (#1700).** Step 3 no longer keeps all it installs. `npm ci` still
+> installs the skeleton whole: the root's dependencies, its development ones
+> among them, and the members'. The environment then keeps what its members
+> and the runner need, and removes the rest (`keepNodeMembers`, read from
+> npm's account of the tree it installed, `node_modules/.package-lock.json`):
+>
+> - **Kept:** the members, and what they need to run, found as Node finds it
+>   (the nearest `node_modules/<dependency>` above, links followed): their
+>   `dependencies`, `optionalDependencies` and `peerDependencies`, with what
+>   those need in turn; each member's link at `node_modules/<name>`, by which
+>   the runner loads it; and the runner's own packages wherever the root's
+>   lock installed them, `@elaraai/east-node-cli` and its stock platforms
+>   (`STOCK_PLATFORMS_BY_RUNNER.east_node`), which a workspace commonly lists
+>   on its root alone, with what they need.
+> - **Removed:** whatever else the root depends on, its tools among it, and
+>   the members' development dependencies, with each `.bin` link into them;
+>   npm's account of the tree goes too, as it no longer describes it.
+>
+> So a node member's environment holds its own, as a python member's does
+> (#1654), wherever it is built: here, for a rack's platform, or over its
+> tier (`e3-environment-over-tier.md` §10). A member whose code imports a
+> package only its root lists fails the same way everywhere; the package
+> belongs in the member's own `package.json`.
+>
+> - **No wire change.** A python member's spec records the distributions
+>   installed beside its members (`requires`); a node member's would need the
+>   same field. The runner's packages are instead e3's own names, read when
+>   the environment is built: the runner always loads east-node's CLI, and a
+>   stock platform kept that the task's runner does not name costs nothing
+>   over the node tier, which holds it. The field can come with the spec's
+>   next change for another reason.
+> - A project that is its own root keeps its `node` spec, and installs as it
+>   did, its development dependencies among it.
+
 #### 3.2.5 pnpm workspaces (design complete; ships as I13)
 
 Validated mechanics, unchanged from the reviewed design plus reviewer 1's peer-dep fix: `yaml@^2` in `@elaraai/e3`; closure walk over `lock.importers` (v9; older → export error) following `dependencies`/`devDependencies`/`optionalDependencies` **+ `peerDependencies`** `link:` targets (a `workspace:*` peer must pull the sibling's tarball or autoInstallPeers could registry-shadow it); member names read from disk at capture (the pnpm lock carries none — hence the wire `members.name`); capture-synthesized `pnpm-workspace.yaml` blob (`packages:` = sorted closure paths + settings copied verbatim from the lock's `settings:` — `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` verified both necessary and sufficient) stored in `config` (e3-core stays YAML-free); `npm pack` for tarballs (specifier-verbatim); materialization: write config, `pnpm install --frozen-lockfile --ignore-scripts` (accepts the partial workspace, +closure-third-party only, never hits the registry for members), then explicit root `node_modules/<name>` member links (relative symlink POSIX / junction-to-final-envDir win32) — these make by-name + subpath resolution work from the runner's require root (verified); `environmentBinDir` = `[<envDir>/<subject>/node_modules/.bin, <envDir>/node_modules/.bin]`. v1-of-I13 export errors: `catalog:` specifiers, `settings.patchedDependencies`, `dependenciesMeta.*.injected`. Floors: pnpm ≥9 lock at capture, pnpm ≥10 at materialization.

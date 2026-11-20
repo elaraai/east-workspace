@@ -129,7 +129,11 @@ export type ToolsEnvironment = ValueTypeOf<typeof ToolsEnvironmentType>;
  * closure of the local workspace packages it depends on — so editing a
  * member's code re-runs only the environments whose closure contains it.
  * Materialized by reconstructing a minimal workspace of exactly the closure
- * members and running the frozen install against the verbatim root lock.
+ * members and running the frozen install against the verbatim root lock; the
+ * environment then keeps what its members need and the runner's own packages
+ * (east-node's CLI and its stock platforms, which a workspace commonly lists
+ * on its root alone). Nothing else the workspace root depends on is kept, and
+ * none of a member's development dependencies.
  *
  * @remarks
  * - `packageJson`: object hash of the workspace **root** `package.json` blob.
