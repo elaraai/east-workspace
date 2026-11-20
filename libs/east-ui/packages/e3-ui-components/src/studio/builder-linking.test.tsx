@@ -94,6 +94,8 @@ describe("<Studio.Builder> — linking on the canvas (#1673)", () => {
         expect(canvas(container).hasAttribute("data-linking")).toBe(true);
         expect(banner(container)).toContain("Click the visual Sales should follow");
         expect(banner(container)).toContain("The outlined visuals can lead. Esc cancels.");
+        // A banner, in the frame's banners slot under its toolbar as every builder's banners stand — never floating over it.
+        expect(container.querySelector('[data-frame-slot="banners"] [data-studio-linking] [data-banner-title]')?.textContent).toBe("Click the visual Sales should follow");
         // The list and the bars can lead; the visual being linked stands as it is; a text block is neither.
         expect(picks(container)).toEqual(["leader", "leader", "follower", null]);
         await clickTile(container, "l-regions");

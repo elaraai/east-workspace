@@ -52,7 +52,9 @@
  * and the history item, its keys and a screen's Apply act on it; each session
  * keeps its banners, named. What edits them the host draws over the grid
  * (`head`), a band between the selection bar and the grid, outside the
- * canvas's zoom and keys.
+ * canvas's zoom and keys. What the host says over the canvas — a mode it is
+ * in, linking two tiles say — stands in the frame's banners slot after its
+ * sessions' (`banners`), as every builder's banners do.
  *
  * In a frame of 560 px or narrower the canvas draws its phone form by itself
  * ({@link SnapGridPhoneCanvas}, `Studio Mobile Spec.md`): one column of tiles,
@@ -533,6 +535,12 @@ export interface SnapGridEditorProps {
      * omitted, the canvas's session is its history.
      */
     joined?: SnapGridJoined | undefined;
+    /**
+     * What the host says over the canvas — a mode it is in, linking two tiles
+     * say (#1673) — in the frame's banners slot under the toolbar, after its
+     * sessions' banners; on a phone, in the footer with them.
+     */
+    banners?: ReactNode | undefined;
 }
 
 /**
@@ -542,7 +550,7 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined, banners: hostBanners }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
@@ -1205,7 +1213,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         if (a === "discard") setSavedAt(undefined);
         joined?.history.actOn(key, a);
     };
-    const banners = joined === undefined
+    const sessionBanners = joined === undefined
         ? <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={choose} />
         : (
             <>
@@ -1215,6 +1223,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 ))}
             </>
         );
+    // The host's own after its sessions'.
+    const banners = <>{sessionBanners}{hostBanners}</>;
 
     return (
         <Box

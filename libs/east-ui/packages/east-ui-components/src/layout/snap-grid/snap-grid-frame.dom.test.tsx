@@ -6,7 +6,8 @@
  *
  * The SnapGrid's editing canvas in the builder's frame (#995), laid out by the
  * shared builder frame (#1125): the one toolbar, the zoom and the design
- * widths over a bound view, the selection bar, the saved time, and the panes.
+ * widths over a bound view, the selection bar, the saved time, the panes, and
+ * what a host says in its banners slot (#1673).
  * Then the canvas at a phone's design width (#1673): the page laid out as a
  * phone shows it. Then the toolbar a row short of room folds into chips
  * (#1229): its ladder, the View chip's bundle, its menu, and its hold.
@@ -127,6 +128,14 @@ describe("the builder's frame (#995)", () => {
         expect(body!.querySelector('[data-frame-slot="end"]')!.textContent).toBe("Inspector");
         // The selection bar sits over the canvas only, not the panes.
         expect(body!.querySelector('[data-frame-slot="main"] > [data-snap-grid-main] > [data-snap-grid-selection]')).not.toBeNull();
+    }, 30_000);
+
+    test("what a host says over the canvas stands in the frame's banners slot under the toolbar, as every builder's banners do — never over the toolbar (#1673)", async () => {
+        const canvas = await mountSnapGrid({ chrome: true, banners: <div data-testid="host-banner">Pick a tile</div> });
+        const frame = canvas.container.querySelector<HTMLElement>("[data-snap-grid-editor]")!.firstElementChild as HTMLElement;
+        const [row, banners] = [...frame.children] as HTMLElement[];
+        expect([row!.getAttribute("data-frame-slot"), banners!.getAttribute("data-frame-slot")]).toEqual(["toolbar", "banners"]);
+        expect([banners!.querySelector("[data-testid=host-banner]")?.textContent, row!.querySelector("[data-testid=host-banner]")]).toEqual(["Pick a tile", null]);
     }, 30_000);
 });
 
