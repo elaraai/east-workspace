@@ -14,27 +14,17 @@
  * selection bar and the grid, its clicks and keys its own.
  */
 
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
+import { act, fireEvent } from "@testing-library/react";
 import { SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { initializeStore } from "../../platform/state-runtime.js";
-import { UIStore } from "../../platform/state-store.js";
 import { liftDraft } from "../../editing/draft.js";
 import { EditHistory } from "../../editing/history.js";
 import { EditSession, type EntryVersion } from "../../editing/session.js";
-import { clickTile, history, historyButton, key, mountSnapGrid, selectedTile, settle, spanOf, tileEl } from "./snap-grid-editing.test-utils.js";
+import { canvasTestSetup, clickTile, history, historyButton, key, mountSnapGrid, selectedTile, settle, spanOf, tileEl } from "./snap-grid-editing.test-utils.js";
 import type { SnapGridEntryRef, SnapGridJoined } from "./use-snap-grid-editing.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-beforeEach(() => { initializeStore(new UIStore()); });
-afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    localStorage.clear();
-});
+canvasTestSetup();
 
 /** The host's entries: notes, keyed — one, `n-1`. */
 const Note = StructType({ text: StringType });
