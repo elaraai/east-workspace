@@ -336,8 +336,10 @@ PyTorch index is sent it too: its `+cpu` or `+cu130` build meets the extras'
 pin, since a pin with no local label is met by every local label, and is not
 the image's.
 What nothing pins is still sent when it has moved since the release: numpy and
-other small packages. A project holds those to the tier with the pins of the
-release's `east-py-constraints.txt` (in `@elaraai/e3-core`'s `tier/`), under
+other small packages. A project `npm create @elaraai/e3` scaffolds holds those
+to the tier already: its root `pyproject.toml` carries the release's pins,
+which `--update` moves to a later release's. Any other project holds them with
+the pins of the release's `east-py-constraints.txt` (in `@elaraai/e3-core`'s `tier/`), under
 `[tool.uv] constraint-dependencies` in its workspace root, each written
 `name==version ; marker`: the pin and its marker, and none of the line's
 trailing `\`, `--hash` lines or `# via` notes. Every pin of a name goes in,

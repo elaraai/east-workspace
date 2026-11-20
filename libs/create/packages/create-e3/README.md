@@ -8,6 +8,11 @@ npm create @elaraai/e3 my-solution
 
 - Pass `.` instead of a name to scaffold into the current directory.
 - Add `-- --install` to install dependencies (npm + `uv`) as part of scaffolding.
+- A python project's `pyproject.toml` holds the release's python pins in its
+  `[tool.uv]` table: the versions the release's python images hold, so an
+  environment built over a rack's tier image leaves nearly all it installs to
+  the image. `npm create @elaraai/e3@<version> -- --update`, inside the
+  project, moves them to another release with the `@elaraai/*` dependencies.
 
 The generated project is driven by cross-platform npm scripts:
 

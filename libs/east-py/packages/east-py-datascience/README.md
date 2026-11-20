@@ -70,7 +70,10 @@ share when uv removes xgboost's: put torch's back once, with `uv sync
 Each release ships the settings its packages were tested with, in
 `@elaraai/e3-core` (`tier/`): `east-py-constraints.txt`, every third-party
 version of this workspace's lock, each pin with the platforms it is for, and
-`east-py-overrides.txt`. To hold a distribution at the release's version, put
+`east-py-overrides.txt`. A project `npm create @elaraai/e3` scaffolds carries
+them already, in a marked block of its root `[tool.uv]` table, which
+`npm create @elaraai/e3@<version> -- --update` replaces with that release's.
+In any other project, to hold a distribution at the release's version, put
 its pins under `[tool.uv] constraint-dependencies` in your workspace root, each
 as `name==version ; marker`: the pin and its marker, and none of the line's
 trailing `\`, `--hash` lines or `# via` notes. Keep every pin of the name and

@@ -75,7 +75,7 @@ npm create @elaraai/e3@latest -- --update      # inside a project: move every @e
 - The **project name** is the first non-`-` argument; omit it (or pass `.`) to scaffold into the current directory.
 - Under `npm create`, flags go **after `--`** (npm forwards them). The `create-e3` / `create-east` bins take flags directly.
 - A run is **interactive** only when stdin and stdout are a TTY **and** no selection flag is passed. The selection flags are `--tests`/`--no-tests`, `--ui`/`--no-ui`, `--platform`/`--no-platform`, `--eslint`/`--no-eslint`, `--runners=…` and the `--*-packages` flags — any one makes the run non-interactive (safe for CI and pipes). `--install`/`--no-install` and `--editor-diagnostics` do not.
-- **`--update`** (either initializer, inside an existing project) scaffolds nothing: it rewrites every `@elaraai/*` dependency to the initializer's own version — the lockstep stack version, so `@latest` for the newest — and drops the stale lock so the install resolves without an `ERESOLVE`. `--install`/`--no-install` apply as for a scaffold.
+- **`--update`** (either initializer, inside an existing project) scaffolds nothing: it rewrites every `@elaraai/*` dependency to the initializer's own version — the lockstep stack version, so `@latest` for the newest — and drops the stale lock so the install resolves without an `ERESOLVE`. With create-e3, a python project's block of a release's python pins ([below](#the-releases-python-pins)) takes that release's, and `uv sync` locks under them: run with the install, or printed as the next step. The npm packages and the python pins move together or not at all: create-east, which carries no pins, refuses a project with the block, and so does an update whose block cannot take the pins, before anything is written. `--install`/`--no-install` apply as for a scaffold.
 
 ## CLI flags — and exactly what each does
 
@@ -84,7 +84,7 @@ npm create @elaraai/e3@latest -- --update      # inside a project: move every @e
 | Flag | Default | Effect |
 |---|---|---|
 | `--install` / `--no-install` | install when TTY | Run `npm install` (+ `uv sync` for e3) after scaffolding (or `--update`). |
-| `--update` | — | Bump an existing project's `@elaraai/*` stack to this initializer's version, instead of scaffolding. |
+| `--update` | — | Bump an existing project's `@elaraai/*` stack to this initializer's version, instead of scaffolding. create-e3's also moves a python project's release pins. |
 | `--eslint` / `--no-eslint` | on | Add ESLint wired with `@elaraai/eslint-plugin-east` (the East lint rules). |
 | `--editor-diagnostics` / `--no-editor-diagnostics` | on | Add `@elaraai/tsserver-plugin-east` to `tsconfig.json` (editor squiggles for East idioms). TypeScript only — the python diagnostics need no flag: `elaraai-east-py-cli` brings `east-py lint` / `check` / `lsp` plus flake8 and pylsp plugins, configured by the generated `[tool.east-py]`. |
 
@@ -112,7 +112,7 @@ npm create @elaraai/e3@latest -- --update      # inside a project: move every @e
 my-app/
 ├── package.json            # @elaraai/* pinned; cross-platform npm scripts (setup/build/test/deploy/start/watch)
 ├── tsconfig.json           # + tsserver-plugin-east (unless --no-editor-diagnostics)
-├── pyproject.toml          # e3 + east-py runner only; `[tool.east-py]` configures diagnostics (`check` opts into the build tier)
+├── pyproject.toml          # e3 + east-py runner only; `[tool.east-py]` configures diagnostics (`check` opts into the build tier); `[tool.uv]` holds the release's python pins
 ├── eslint.config.js        # unless --no-eslint
 └── src/
     ├── index.ts            # a sample e3.input + e3.task; the e3.package is the default export
@@ -120,6 +120,21 @@ my-app/
 ```
 
 `--ui` adds `src/ui/index.tsx` (a `ui()` surface from `@elaraai/e3-ui`) + `npm run shot`.
+
+### The release's python pins
+
+A python project's root `pyproject.toml` carries, in a marked block of its
+`[tool.uv]` table, the versions its release's python packages were tested
+with, which that release's python images hold: `constraint-dependencies` (the
+`elaraai-east-py*` distributions at the release, then every third-party pin,
+each with its marker) and `override-dependencies`. Locked under them, an
+environment built over a rack's tier image leaves nearly everything it installs
+to the image, so a rack is sent the project's own code and little else. Edit
+your dependencies, not the block: create-e3's `--update` replaces it with its
+release's, and leaves a project without the block as it is. To pin by hand,
+remove the block, or put `constraint-dependencies` of your own in its place. A
+pin of a package the project is itself (its own name, a workspace member, a
+package it takes from a source of its own) is left out, as uv refuses one.
 
 ## Custom platform functions
 
@@ -144,7 +159,7 @@ npm create @elaraai/e3 my-app -- \
 ```
 my-app/
 ├── package.json                       # npm workspace root: workspaces ["packages/node/*"], private
-├── pyproject.toml                     # uv workspace root: members ["packages/python/*"]
+├── pyproject.toml                     # uv workspace root: members ["packages/python/*"]; the release's python pins
 ├── tsconfig.json                      # excludes "packages" (members compile themselves)
 ├── src/
 │   ├── index.ts                       # e3.package("my-app", "1.0.0", ...packageTasks)

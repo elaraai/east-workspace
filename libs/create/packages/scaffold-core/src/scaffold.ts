@@ -9,6 +9,8 @@ import { spawnSync } from "node:child_process";
 
 import { deriveNames, type ProjectNames } from "./names.js";
 import { generatePackages, type PackageSpec } from "./packages.js";
+import { readReleasePins, withReleasePins } from "./pins.js";
+import { isPlainObject } from "./util.js";
 
 export type ProjectKind = "e3" | "east";
 
@@ -128,10 +130,6 @@ function substituteTokens(content: string, names: ProjectNames): string {
     .replaceAll("__WORKSPACE_NAME__", names.workspaceName);
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 /** Deep-merge `source` into `target` in place; nested plain objects merge, everything else overwrites. */
 function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(source)) {
@@ -221,6 +219,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
 
   const manifest = loadManifest(templateDir);
+  // The release's python pins a built create-e3's template carries: read
+  // before anything is written, so pins it cannot read leave no project.
+  const pins = readReleasePins(templateDir);
   const enabled = (feature: string): boolean => {
     const spec = manifest?.features[feature];
     // A derived feature is on iff all of its `allOf` features are on; it is
@@ -265,6 +266,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
   mkdirSync(projectDir, { recursive: true });
 
+  // Whether this scaffold wrote the root pyproject.toml: one a scaffold into
+  // the current directory finds there, and leaves, is the project's own.
+  let wrotePyproject = false;
   for (const srcPath of walk(templateDir)) {
     const rel = relative(templateDir, srcPath).replaceAll("\\", "/");
     if (rel === MANIFEST_FILE) continue;
@@ -274,6 +278,7 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     if (skip.has(rel)) continue;
 
     const destRel = renames[rel] ?? rel;
+    if (destRel === "pyproject.toml") wrotePyproject = true;
     const segments = destRel.split("/");
     const last = segments[segments.length - 1]!;
     segments[segments.length - 1] = DOTFILE_RENAMES[last] ?? last;
@@ -297,7 +302,17 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   // The value-list half: split platform code into per-runtime workspace
   // packages, each with its own captured execution environment.
   if (options.packages) {
-    generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log });
+    if (generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log })) wrotePyproject = true;
+  }
+
+  // The python project locks under its release's pins: a rack's tier image of
+  // that release then holds nearly all its environments install. Written into
+  // the root pyproject this scaffold wrote, once it is final: generatePackages
+  // rewrites it as a workspace root.
+  if (pins !== null && wrotePyproject) {
+    const pyproject = join(projectDir, "pyproject.toml");
+    writeFileSync(pyproject, withReleasePins(readFileSync(pyproject, "utf8"), pins));
+    log(`Pinned the python dependencies to east release ${pins.release}'s.`);
   }
 
   if (options.install) {
@@ -307,9 +322,33 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   return { ...names, projectDir, inPlace };
 }
 
+/** Whether a command is on PATH. */
 function hasCommand(cmd: string): boolean {
   const probe = process.platform === "win32" ? "where" : "which";
   return spawnSync(probe, [cmd], { stdio: "ignore" }).status === 0;
+}
+
+/** How {@link uvSync} went. */
+export type UvSyncOutcome = "synced" | "no-uv" | "failed";
+
+/**
+ * Installs a python project's dependencies with `uv sync`, which first locks
+ * them again where the lock is not of the project's `pyproject.toml`. A
+ * scaffold's install and `--update`'s both run it, and each decides what a
+ * failure means.
+ *
+ * @param cwd - The project
+ * @param log - Progress sink, told when uv is not on PATH
+ * @returns Whether it synced, found no uv, or failed
+ */
+export function uvSync(cwd: string, log: (m: string) => void): UvSyncOutcome {
+  if (!hasCommand("uv")) {
+    log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync` to set up Python.");
+    return "no-uv";
+  }
+  log("Installing Python dependencies (uv sync)...");
+  const uv = spawnSync("uv", ["sync"], { cwd, stdio: "inherit", shell: process.platform === "win32" });
+  return uv.status === 0 ? "synced" : "failed";
 }
 
 function runInstall(
@@ -325,13 +364,7 @@ function runInstall(
     return;
   }
 
-  if (kind === "e3" && enabled("runner:east-py")) {
-    if (hasCommand("uv")) {
-      log("Installing Python dependencies (uv sync)...");
-      const uv = spawnSync("uv", ["sync"], { cwd: projectDir, stdio: "inherit", shell: process.platform === "win32" });
-      if (uv.status !== 0) log("uv sync failed — fix the issue and re-run `uv sync`.");
-    } else {
-      log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync` to set up Python.");
-    }
+  if (kind === "e3" && enabled("runner:east-py") && uvSync(projectDir, log) === "failed") {
+    log("uv sync failed — fix the issue and re-run `uv sync`.");
   }
 }

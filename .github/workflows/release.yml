@@ -326,9 +326,25 @@ jobs:
   # scripts/lib/registry-served.mjs): the scripts wait for their own packages
   # and the last step for the launcher, so finalize, which needs this job,
   # tags an installable release.
+  #
+  # It starts once PyPI serves the release's python packages
+  # (publish-pypi-upload): create-e3 writes them, pinned at the release, into
+  # every python project it scaffolds, so its release must not reach npm
+  # before them, and a release whose PyPI half failed reaches npm not at all.
+  # A dry run uploads nothing to PyPI, and runs this job all the same. Each
+  # need is named, as finalize names them: on a pull request prepare is
+  # skipped, and this job with it.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: [prepare, verify-version, validate-release, build-e3-job]
+    needs: [prepare, verify-version, validate-release, build-e3-job, publish-pypi-upload]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.verify-version.result == 'success' &&
+          needs.validate-release.result == 'success' &&
+          needs.build-e3-job.result == 'success' &&
+          (needs.publish-pypi-upload.result == 'success' ||
+           (inputs.dry_run && needs.publish-pypi-upload.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -749,9 +765,19 @@ jobs:
   #     Trusted publishing must be configured per package name in the npm
   #     UI before this job's first non-dry run — see scripts/bootstrap-
   #     east-c-npm.mjs and libs/east-c/docs/npm-runner-distribution.md.
+  #
+  #     Like publish-npm, it starts once PyPI serves the release's python
+  #     packages, so a release whose PyPI half failed reaches npm not at all.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-npm:
-    needs: [prepare, publish-c-native, validate-release]
+    needs: [prepare, publish-c-native, validate-release, publish-pypi-upload]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.publish-c-native.result == 'success' &&
+          needs.validate-release.result == 'success' &&
+          (needs.publish-pypi-upload.result == 'success' ||
+           (inputs.dry_run && needs.publish-pypi-upload.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

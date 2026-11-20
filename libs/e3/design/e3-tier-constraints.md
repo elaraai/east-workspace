@@ -274,7 +274,8 @@ pip takes constraints, and no overrides, so it cannot install under these.
 ### 3.6 A project that wants every pin
 
 The extras' pin leaves torch to the tier, which is nearly all of the size.
-For the rest, a project puts the release's settings in its workspace root:
+For the rest, a project puts the release's settings in its workspace root; a
+project `npm create @elaraai/e3` scaffolds has them already (9):
 
 ```toml
 [tool.uv]
@@ -308,14 +309,17 @@ incompatibility the lock's own settings explain, and fails every other (8.5).
 - The python images' Dockerfiles: their Python, and `uv pip install` in an
   image built from one.
 - [`e3-environment-over-tier.md`](e3-environment-over-tier.md) points here.
+- create-e3's skill and READMEs: the block a scaffold writes, and `--update`
+  (9).
 
 
 ## 4. What this does not do
 
-- **Pin anything else.** xgboost, pymc and the rest float in a project's
-  lock, and ship when they differ from the tier's. Section 3.6 holds them.
-- **Write a project's settings for it.** Section 3.6 is by hand. A command
-  that writes them from a release could follow, if the by-hand step is used.
+- **Pin anything else in the extras.** xgboost, pymc and the rest float in a
+  project's lock unless it takes the release's settings (3.6), and ship when
+  they differ from the tier's.
+- **Write a project's settings for it.** Section 3.6 was by hand here; a
+  change that followed makes the scaffolder write them (9).
 - **Change the project template's dependencies.** It lists the package with
   no extras, and a member that wants torch asks for the extras itself. Its
   `requires-python` moves to 3.12 (8.1).
@@ -527,3 +531,34 @@ builds that version, under its pins.
   index's build of torch meets the extras' pin and ships, and that an image
   built `FROM` a python tier adds packages with `uv pip install`: its
   virtualenv holds no pip.
+
+## 9. What followed: the scaffolder writes them
+
+Measured once 1.0.111 was released, on a rack over its published
+`py-datascience` image, a project that asked for the torch extra alone was sent
+19.2 MB of what nothing pins, numpy the largest; the same project under the
+release's settings (3.6) was sent 1.3 MB. So create-e3 writes them:
+
+- A python project's root `pyproject.toml`, the single project's or a python
+  workspace's, takes them in a marked block of its `[tool.uv]` table:
+  `constraint-dependencies`, the five `elaraai-east-py*` distributions at the
+  release and then every pin of `east-py-constraints.txt` with its marker, and
+  `override-dependencies`, the lines of `east-py-overrides.txt`.
+- The east distributions are pinned with them: a later lock would otherwise
+  take a newer east-py, one these pins were not tested with.
+- create-e3's build reads the two files from `@elaraai/e3-core`'s `tier/`,
+  refuses them unless they are of its own version, and ships what it read in
+  its template: a create-e3 of a release writes that release's, and a change
+  of the files' form fails its build, not a scaffold.
+- The release publishes to npm only once PyPI serves its python packages, so
+  a create-e3 is never out before the east distributions its pins name.
+- `npm create @elaraai/e3@<version> -- --update` replaces a project's block
+  with that release's. A project without one, from before or one whose
+  author removed it or pins by hand, is left as it is: adding some 200 exact
+  pins under a project's own dependencies can make its lock unsatisfiable.
+  The npm packages and the pins move together or not at all: a block an
+  update cannot move, and an update by create-east, which carries no pins,
+  stop it before anything is written.
+- A pin of a package the project is itself (its own name, a workspace member,
+  a package it takes from a source of its own) is left out: uv takes the
+  project for that package, and refuses a pin of it.

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
 import type { PackageSpec } from "./packages.js";
+import { readReleasePins } from "./pins.js";
 import { updateStack, type UpdateResult } from "./update.js";
 
 interface FeatureManifest {
@@ -35,7 +36,8 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
   const version = (JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as { version: string }).version;
 
   // `--update`: bump an existing project's whole @elaraai/* stack to THIS
-  // package's version (the lockstep stack version) instead of scaffolding.
+  // package's version (the lockstep stack version) instead of scaffolding, and
+  // a python project's pins to this release's.
   if (args.includes("--update")) {
     const target = args.find((a) => !a.startsWith("-")) ?? ".";
     const install = args.includes("--no-install")
@@ -44,7 +46,9 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
         ? true
         : Boolean(process.stdout.isTTY);
     try {
-      const result = updateStack({ cwd: resolve(target), version, install });
+      // Read only for a project that carries a release's python pins
+      const pins = (): ReturnType<typeof readReleasePins> => readReleasePins(join(pkgRoot, "templates", kind));
+      const result = updateStack({ cwd: resolve(target), version, install, pins });
       printUpdateNextSteps(result, install);
     } catch (err) {
       console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
@@ -207,6 +211,13 @@ function printHelp(kind: ProjectKind): void {
   console.log(`  npm create @elaraai/${kind}@<version> -- --update   (@latest for newest)`);
   console.log("  Rewrites every @elaraai/* dependency to <version> and regenerates the lock,");
   console.log("  keeping the stack in lockstep without an ERESOLVE on bump.");
+  if (kind === "e3") {
+    console.log("  A python project's east release pins in pyproject.toml, which a scaffold");
+    console.log("  writes, take <version>'s too.");
+  } else {
+    console.log("  A python project that carries east release pins is refused: create-e3's");
+    console.log("  --update moves them with the npm packages.");
+  }
   console.log("");
   console.log("Options:");
   console.log("  --update                     bump this project's @elaraai/* deps instead of scaffolding");
@@ -253,10 +264,15 @@ function printUpdateNextSteps(result: UpdateResult, installed: boolean): void {
       console.log(`  ${dep.name}  ${dep.from} -> ${dep.to}`);
     }
   }
-  if (!installed) {
+  const steps = [
     // updateStack already dropped the stale lock, so a plain install resolves.
+    ...(installed ? [] : ["npm install"]),
+    // The python lock holds the earlier release's pins: a sync locks again.
+    ...(result.pythonPinned && !result.pythonLocked ? ["uv sync"] : []),
+  ];
+  if (steps.length > 0) {
     console.log("");
     console.log("Next steps:");
-    console.log("  npm install");
+    for (const step of steps) console.log(`  ${step}`);
   }
 }

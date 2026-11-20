@@ -6,12 +6,19 @@ on:
     paths:
       - "libs/create/**"
       - ".github/workflows/test-create.yml"
+      # create-e3's build reads the release's python pins from these
+      - "libs/e3/packages/e3-core/tier/**"
+      - "scripts/set-python-version.mjs"
+      - "scripts/east-py-constraints.py"
   # Every PR, whatever its base: a PR stacked on another PR's branch is
   # checked as one into main is.
   pull_request:
     paths:
       - "libs/create/**"
       - ".github/workflows/test-create.yml"
+      - "libs/e3/packages/e3-core/tier/**"
+      - "scripts/set-python-version.mjs"
+      - "scripts/east-py-constraints.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -66,6 +73,10 @@ jobs:
           test -f smoke-e3/pyproject.toml
           test -f smoke-e3/src/index.ts
           grep -q "export default" smoke-e3/src/index.ts
+          # The built bin carries its release's python pins, and writes them
+          grep -q "^# >>> east release pins" smoke-e3/pyproject.toml
+          grep -q '"elaraai-east-py-datascience==' smoke-e3/pyproject.toml
+          test ! -e smoke-e3/_release-pins.json
 
       # NOTE: a full "install + run the generated project's commands" e2e is
       # intentionally omitted here. Emitted projects pin *published* @elaraai/*
