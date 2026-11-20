@@ -8,8 +8,10 @@
  * showcase's page of visuals and its builder:
  *
  *  - F1 on a page the rail is a toolbar row over the grid: 28px, the grid 12
- *    under it, no border of its own; with no filter it is its `+ FILTER` chip
- *    after the rail's icon.
+ *    under it, no border of its own; the page's starting filter its chip —
+ *    the page of visuals starts in its latest quarter — then its `+ FILTER`
+ *    chip, after the rail's icon. A page with none is its `+ FILTER` chip
+ *    alone (F5, F7).
  *  - F2 a filter is written with the query builder's condition rows in
  *    place, in the chip's popover: it opens on its field's list, then a value
  *    from the values the source holds with how many rows hold each, read from
@@ -99,6 +101,9 @@ async function writeStartingFilter(page: Page, where: string): Promise<void> {
 /** The page's first KPI's value: the quarter's revenue. */
 const revenue = (grid: Locator) => grid.locator('[data-snap-grid-cell="v-revenue"] [data-studio-kpi-value]');
 
+/** A filter's chip on a rail of the page of visuals, after the page's starting filter's — the chip a test wrote. */
+const written = (rail: Locator) => rail.locator("[data-slice-clause]").nth(1);
+
 /**
  * Opens the showcase's builder, its entry in view.
  *
@@ -153,9 +158,12 @@ const AT_REST = { h: 28, toGrid: 12, sameStart: true, borders: ["0px", "0px", "0
 test.describe("A Studio page's filter rail (#1673)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
-    test("F1: on a page the rail is a 28px toolbar row over the grid, 12 above it, with no border; with no filter, its + FILTER chip after its icon", async ({ page }) => {
+    test("F1: on a page the rail is a 28px toolbar row over the grid, 12 above it, with no border; its starting filter's chip, then its + FILTER chip after its icon", async ({ page }) => {
         const grid = await openVisuals(page, "light");
-        expect(await railAtRest(grid.locator("xpath=..").locator("[data-studio-filters]"))).toEqual(AT_REST);
+        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        expect(await railAtRest(rail)).toEqual({ ...AT_REST, chips: 1 });
+        // Every reader starts in the latest quarter.
+        await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "ordered at is on or after 2026-07-01 and ordered at is before 2026-10-01");
     });
 
     test("F2, F3, F4: a filter written with the condition rows — a field, a value from the source's own with its count, the chooser whole inside the popover — is a chip in words that narrows every visual of its source; its × puts them back", async ({ page }) => {
@@ -211,15 +219,15 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         expect([slots.filter((slot) => !slot.focused).map((slot) => slot.edge), slots.filter((slot) => slot.focused).length])
             .toEqual([[["solid", true], ["solid", true]], 1]);
 
-        // The page's revenue is South Australia's alone at once; the row, held while its editor is open, takes the new
-        // chip as the editor shuts — short, and whole on its hover.
+        // The quarter's revenue is South Australia's alone at once; the row, held while its editor is open — the starting
+        // filter's chip its only one — takes the new chip as the editor shuts, after it: short, and whole on its hover.
         await expect(revenue(grid)).not.toHaveText(all ?? "");
         const narrowed = await revenue(grid).textContent();
-        expect(narrowed).toBe("6,484.00");
-        await expect(rail.locator("[data-slice-clause]")).toHaveCount(0);
+        expect(narrowed).toBe("38.4k");
+        await expect(rail.locator("[data-slice-clause]")).toHaveCount(1);
         await page.keyboard.press("Escape");
-        await expect(rail.locator("[data-slice-clause]")).toHaveText("Region: SA");
-        await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "region is SA");
+        await expect(written(rail)).toHaveText("Region: SA");
+        await expect(written(rail)).toHaveAttribute("title", "region is SA");
         // After its dataset's name, said once: before the chip, on its line, in the caption type.
         const named = await rail.evaluate((el) => {
             const names = el.querySelectorAll("[data-slice-chip-group]");
@@ -232,9 +240,9 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             };
         });
         expect(named).toEqual({ names: ["Orders"], before: true, line: true, type: ["uppercase", "600"] });
-        // Its ×: the filter out, the tiles as they were.
-        await rail.locator("[data-slice-clause] [data-chip-remove]").click();
-        await expect(rail.locator("[data-slice-clause], [data-slice-chip-group]")).toHaveCount(0);
+        // Its ×: the filter out — the starting filter's chip its only one again — the tiles as they were.
+        await written(rail).locator("[data-chip-remove]").click();
+        await expect(rail.locator("[data-slice-clause]")).toHaveCount(1);
         await expect(revenue(grid)).toHaveText(all ?? "");
     });
 
@@ -338,7 +346,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await rail.locator("[data-slice-add=filter]").click();
         await pick("region", "SA");
         await page.keyboard.press("Escape");
-        const chip = rail.locator("[data-slice-clause]");
+        const chip = written(rail);
         await expect(chip).toHaveText("Region: SA");
         await expect(chip).toHaveAttribute("title", "region is SA");
 
@@ -346,7 +354,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await chip.click();
         await expect(rows).toBeVisible();
         await settled(page);
-        /** Where the chip, its popover and `+ FILTER` stand, to the half pixel. */
+        /** Where the chip, its popover and `+ FILTER` stand, to the half pixel: the chip written, after the starting filter's. */
         const where = () => page.evaluate(() => {
             const at = (el: Element | null) => {
                 const box = el!.getBoundingClientRect();
@@ -354,7 +362,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             };
             const filters = document.querySelector("[data-studio-filters]")!;
             return {
-                chip: at(filters.querySelector("[data-slice-clause]")),
+                chip: at(filters.querySelectorAll("[data-slice-clause]")[1] ?? null),
                 add: at(filters.querySelector("[data-slice-add=filter]")),
                 popover: at(document.querySelector("[data-scope='popover'][data-part='content'][data-state='open']")).slice(0, 2),
             };
@@ -414,6 +422,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await page.keyboard.press("Escape");
             await settled(page);
         };
+        // Three, after the page's starting filter: four in all.
         await add("region", "SA");
         await add("category", "Tools");
         await add("customer", "Northwind");
@@ -432,22 +441,22 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await page.setViewportSize({ width, height: 1000 });
             await settled(page);
             // The toolbar chooses its form by its measured room: read it once it has.
-            await expect.poll(async () => { const now = await read(); return now.chips + now.folded; }).toBe(3);
+            await expect.poll(async () => { const now = await read(); return now.chips + now.folded; }).toBe(4);
             const now = await read();
             expect([now.height, now.add, now.fits], `at ${width}px`).toEqual([28, true, true]);
             drawn.push(now);
         }
-        // The wider the rail, the more chips it shows; at its widest every one, at a phone's fewer, the rest counted.
+        // The wider the rail, the more chips it shows — at a phone's fewer than at its widest — the rest counted at every width.
         const byWidth = [...drawn].sort((a, b) => a.width - b.width);
         expect(byWidth.every((now, at) => at === 0 || now.chips >= byWidth[at - 1]!.chips)).toBe(true);
         const [narrowest, widest] = [byWidth[0]!, byWidth[byWidth.length - 1]!];
-        expect([widest.chips, narrowest.chips < 3, narrowest.chips + narrowest.folded]).toEqual([3, true, 3]);
+        expect([narrowest.chips < widest.chips, widest.chips + widest.folded, narrowest.chips + narrowest.folded]).toEqual([true, 4, 4]);
 
         // +N more: one popover that lists every filter, and clears them.
         await rail.locator("[data-slice-more]").click();
-        const popover = page.getByRole("dialog").filter({ hasText: "3 active filters" });
+        const popover = page.getByRole("dialog").filter({ hasText: "4 active filters" });
         await expect(popover).toBeVisible();
-        for (const words of ["region is SA", "category is Tools", "customer is Northwind"]) await expect(popover).toContainText(words);
+        for (const words of ["ordered at is on or after 2026-07-01", "region is SA", "category is Tools", "customer is Northwind"]) await expect(popover).toContainText(words);
         await popover.getByRole("button", { name: "Clear all" }).click();
         await expect.poll(async () => { const now = await read(); return [now.chips, now.folded]; }).toEqual([0, 0]);
     });

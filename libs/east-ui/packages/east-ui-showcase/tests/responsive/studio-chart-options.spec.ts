@@ -17,7 +17,8 @@
  *  - O3 a chart whose legend is hidden draws none, and its plot takes the
  *    frame's whole height.
  *  - O4 a value's own format prints its numbers in place of its field's: a
- *    currency as a plain number, a percentage as a plain number.
+ *    currency as a plain number, its code gone from its header; a percentage
+ *    as a plain number.
  *  - O5 in the builder a chart's Legend is an option under its Stack, the same
  *    24px segments, no name cut: Hidden takes the legend off the tile, and a
  *    pie offers its values, its names or none.
@@ -115,7 +116,7 @@ test.describe("The options a Studio chart and a value take (#1672)", () => {
         // The legend after the pie, 20 apart, each in the middle of the frame's height.
         expect(pie.legend!.x - (pie.plot.x + pie.plot.w)).toBe(20);
         expect(pie.legend!.h).toBe(3 * 26);
-        expect(pie.titles).toEqual(["Tools · 10.7k · 52%", "Electrical · 5.4k · 26%", "Garden · 4.3k · 21%"]);
+        expect(pie.titles).toEqual(["Tools · 1.42M · 49%", "Electrical · 1.01M · 35%", "Garden · 0.45M · 16%"]);
     });
 
     test("O2: a pie with no legend has its frame to itself — as large as it holds, even across, in its middle, a whole number of pixels from its edges; a donut keeps its total", async ({ page }) => {
@@ -131,8 +132,9 @@ test.describe("The options a Studio chart and a value take (#1672)", () => {
         // Whole pixels from the frame's edges, the odd one after it.
         expect([Number.isInteger(before), Number.isInteger(over)], `before ${before}, over ${over}`).toEqual([true, true]);
         expect([after - before === 0 || after - before === 1, under - over === 0 || under - over === 1], `${before}|${after} ${over}|${under}`).toEqual([true, true]);
-        expect(pie.total).toBe("20.4k");
-        expect(pie.titles[0]).toBe("SA · 6,484.00 · 32%");
+        expect(pie.total).toBe("2.88M");
+        // Each slice's value at its largest's magnitude.
+        expect(pie.titles[0]).toBe("NSW · 867k · 30%");
     });
 
     test("O3: a chart whose legend is hidden draws none, and its plot takes its frame's whole height", async ({ page }) => {
@@ -147,17 +149,19 @@ test.describe("The options a Studio chart and a value take (#1672)", () => {
             };
         });
         expect(read.legends).toBe(0);
-        // Three months of five regions' revenue, stacked: more than one series, which a legend would name.
+        // Two years of five regions' revenue by month, stacked: more than one series, which a legend would name.
         expect(read.series).toBeGreaterThan(3);
         expect(read.plot).toBe(read.frame);
     });
 
-    test("O4: a value's own format prints its numbers in place of its field's — a currency's amount whole, a percentage as a number", async ({ page }) => {
+    test("O4: a value's own format prints its numbers in place of its field's — a currency's amount as a plain number, its code gone from its header; a percentage as a number", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openOptions(page);
         const table = grid.locator('[data-snap-grid-cell="c-formats"]');
-        expect(await table.locator("th").allTextContents()).toEqual(["Region", "Revenue AUD", "Revenue, whole", "Average margin", "Margin, as a number"]);
-        expect(await table.locator("tbody tr").first().locator("td").allTextContents()).toEqual(["SA", "6,484.00", "6,484", "19%", "0.19"]);
+        // The average order, a currency's amount — its code in its header — and as a plain number, as it is; the margin as
+        // a percentage, and as a number.
+        expect(await table.locator("th").allTextContents()).toEqual(["Region", "Average order AUD", "Average order, as a number", "Average margin", "Margin, as a number"]);
+        expect(await table.locator("tbody tr").first().locator("td").allTextContents()).toEqual(["WA", "1,004.36", "1,004.36", "19%", "0.19"]);
     });
 
     test("O5: in the builder a chart's Legend is an option under its Stack — the same 24px segments, no name cut; Hidden takes the legend off the tile; a pie offers its values, its names or none", async ({ page }) => {

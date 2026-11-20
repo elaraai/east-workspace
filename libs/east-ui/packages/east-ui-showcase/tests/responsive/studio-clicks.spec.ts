@@ -25,7 +25,7 @@
  *    or the chip's ×, puts them back (#1673).
  *  - C5 a click on a bar opens the page it names, narrowed: the surface shows
  *    the Region orders page, the clicked region its chip, its numbers that
- *    region's alone.
+ *    region's alone — its count the records' own, every row drawn of it.
  *  - C6 a records table's row takes a click: a pointer's hand over it. The
  *    clicked row is marked — `--paper-3`, as a list's is, with no checkbox —
  *    its height kept, and a click on it again clears the mark.
@@ -229,10 +229,13 @@ test.describe("A Studio page's clicks (#1673)", () => {
         const [chip] = await chips(entry);
         expect(chip).toMatch(/^region is [A-Z]+$/);
         const region = chip!.slice("region is ".length);
-        // Its orders are that region's alone: the count is the table's rows, each of the region.
-        const orders = Number(await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent());
+        // Its orders are that region's alone: the count is the records' own — the page's note says how many there are in
+        // all, in the words the count prints — and every row drawn is of the region.
+        const count = (await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent())!;
+        const orders = Number(count.replace(/\D/g, ""));
+        await expect(tile(entry, "g-records").locator("[data-studio-visual-note]")).toHaveText(new RegExp(`^Showing 1–\\d+ of ${count}$`));
         const table = tile(entry, "g-records").locator("tbody tr");
-        await expect.poll(() => table.count()).toBe(orders);
+        await expect.poll(() => table.count()).toBeGreaterThan(0);
         const cells = await table.evaluateAll((els) => els.map((el) => [el.textContent ?? "", getComputedStyle(el).cursor] as const));
         for (const [text, cursor] of cells) expect([text.includes(region), cursor], text).toEqual([true, "pointer"]);
         // A click marks the row: the selected row's ground, its height kept, no checkbox drawn.
@@ -259,7 +262,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         await expect.poll(async () => (await drawn()).filter((row) => row.marked).length).toBe(0);
         // Its × clears the filter: the page holds every order again.
         await entry.locator("[data-studio-filters] [data-slice-clause] [data-chip-remove]").click();
-        await expect.poll(async () => Number(await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent())).toBeGreaterThan(orders);
+        await expect.poll(async () => Number((await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent())!.replace(/\D/g, ""))).toBeGreaterThan(orders);
     });
 
     test("C7: the margin's prompt is the spec's — a pointer's hand at 24 in the strong rule; what to pick, and in which visual; what it then shows; 10 apart, each centred, the three centred in the tile's body at its height — its eyebrow nothing selected after the link, and no more", async ({ page }) => {
