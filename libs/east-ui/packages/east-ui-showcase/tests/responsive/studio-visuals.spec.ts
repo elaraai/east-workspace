@@ -6,7 +6,9 @@
 /**
  * The Studio's visuals, measured in a real browser (#1671): the showcase's
  * page of every form a visual draws — its KPIs, its seven charts, its list
- * and its three tables, each answered by e3 in the page — in both themes:
+ * and its three tables, each answered by e3 in the page — with two tiles that
+ * cannot draw, which the spec writes after them, each saying why — in both
+ * themes:
  *
  *  - V1 every text a tile draws holds 4.5:1 on what it is drawn over (NFR-2);
  *  - V2 every numeral is mono and tabular (TIL-5) — a value, a cell, a tick;
@@ -31,7 +33,7 @@ test.describe("Studio visuals (#1671)", () => {
 
     for (const mode of MODES) {
         test(`V1 (${mode}): every text a tile draws holds 4.5:1 on what it is drawn over`, async ({ page }) => {
-            const grid = await openVisuals(page, mode);
+            const grid = await openVisuals(page, mode, { cannotDraw: true });
             const bad = await grid.evaluate((root) => {
                 const canvas = document.createElement("canvas");
                 canvas.width = 1;
@@ -83,7 +85,7 @@ test.describe("Studio visuals (#1671)", () => {
         });
 
         test(`V2 (${mode}): every numeral is mono and tabular — a value, a cell, a tick`, async ({ page }) => {
-            const grid = await openVisuals(page, mode);
+            const grid = await openVisuals(page, mode, { cannotDraw: true });
             const bad = await grid.evaluate((root) => {
                 // The mono family, as the theme names it.
                 const probe = document.createElement("span");
@@ -108,7 +110,7 @@ test.describe("Studio visuals (#1671)", () => {
         });
 
         test(`V3 (${mode}): every colour a tile sets on an element is a token's`, async ({ page }) => {
-            const grid = await openVisuals(page, mode);
+            const grid = await openVisuals(page, mode, { cannotDraw: true });
             const bad = await grid.evaluate((root) => {
                 // A token's, or none: the theme's variable, or a keyword that paints nothing of its own.
                 const token = /^(transparent|inherit|initial|currentcolor|none|var\(--chakra-colors-[\w-]+.*\)|url\(#.+\))$/iu;
