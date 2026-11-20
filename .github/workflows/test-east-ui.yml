@@ -19,6 +19,7 @@ on:
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
       - ".github/actions/apt-install/**"
+      - ".github/actions/chromium-deps/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -39,6 +40,7 @@ on:
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
       - ".github/actions/apt-install/**"
+      - ".github/actions/chromium-deps/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -811,7 +813,8 @@ jobs:
 
       # The Chromium this Playwright drives, downloaded once for its version
       # and restored after (#1466); the system libraries it needs are the
-      # job's own, installed each time.
+      # job's own, installed each time by the bounded apt install, as this
+      # Playwright names them.
       - name: Which Playwright
         id: playwright
         working-directory: libs/east-ui/packages/east-ui-showcase
@@ -824,21 +827,17 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
-      # Playwright runs apt-get itself for Chromium's system libraries: apt is
-      # bounded first, so a connection that stalls is dropped and each download
-      # is tried again, and the step's own limit ends anything that is left.
-      - name: Bound apt
-        uses: ./.github/actions/apt-install
+      - name: Install Chromium's system libraries
+        uses: ./.github/actions/chromium-deps
+        with:
+          working-directory: libs/east-ui/packages/east-ui-showcase
+          cli: playwright
 
       - name: Install Chromium
+        if: steps.chromium.outputs.cache-hit != 'true'
         working-directory: libs/east-ui
         timeout-minutes: 15
-        run: |
-          if [ "${{ steps.chromium.outputs.cache-hit }}" = true ]; then
-            pnpm --filter @elaraai/east-ui-showcase exec playwright install-deps chromium
-          else
-            pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
-          fi
+        run: pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
 
       # Its JSON report too: the test times scripts/responsive-timings.ts
       # refreshes responsive.timings.json from, which the jobs are split by.
