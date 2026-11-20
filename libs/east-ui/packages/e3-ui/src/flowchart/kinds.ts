@@ -30,6 +30,9 @@
  *   renderer makes a String key up and counts an Integer one on from the
  *   largest. A transition's key is never typed, so an editable kind keyed by
  *   any other type is refused without `key`.
+ * - **A row that holds its own key**: where a state's, a transition's or a
+ *   lane's row holds its key in a field too, `keyField` names it, and a row
+ *   the Flowchart adds holds its key there, and is saved with it.
  * - **How a kind is bound follows how it is read** (R3): a state or a
  *   transition `Record.bind(record)`, editable — read whole, or through its
  *   source of the slice with `entries: Data.bindPaged(record)` beside it —
@@ -68,6 +71,7 @@ import {
     type BlockBuilder, type DictType, type EastType, type ExprType, type FunctionType, type ImmutableType, type StructType,
 } from "@elaraai/east";
 import type { FieldHints } from "@elaraai/east-ui/internal";
+import type { RecordKeyField } from "../bind/record.js";
 import { fieldOf, type FieldName, type FieldsOf } from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, typeText } from "../schedule/window.js";
@@ -1083,6 +1087,13 @@ export interface FlowchartLanesSpec<R extends StructType, O extends string, K ex
      * key is made up, an Integer one is one past the largest, and any other the viewer types in the inspector.
      */
     key?: KindKeyBuilder<R, K>;
+    /**
+     * The field of a lane's row that holds its key, for a record whose rows carry their own. A lane the Flowchart adds
+     * holds its key there, whatever a card's values or `values` give the field, and is saved with it; a lane the record
+     * holds already keeps what its field holds. The form shows the field read only, and no role names it. The field is
+     * of the record's key type.
+     */
+    keyField?: RecordKeyField<K, R>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -1102,7 +1113,8 @@ export interface FlowchartLanesSpec<R extends StructType, O extends string, K ex
  * @returns The lanes, for the Flowchart's `lanes`
  * @throws {Error} Naming the role or the binding, as `Flowchart.states` does: a paged read, and `entries`, among them —
  *   the lanes are read whole — a `values` giving other fields than every field but `label` and `order`, or one of
- *   another type, naming it, and a `key` building another type than the lanes' key, naming both
+ *   another type, naming it, a `key` building another type than the lanes' key, naming both, and a `keyField` that is no
+ *   field of the row of the lanes' key type, or that a role names
  */
 export function flowchartLanes<R extends StructType, O extends FlowchartOrderField<R, IntegerType | FloatType> = never, K extends EastType = StringType>(
     binding: FlowchartWholeBinding<R, K>, spec: FlowchartLanesSpec<R, O, K>,

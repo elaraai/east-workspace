@@ -10,7 +10,9 @@
  * rack's `code` its key. Its session names the field as its entries' identity
  * field — which the renderer's session keeps a new row's key in — its Save
  * writes a new rack's key into it and leaves a stored rack's alone, its form
- * shows the field read only, and what it refuses.
+ * shows the field read only, and what it refuses. The kinds that hand their
+ * record's side over themselves — the Flowchart's lanes and the Plan's link
+ * kinds, each adding rows of its own — take the option too.
  *
  * e3-ui's specs read and write no e3: the record is a handle made by hand
  * (`record-handles.ts`), its draft door answering the patch as a draft.
@@ -19,13 +21,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DictType, East, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type EastType, type ExprType,
+    DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
-import { Fields } from "@elaraai/east-ui/internal";
-import { FuncDraftType } from "@elaraai/e3-ui";
+import { EditingType, Fields } from "@elaraai/east-ui/internal";
+import { Flowchart, FuncDraftType, Plan, Record } from "@elaraai/e3-ui";
 import { KindSideFields, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
+import e3 from "@elaraai/e3";
 import { recordHandle } from "../record-handles.js";
 
 /** A rack: its code, which is its key too, and the bay it stands in. */
@@ -94,3 +97,76 @@ describe("a kind told its record's key field", () => {
             /Spec\.racks: `keyField` names "code", which one of the kind's roles writes — a row's key is kept in its key field by the builder, and nothing else writes it/);
     });
 });
+
+/** A lane: its code, which is its key too, its header and its place among the lanes. */
+const Lane = StructType({ code: StringType, label: StringType, seq: FloatType });
+const Lanes = DictType(StringType, Lane);
+const lanesHandle = recordHandle(Lanes, new SortedMap<string, ValueTypeOf<typeof Lane>>([["intake", { code: "intake", label: "Intake", seq: 1 }]], byCode), "spec_lanes");
+/** The lanes' session, built as the Flowchart builds them: told their key field, or told none. */
+const lanesSession = (spec: object) => East.compile(East.function([], OptionType(EditingType), ($) => {
+    const handle = $.let(lanesHandle());
+    return Flowchart.lanes(handle as never, { label: "label", order: "seq", ...spec } as never).build(undefined, false).editing;
+}), []);
+
+/** A feed between two jobs: its reference, which is its key too, and the jobs it joins. */
+const Feed = StructType({ ref: StringType, from: StringType, to: StringType });
+const Feeds = DictType(StringType, Feed);
+const feedsHandle = recordHandle(Feeds, new SortedMap<string, ValueTypeOf<typeof Feed>>([["f-1", { ref: "f-1", from: "J-1", to: "J-2" }]], byCode), "spec_feeds");
+/** The feeds' session, built as the Plan builds a link kind: told its key field, or told none. */
+const feedsSession = (config: object) => East.compile(East.function([], OptionType(EditingType), ($) => {
+    const handle = $.let(feedsHandle());
+    return Plan.links(handle as never, {
+        name: "Feed", icon: "arrow-right-long", from: { field: "from", of: "job" }, to: { field: "to", of: "job" }, ...config,
+    } as never).build("feed").editing;
+}), []);
+
+describe("a kind that hands its record's side over itself, told its record's key field", () => {
+    /** The field a kind's session names as its entries' identity field. */
+    const idField = (editing: ValueTypeOf<OptionType<typeof EditingType>>) => {
+        if (editing.type !== "some") assert.fail("expected the kind's session");
+        return editing.value.idField;
+    };
+
+    test("the Flowchart's lanes: their session names the field, told none it names none, and a field a role writes is refused", () => {
+        assert.ok(equalFor(OptionType(StringType))(idField(lanesSession({ keyField: "code" })()), some("code")));
+        assert.ok(equalFor(OptionType(StringType))(idField(lanesSession({})()), none));
+        assert.throws(() => lanesSession({ keyField: "label" }),
+            /Flowchart\.lanes: `keyField` names "label", which one of the kind's roles writes — a row's key is kept in its key field by the builder, and nothing else writes it/);
+    });
+
+    test("a Plan's link kind: its session names the field, told none it names none, and a field an end names is refused", () => {
+        assert.ok(equalFor(OptionType(StringType))(idField(feedsSession({ keyField: "ref" })()), some("ref")));
+        assert.ok(equalFor(OptionType(StringType))(idField(feedsSession({})()), none));
+        assert.throws(() => feedsSession({ keyField: "from" }),
+            /Plan\.links: "Feed": `keyField` names "from", which one of the kind's roles writes — a row's key is kept in its key field by the builder, and nothing else writes it/);
+    });
+});
+
+// Records declared with e3, as an app declares them: what each option's type is checked over.
+const lanes = e3.record("key_field_lanes", Lanes, {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+const feeds = e3.record("key_field_feeds", Feeds, {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The options' type checks: never called — `tsc` checks what each line says. */
+export function keyFieldKindChecks($: BlockBuilder<NullType>): void {
+    const boundLanes = $.let(Record.bind(lanes));
+    Flowchart.lanes(boundLanes, { label: "label", order: "seq", keyField: "code" });
+    // @ts-expect-error — `seq` is a Float, and the lanes are keyed by a String
+    Flowchart.lanes(boundLanes, { label: "label", order: "seq", keyField: "seq" });
+    const boundFeeds = $.let(Record.bind(feeds));
+    Plan.links(boundFeeds, { name: "Feed", icon: "arrow-right-long", from: { field: "from", of: "job" }, to: { field: "to", of: "job" }, keyField: "ref" });
+    Plan.links(boundFeeds, {
+        name: "Feed", icon: "arrow-right-long", from: { field: "from", of: "job" }, to: { field: "to", of: "job" },
+        // @ts-expect-error — the feeds have no field `code`
+        keyField: "code",
+    });
+}

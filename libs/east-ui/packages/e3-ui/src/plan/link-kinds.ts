@@ -31,7 +31,9 @@
  * - **A new link** takes its ends from the two events a Connect joins, and
  *   every other field its type's default. Its key is made up for a String key
  *   and counted on for an Integer one; a record keyed by any other type gives
- *   `key`, which builds it from the row.
+ *   `key`, which builds it from the row. Where a link's row holds its key in
+ *   a field too, `keyField` names it: a link a Connect makes holds its key
+ *   there, and is saved with it.
  *
  * The kind closes its record behind East functions over beast2 bytes, as every
  * kind over the app's record does (`utils/record-kind.ts`): the renderer needs
@@ -46,6 +48,7 @@ import {
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
+import type { RecordKeyField } from "../bind/record.js";
 import {
     fieldOf, keyFieldRef, keyFieldRole, keyFieldSlots,
     type FieldsOf, type KeyEndField, type KeyEndOf, type KeyFieldRole,
@@ -215,6 +218,13 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
      * any other type needs it.
      */
     key?: KindKeyBuilder<R, K>;
+    /**
+     * The field of a link's row that holds its key, for a record whose rows carry their own. A link a Connect makes
+     * holds its key there, whatever its template's values give the field, and is saved with it; a link the record holds
+     * already keeps what its field holds. The form shows the field read only, and neither end names it. The field is of
+     * the record's key type.
+     */
+    keyField?: RecordKeyField<K, R>;
 }
 
 /**
@@ -294,7 +304,8 @@ export function isPlanLinks(value: unknown): value is PlanLinks {
  *   paged binding, or a `Record.bind` without its patch door; no `icon`; an end that is no `{ field, of }`, names a
  *   field the row lacks or one of a type no Dict is keyed by, an Option, or an `of` that names no kind for a case; both
  *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `key` that builds
- *   another type than the record's key; and an editable record keyed by neither String nor Integer, given no `key`
+ *   another type than the record's key; an editable record keyed by neither String nor Integer, given no `key`; and a
+ *   `keyField` that is no field of the row of the record's key type, or that an end names
  *
  * @example
  * ```tsx
@@ -611,7 +622,10 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         // Each end as `<Plan>` checks it against its kinds' key types: the key it holds of each — the field's own, or its case's.
         ends: { from: keyFieldRole(from), to: keyFieldRole(to) },
         build(slot) {
-            const side = recordSide(bound, undefined, undefined, config.fields === undefined ? {} : { fields: config.fields }, [from.field, to.field], where);
+            const side = recordSide<R, K>(bound, undefined, undefined, {
+                ...(config.fields === undefined ? {} : { fields: config.fields }),
+                ...(config.keyField === undefined ? {} : { keyField: config.keyField }),
+            }, [from.field, to.field], where);
             return East.value({
                 ...side,
                 key: slot,
