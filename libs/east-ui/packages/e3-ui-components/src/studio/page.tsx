@@ -41,6 +41,7 @@ import {
     useTrackedEvaluation,
     type SnapGridLayoutCell,
 } from "@elaraai/east-ui-components";
+import { faDatabase } from "@fortawesome/free-solid-svg-icons";
 
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { startingOf, type PageFilter } from "../query/visual/filters.js";
@@ -51,6 +52,7 @@ import { PageFiltersProvider, usePageFiltersOf } from "./page-filters.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
 import { StudioVisualTile } from "./visual-tile.js";
+import { TileMessage } from "./visual/states.js";
 
 /** The renderer's payload, decoded. */
 type StudioPageValue = ValueTypeOf<typeof StudioPageComponent.schema>;
@@ -180,12 +182,8 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey, t
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
         const visual = content.value;
-        if (!sources.has(visual.source)) {
-            return (
-                <EmptyStateView icon={{ prefix: "fas", name: "database" }}
-                    title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
-            );
-        }
+        // A visual's message, as its tile says every message (`visual/states.tsx`).
+        if (!sources.has(visual.source)) return <TileMessage state="no-source" icon={faDatabase} title={m.noSource({ key: visual.source })} hint={m.noSourceHint()} />;
         return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} onEdit={onEdit} placement={placement} pick={pick} />;
     }
     const key = content.value;

@@ -12,9 +12,11 @@
  * pivot's heat legend — its five steps on the
  * heat tokens, each 40 × 12 inside a `--rule`, their lower edges under them in
  * mono 9.5 `--ink-4` (TBL-4); the line that says what a visual holds of
- * how many; and its states (TIL-3) — the checklist of the wells it needs, a
- * follower's prompt to pick on its leader (LNK-5), a field its source lacks,
- * and the blocks that stand in its shape while its answer is awaited. Every
+ * how many; and its states (TIL-3) — its messages, each centred in its body
+ * in one look: the checklist of the wells it needs, a follower's prompt to
+ * pick on its leader (LNK-5), a field its source lacks, a source or a date
+ * range it cannot read; and what stands where its drawing would: `no data`,
+ * and the blocks in its shape while its answer is awaited. Every
  * numeral is mono and tabular, every label mono at the label sizes (TIL-5);
  * colour is the theme's alone.
  *
@@ -50,7 +52,7 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
-        "state", "empty", "emptyIcon", "emptyTitle", "emptyHint", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
+        "state", "message", "empty", "emptyIcon", "emptyTitle", "emptyHint", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
     ],
     base: {
         /* A visual's tile: its eyebrow strip over its body, filling the frame, edge to edge. */
@@ -153,8 +155,18 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             display: "flex", width: "202px", justifyContent: "space-between", fontFamily: "mono", fontSize: "label.xs", lineHeight: "11px", color: "fg.subtle",
             fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
         },
-        /* A state in a tile's body (TIL-3). A table's or a list's body runs edge to edge: its state pads itself as any other body is padded. */
+        /* A state that stands in for the visual's own drawing (TIL-3) — `no data` where its value would be, the blocks in its
+           shape while it is awaited — where the drawing would stand. A table's or a list's body runs edge to edge: its state
+           pads itself as any other body is padded. */
         state: { display: "flex", flexDirection: "column", minWidth: "0", "[data-flush] > &": { padding: "{spacing.5}" } },
+        /* A message in place of the visual's drawing (TIL-3) — the wells it needs, a follower's prompt (LNK-5), a field its
+           source lacks, a source or a date range it cannot read — centred in the body at whatever height its tile stands:
+           every visual's message, one look. In a tile its own height, as the spec draws it, its own padding stands it 28 or
+           32 under the eyebrow and over the foot. */
+        message: {
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "1", minWidth: "0", minHeight: "0",
+            "[data-flush] > &": { padding: "{spacing.5}" },
+        },
         /* Wells it needs: the view's icon at 28 in `--rule-strong`, the words, and the checklist — centred, 12 apart, 32 from the
            body's top and bottom (12 past its padding). A follower's prompt (LNK-5) is the smaller of the two: a pointer's hand
            at 24, what to pick and what it then shows — 10 apart, 28 from the body's top and bottom, each line centred. */

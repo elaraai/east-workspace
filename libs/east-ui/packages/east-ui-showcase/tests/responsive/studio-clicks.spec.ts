@@ -30,8 +30,10 @@
  *    clicked row is marked — `--paper-3`, as a list's is, with no checkbox —
  *    its height kept, and a click on it again clears the mark.
  *  - C7 the margin's prompt is the spec's (LNK-5): a pointer's hand at 24 in
- *    `--rule-strong`, 28 under its eyebrow; what to pick, in which visual;
- *    and what it then shows, named by what it draws — 10 apart, each centred.
+ *    `--rule-strong`, 28 under its eyebrow at the least; what to pick, in
+ *    which visual; and what it then shows, named by what it draws — 10 apart,
+ *    each centred, and the three centred in the tile's body, whatever height
+ *    the tile stands at (its 240px here).
  *    Its eyebrow says nothing selected after the link, its 10px icon 6 before
  *    the words, and nothing more: its menu 4 after them.
  *
@@ -260,7 +262,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         await expect.poll(async () => Number(await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent())).toBeGreaterThan(orders);
     });
 
-    test("C7: the margin's prompt is the spec's — a pointer's hand at 24 in the strong rule, 28 under its eyebrow; what to pick, and in which visual; what it then shows; 10 apart, each centred — its eyebrow nothing selected after the link, and no more", async ({ page }) => {
+    test("C7: the margin's prompt is the spec's — a pointer's hand at 24 in the strong rule; what to pick, and in which visual; what it then shows; 10 apart, each centred, the three centred in the tile's body at its height — its eyebrow nothing selected after the link, and no more", async ({ page }) => {
         const entry = await openClicks(page);
         const [strong, subtle] = await colours(entry, ["border-strong", "fg-subtle"]);
         const read = await tile(entry, "k-margin").evaluate((el) => {
@@ -279,7 +281,9 @@ test.describe("A Studio page's clicks (#1673)", () => {
             const [link, said] = [tag.querySelector("svg")!.getBoundingClientRect(), tag.querySelector("span")!.getBoundingClientRect()];
             const menu = el.querySelector("[data-studio-visual-menu]")!.getBoundingClientRect();
             return {
-                icon: [icon.getAttribute("data-icon"), mark!.height, mark!.top - body.top, getComputedStyle(icon).color],
+                icon: [icon.getAttribute("data-icon"), mark!.height, mark!.top - body.top >= 28, getComputedStyle(icon).color],
+                // The three, its icon's top to its hint's foot, as far from the body's foot as from its top.
+                middle: Math.abs((mark!.top - body.top) - (body.bottom - line!.bottom)) <= 1,
                 gaps: [head!.top - mark!.bottom, line!.top - head!.bottom],
                 centred: [mark!, head!, line!].map((box) => Math.abs((box.left + box.right) / 2 - middle) <= 0.5),
                 title: [title.textContent, ...type(title)],
@@ -288,7 +292,9 @@ test.describe("A Studio page's clicks (#1673)", () => {
                 tag: [link.height, said.left - link.right, menu.left - tag.getBoundingClientRect().right],
             };
         });
-        expect(read.icon).toEqual(["hand-pointer", 24, 28, strong]);
+        expect(read.icon).toEqual(["hand-pointer", 24, true, strong]);
+        // Centred in its body, whatever height its tile stands at.
+        expect(read.middle).toBe(true);
         expect(read.gaps).toEqual([10, 10]);
         expect(read.centred).toEqual([true, true, true]);
         // The leader is named by what its rows stand for; the field mid-sentence.
