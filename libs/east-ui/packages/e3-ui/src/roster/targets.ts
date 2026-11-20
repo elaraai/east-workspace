@@ -23,6 +23,9 @@
  *   slot inserts one, keyed by a key the Roster mints, its unmapped fields the
  *   targets' `values` of its roles (#1526) — or, without them, their type's
  *   default.
+ * - **Key field.** Where a target's row holds its key in a field too,
+ *   `keyField` names it: a target the Roster inserts holds the key it minted
+ *   there, and is saved with it; no role writes the field.
  * - **Reads.** Through the Roster's slice, by its `targets` source — an
  *   interval index from the day to the day, its `range` the day field — and
  *   then `entries` reads one target by its key; or the record whole.
@@ -41,6 +44,7 @@ import {
     some, toEastTypeValue, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui";
+import type { RecordKeyField } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import type { ScheduleAtField, ScheduleDictFloatField, ScheduleIntegerField, ScheduleRecordHandle, ScheduleStringField } from "../schedule/events.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "../schedule/record-window.js";
@@ -78,6 +82,12 @@ export interface RosterTargetsConfig<R extends StructType> {
      * it. Omitted, each its type's default.
      */
     values?: (target: ExprType<RosterTargetRolesType>) => ScheduleNewValues<R>;
+    /**
+     * The String field of the row that holds the target's key, for a record whose rows carry their own. A target the
+     * Roster inserts holds the key it minted there, whatever `values` gives the field, and is saved with it; a target the
+     * record holds already keeps what its field holds. No role names the field.
+     */
+    keyField?: RecordKeyField<StringType, R>;
     /**
      * The app's own form for one target, in place of the Roster's — an East function over the row and a writer of the
      * edited row, `(row, update) => UIComponentType`, passed through untouched (never called at build).
@@ -158,7 +168,8 @@ function targetsNeeded(rowType: EastType, hours: string, given: unknown, where: 
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by String, or whose rows are no
  *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; a `needed` that
  *   is no function of the row and a Float returning a Float; a `values` giving other fields than the ones no role maps,
- *   or one of another type, naming it; `entries` that is not a paged read of the record's own entries; and an
+ *   or one of another type, naming it; a `keyField` that is no String field of the row, or that a role names; `entries`
+ *   that is not a paged read of the record's own entries; and an
  *   `inspector` that is no East function `(row, update) => UIComponentType` over the row
  * @example
  * ```tsx
@@ -185,7 +196,8 @@ function targetsNeeded(rowType: EastType, hours: string, given: unknown, where: 
 export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle<StringType, R>, config: RosterTargetsConfig<R>): RosterTargets {
     const where = "Roster.targets";
     const c = config as unknown as {
-        day: string; group: string; shift: string; positions: string; hours: string; needed?: unknown; values?: unknown; inspector?: unknown; entries?: unknown;
+        day: string; group: string; shift: string; positions: string; hours: string; needed?: unknown; values?: unknown; keyField?: string;
+        inspector?: unknown; entries?: unknown;
     };
     const handleType = Expr.type(record as unknown as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
@@ -232,7 +244,13 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
     // The targets read by key, or whole; and their session, declared now, so a record bound without its patch door is refused here.
     const entries = c.entries === undefined ? undefined : checkEntries(c.entries, StringType, rowType, `${where}: \`entries\``);
-    const session = scheduleRecordSession(record, StringType, rowType, entries);
+    // Where its rows hold their own key in a field, the Roster keeps a target's key there: no role writes that field.
+    const keyField = c.keyField;
+    const writes = keyField === undefined ? undefined : named.get(keyField);
+    if (writes !== undefined) {
+        throw new Error(`${where}: \`keyField\` names "${keyField}", which \`${writes}\` writes — a target's key is kept in its key field by the Roster, and nothing else writes it`);
+    }
+    const session = scheduleRecordSession(record, StringType, rowType, entries, keyField === undefined ? undefined : { field: keyField, where });
 
     return {
         [ROSTER_TARGETS]: true,
