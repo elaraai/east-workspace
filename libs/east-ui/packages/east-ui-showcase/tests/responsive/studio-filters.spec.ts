@@ -14,8 +14,9 @@
  *    place, in the chip's popover: it opens on its field's list, then a value
  *    from the values the source holds with how many rows hold each, read from
  *    e3 — the shared picker in the flow under the rows, whole, drawing no
- *    frame of its own, the popover ending where it ends; a filled slot is its
- *    words, no box at rest; and no Done, each finished condition the page's.
+ *    frame of its own, the popover ending where it ends; each slot boxed as
+ *    the query builder draws it, solid once filled; and no Done, each
+ *    finished condition the page's.
  *  - F3 the filter is a chip in the rows' words, after its dataset's name —
  *    said once, in the caption type, on the chip's line (ruled 19 November
  *    2026) — and every visual of its source narrows: the tiles ask again, on
@@ -33,12 +34,14 @@
  *    does — measured as F1 measures it, inside the builder — and the editor it
  *    opens stands inside the screen. A page is one box, its rail over its
  *    grid, so no gap of the Preview's frame comes between them.
- *  - F8 in place the rows keep their columns at every level of a filter of
- *    two conditions and a group: the head's first word and each joiner on one
- *    edge; each condition's first slot, the foot's add and a group's box on
- *    another; each row's × at its line's end, in line with its group's. With
- *    a field's list open, the list is the one thing in the popover that
- *    scrolls.
+ *  - F8 in place the rows keep the query builder's columns at every level of
+ *    a filter of two conditions and a group (its spec's step: a condition's
+ *    slot boxes, its foot's add and its notes on one edge): the head's first
+ *    slot and each joiner on one edge; each condition's first slot's box, the
+ *    foot's add and a group's box on another — a lone condition's on the
+ *    rows' own edge, nothing reaching past it into the popover's padding;
+ *    each row's × at its line's end, in line with its group's. With a field's
+ *    list open, the list is the one thing in the popover that scrolls.
  *  - F9 a chip says its filter short — `Region: SA`, its field then what it
  *    holds — and whole on its hover. While its popover is open the row holds
  *    still: a condition added there moves neither the chip, its popover nor
@@ -197,13 +200,16 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         expect(offers.every((offer) => /\d+ orders?$/.test(offer)), offers.join(" | ")).toBe(true);
         expect(await whole()).toEqual({ inside: true, onTop: true, tall: true, edges: ["0px", "0px", "0px", "0px"], endsWithIt: true });
         await chooser.locator("[role=option]", { hasText: "SA" }).first().click();
-        // The condition finished, the picker goes; each filled slot at rest is its words, no box — the one the pick gave
-        // the focus back to wears its ring.
+        // The condition finished, the picker goes; each filled slot is the query builder's, its box's edge solid — the one
+        // the pick gave the focus back to wears its ring.
         await expect(chooser).toHaveCount(0);
         const slots = await rows.locator("[data-slot-key]:not([data-empty])").evaluateAll((all) =>
-            all.map((slot) => ({ focused: slot === document.activeElement, edge: getComputedStyle(slot).borderTopColor })));
+            all.map((slot) => {
+                const look = getComputedStyle(slot);
+                return { focused: slot === document.activeElement, edge: [look.borderTopStyle, look.borderTopColor !== "rgba(0, 0, 0, 0)"] };
+            }));
         expect([slots.filter((slot) => !slot.focused).map((slot) => slot.edge), slots.filter((slot) => slot.focused).length])
-            .toEqual([["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"], 1]);
+            .toEqual([[["solid", true], ["solid", true]], 1]);
 
         // The page's revenue is South Australia's alone at once; the row, held while its editor is open, takes the new
         // chip as the editor shuts — short, and whole on its hover.
@@ -251,16 +257,18 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(chooser.locator("[role=option]", { hasText: "SA" })).toBeVisible({ timeout: 20_000 });
         await chooser.locator("[role=option]", { hasText: "SA" }).first().click();
         await expect(chooser).toHaveCount(0);
-        // A lone condition: its first word on its foot's add, its × at its line's end.
+        // A lone condition, as the query builder's step draws one: its first slot's box on the rows' own edge — nothing
+        // reaching past it into the popover's padding — and its foot's add on that edge; its × at its line's end.
         const lone = await rows.locator("[data-condition-rows]").evaluate((root) => {
             const left = (el: Element | null) => (el === null ? null : Math.round(el.getBoundingClientRect().left * 2) / 2);
             const row = root.querySelector(":scope > [data-query-line=row]")!;
+            const slot = left(row.querySelector("[data-slot-key]"));
             return {
-                words: left(row.querySelector("[data-slot-key] > span")) === left(root.querySelector(":scope > [data-query-line=foot] button svg")),
+                edge: slot === left(root), add: slot === left(root.querySelector(":scope > [data-query-line=foot] button svg")),
                 end: Math.round(row.querySelector(":scope > button:last-child")!.getBoundingClientRect().right * 2) / 2 === Math.round(root.getBoundingClientRect().right * 2) / 2,
             };
         });
-        expect(lone).toEqual({ words: true, end: true });
+        expect(lone).toEqual({ edge: true, add: true, end: true });
         const top = rows.locator("[data-condition-rows] > [data-query-line=foot]");
         await top.getByRole("button", { name: "Add condition" }).click();
         await closeList();
@@ -269,10 +277,10 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await closeList();
         await expect(rows.locator("[data-query-group-box] > [data-query-line=row]")).toHaveCount(2);
         await settled(page);
-        /** Each level's columns: its head's first word and its joiners; its rows' first slots, its foot's add and a group's box; its ×s' ends. */
+        /** Each level's columns: its head's first slot and its joiners; its rows' first slots' boxes, its foot's add and a group's box; its ×s' ends. */
         const columns = () => rows.locator("[data-condition-rows]").evaluate((root) => {
             const at = (n: number) => Math.round(n * 2) / 2;
-            const words = (line: Element | null) => line?.querySelector("[data-slot-key] > span") ?? null;
+            const slot = (line: Element | null) => line?.querySelector("[data-slot-key]") ?? null;
             const level = (box: Element, head: Element | null) => {
                 const lines = [...box.children];
                 const of = (kind: string) => lines.filter((line) => line.matches(`[data-query-line=${kind}]`));
@@ -280,8 +288,8 @@ test.describe("A Studio page's filter rail (#1673)", () => {
                     .filter((joiner): joiner is Element => joiner !== null && joiner.textContent !== "");
                 const add = of("foot")[0]?.querySelector("button svg") ?? null;
                 return {
-                    words: [words(head), ...joiners].map((el) => (el === null ? null : at(el.getBoundingClientRect().left))),
-                    slots: [...of("row").map(words), add, ...of("group").map((g) => g.querySelector("[data-query-group-box]"))]
+                    words: [slot(head), ...joiners].map((el) => (el === null ? null : at(el.getBoundingClientRect().left))),
+                    slots: [...of("row").map(slot), add, ...of("group").map((g) => g.querySelector("[data-query-group-box]"))]
                         .map((el) => (el === null ? null : at(el.getBoundingClientRect().left))),
                     ends: [head?.querySelector(":scope > button:last-child") ?? null, ...of("row").map((row) => row.querySelector(":scope > button:last-child"))]
                         .filter((el): el is Element => el !== null).map((el) => at(el.getBoundingClientRect().right)),

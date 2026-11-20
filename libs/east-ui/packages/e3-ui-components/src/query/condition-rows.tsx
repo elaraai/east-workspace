@@ -8,9 +8,10 @@
  * their words, slots, inputs, ×s and adds, and `all · any of these` once
  * there are two conditions — with no frame of their own, so that their host's
  * is the only one: a page filter's popover, a visual's own filter, an alert.
- * Each slot is its words and its caret, its box drawn only while it is
- * hovered, focused or open (the `queryBuilder` recipe's in-place look); a lone
- * condition has no joiner column.
+ * Each slot is the step card's, boxed — solid once filled, dashed while empty
+ * — on the edges the query builder's spec draws them on (the `queryBuilder`
+ * recipe's); a lone condition has no joiner column, its slots' boxes and its
+ * foot's add on the rows' own edge.
  *
  * While a slot is open, its offers are the shared picker in the flow under
  * the rows (`SlotChooser`, bare), in the host's body. Told to (`autoOpen`),

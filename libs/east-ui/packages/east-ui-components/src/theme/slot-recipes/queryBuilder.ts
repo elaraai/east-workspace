@@ -24,11 +24,11 @@
  *
  * In place (#1673) — a filter's conditions in a popover, a visual's own
  * filter — the same rows stand in `conditions`, marked
- * `data-query-look="inline"`, with no frame of their own: a slot is its words
- * and its caret, the select's box drawn only while it is hovered, focused or
- * open, and an empty one its placeholder in the quiet ink; a lone condition
- * (`data-single`) has no joiner column, its rows and its foot at the start.
- * The builder's step card keeps the boxed look. Its toolbar row and its layout are the builder frame's, its
+ * `data-query-look="inline"`, with no frame of their own: their slots are the
+ * step card's, boxed — solid once filled, dashed while empty — on the edges
+ * the query builder's spec draws them on (`Query Editor Spec.md` §4.3); a
+ * lone condition (`data-single`) has no joiner column, its slot boxes and its
+ * foot's add on the rows' own edge. Its toolbar row and its layout are the builder frame's, its
  * pane the `dock`'s, its history item the `editHistory`'s, Download ▾ the
  * `menu`'s; the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
@@ -357,20 +357,6 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
             "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
-            // In place: its words and its caret; the box only while it is hovered, focused or open. Its words stand where a
-            // bare word would — a joiner, a foot's add, a group's edge — the box reaching back over its border and padding.
-            "[data-query-look='inline'] &": {
-                borderColor: "transparent",
-                background: "transparent",
-                boxShadow: "none",
-                paddingInlineStart: "6px",
-                marginInlineStart: "-7px",
-                _hover: { borderColor: "border.strong", background: "bg.surface" },
-                "&[data-empty]": { borderStyle: "solid", borderColor: "transparent", color: "fg.subtle" },
-                "&[data-empty]:hover": { borderColor: "border.strong" },
-                "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
-                "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus", background: "bg.surface" },
-            },
         },
         /* Its words on the small Select's value line (#1638): a whole 16px in the 24px inside the trigger's edge, 4px under
            it. The line the trigger hands down is 1.3 of its 12.5px face, 16.25px, centred at a fraction. */
@@ -465,7 +451,8 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.3}",
             minHeight: "26px",
             paddingInlineStart: "32px",
-            // A lone condition's add, its icon on the condition's first word: back over the add's own padding.
+            // A lone condition's add, its icon on the edge its slots' boxes stand on, as the spec's foot stands under a step's
+            // slots: back over the add's own padding.
             "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0", marginInlineStart: "-4px" },
         },
         note: {
