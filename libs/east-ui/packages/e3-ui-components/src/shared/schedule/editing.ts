@@ -530,6 +530,12 @@ interface KindCodecs {
     readonly keys: "string" | "integer" | undefined;
     /** A key of the kind's type, by its text; `undefined` for text naming none. */
     readonly keyOf: (id: string) => unknown;
+    /**
+     * A row as it stands under a key, where its record's rows hold their own key in a field — a keyed session's
+     * identity field: the row with that key there. The row as it is where they hold none, and under a text no key
+     * prints as, a placeholder for a key still to be typed.
+     */
+    readonly underKey: (id: string, row: unknown) => unknown;
 }
 
 /** A deleted entry's draft, as the seams read it. */
@@ -616,13 +622,19 @@ export function useScheduleEditing<I extends Item = Item>({
         const keyType = kind.editing.keyType.type === "some" ? fromEastTypeValue(kind.editing.keyType.value) as EastType : undefined;
         const draftEqual = equalFor(OptionType(draftType));
         const optionOf = (version: EntryVersion<ScheduleEntryRef> | undefined) => (version?.draft === undefined ? none : some(version.draft));
+        const keyOf = keyType === undefined ? (id: string): unknown => id : keyReaderOf(keyType);
+        const keyField = keyType !== undefined && kind.editing.idField.type === "some" ? kind.editing.idField.value : undefined;
         return {
             encodeRow: encodeBeast2For(entryType) as (row: unknown) => Uint8Array,
             decodeRow: decodeBeast2For(entryType) as (bytes: Uint8Array) => unknown,
             encodeDraft: encodeBeast2For(draftType) as (draft: unknown) => Uint8Array,
             sameDraft: (a, b) => draftEqual(optionOf(a) as never, optionOf(b) as never),
             keys: keyType?.type === "String" ? "string" : keyType?.type === "Integer" ? "integer" : undefined,
-            keyOf: keyType === undefined ? (id) => id : keyReaderOf(keyType),
+            keyOf,
+            underKey: (id, row) => {
+                const key = keyField === undefined ? undefined : keyOf(id);
+                return keyField === undefined || key === undefined ? row : { ...(row as Record<string, unknown>), [keyField]: key };
+            },
         };
     }), [parts]);
     // Each kind's source and each record's: its closed editing; a kind's author's check over drafted events; and, for
@@ -685,8 +697,12 @@ export function useScheduleEditing<I extends Item = Item>({
             return held.type === "some" && held.value.type === "some";
         };
         const made = once === undefined || !windowed ? once : pastKeys(once, shows);
-        // An entry's projection is its id: under another key, that key's.
-        const underKey = (id: string, entry: EntryVersion<ScheduleEntryRef>): EntryVersion<ScheduleEntryRef> => ({ ...entry, wire: { id } });
+        // An entry's projection is its id: under another key, that key's — and its row's key field, where its record's
+        // rows hold their key in one.
+        const underKey = (id: string, entry: EntryVersion<ScheduleEntryRef>): EntryVersion<ScheduleEntryRef> => {
+            const row = rowOf(entry);
+            return { ...entry, draft: row === undefined ? entry.draft : variant("value", codecs[i]!.underKey(id, row)), wire: { id } };
+        };
         if (!windowed) return { editing, ready, prepare, wireType: EntryRefType, ranges, together, keys: made, underKey };
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;
@@ -1106,7 +1122,10 @@ export function useScheduleEditing<I extends Item = Item>({
                     if (written === undefined || written.type !== "some") continue;
                     row = codec.decodeRow(written.value);
                 }
-                entries.set(change.id, { before, after: { draft: variant("value", row), wire: { id: change.id }, place: KEY_ORDER } });
+                // A row the gesture adds holds its key in its record's key field from the first: a duplicate its own, never
+                // the key of the row it copies.
+                const held = before.draft === undefined ? codec.underKey(change.id, row) : row;
+                entries.set(change.id, { before, after: { draft: variant("value", held), wire: { id: change.id }, place: KEY_ORDER } });
             }
             const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...touched]
                 .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))

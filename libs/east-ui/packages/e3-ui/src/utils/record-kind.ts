@@ -39,10 +39,10 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import type { UIComponentType } from "@elaraai/east-ui";
 import {
-    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
+    EditingReadinessType, EditingType, FIELD_HINT, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
     type FieldHints, type RecordSliceConfigType, type RecordSliceStateType,
 } from "@elaraai/east-ui/internal";
-import { RecordOutcomeType } from "../bind/record.js";
+import { RecordOutcomeType, checkRecordKeyField, type RecordKeyField } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldValue, type KeyField } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
@@ -744,6 +744,14 @@ export interface RecordSide<R extends StructType = StructType, K extends EastTyp
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /** The kind's own Details, in place of its form: an East function over the row and its writer. */
     inspector?: KindRowInspector<R>;
+    /**
+     * The field of the record's rows that holds each one's key, for a record whose rows carry their own — racks keyed
+     * by their code, each rack's `code` its key. A row the builder adds holds its key there from the first, and is
+     * saved with it: where another Save takes the key first and the builder gives the row another, the field follows.
+     * A row the record holds already keeps what its field holds. The form shows the field read only, and no role
+     * writes it. The field is of the record's key type.
+     */
+    keyField?: RecordKeyField<K, R>;
 }
 
 /**
@@ -757,16 +765,31 @@ export interface RecordSide<R extends StructType = StructType, K extends EastTyp
  * @param bound - The record's binding
  * @param entries - Its `entries`, checked
  * @param byKey - The paged read its rows are read by key through, if any
- * @param config - Its form's hints, its check and its own Details
+ * @param config - Its form's hints, its check, its own Details, and the field its rows hold their key in
  * @param omitted - The fields its form leaves out: those its roles write, but any a hint holds to its bounds (#1585)
  * @param where - The kind, as a refusal names it
  * @returns The fields every kind carries
- * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse
+ * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse; and for a `keyField` that is no
+ *   field of the rows of the record's key type, or that one of the kind's roles writes
  */
 export function recordSide<R extends StructType, K extends EastType>(bound: KindBinding, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined,
     config: RecordSide<R, K>, omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
     const rowType = bound.rowType;
-    const form = Fields.specs(rowType, (config.fields ?? {}) as never,
+    // A record whose rows hold their own key in a field: the builder keeps a row's key there, so no role writes the
+    // field, and the form shows it read only, under the label and the line its hint gives.
+    const keyField = config.keyField as string | undefined;
+    const given = (config.fields ?? {}) as Readonly<Record<string, unknown>>;
+    let hints = given;
+    if (keyField !== undefined) {
+        checkRecordKeyField(where, DictType(bound.keyType, rowType), keyField);
+        if (omitted.includes(keyField)) {
+            throw new Error(`${where}: \`keyField\` names "${keyField}", which one of the kind's roles writes — a row's key is kept in its key field by the builder, and nothing else writes it`);
+        }
+        const own = given[keyField];
+        const said = typeof own === "object" && own !== null && FIELD_HINT in own ? own as { readonly label?: string; readonly help?: string } : undefined;
+        hints = { ...given, [keyField]: Fields.readonly({ ...(said?.label !== undefined && { label: said.label }), ...(said?.help !== undefined && { help: said.help }) }) };
+    }
+    const form = Fields.specs(rowType, hints as never,
         [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
     const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
         `${where}: \`inspector\` is the kind's own Details — an East.function over the row and its writer: ` +
@@ -779,7 +802,8 @@ export function recordSide<R extends StructType, K extends EastType>(bound: Kind
     if (bound.form === "record") {
         // The shared session over the record (Schedule's `session.ts`): whole-entry drafts, keyed batches, Save through
         // its patch door at the record's key type — its base the record's snapshot, or, read through a source, its revision.
-        const session = scheduleRecordSession(bound.handle, bound.keyType, rowType, byKey === undefined ? undefined : entries);
+        const session = scheduleRecordSession(bound.handle, bound.keyType, rowType, byKey === undefined ? undefined : entries,
+            keyField === undefined ? undefined : { field: keyField, where });
         const built = session.build();
         editing = some(built.editing);
         seam = built.entries;

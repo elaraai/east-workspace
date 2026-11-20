@@ -20,17 +20,23 @@
  * (`Schedule.periods`) are this one session, so a builder keeps each record it
  * writes in one session of one history, as the Calendar's and Plan's kinds are.
  *
+ * A record whose rows hold their own key in a field names it (`keyField`): the
+ * Save writes a new row's key into it, and the session's wire names the field
+ * as its entries' identity field — a keyed source's is the field that holds
+ * its key — so the renderer's session keeps a new row's key there from the
+ * gesture that makes it, and again where it gives the row another key.
+ *
  * @packageDocumentation
  */
 
 import {
-    BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue,
-    type DictType, type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
+    BlobType, DictType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue,
+    type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
 import {
     EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, buildWireApply, buildWireToDraft, withEditingSave,
 } from "@elaraai/east-ui/internal";
-import { Record } from "../bind/record.js";
+import { Record, checkRecordKeyField } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
 import { keyOfText, keyTextOf, scheduleEntryByKey, scheduleLastKey } from "./window.js";
 
@@ -82,15 +88,18 @@ export interface ScheduleRecordSession {
  * @param keyType - The record's key type
  * @param rowType - The record's row type
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`); `undefined` for a record read whole
+ * @param keyField - The field of the record's rows that holds each one's key, and who names it, for a refusal (`Schedule.events`); `undefined` for a record whose rows hold none
  * @returns The session, declared
- * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal)
+ * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal), or `keyField` is no field of its rows of its key's type
  */
-export function scheduleRecordSession(record: unknown, keyType: EastType, rowType: EastType, entries: ExprType<EastType> | undefined): ScheduleRecordSession {
+export function scheduleRecordSession(record: unknown, keyType: EastType, rowType: EastType, entries: ExprType<EastType> | undefined,
+    keyField?: { readonly field: string; readonly where: string }): ScheduleRecordSession {
     const handle = record as globalThis.Record<string, ExprType<EastType>>;
+    if (keyField !== undefined) checkRecordKeyField(keyField.where, DictType(keyType, rowType), keyField.field);
     // The Save: one patch commit through the record's patch door, its entries checked against what the drafts began from.
     // With it, where the handle makes drafts, the same batch as the draft of that commit: nothing is committed.
     // Declared now, so a record bound without its patch door is refused where the builder's kind is.
-    const save = Record.onApply(record as never, { keyed: true, mutation: SCHEDULE_PATCH_DOOR }) as unknown as ExprType<EastType>;
+    const save = Record.onApply(record as never, { keyed: true, mutation: SCHEDULE_PATCH_DOOR, keyField: keyField?.field } as never) as unknown as ExprType<EastType>;
     const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
     // The record's name, as its handle's binding carries it.
     const name = (handle["binding"] as unknown as { name: ExprType<StringType> }).name;
@@ -138,7 +147,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                 return East.value({
                     sourceId: name,
                     entryType: toEastTypeValue(rowType),
-                    idField: none,
+                    // A keyed source's identity field is the field that holds its key, where its entries hold one.
+                    idField: keyField === undefined ? none : some(keyField.field),
                     draftType: toEastTypeValue(draftType),
                     children: none,
                     keyType: some(toEastTypeValue(keyType)),

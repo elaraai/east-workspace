@@ -46,7 +46,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { resolveRowSource } from "@elaraai/east-ui/internal";
-import { Record, checkKeyField } from "../bind/record.js";
+import { Record, checkRecordKeyField } from "../bind/record.js";
 import type { SheetSaves } from "./optimise.js";
 import type { SheetInternalOptions } from "./root.js";
 
@@ -173,7 +173,7 @@ export interface SheetRailRecord {
  */
 export function railRecord(record: unknown, rows: ExprType<EastType>, keyField?: string): SheetRailRecord {
     const { handle, recordType, name } = boundRecord(record);
-    if (keyField !== undefined) checkKeyField("Sheet", recordType, keyField);
+    if (keyField !== undefined) checkRecordKeyField("Sheet", recordType, keyField);
     const { served, entries } = servedOf(rows, recordType);
     if (!entries) {
         throw new Error(`Sheet: \`record\` holds ${printType(recordType)}, and \`slice\`'s \`rows\` source pages ${served === undefined ? "no collection" : printType(served)} — ` +
@@ -208,7 +208,7 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     const keyField = options.keyField;
     if (options.entry === undefined) {
         // The record's entries are the rows (SB13), committed by key (SB16).
-        if (keyField !== undefined) checkKeyField("Sheet", recordType, keyField);
+        if (keyField !== undefined) checkRecordKeyField("Sheet", recordType, keyField);
         const applyKeyed = Record.onApply(handle as never, { keyed: true, keyField } as never);
         const saves: SheetSaves = { record: name, rows: recordType, entry: undefined };
         if (options.window === undefined) {
