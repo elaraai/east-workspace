@@ -64,7 +64,7 @@ Install deps from the workspace root (`pnpm install` there, not here).
 
 `make test-packages` runs e3-web's browser specs with the rest of the packages' tests. They need what CI's packages shard (`.github/workflows/test-e3.yml`) sets up before it runs them:
 
-- **Chromium.** The executable `E3_UI_CHROMIUM_PATH` names, or else Playwright's managed headless shell: `pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium` (CI adds `--with-deps` on Linux, for the system libraries it needs). A spec that cannot launch it fails, naming the remedy; none skips.
+- **Chromium.** The executable `E3_UI_CHROMIUM_PATH` names, or else Playwright's managed headless shell: `pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium`, with `--with-deps` on a fresh Linux machine for the system libraries it needs (CI installs those first, as Playwright names them, through its bounded apt install: `.github/actions/chromium-deps`). A spec that cannot launch it fails, naming the remedy; none skips.
 - **east-node-std's compliance suite, exported.** `make -C libs/east-node test-export-std`, from the workspace root, writes it to `EAST_NODE_STD_IR`, which the root `paths.mk` sets to the checkout's `tmp/east-node-std`. e3-web runs it over east-web-std in Chromium, through `make` (which sets the variable), and fails naming the command when there is nothing there.
 - **httpbin on `:8085`.** The workspace root's `make services-up`. The suite's Fetch tests call it.
 

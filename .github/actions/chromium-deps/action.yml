@@ -1,0 +1,49 @@
+name: Install Chromium's system libraries
+description: >-
+  Installs the system libraries Playwright's Chromium needs on a Linux runner,
+  as that Playwright names them, through the apt-install action's bounded
+  tries. Playwright's own install of them (`install-deps`, `install
+  --with-deps`) runs apt-get once, bounded by nothing but its step's limit: an
+  `apt-get update` that stalled on Ubuntu's mirrors held it until that ran
+  out.
+
+inputs:
+  working-directory:
+    description: The package whose Playwright names the libraries.
+    required: true
+  cli:
+    description: >-
+      Playwright's command in that package, run with `pnpm exec`:
+      `playwright`, or `playwright-core` where the package has the core alone.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Playwright's apt-get for them, printed rather than run:
+    #   sudo -- sh -c "apt-get update&& apt-get install -y --no-install-recommends <packages>"
+    # Playwright prints none for a system it has no libraries for, which
+    # fails here rather than installing nothing.
+    - name: The libraries Playwright names
+      id: libraries
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CLI: ${{ inputs.cli }}
+      run: |
+        set -euo pipefail
+        command="$(pnpm exec "$CLI" install-deps --dry-run chromium)"
+        packages="$(printf '%s\n' "$command" | sed -n 's/.*apt-get install -y --no-install-recommends \([^"]*\)"*$/\1/p')"
+        if [ -z "$packages" ]; then
+          printf '%s\n' "$command"
+          echo "::error::Playwright names no system libraries for Chromium on this runner"
+          exit 1
+        fi
+        echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+    # As Playwright installs them: without their recommended packages
+    - name: Install them
+      uses: ./.github/actions/apt-install
+      with:
+        packages: ${{ steps.libraries.outputs.packages }}
+        recommends: false

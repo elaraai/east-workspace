@@ -1,20 +1,24 @@
 name: Install apt packages
 description: >-
-  Bounds apt on a Linux runner, and installs packages with it, tried again. A
+  Installs packages on a Linux runner with apt, bounded and tried again. A
   bare `apt-get update` waited on one stalled download of a failing mirror
   until its job's 90 minutes ran out; here a try that stalls is stopped within
-  minutes, and the next one usually finds the mirror answering. The bounds are
-  written to apt's own configuration, so they hold for every apt-get on the
-  runner from this step on: a later step's too, and a tool's that runs apt-get
-  itself.
+  minutes, and the next one usually finds the mirror answering. apt's own
+  bounds are written to its configuration too, so they hold for every apt-get
+  on the runner from this step on.
 
 inputs:
   packages:
     description: >-
-      The packages to install, separated by spaces or lines. None, to bound
-      apt alone for a later step that runs apt-get itself.
+      The packages to install, separated by spaces or lines: at least one.
+    required: true
+  recommends:
+    description: >-
+      Whether the packages' recommended packages are installed with them, as
+      apt installs them by default; `false` installs the packages and what
+      they depend on alone.
     required: false
-    default: ''
+    default: 'true'
 
 runs:
   using: composite
@@ -23,10 +27,23 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
+        RECOMMENDS: ${{ inputs.recommends }}
       run: |
         set -euo pipefail
-        # Every package named, across spaces and lines
+        # Every package named, across spaces and lines: a caller that names
+        # none has lost its list, which no step passes over as installed
         read -r -d '' -a packages <<< "$PACKAGES" || true
+        if [ "${#packages[@]}" -eq 0 ]; then
+          echo "::error::no package was named to install"
+          exit 1
+        fi
+        # apt-get install's options: the recommended packages left out where
+        # the caller says
+        case "$RECOMMENDS" in
+          true) options=(-y) ;;
+          false) options=(-y --no-install-recommends) ;;
+          *) echo "::error::recommends is true or false, not '$RECOMMENDS'"; exit 1 ;;
+        esac
 
         # apt's own limits, for every apt-get on this runner from here on: a
         # connection that sends nothing for 30 seconds is dropped, each
@@ -34,10 +51,6 @@ runs:
         # minutes.
         printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "120";' |
           sudo tee /etc/apt/apt.conf.d/99-ci-bounds > /dev/null
-        if [ "${#packages[@]}" -eq 0 ]; then
-          echo "apt is bounded for the steps that follow; no package was asked for"
-          exit 0
-        fi
 
         # A command as root, stopped after `$1` seconds whatever it waits on
         bounded() { sudo timeout --signal=TERM --kill-after=30 "$@"; }
@@ -47,7 +60,7 @@ runs:
         attempt() {
           bounded 120 apt-get update &&
             bounded 300 dpkg --configure -a &&
-            bounded 300 apt-get install -y "${packages[@]}"
+            bounded 300 apt-get install "${options[@]}" "${packages[@]}"
         }
         # Three tries, a little further apart each time
         for try in 1 2 3; do
