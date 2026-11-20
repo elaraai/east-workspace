@@ -30,13 +30,24 @@
  *   copy. Both panes are pane descriptions the canvas's builder frame draws
  *   (#1125), `auto`: pinned beside the canvas on a desktop, over it on a
  *   narrow screen.
+ * - **The page's starting filters** ({@link useStartingFilters}, #1673) —
+ *   what every reader of the page starts with — stand on a rail of their own
+ *   over the canvas's grid, captioned, in the band the canvas draws there; the
+ *   canvas narrows by them. They are the page's draft's, edited in a session of
+ *   their own under the canvas's one history, kept per page: each edit of them
+ *   and of the placements is one step of it, which Undo and Redo walk in the
+ *   order they were made, and Save sends each its own patch (`saveFilters`,
+ *   `saveCells`).
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
  *   place while it shows. The canvas stays mounted, so its drafts stay its own,
  *   and it applies them when the preview asks before it publishes. The preview
  *   is the page as its readers see it — the rail of their filters over its
- *   grid, its clicks running — where the canvas is the page as designed: the
- *   builder's toolbar holds no filter rail, and no reader's filter narrows the
- *   canvas (ruled 19 November 2026).
+ *   grid, its clicks running — the reader's filters this browser holds of it,
+ *   as the published page narrows by them, else its starting filters as
+ *   drafted; an edit of the starting filters forgets the reader's, so the
+ *   preview starts on them. The canvas is the page as designed, which no
+ *   reader's filter narrows, and the builder's toolbar holds no filter rail
+ *   (ruled 19 November 2026).
  *
  * What each part shows is e3-ui's East, compiled once ({@link studioEast}).
  * The page open in the builder is its host's when it gives one — the builder
@@ -73,27 +84,35 @@ import {
     NARROW_FRAME,
     SNAP_GRID_HOST_RANK,
     SnapGridEditor,
+    Toolbar,
     implementUIComponent,
     useContainerWidth,
     useFormatters,
+    useKeptHistory,
     useTrackedEvaluation,
     type BuilderFrameDock,
     type SnapGridEditorCell,
     type SnapGridEditorEditing,
     type SnapGridEditorValue,
+    type SnapGridEntryRef,
+    type SnapGridJoined,
     type SnapGridPlacing,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
 import { VisualAnswersProvider } from "../query/visual/answers.js";
+import { startingOf, type PageFilter, type StartingFilter } from "../query/visual/filters.js";
 import { openCodec, useOpen } from "../shared/open.js";
 import { StudioConfigure } from "./configure.js";
+import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
-import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
+import { StudioLayout, StudioPlacement, entryOf, useListedByKey } from "./page.js";
 import { clickFields } from "../query/visual/links.js";
 import { useLinking } from "./linking.js";
 import { PageClicksProvider } from "./page-clicks.js";
+import { PageFiltersProvider, forgetPageFilters } from "./page-filters.js";
+import { useStartingFilters, type StartingFilterLabels, type StartingFiltersBatch } from "./starting-filters.js";
 import { visualName } from "./visual/values.js";
 import { useStudioPalette, visualCards, type PlacedCard } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
@@ -170,6 +189,7 @@ export interface EastChakraStudioBuilderProps {
  */
 export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ value, storageKey }: EastChakraStudioBuilderProps) {
     const styles = useSlotRecipe({ key: "studioBuilder" })() as Styles;
+    const filterStyles = useSlotRecipe({ key: "studioFilters" })() as Styles;
     const statusRecipe = useSlotRecipe({ key: "status" });
     const m = useStudioMessages();
     const words = useFormatters();
@@ -203,15 +223,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         onOpen: value.onOpen.type === "some" ? value.onOpen.value : undefined,
     });
     const openName = printKey(open);
-    let entry: Entry | undefined;
-    if (pages !== undefined) {
-        for (const [key, found] of pages) {
-            if (keyEqual(key, open)) {
-                entry = found;
-                break;
-            }
-        }
-    }
+    const entry: Entry | undefined = pages === undefined ? undefined : entryOf(pages, open);
 
     // The selection, the Apply the preview asks of the canvas, the placements
     // the canvas draws, and whether the preview shows — the builder's own.
@@ -247,6 +259,47 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.cells : entry.value.cells), [entry]);
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
     const title = entry === undefined ? "" : entry.type === "page" ? entry.value.draft.title : entry.value.title;
+
+    // ── The page's starting filters (#1673) ─────────────────────────────
+    // What every reader of the page starts with, as its draft saved them, and as the builder draws them: one history over
+    // them and the canvas's placements, kept per page — each edit of either one step of it, and Save each one's own patch.
+    const savedFilters = useMemo((): readonly StartingFilter[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.filters : entry.value.filters), [entry]);
+    const history = useKeptHistory<SnapGridEntryRef>(`${storageKey}.history.${openName}`);
+    const startingLabels = useMemo((): StartingFilterLabels => ({
+        add: m.addStartingFilter(), change: m.changeStartingFilter(), remove: m.removeStartingFilter(), clear: m.clearStartingFilters(),
+    }), [m]);
+    // Their Apply: the batch, one patch on the open page's filters alone through the record's patch write.
+    const applyFilters = useCallback((batch: StartingFiltersBatch) => east.saveFilters(handle, open, batch), [east, handle, open]);
+    // An edit of what every reader starts with starts this browser's reading of the page afresh: the reader's filters it
+    // holds of the page — what the Preview, as the published page, narrows by — are forgotten, so the Preview shows them.
+    const readersAfresh = useCallback(() => forgetPageFilters(open), [open]);
+    const starting = useStartingFilters({
+        page: openName, saved: savedFilters, apply: applyFilters, history, storageKey, labels: startingLabels, onEdit: readersAfresh,
+    });
+    const joined = useMemo((): SnapGridJoined => ({
+        history, sessions: [{ key: starting.key, session: starting.session, name: m.startingFilters() }],
+    }), [history, starting.key, starting.session, m]);
+    // Their rail over the canvas's grid, captioned, over the sources the page's visuals read; none for a page whose visuals
+    // read no source the surface can filter.
+    const readSources = useMemo(() => sourcesRead(cells), [cells]);
+    const startingItems = useStudioFilterItems(starting.filters, sources, readSources, m.startingFilters());
+    const startingRail = startingItems.length === 0 ? undefined : (
+        <Box css={filterStyles.starting} data-studio-starting-filters="">
+            <Box as="span" css={filterStyles.caption} title={m.startingFiltersHint()} data-studio-starting-caption="">{m.startingFilters()}</Box>
+            <Box css={filterStyles.bar}><Toolbar items={startingItems} /></Box>
+        </Box>
+    );
+    // The preview, on its tab: the page as this browser's reader of it sees it.
+    const showPreview = useCallback((tab: "page" | "changes") => {
+        setPreviewTab(tab);
+        setPreviewing(true);
+    }, []);
+    // What a reader of a page starts with in the preview: the open page's starting filters as drafted, another's as saved.
+    const previewStartsWith = useCallback((page: StudioKey): readonly PageFilter[] => {
+        if (keyEqual(page, open)) return startingOf(starting.drafted);
+        const found = pages === undefined ? undefined : entryOf(pages, page);
+        return found === undefined ? [] : startingOf(found.type === "page" ? found.value.draft.filters : found.value.filters);
+    }, [open, starting.drafted, pages]);
     // The placements the canvas draws, as a dropped visual reads them for its source.
     const cellsRef = useRef(cells);
     cellsRef.current = cells;
@@ -484,7 +537,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         <StudioSaveTemplate value={saveTemplate} open={naming} onOpenChange={setNaming} anchor={
             <ChipMenu label={m.more()} icon={faEllipsis} data="data-studio-more" onSelect={(picked) => {
                 if (picked === "save-template") setNaming(true);
-                else if (picked === "preview" || picked === "publish") setPreviewing(true);
+                else if (picked === "preview" || picked === "publish") showPreview(picked === "publish" ? "changes" : "page");
             }}>
                 <ChakraMenu.Item value="save-template" disabled={!saveTemplate.enabled}
                     {...(saveTemplate.enabled ? {} : { title: m.templateOpen() })}>{m.saveAsTemplateItem()}</ChakraMenu.Item>
@@ -493,13 +546,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </ChipMenu>
         } />
     );
-    // No filter rail: the page's filters are its readers', which its Preview shows over the page (ruled 19 November 2026).
+    // No filter rail in the toolbar: a reader's filters are the Preview's, over the page, and the page's starting filters
+    // stand on their own rail over the canvas's grid (ruled 19 November 2026).
     const toolbar = phone ? {
         end: [{
             key: "studio.phone", forms: [null], phone: {
                 grow: true,
                 form: <StudioPhoneBar status={status} saveTemplate={saveTemplate} project={open.project}
-                    onPreview={() => { setPreviewTab("page"); setPreviewing(true); }} onPublish={() => { setPreviewTab("changes"); setPreviewing(true); }} />,
+                    onPreview={() => showPreview("page")} onPublish={() => showPreview("changes")} />,
             },
         } satisfies ToolbarItem],
     } : {
@@ -524,11 +578,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
             {
                 key: "preview", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" size="sm" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-preview="" onClick={() => showPreview("page")}>{m.preview()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             {
                 key: "publish", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" size="sm" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-open-publish="" onClick={() => showPreview("changes")}>{m.publish()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             { key: "more", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE, held: naming, forms: [null, more] } satisfies ToolbarItem,
         ],
@@ -655,9 +709,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     };
 
     // ── The publish preview, in the canvas's place ───────────────────────
+    // The layout that publishes, its drafts in place, against the page as saved — its placements and its starting filters.
     const summary = useMemo(() => (entry === undefined ? undefined
-        : east.publishSummary(components, sourceNames, entry.type === "page" ? entry.value.live : none, { title, cells: [...cells] }, [...saved], entry.type === "template")),
-    [east, components, sourceNames, entry, title, cells, saved]);
+        : east.publishSummary(components, sourceNames, entry.type === "page" ? entry.value.live : none,
+            { title, cells: [...cells], filters: [...starting.drafted] }, { title, cells: [...saved], filters: [...savedFilters] }, entry.type === "template")),
+    [east, components, sourceNames, entry, title, cells, saved, starting.drafted, savedFilters]);
     const preview = useMemo(() => (summary === undefined ? undefined : {
         project: open.project,
         title,
@@ -694,9 +750,10 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
                 beside it asks through the same answers, so what the canvas has answered it draws at once. */}
             <VisualAnswersProvider sources={sources}>
-                {/* The canvas is the page as designed: no reader's filter narrows it (ruled 19 November 2026), and a click
-                    edits — a visual's own click does not run, and one that follows another reads what the preview's reader
-                    selected (#1673). */}
+                {/* The canvas is the page as designed: its starting filters narrow it, as every reader starts — no reader's
+                    filter does (ruled 19 November 2026) — and a click edits: a visual's own click does not run, and one that
+                    follows another reads what the preview's reader selected (#1673). */}
+                <PageFiltersProvider value={starting.filters}>
                 <PageClicksProvider page={open} cells={cells} live={false}>
                 <Box css={styles.canvas} hidden={previewing} data-studio-canvas="" data-linking={linking.active ? "" : undefined}>
                     {linking.surface}
@@ -704,6 +761,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                         value={canvas}
                         storageKey={`${storageKey}.canvas`}
                         toolbar={toolbar}
+                        joined={joined}
+                        head={startingRail}
                         renderContent={renderContent}
                         onEdit={editPlacement}
                         panes={{
@@ -717,11 +776,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                     />
                 </Box>
                 </PageClicksProvider>
+                </PageFiltersProvider>
                 {/* The preview runs the page as its readers see it (BLD-4): its clicks select, filter and open — a page
-                    a click opens is the builder's to show, as its Pages tab opens one. */}
+                    a click opens is the builder's to show, as its Pages tab opens one — each page starting on its
+                    starting filters. */}
                 {previewing && preview !== undefined && (
                     <StudioPublishPreview value={preview}
-                        page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother} />}
+                        page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother}
+                            startsWith={previewStartsWith} />}
                         phone={!phone ? undefined : {
                             tab: previewTab, onTab: setPreviewTab, width,
                             tiles: cells.map((cell) => ({

@@ -40,7 +40,6 @@ import { RecordOutcomeType } from "../bind/record.js";
 import { StudioComponentType, componentNames } from "./component.js";
 import { contentWords } from "./content.js";
 import {
-    StudioCellType,
     StudioChangeType,
     StudioLiveType,
     StudioPageType,
@@ -56,7 +55,7 @@ import {
  * placement it changed.
  *
  * @property change - The change, as `Studio.changes` lists it
- * @property name - The placement's title, else its content's own name: its component's name, else its component's key; its visual's view and source; "Text"
+ * @property name - The placement's title, else its content's own name: its component's name, else its component's key; its visual's view and source; "Text". Empty for the page's starting filters, which the preview names in its own words
  */
 export const PublishChangeType = StructType({
     change: StudioChangeType,
@@ -88,7 +87,7 @@ export type PublishStandingType = typeof PublishStandingType;
  * @property standing - Where it stands ({@link PublishStandingType})
  * @property live - Its live version's number; `none` until it is first published, and for a template
  * @property changes - The changes from its live version — from nothing, the first time — to the layout that publishes; none for a template
- * @property unsaved - The canvas draws drafts the page has not saved
+ * @property unsaved - The builder draws drafts the page has not saved: its placements', or its starting filters'
  */
 export const PublishSummaryType = StructType({
     standing: PublishStandingType,
@@ -140,20 +139,22 @@ export type StudioPublishPayloadType = typeof StudioPublishPayloadType;
  * and whether the canvas has drafts.
  *
  * @remarks
- * `layout` is the layout that publishes — the page's cells as the canvas
- * draws them, its unsaved drafts in place — and `saved` its draft as last
- * saved. A page never published is ready, its changes those from nothing:
- * every placement added. A published one is ready while its layout differs
- * from its live version's; otherwise it is current. A change names its
- * placement by its title, else its content's own name (`contentWords`): its
- * component's name, else its component's key; its visual's view and source;
- * "Text". `sources` is each listed source's name, by its key.
+ * `layout` is the layout that publishes — the page's cells and starting
+ * filters as the builder draws them, its unsaved drafts in place — and
+ * `saved` its draft as last saved. A page never published is ready, its
+ * changes those from nothing: every placement added, and the starting
+ * filters it has. A published one is ready while its layout differs from its
+ * live version's; otherwise it is current. A change names its placement by
+ * its title, else its content's own name (`contentWords`): its component's
+ * name, else its component's key; its visual's view and source; "Text" — and
+ * the page's starting filters by nothing, the preview's own words naming them.
+ * `sources` is each listed source's name, by its key.
  */
 export const publishSummary = East.function(
-    [ArrayType(StudioComponentType), DictType(StringType, StringType), OptionType(StudioLiveType), StudioPageType, ArrayType(StudioCellType), BooleanType],
+    [ArrayType(StudioComponentType), DictType(StringType, StringType), OptionType(StudioLiveType), StudioPageType, StudioPageType, BooleanType],
     PublishSummaryType,
     ($, components, sources, live, layout, saved, template) => {
-        const unsaved = $.let(East.notEqual(layout.cells, saved));
+        const unsaved = $.let(East.notEqual(layout, saved));
         $.if(template, ($2) => {
             $2.return(East.value({
                 standing: variant("template", null),
@@ -165,7 +166,7 @@ export const publishSummary = East.function(
         const listed = $.let(componentNames(components));
         const before = $.let(live.match({
             some: (_$2, version) => version.page,
-            none: (_$2) => East.value({ title: layout.title, cells: [] }, StudioPageType),
+            none: (_$2) => East.value({ title: layout.title, cells: [], filters: [] }, StudioPageType),
         }), StudioPageType);
 
         // Each placement's name, the later layout's where both hold it.
@@ -179,16 +180,18 @@ export const publishSummary = East.function(
         });
         const changes = $.let(pageChanges(before, layout, sources, listed).map((_$2, change) => ({
             change,
-            name: names.get(change.match({
-                added: (_$3, c) => c.cell,
-                removed: (_$3, c) => c.cell,
-                moved: (_$3, c) => c.cell,
-                resized: (_$3, c) => c.cell,
-                height: (_$3, c) => c.cell,
-                aligned: (_$3, c) => c.cell,
-                retitled: (_$3, c) => c.cell,
-                configured: (_$3, c) => c.cell,
-            })),
+            // A placement's change is named by it; the page's starting filters by the preview's own words.
+            name: change.match({
+                filters: (_$3) => East.value(""),
+                added: (_$3, c) => names.get(c.cell),
+                removed: (_$3, c) => names.get(c.cell),
+                moved: (_$3, c) => names.get(c.cell),
+                resized: (_$3, c) => names.get(c.cell),
+                height: (_$3, c) => names.get(c.cell),
+                aligned: (_$3, c) => names.get(c.cell),
+                retitled: (_$3, c) => names.get(c.cell),
+                configured: (_$3, c) => names.get(c.cell),
+            }),
         })), ArrayType(PublishChangeType));
 
         const ready = $.let(live.hasTag("none").or(() => changes.size().greater(0n)));

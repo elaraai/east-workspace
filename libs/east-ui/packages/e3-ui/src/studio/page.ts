@@ -116,10 +116,11 @@ export interface StudioPageOptions {
     version?: StudioVersionLiteral | SubtypeExprOrValue<StudioVersionType>;
     /**
      * Told the key of the page a click on one of its visuals opens — a visual
-     * whose click is `open`. The clicked group is already the target page's
-     * filters when it is told, so the host only shows the page: it navigates,
-     * or writes the state its `page` reads. Omitted, such a click opens
-     * nothing.
+     * whose click is `open`. The clicked group is already among the target
+     * page's filters when it is told — its reader's, or its starting filters
+     * where its reader holds none of it — so the host only shows the page: it
+     * navigates, or writes the state its `page` reads. Omitted, such a click
+     * opens nothing.
      */
     onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
 }
@@ -141,11 +142,13 @@ export interface StudioPageOptions {
  * itself.
  *
  * Over its grid the page draws its reader's filters, when its visuals read a
- * source: each a chip, which narrows every visual of its source. A click on
- * a visual does what the visual says: it selects the clicked group, which a
- * visual that follows it narrows to; it adds the group to the page's filters;
- * or it opens another page narrowed to the group, telling `onOpen` that
- * page's key.
+ * source: each a chip, which narrows every visual of its source. A reader
+ * starts with the page's starting filters — its layout's `filters` (#1673) —
+ * as chips of their own to change or clear; filters they cleared stay
+ * cleared. A click on a visual does what the visual says: it selects the
+ * clicked group, which a visual that follows it narrows to; it adds the group
+ * to the page's filters; or it opens another page narrowed to the group,
+ * telling `onOpen` that page's key.
  *
  * @param options - The record's value, the listed components, the page and
  *   its version ({@link StudioPageOptions})

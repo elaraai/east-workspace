@@ -27,7 +27,9 @@
  * components, so a deploy that adds, changes or removes one runs no migration.
  *
  * A placement holds its content (#1669): a component's key, a visual an
- * operator builds, or a text block. A record whose placements hold a
+ * operator builds, or a text block. A page holds its starting filters too
+ * (#1673): the filters every reader of it starts with, which its builder sets
+ * over its canvas and saves with it. A record whose placements hold a
  * component's key alone, as they did before, is carried by one migration,
  * `Studio.migrations.cellContent`.
  *
@@ -41,6 +43,7 @@ import {
     East,
     FunctionType,
     IntegerType,
+    JqType,
     NullType,
     OptionType,
     PatchType,
@@ -96,9 +99,28 @@ export const StudioCellType = StructType({
 /** Type representing one placement on a page. */
 export type StudioCellType = typeof StudioCellType;
 
+/**
+ * One of a page's starting filters (#1673): a condition every visual of one
+ * source reads through until its reader changes it — what every reader's
+ * filters of the page start as, saved with the page.
+ *
+ * @property key - Its identity on the page, which the builder's editing session keys it by
+ * @property source - The key of a listed source
+ * @property where - A jq condition over one of its rows
+ */
+export const StudioPageFilterType = StructType({
+    key: StringType,
+    source: StringType,
+    where: JqType,
+});
+
+/** Type representing one of a page's starting filters. */
+export type StudioPageFilterType = typeof StudioPageFilterType;
+
 const StudioPageTypeImpl = StructType({
     title: StringType,
     cells: ArrayType(StudioCellType),
+    filters: ArrayType(StudioPageFilterType),
 });
 type StudioPageTypeImpl = typeof StudioPageTypeImpl;
 
@@ -115,10 +137,11 @@ type StudioPageTypeImpl = typeof StudioPageTypeImpl;
 export interface StudioPageType extends StudioPageTypeImpl {}
 
 /**
- * A page's layout: its title and its placements.
+ * A page's layout: its title, its placements and its starting filters.
  *
  * @property title - The page's title
  * @property cells - Its placements, in the order the canvas holds them
+ * @property filters - Its starting filters, in the order they were added: what every reader's filters of it start as (#1673)
  */
 export const StudioPageType: StudioPageType = StudioPageTypeImpl;
 
@@ -225,6 +248,18 @@ export interface StudioCellChangesType extends ReturnType<typeof Editing.Types.C
 /** A batch of the canvas's edits to a page's placements — what its Apply sends ({@link saveCells}). */
 export const StudioCellChangesType: StudioCellChangesType = Editing.Types.ChangeSet(StudioCellType);
 
+/**
+ * Type representing a batch of the builder's edits to a page's starting filters.
+ *
+ * @remarks
+ * An interface, for the reason {@link StudioPagesPatchType} is one: a jq condition is a deep type.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioPageFilterChangesType extends ReturnType<typeof Editing.Types.ChangeSet<StudioPageFilterType>> {}
+
+/** A batch of the builder's edits to a page's starting filters — what their Apply sends ({@link saveFilters}). */
+export const StudioPageFilterChangesType: StudioPageFilterChangesType = Editing.Types.ChangeSet(StudioPageFilterType);
+
 const StudioPagesHandleTypeImpl = StructType({
     read: FunctionType([], StudioPagesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
@@ -288,6 +323,7 @@ export type StudioCellChangeType = typeof StudioCellChangeType;
 /**
  * One change between two layouts of a page, as {@link pageChanges} lists them.
  *
+ * @property filters - Its starting filters changed (#1673): how many it starts with, `0 → 2`, or that they changed
  * @property added - Placed on the page — its row and span
  * @property removed - Taken off the page — the row and span it had
  * @property moved - Moved into another row or a new one, with its row among the rows, or to another place in its row
@@ -298,6 +334,7 @@ export type StudioCellChangeType = typeof StudioCellChangeType;
  * @property configured - What it holds changed: a visual's source, view, values, filter or click; a text block's text; or another component
  */
 export const StudioChangeType = VariantType({
+    filters: StructType({ detail: StringType }),
     added: StudioCellChangeType,
     removed: StudioCellChangeType,
     moved: StudioCellChangeType,
@@ -393,8 +430,9 @@ export const revertPage = East.function(
 );
 
 /**
- * Starts a page: its draft is a template's cells under the title given, or no
- * cells at all (the blank grid), and it has no live version.
+ * Starts a page: its draft is a template's cells and starting filters under
+ * the title given, or none at all (the blank grid), and it has no live
+ * version.
  *
  * @remarks
  * The patch inserts the page, so a key another write took first is a conflict
@@ -407,26 +445,27 @@ export const newPage = East.function(
         $.if(pages.has(key), ($2) => {
             $2.error(East.str`${East.print(key)} already exists`);
         });
-        const cells = $.let(template.match({
-            some: (_$, from) => pages.tryGet(from).match({
+        const from = $.let(template.match({
+            some: (_$, at) => pages.tryGet(at).match({
                 some: (_$2, found) => found.match({
-                    template: (_$3, layout) => layout.cells,
-                    page: ($3) => $3.error(East.str`${East.print(from)} is a page, not a template`),
+                    template: (_$3, layout) => layout,
+                    page: ($3) => $3.error(East.str`${East.print(at)} is a page, not a template`),
                 }),
-                none: ($2) => $2.error(East.str`No template ${East.print(from)}`),
+                none: ($2) => $2.error(East.str`No template ${East.print(at)}`),
             }),
-            none: (_$) => East.value([], ArrayType(StudioCellType)),
-        }), ArrayType(StudioCellType));
+            none: (_$) => East.value({ title, cells: [], filters: [] }, StudioPageType),
+        }), StudioPageType);
         const before = $.let(new Map(), StudioPagesType);
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("page", { draft: { title, cells }, live: none })));
+        $(after.insert(key, variant("page", { draft: { title, cells: from.cells, filters: from.filters }, live: none })));
         return East.diff(before, after);
     },
 );
 
 /**
  * Saves a page's draft as a template, under a key of its own and the title
- * given; the page library lists it in its Templates row.
+ * given — its placements and its starting filters; the page library lists it
+ * in its Templates row.
  *
  * @remarks
  * The patch inserts the template, so a key another write took first is a
@@ -448,7 +487,7 @@ export const saveTemplate = East.function(
         }), StudioPageEntryType);
         const before = $.let(new Map(), StudioPagesType);
         const after = $.let(new Map(), StudioPagesType);
-        $(after.insert(key, variant("template", { title, cells: page.draft.cells })));
+        $(after.insert(key, variant("template", { title, cells: page.draft.cells, filters: page.draft.filters })));
         return East.diff(before, after);
     },
 );
@@ -461,8 +500,20 @@ const draftCellsOf = East.function([StudioEntryType], ArrayType(StudioCellType),
 
 /** An entry with its cells replaced, and nothing else changed. */
 const withDraftCells = East.function([StudioEntryType, ArrayType(StudioCellType)], StudioEntryType, (_$, entry, cells) => entry.match({
-    page: (_$2, page) => East.value(variant("page", { draft: { title: page.draft.title, cells }, live: page.live }), StudioEntryType),
-    template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells }), StudioEntryType),
+    page: (_$2, page) => East.value(variant("page", { draft: { title: page.draft.title, cells, filters: page.draft.filters }, live: page.live }), StudioEntryType),
+    template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells, filters: layout.filters }), StudioEntryType),
+}));
+
+/** The starting filters of an entry: a page's draft's, or a template's. */
+const draftFiltersOf = East.function([StudioEntryType], ArrayType(StudioPageFilterType), (_$, entry) => entry.match({
+    page: (_$2, page) => page.draft.filters,
+    template: (_$2, layout) => layout.filters,
+}));
+
+/** An entry with its starting filters replaced, and nothing else changed. */
+const withDraftFilters = East.function([StudioEntryType, ArrayType(StudioPageFilterType)], StudioEntryType, (_$, entry, filters) => entry.match({
+    page: (_$2, page) => East.value(variant("page", { draft: { title: page.draft.title, cells: page.draft.cells, filters }, live: page.live }), StudioEntryType),
+    template: (_$2, layout) => East.value(variant("template", { title: layout.title, cells: layout.cells, filters }), StudioEntryType),
 }));
 
 /**
@@ -479,6 +530,26 @@ export const saveCells = East.asyncFunction(
     Editing.Types.ApplyResult,
     ($, handle, key, batch) => {
         const apply = $.const(Record.onApply(handle, { entry: key, get: draftCellsOf, set: withDraftCells, idField: "key" }));
+        return apply(batch);
+    },
+);
+
+/**
+ * Saves a page's starting filters (#1673): the builder's Apply of them, which
+ * commits their batch to the page's draft as one patch.
+ *
+ * @remarks
+ * `Record.onApply`'s form over a collection inside one entry — the draft's
+ * starting filters, identified by `key` — as {@link saveCells} saves its
+ * placements. The patch reaches the filters and nothing else, so a Save of
+ * the placements beside it is none of its conflict, and filters another
+ * write changed since the edit began are one.
+ */
+export const saveFilters = East.asyncFunction(
+    [StudioPagesHandleType, StudioKeyType, StudioPageFilterChangesType],
+    Editing.Types.ApplyResult,
+    ($, handle, key, batch) => {
+        const apply = $.const(Record.onApply(handle, { entry: key, get: draftFiltersOf, set: withDraftFilters, idField: "key" }));
         return apply(batch);
     },
 );
@@ -527,8 +598,9 @@ const layoutOf = East.function([StudioPageType], LayoutType, ($, page) => {
  * and the publish preview lists.
  *
  * @remarks
- * Each placement's changes come in the later layout's reading order, then the
- * placements it no longer has. A placement moved when its row changed, or when
+ * The page's starting filters come first — how many it starts with, or that
+ * they changed — then each placement's changes in the later layout's reading
+ * order, then the placements it no longer has. A placement moved when its row changed, or when
  * it left the longest run of placements still in their reading order, so a
  * move reports the placement moved and not the ones around it; which of two
  * placements that swapped places moved is ambiguous, and one is reported. A
@@ -588,6 +660,14 @@ export const pageChanges = East.function(
         });
 
         const changes = $.let([], ArrayType(StudioChangeType));
+        // The page's starting filters, before any placement's change (#1673).
+        $.if(East.notEqual(before.filters, after.filters), ($2) => {
+            const had = $2.let(before.filters.size());
+            const has = $2.let(after.filters.size());
+            $2(changes.pushLast(variant("filters", {
+                detail: East.equal(had, has).ifElse(() => East.value("changed"), () => East.str`${East.print(had)} → ${East.print(has)}`),
+            })));
+        });
         $.for(now.order, ($2, key) => {
             const cell = $2.let(cellsAfter.get(key));
             const place = $2.let(now.places.get(key));
@@ -676,6 +756,8 @@ export const pageStatus = East.function(
 export interface StudioPagesNamespace {
     /** Saves a page's placements — the builder canvas's Apply ({@link saveCells}). */
     save: typeof saveCells;
+    /** Saves a page's starting filters — the builder's Apply of them ({@link saveFilters}). */
+    saveFilters: typeof saveFilters;
     /** Publishes a page ({@link publishPage}). */
     publish: typeof publishPage;
     /** Reverts a page to its live version ({@link revertPage}). */
@@ -693,6 +775,7 @@ export interface StudioPagesNamespace {
 /** The page half of the internal `Studio` namespace. */
 export const StudioPages: StudioPagesNamespace = {
     save: saveCells,
+    saveFilters,
     publish: publishPage,
     revert: revertPage,
     newPage,

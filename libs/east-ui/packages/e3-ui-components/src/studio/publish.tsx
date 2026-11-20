@@ -48,12 +48,24 @@ import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
 import { useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
-import { useStudioMessages } from "./messages.js";
+import { useStudioMessages, type StudioMessages } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
 /** The publish preview, as the builder draws it. */
 type StudioPublishValue = ValueTypeOf<typeof StudioPublishPayloadType>;
+/** One row of the change list. */
+type ChangeRow = StudioPublishValue["summary"]["changes"][number];
+
+/** A row of the change list's own key: its placement's, or the page's starting filters' (#1673). */
+function changeKey(row: ChangeRow, i: number): string {
+    return `${row.change.type === "filters" ? "filters" : row.change.value.cell}-${row.change.type}-${i}`;
+}
+
+/** What a row of the change list names: its placement — or, for the page's starting filters, the preview names them (#1673). */
+function changeName(row: ChangeRow, m: StudioMessages): string {
+    return row.change.type === "filters" ? m.startingFilters() : row.name;
+}
 
 /** The devices the bar offers, and the most each draws the page wide, in px. */
 const DEVICES = [
@@ -270,10 +282,10 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                     {changes.map((row, i) => {
                                         const kind = row.change.type;
                                         return (
-                                            <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={ps.change} data-publish-change={kind}>
+                                            <Box as="li" key={changeKey(row, i)} css={ps.change} data-publish-change={kind}>
                                                 <Box as="span" css={ps.changeSign} aria-hidden><FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} /></Box>
                                                 <Box css={ps.changeText}>
-                                                    <Box as="span" css={ps.changeLine}>{m.changeVerb({ change: kind })} <strong>{row.name}</strong></Box>
+                                                    <Box as="span" css={ps.changeLine}>{m.changeVerb({ change: kind })} <strong>{changeName(row, m)}</strong></Box>
                                                     <Box as="span" css={ps.changeDetail}>{row.change.value.detail}</Box>
                                                 </Box>
                                             </Box>
@@ -365,14 +377,14 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                         {changes.map((row, i) => {
                                             const kind = row.change.type;
                                             return (
-                                                <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={styles.change} data-publish-change={kind}>
+                                                <Box as="li" key={changeKey(row, i)} css={styles.change} data-publish-change={kind}>
                                                     <Box as="span" css={styles.sign} data-sign={kind} aria-hidden>
                                                         <FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} />
                                                     </Box>
                                                     <Box css={styles.changeText}>
                                                         <Box as="span" css={styles.changeLine}>
                                                             {m.changeVerb({ change: kind })}{" "}
-                                                            <Box as="strong" css={styles.changeName}>{row.name}</Box>
+                                                            <Box as="strong" css={styles.changeName}>{changeName(row, m)}</Box>
                                                         </Box>
                                                         <Box as="span" css={styles.changeDetail}>{row.change.value.detail}</Box>
                                                     </Box>

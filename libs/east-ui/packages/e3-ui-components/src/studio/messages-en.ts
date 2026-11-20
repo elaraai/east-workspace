@@ -70,6 +70,12 @@ export const studioMessages: StudioMessages = {
     needsWindow: ({ source }) => `Comparing periods needs a date filter on ${source}`,
     needsWindowHint: () => "Filter the page by date to compare it with another period.",
     filters: () => "Filters",
+    startingFilters: () => "Starting filters",
+    startingFiltersHint: () => "Every reader starts with these filters, and can change or clear them.",
+    addStartingFilter: () => "Add starting filter",
+    changeStartingFilter: () => "Change starting filter",
+    removeStartingFilter: () => "Remove starting filter",
+    clearStartingFilters: () => "Clear starting filters",
     filtersSet: ({ n, count }) => (n === 0 ? "No filters" : n === 1 ? "1 filter" : `${count} filters`),
     filterOf: ({ source }) => `Filter · ${source}`,
     filterSource: () => "Source",
@@ -350,6 +356,7 @@ export const studioMessages: StudioMessages = {
     noChangesSince: ({ version }) => `No changes since ${version}`,
     changeVerb: ({ change }) => {
         switch (change) {
+            case "filters": return "Changed";
             case "added": return "Added";
             case "removed": return "Removed";
             case "moved": return "Moved";

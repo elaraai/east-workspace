@@ -7,9 +7,12 @@
  * A page's filters (#1673), and their rules: what a reader narrows a Studio
  * page's visuals by. A filter is a jq condition on one listed source's rows
  * (`Studio.Types.Filter`); a page holds a list of them, in the order they
- * were added.
+ * were added. A reader starts with the page's starting filters, which its
+ * layout holds (`Studio.Types.PageFilter`), until they change them.
  *
- * The rules are here, never a renderer's: adding, changing, removing and
+ * The rules are here, never a renderer's: a page's starting filters as a
+ * reader's ({@link startingOf}), and a reader's filters — their own, else the
+ * starting ones ({@link readerFilters}); adding, changing, removing and
  * clearing a filter; which filters apply to a source — a visual's own click's
  * filter none of them for it, whose groups it marks ({@link markedBy}); the one condition
  * they are in a visual's program ({@link selectOf}) — every filter on the
@@ -29,9 +32,9 @@
  * @packageDocumentation
  */
 
-import { ArrayType, DateTimeType, compareFor, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DateTimeType, compareFor, none, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { isoDateTime } from "@elaraai/east/internal";
-import type { StudioFilterType } from "@elaraai/e3-ui/internal";
+import type { StudioFilterType, StudioPageFilterType } from "@elaraai/e3-ui/internal";
 import { conditionChip, conditionWords } from "../model/step-words.js";
 import type { QueryWords } from "../model/words.js";
 import { newStep } from "../steps/edit.js";
@@ -44,6 +47,33 @@ import type { PrintRange, PrintSource, PrintState } from "./print.js";
 
 /** One filter of a page, decoded: its source's key, and its condition over one of the source's rows. */
 export type PageFilter = ValueTypeOf<typeof StudioFilterType>;
+
+/** One of a page's starting filters, decoded: its key, its source's key, and its condition over one of the source's rows. */
+export type StartingFilter = ValueTypeOf<typeof StudioPageFilterType>;
+
+/**
+ * A page's starting filters as a reader holds them: each on its source, by its
+ * condition, in its order — made by no visual's click, so every visual of its
+ * source narrows by it.
+ *
+ * @param starting - The page's starting filters, as its layout holds them
+ * @returns The filters a reader of the page starts with
+ */
+export function startingOf(starting: readonly StartingFilter[]): PageFilter[] {
+    return starting.map((filter): PageFilter => ({ source: filter.source, where: filter.where, from: none }));
+}
+
+/**
+ * A reader's filters of a page: their own, once they hold any — none, once
+ * they cleared them — else the page's starting filters.
+ *
+ * @param held - The reader's own filters of the page; `undefined` for a reader who holds none of their own
+ * @param starting - The page's starting filters, as a reader's ({@link startingOf})
+ * @returns The filters the reader's page narrows by
+ */
+export function readerFilters(held: readonly PageFilter[] | undefined, starting: readonly PageFilter[]): readonly PageFilter[] {
+    return held ?? starting;
+}
 
 /**
  * A page's filters with one added, after the rest.

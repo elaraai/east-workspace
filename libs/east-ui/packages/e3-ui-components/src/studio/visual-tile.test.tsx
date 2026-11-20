@@ -18,13 +18,15 @@
 import { useState, type ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Studio, type StudioSourceType } from "@elaraai/e3-ui/internal";
+import { decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Studio, StudioFiltersType, studioFiltersKey, type StudioSourceType } from "@elaraai/e3-ui/internal";
 import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
+import { StateRuntime } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { act, settle } from "../e3-web-mount.test-utils.js";
 import { E3Provider } from "../platform/index.js";
 import { VisualAnswersProvider } from "../query/visual/answers.js";
+import { startingOf } from "../query/visual/filters.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
 import { PAGE, SOURCE, cell, filterPage, filterSources, onE3, page, pageWithoutServer, sized, tileHarness } from "./tile.test-utils.js";
@@ -286,6 +288,19 @@ describe("a KPI's tile (#1671)", () => {
         await waitFor(() => expect(values()).toEqual(["3", "3"]));
         await filterPage(`.region == "NSW"`);
         await waitFor(() => expect(values()).toEqual(["1", "3"]));
+    });
+
+    test("a reader starts with the page's starting filters, as chips that narrow its visuals, though the store holds none of theirs; cleared, the store holds the reader's none, and the page stays cleared (#1673)", async () => {
+        const starting = startingOf([{ key: "f-sa", source: "orders", where: condition(`.region == "SA"`) }]);
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], undefined, undefined, () => starting);
+        const chips = () => [...container.querySelectorAll<HTMLElement>("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.textContent);
+        const value = () => container.querySelector("[data-studio-kpi-value]")?.textContent;
+        // South Australia's two orders of the three.
+        await waitFor(() => expect([value(), chips()]).toEqual(["2", ["Region: SA"]]));
+        expect(StateRuntime.getStore().read(studioFiltersKey(PAGE))).toBeUndefined();
+        await act(async () => { fireEvent.click(container.querySelector<HTMLElement>("[data-studio-filters] [data-slice-clause] [data-chip-remove]")!); });
+        await waitFor(() => expect([value(), chips()]).toEqual(["3", []]));
+        expect(decodeBeast2For(StudioFiltersType)(StateRuntime.getStore().read(studioFiltersKey(PAGE))!)).toEqual([]);
     });
 
     test("the page's rail says each filter as a chip over the grid, short — its field, then what it holds — and whole on its hover, in the query builder's words; its × takes the filter out, and every visual follows (#1673)", async () => {

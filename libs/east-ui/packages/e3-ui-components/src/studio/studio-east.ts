@@ -38,6 +38,7 @@ import {
     publishRefusal,
     publishSummary,
     saveCells,
+    saveFilters,
     sourceName,
     sourceNames,
     switchedView,
@@ -104,6 +105,8 @@ export interface StudioEast {
     saveTemplate: Compiled<typeof Studio.saveTemplate>;
     /** The canvas's Apply: a batch of placements, one patch through the record's patch write. */
     save: Compiled<typeof saveCells>;
+    /** The starting filters' Apply (#1673): a batch of them, one patch on them alone through the record's patch write. */
+    saveFilters: Compiled<typeof saveFilters>;
     /** The pill a field makes placed in a well (#1672). */
     placedPill: Compiled<typeof placedPill>;
     /** The measures a value of a field may take. */
@@ -175,6 +178,8 @@ function compileStudio(): StudioEast {
         saveTemplate: East.compile(Studio.saveTemplate, []),
         /** The canvas's Apply: a batch of placements, one patch through the record's patch write. */
         save: East.compileAsync(saveCells, []),
+        /** The starting filters' Apply (#1673): a batch of them, one patch on them alone through the record's patch write. */
+        saveFilters: East.compileAsync(saveFilters, []),
         /** The pill a field makes placed in a well (#1672). */
         placedPill: East.compile(placedPill, []),
         /** The measures a value of a field may take. */

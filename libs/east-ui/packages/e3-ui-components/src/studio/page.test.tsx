@@ -49,6 +49,7 @@ const PAGES = new SortedMap<Key, Entry>([
             cells: [
                 { key: "o-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
+            filters: [],
         },
         live: some({
             version: 1n,
@@ -60,6 +61,7 @@ const PAGES = new SortedMap<Key, Entry>([
                     { key: "o-count-2", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "counter") },
                     { key: "o-gone", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "retired") },
                 ],
+                filters: [],
             },
         }),
     })],
@@ -69,11 +71,12 @@ const PAGES = new SortedMap<Key, Entry>([
             cells: [
                 { key: "d-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
+            filters: [],
         },
         live: none,
     })],
     [{ project: "ops", page: "d-notes" }, variant("page", {
-        draft: { title: "Notes", cells: [] },
+        draft: { title: "Notes", cells: [], filters: [] },
         live: some({
             version: 1n,
             page: {
@@ -85,6 +88,7 @@ const PAGES = new SortedMap<Key, Entry>([
                     { key: "n-sales", row: "r2", span: 6n, height: none, align: variant("top", null), title: none,
                         content: Studio.visual.of("sales", Studio.visual.column({ x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue")] })) },
                 ],
+                filters: [],
             },
         }),
     })],
@@ -93,6 +97,7 @@ const PAGES = new SortedMap<Key, Entry>([
         cells: [
             { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi") },
         ],
+        filters: [],
     })],
 ], compareFor(StudioKeyType));
 

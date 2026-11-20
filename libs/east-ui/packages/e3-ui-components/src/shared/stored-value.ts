@@ -76,3 +76,13 @@ export function changeStoredValue<T extends EastType>(codec: StoredCodec<T>, key
     const bytes = store.read(key);
     store.write(key, codec.encode(change(bytes === undefined ? undefined : codec.decode(bytes))));
 }
+
+/**
+ * Forgets the value the UI store holds under a key: every reader of the key
+ * holds nothing again — as before a value was written — once it is drawn.
+ *
+ * @param key - The key the value is kept under
+ */
+export function forgetStoredValue(key: string): void {
+    StateRuntime.getStore().write(key, undefined);
+}

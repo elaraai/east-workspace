@@ -77,7 +77,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         const popover = await openPopover();
         // Another operator saves a template under the same name between this popover's read and its commit.
         await h.race(ex.studioPages, () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); },
-            withEntry(TEMPLATE, variant("template", { title: "Theirs", cells: [] })));
+            withEntry(TEMPLATE, variant("template", { title: "Theirs", cells: [], filters: [] })));
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Another write took the name Overview template first — choose another");
         const template = (await readRecord()).get(TEMPLATE)!;
         if (template.type !== "template") throw new Error("expected a template");

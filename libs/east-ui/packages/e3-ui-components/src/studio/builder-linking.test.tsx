@@ -36,6 +36,7 @@ describe("<Studio.Builder> — linking on the canvas (#1673)", () => {
                 placed("l-count", "r1", 4n, v.of("sales", v.kpi({ value: v.count() }))),
                 placed("l-note", "r2", 12n, v.text("Figures are to last night.")),
             ],
+            filters: [],
         },
         live: none,
     });

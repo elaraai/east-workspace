@@ -40,6 +40,7 @@ const PAGES = new SortedMap<Key, Entry>([
             cells: [
                 { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
+            filters: [],
         },
         live: some({
             version: 1n,
@@ -48,6 +49,7 @@ const PAGES = new SortedMap<Key, Entry>([
                 cells: [
                     { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
                 ],
+                filters: [],
             },
         }),
     })],

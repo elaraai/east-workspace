@@ -25,6 +25,7 @@ import * as studio from "@elaraai/e3-ui/examples/studio/studio";
 import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { StateRuntime, system } from "@elaraai/east-ui-components";
 import { act, currentHarness, e3Harness, type E3Harness, type MountOptions } from "../e3-web-mount.test-utils.js";
+import type { PageFilter } from "../query/visual/filters.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
 
@@ -77,12 +78,16 @@ export function onE3(view: ReactNode, host?: MountOptions["host"]): Promise<Rend
     return currentHarness().mount(studio.studioVisuals, { view, ...(host === undefined ? {} : { host }) });
 }
 
-/** A page of placements over the sources — the orders unless given — on e3, and who it tells a click opens another page. */
+/**
+ * A page of placements over the sources — the orders unless given — on e3, who it tells a click opens another page, and
+ * what a page's reader starts with (#1673): none unless given.
+ */
 export function page(
     cells: ValueTypeOf<typeof StudioCellType>[], sources: ValueTypeOf<typeof StudioSourceType>[] = [SOURCE],
     onOpen?: (page: ValueTypeOf<typeof StudioKeyType>) => void,
+    startsWith?: (page: ValueTypeOf<typeof StudioKeyType>) => readonly PageFilter[],
 ): Promise<RenderResult> {
-    return onE3(<StudioLayout cells={cells} components={[]} sources={sources} page={PAGE} storageKey="tile" onOpen={onOpen} />);
+    return onE3(<StudioLayout cells={cells} components={[]} sources={sources} page={PAGE} storageKey="tile" onOpen={onOpen} startsWith={startsWith} />);
 }
 
 /** A page of placements drawn with no server to ask: in the theme alone, no calls at all. */
