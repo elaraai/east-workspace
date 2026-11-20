@@ -202,7 +202,9 @@ export interface RackRouteOptions {
    * hello names {@link RACK_CALL_VALUE_OBJECTS}, and a function lease's
    * completion may name its value by hash, as the output it commits. Set it
    * only where what reads a call's result reads such a value. Absent, no
-   * agent sends one, and a value too large to carry inline runs elsewhere.
+   * agent sends one, a value too large to carry inline runs elsewhere, and a
+   * call writes nothing to the store, its staging included: a function lease
+   * that stages an output is refused (`403 forbidden`).
    */
   callValueObjects?: boolean;
   /**
@@ -906,6 +908,12 @@ export function createRackRoutes(
     }
     if (!isLeaseEventV2(lease.event)) {
       return forbidden(`Lease ${lease.leaseId} is no work this deployment runs`);
+    }
+    // A function call's whole output is its value, staged only where the
+    // source takes one as an object: on any other a call writes nothing to the
+    // store, its staging included. Refused before any capability is issued
+    if (request.output.type === 'some' && isFunctionLease(lease.event) && !callValueObjects) {
+      return forbidden(`Lease ${lease.leaseId} is a function call's, which writes nothing to the store: this source takes no call's value as an object`);
     }
 
     if (request.need.length > 0) {

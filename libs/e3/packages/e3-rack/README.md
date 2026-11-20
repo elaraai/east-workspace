@@ -791,7 +791,10 @@ value goes as an object only to a source whose hello names `call-value-objects`:
 the agent stages it as the lease's output, the completion commits it, and the
 outcome names it (`valueHash`, the completion's `outputHash`). To any other
 source the agent says the value is too large to relay (`rackResultTooLarge`),
-and the call runs there.
+and the call runs there. Such a source stages nothing of a call, which writes
+nothing to its store: it refuses a call's lease the staging of an output
+(`403 forbidden`), and a completion that names a value by hash
+(`400 invalid-request`).
 
 An agent that composes environments reports the feature `environments` and its
 `target`, the platform it runs them on as e3-core names one

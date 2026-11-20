@@ -13,10 +13,15 @@ import { createAdaptorServer } from '@hono/node-server';
 import { LocalStorage, processOwner, repoInit } from '@elaraai/e3-core';
 import { InMemoryMachineIdentityStore, generateEnrollmentToken, InMemoryRackRegistry,
   InMemoryRackLeaseStore, InMemoryLeaseCoordinator, RACK_CALL_VALUE_OBJECTS, StoreRackDispatch, createRackRoutes } from '@elaraai/e3-rack';
-import { InMemoryRackStorageBridge, RecordingLogStore, rackProtocolSuite } from '@elaraai/e3-rack/testing';
+import { InMemoryRackStorageBridge, RecordingLogStore, rackProtocolSuite, type RackProtocolFixture } from '@elaraai/e3-rack/testing';
 import { sessionAttempts } from '../client/session-attempts.js';
 
-rackProtocolSuite('memory dispatch, real repository', async () => {
+/**
+ * Starts the shared routes over memory dispatch and a real repository, for one
+ * case of the suite: a host that takes a call's value as an object, or one that
+ * takes none, whose hello names nothing.
+ */
+const host = (callValueObjects: boolean) => async (): Promise<RackProtocolFixture> => {
   const repo = await mkdtemp(join(tmpdir(), 'e3-contract-'));
   let server: Server | undefined;
   const teardown = async () => {
@@ -34,7 +39,7 @@ rackProtocolSuite('memory dispatch, real repository', async () => {
     const owner = await processOwner(); const attempts = { ...sessionAttempts(storage, repo, () => owner), logs };
     const coordinator = new InMemoryLeaseCoordinator();
     const dispatch = new StoreRackDispatch(leases, registry, { now, coordinator, endings: { stopped: attempts.stopped, writes: bridge } });
-    const app = createRackRoutes(identities, registry, leases, bridge, attempts, { now, coordinator, leaseWindowMs: 20, pollIntervalMs: 5, callValueObjects: true });
+    const app = createRackRoutes(identities, registry, leases, bridge, attempts, { now, coordinator, leaseWindowMs: 20, pollIntervalMs: 5, callValueObjects });
     const listener = createAdaptorServer({ fetch: app.fetch }); assert(listener instanceof Server); server = listener;
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     const address = server.address(); assert(address && typeof address !== 'string');
@@ -49,7 +54,7 @@ rackProtocolSuite('memory dispatch, real repository', async () => {
       const bytes = await bridge.fetch(url);
       return bytes === null ? new Response(null, { status: 404 }) : new Response(bytes);
     };
-    return { repo, baseUrl: `http://127.0.0.1:${address.port}`, fetch: transport, dispatch, features: [RACK_CALL_VALUE_OBJECTS],
+    return { repo, baseUrl: `http://127.0.0.1:${address.port}`, fetch: transport, dispatch, features: callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : [],
       async mintEnrollmentToken() {
         const token = generateEnrollmentToken(); await identities.putEnrollmentToken(token.tokenHash, new Date(time + 60000)); return token.token;
       },
@@ -60,4 +65,7 @@ rackProtocolSuite('memory dispatch, real repository', async () => {
       advanceClock: (ms) => { time += ms; }, teardown,
     };
   } catch (error) { await teardown(); throw error; }
-});
+};
+
+rackProtocolSuite('memory dispatch, real repository', host(true));
+rackProtocolSuite('memory dispatch, real repository, a host that takes no call\'s value', host(false));
