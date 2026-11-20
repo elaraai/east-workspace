@@ -8,7 +8,9 @@
  * under one history (`EditHistory`), as the Roster's duties and weeks or the
  * Plan's event kinds are, each record with a source and a screen of its own —
  * and every operation that can meet there: a gesture in one record or across
- * both, an optimiser's result in either, Undo, Redo, Discard — the history's,
+ * both, an optimiser's result in either, a run of one record's gestures under
+ * one key (`joins`, a nudge) as a resize's snaps are — joined to its last step,
+ * or brought back to where it began — Undo, Redo, Discard — the history's,
  * or one record's banner's — Save, an automatic Save, one asked for when the
  * history says it has nothing to send, each record's request delivered,
  * delivered with its answer lost, or lost, a write with no answer asked again
@@ -22,7 +24,10 @@
  *   it changed, and Redo replays it; each is there exactly while a step is,
  *   and each session's own steps are the history's steps' parts in it, done
  *   and undone, no more. One record's drafts discarded take its parts out of
- *   the steps, and leave the other's.
+ *   the steps, and leave the other's. A run is one step: a nudge joins the
+ *   run its record's last step is — that step the last, nothing redone past
+ *   it, no other gesture made since — and is a step of its own otherwise; a
+ *   run brought back to where it began goes.
  * - **The screen is the person's.** After every operation each record's rows
  *   read as their steps leave them: through a Save, its answer lost, its read
  *   back late.
@@ -120,6 +125,8 @@ export class ModelDesk {
     readonly ran: ModelOp[] = [];
     private steps: DeskStep[] = [];
     private cursor = 0;
+    /** The run the last step is: what a nudge of its record joins, while that step is the last and no other gesture came since. */
+    private runOpen: DeskStep | undefined;
     /** How many done steps a person's Save has taken. */
     private taken = 0;
     /** How many steps were done as the last change was made, or a person's Save took them. */
@@ -232,6 +239,7 @@ export class ModelDesk {
         return fingerprint({
             history: this.history, sides: this.sides, steps: this.steps, cursor: this.cursor, taken: this.taken, left: this.left,
             sending: this.sending, misfire: this.misfire, firstSends: this.firstSends, acts: this.acts, next: this.next,
+            runOpen: this.runOpen === undefined ? -1 : this.steps.indexOf(this.runOpen),
         }, DESK_PRINT);
     }
 
@@ -244,9 +252,12 @@ export class ModelDesk {
         const acts = !budgeted || this.acts < (this.budgets.acts ?? Number.POSITIVE_INFINITY);
         const sends = !budgeted || this.firstSends < (this.budgets.sends ?? Number.POSITIVE_INFINITY);
         const [a, b] = [acts && this.sides.A.session.writable, acts && this.sides.B.session.writable];
-        if (a) ops.push("edit(A)", "optimise(A)");
-        if (b) ops.push("edit(B)", "optimise(B)");
+        if (a) ops.push("edit(A)", "optimise(A)", "nudge(A)");
+        if (b) ops.push("edit(B)", "optimise(B)", "nudge(B)");
         if (a && b) ops.push("both");
+        // A run brought back to where it began: its record's, while the run is open.
+        if (a && this.openRunOf("A") !== undefined) ops.push("nudgeBack(A)");
+        if (b && this.openRunOf("B") !== undefined) ops.push("nudgeBack(B)");
         if (this.history.canUndo) ops.push("undo");
         if (this.history.canRedo) ops.push("redo");
         if (this.history.canDiscard && this.history.pending > 0) ops.push("discard");
@@ -310,6 +321,51 @@ export class ModelDesk {
         this.steps.push({ parts: parts.map(({ at, before, after }) => ({ at, before, after })), optimise });
         this.cursor = this.steps.length;
         this.left = this.cursor;
+        // A gesture of no run ends the one before.
+        this.runOpen = undefined;
+    }
+
+    /** A record's open run: the last step, a run of that record's, nothing redone past it and no other gesture made since. */
+    private openRunOf(at: RecordName): DeskStep | undefined {
+        const open = this.runOpen;
+        return open !== undefined && this.cursor === this.steps.length && this.steps[this.cursor - 1] === open && open.parts[0]!.at === at ? open : undefined;
+    }
+
+    /**
+     * A nudge: a record's row moved by one gesture of a run (`joins`), as a resize's snaps are — to a new value, or
+     * (`back`) to where its open run began. It joins its record's open run, and a run back where it began goes; with
+     * no run open it is a step of its own, which begins one.
+     */
+    private nudge(at: RecordName, back: boolean): void {
+        const side = this.sides[at];
+        const open = this.openRunOf(at);
+        const before = side.row;
+        const began = open?.parts[0]!.before;
+        const after = back && began !== undefined ? began : { ...before, a: this.next++ };
+        const took = this.history.record([{ key: at, updates: [{ id: KEY, before: this.startOf(side), after: this.versionOf(after) }] }], "resize", `Nudge ${at}`, "nudge");
+        if (!took) throw new ModelFault(`A nudge in ${at} was not taken`);
+        this.acts++;
+        side.row = after;
+        if (open !== undefined && began !== undefined) {
+            if (FIELDS.every((field: Field) => sameValue(after[field], began[field]))) {
+                // Back where the run began: its step goes.
+                this.steps.pop();
+                this.cursor = this.steps.length;
+                this.runOpen = undefined;
+            } else {
+                const joined: DeskStep = { parts: [{ at, before: began, after }], optimise: false };
+                this.steps[this.cursor - 1] = joined;
+                this.runOpen = joined;
+            }
+        } else {
+            this.steps.splice(this.cursor);
+            const step: DeskStep = { parts: [{ at, before, after }], optimise: false };
+            this.steps.push(step);
+            this.cursor = this.steps.length;
+            this.runOpen = step;
+        }
+        if (this.taken > this.cursor) this.taken = this.cursor;
+        this.left = this.cursor;
     }
 
     private async act(op: ModelOp): Promise<void> {
@@ -320,6 +376,8 @@ export class ModelDesk {
             case "edit": this.gesture([at!], false); break;
             case "optimise": this.gesture([at!], true); break;
             case "both": this.gesture(RECORDS, false); break;
+            case "nudge": this.nudge(at!, false); break;
+            case "nudgeBack": this.nudge(at!, true); break;
             case "undo": {
                 const step = this.steps[--this.cursor]!;
                 this.history.undo();
@@ -337,7 +395,7 @@ export class ModelDesk {
                 this.history.discard();
                 // Every draft dropped: each record's row is the record's.
                 for (const each of RECORDS) this.sides[each].row = this.sides[each].record.now.get(KEY)!;
-                this.steps = []; this.cursor = 0; this.taken = 0; this.left = 0;
+                this.steps = []; this.cursor = 0; this.taken = 0; this.left = 0; this.runOpen = undefined;
                 break;
             case "save":
                 this.sending = "person";
@@ -383,7 +441,10 @@ export class ModelDesk {
         }
     }
 
-    /** One record's drafts discarded, by its banner: its row is the record's, and its parts leave the steps — a step left with none goes. */
+    /**
+     * One record's drafts discarded, by its banner: its row is the record's, and its parts leave the steps — a step
+     * left with none goes. A step it had no part in stands as it was, an open run with it.
+     */
     private discardOne(at: RecordName): void {
         this.history.actOn(at, "discard");
         this.sides[at].row = this.sides[at].record.now.get(KEY)!;
@@ -391,6 +452,7 @@ export class ModelDesk {
         let [cursor, taken, left] = [this.cursor, this.taken, this.left];
         this.steps.forEach((step, i) => {
             const parts = step.parts.filter((part) => part.at !== at);
+            if (parts.length === step.parts.length) { kept.push(step); return; }
             if (parts.length > 0) { kept.push({ parts, optimise: step.optimise }); return; }
             if (i < this.cursor) cursor--;
             if (i < this.taken) taken--;
@@ -398,6 +460,7 @@ export class ModelDesk {
         });
         this.steps = kept;
         [this.cursor, this.taken, this.left] = [cursor, taken, left];
+        if (this.runOpen !== undefined && !this.steps.includes(this.runOpen)) this.runOpen = undefined;
     }
 
     /** A record took its batch: each field it changed is set to what the screen showed as the request was sent. */
