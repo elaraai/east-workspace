@@ -30,7 +30,8 @@ export interface RackProtocolFixture {
   fetch?: typeof fetch;
   /** What the host's hello says it takes beyond the protocol: none unless
    *  given. A host that takes a call's value as an object names
-   *  `call-value-objects`, and its case here runs. */
+   *  `call-value-objects`, and its case here commits one; any other's case
+   *  holds it to staging none, as a call writes nothing to its store. */
   features?: readonly string[];
   /** Mints one unconsumed enrollment credential. */
   mintEnrollmentToken(): Promise<string>;
@@ -189,7 +190,7 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       assert.equal((await f.success(await f.complete(a.rackToken, lease.leaseId, { taskName: 'contract', status: 'success', state: 'success', outputHash: hash }), RackCompleteResponseType)).disposition.type, 'recorded');
       assert.deepEqual(new Uint8Array((await f.readObject(f.repo, hash))!), bytes);
     });
-    void it('takes a call\'s value named by hash only as the output its completion commits, from a host whose hello says it takes one', async (t) => {
+    void it('takes a call\'s value named by hash only as the output its completion commits, from a host whose hello says it takes one, and stages none on any other', async (t) => {
       const f = await fixture(t); const a = await f.enroll();
       const takes = (f.features ?? []).includes(RACK_CALL_VALUE_OBJECTS);
       const program = await f.seedObject(f.repo, encodeBeast2For(StringType)('a program'));
@@ -206,15 +207,20 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       // Named by hash, and never staged: no object the completion commits
       await f.refusal(await completion(undefined), 400, 'invalid-request');
       const storage = { repo: f.repo, leaseId: lease.leaseId, need: [], envManifest: none, outputs: [], commits: [] };
-      const staged = (await f.success(await f.raw('storage', RackStorageRequestType, { ...storage, output: some({ hash, size: BigInt(bytes.length) }) }, a.rackToken),
-        RackStorageResponseType)).output;
-      assert(staged.type === 'some', 'a call\'s lease may stage its whole output');
-      const put = await f.request(staged.value.url, { method: 'PUT', body: bytes }); assert(put.ok); await put.arrayBuffer();
+      const staging = await f.raw('storage', RackStorageRequestType, { ...storage, output: some({ hash, size: BigInt(bytes.length) }) }, a.rackToken);
       if (!takes) {
-        // A host that takes no value as an object refuses one, staged or not
-        await f.refusal(await completion(staged.value.uploadId), 400, 'invalid-request');
+        // A host that takes no value as an object stages none: a call writes
+        // nothing to its store, its staging included. A completion naming one
+        // is refused whatever upload it names, and the lease is still held
+        await f.refusal(staging, 403, 'forbidden');
+        await f.refusal(await completion('an upload this host never issued'), 400, 'invalid-request');
+        assert.equal((await f.dispatch.getLease(f.repo, lease.leaseId))?.status, 'claimed', 'a refused completion ends no lease');
+        assert.equal(await f.readObject(f.repo, hash), null, 'nothing of the value is in the store');
         return;
       }
+      const staged = (await f.success(staging, RackStorageResponseType)).output;
+      assert(staged.type === 'some', 'a call\'s lease stages its whole output');
+      const put = await f.request(staged.value.url, { method: 'PUT', body: bytes }); assert(put.ok); await put.arrayBuffer();
       assert.equal((await f.success(await completion(staged.value.uploadId), RackCompleteResponseType)).disposition.type, 'recorded');
       assert.deepEqual(new Uint8Array((await f.readObject(f.repo, hash))!), bytes, 'the value is the object its completion committed');
     });
