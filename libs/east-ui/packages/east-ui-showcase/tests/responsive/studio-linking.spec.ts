@@ -9,7 +9,10 @@
  * content — a note, revenue by region as columns, the regions as a list, and
  * a developer's KPI rail:
  *
- *  - K1 a visual's menu's Link on the canvas puts the canvas in pick mode: a
+ *  - K1 what the builder does to a selected visual stands on its tile's
+ *    frame, in one row with its Edit, Duplicate and Remove — its menu a
+ *    reader's, Show rows and Export CSV — and its Link on the canvas puts the
+ *    canvas in pick mode: a
  *    banner in the builder frame's banners slot, under its toolbar and inside
  *    the slot, as every builder's banners stand — never over the toolbar —
  *    saying what to do; the visual that can lead outlined dashed `--brand-d` on
@@ -23,7 +26,7 @@
  *    two boxes sharing the row, 32px, an equals sign between — what it shows
  *    with nothing selected, and Stop following, all inside the tab's width;
  *    Stop following takes the link off, tile and block alike.
- *  - K5 a leader's menu's Add a linked visual places a new chart in a row of
+ *  - K5 a leader's frame's Add a linked visual places a new chart in a row of
  *    its own after the leader's row, at the row's start, selected, its
  *    eyebrow saying it follows; one Undo takes it back.
  *
@@ -56,10 +59,16 @@ async function openBuilder(page: Page): Promise<Locator> {
     return entry;
 }
 
-/** Starts linking the columns from their menu. */
+/** Selects a placement's tile, as a pointer does: a press on its eyebrow. */
+async function selectTile(entry: Locator, key: string) {
+    await entry.locator(`[data-snap-grid-tile="${key}"] [data-studio-visual-head]`).click();
+    await expect(entry.locator(`[data-snap-grid-tile="${key}"]`)).toHaveAttribute("data-selected", "");
+}
+
+/** Starts linking the columns from their tile's frame: selected, then its Link on the canvas. */
 async function startLinking(page: Page, entry: Locator) {
-    await entry.locator(`[data-snap-grid-tile="${FOLLOWER}"]`).getByRole("button", { name: "Visual menu" }).click();
-    await page.getByRole("menuitem", { name: "Link on the canvas" }).click();
+    await selectTile(entry, FOLLOWER);
+    await entry.locator(`[data-snap-grid-tile="${FOLLOWER}"]`).getByRole("button", { name: "Link on the canvas" }).click();
     await expect(entry.locator("[data-studio-canvas]")).toHaveAttribute("data-linking", "");
     await settled(page);
 }
@@ -76,9 +85,21 @@ const tiles = (entry: Locator) => entry.locator("[data-snap-grid-tile]").evaluat
 test.describe("Linking two visuals on the Studio's canvas (#1673)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
-    test("K1, K2: Link puts the canvas in pick mode — a banner in the frame's banners slot under its toolbar, the leader outlined dashed on the tint with a pointer's hand, the rest dimmed — and Esc leaves it", async ({ page }) => {
+    test("K1, K2: the builder's actions on a visual stand on its tile's frame, its menu a reader's; Link puts the canvas in pick mode — a banner in the frame's banners slot under its toolbar, the leader outlined dashed on the tint with a pointer's hand, the rest dimmed — and Esc leaves it", async ({ page }) => {
         const entry = await openBuilder(page);
         const paper = await entry.locator(`[data-snap-grid-tile="${LEADER}"]`).evaluate((el) => getComputedStyle(el).backgroundColor);
+        // What the builder does to a visual stands on its tile's frame, in one row with its Edit, Duplicate and Remove; its
+        // menu is a reader's, as on a page (#1673).
+        await selectTile(entry, FOLLOWER);
+        const bar = await entry.locator(`[data-snap-grid-tile="${FOLLOWER}"] [data-snap-grid-tile-bar]`).evaluate((el) => {
+            const buttons = [...el.querySelectorAll("button")];
+            return { names: buttons.map((b) => b.getAttribute("aria-label")), oneRow: new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top))).size === 1 };
+        });
+        expect(bar).toEqual({ names: ["Edit", "Link on the canvas", "Add a linked visual", "Duplicate", "Remove from page"], oneRow: true });
+        await entry.locator(`[data-snap-grid-tile="${FOLLOWER}"]`).getByRole("button", { name: "Visual menu" }).click();
+        await expect(page.getByRole("menuitem")).toHaveText(["Show rows", "Export CSV"]);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menuitem")).toHaveCount(0);
         await startLinking(page, entry);
         const banner = await entry.locator("[data-studio-linking]").evaluate((el) => {
             const box = el.getBoundingClientRect();
@@ -164,8 +185,8 @@ test.describe("Linking two visuals on the Studio's canvas (#1673)", () => {
         const rows = () => entry.locator("[data-snap-grid-rows] [data-snap-grid-row]").evaluateAll((els) => els.map((row) => [...row.querySelectorAll(":scope > [data-snap-grid-tile]")].map((tile) => tile.getAttribute("data-snap-grid-tile"))));
         const before = await rows();
         const at = before.findIndex((row) => row.includes(LEADER));
-        await entry.locator(`[data-snap-grid-tile="${LEADER}"]`).getByRole("button", { name: "Visual menu" }).click();
-        await page.getByRole("menuitem", { name: "Add a linked visual" }).click();
+        await selectTile(entry, LEADER);
+        await entry.locator(`[data-snap-grid-tile="${LEADER}"]`).getByRole("button", { name: "Add a linked visual" }).click();
         await expect.poll(async () => (await rows()).length).toBe(before.length + 1);
         await settled(page);
         const after = await rows();

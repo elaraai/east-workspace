@@ -50,7 +50,7 @@ import { PageClicksProvider } from "./page-clicks.js";
 import { PageFiltersProvider, usePageFiltersOf } from "./page-filters.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
-import { StudioVisualTile, type VisualEdit } from "./visual-tile.js";
+import { StudioVisualTile } from "./visual-tile.js";
 
 /** The renderer's payload, decoded. */
 type StudioPageValue = ValueTypeOf<typeof StudioPageComponent.schema>;
@@ -156,8 +156,8 @@ export interface StudioPlacementProps {
     storageKey: string;
     /** What names it: its own title, which a visual's tile carries over its body (TIL-1); `undefined` for none. */
     title?: string | undefined;
-    /** On the builder's canvas, what a visual's menu's Edit visual and Duplicate do (#1672); omitted on a page. */
-    edit?: VisualEdit | undefined;
+    /** On the builder's canvas, opens a visual's Configure tab — where a field its source lacks is picked again (#1672); omitted on a page. */
+    onEdit?: (() => void) | undefined;
     /** Its key: what a visual's selection is kept under, and what a visual that follows it names (#1673); `undefined` outside a layout. */
     placement?: string | undefined;
     /** While the builder's canvas picks a leader (#1673, LNK-6): whether a visual is the one being linked, or one that can lead. */
@@ -175,7 +175,7 @@ export interface StudioPlacementProps {
  * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
-export function StudioPlacement({ content, listed: byKey, sources, storageKey, title, edit, placement, pick }: StudioPlacementProps) {
+export function StudioPlacement({ content, listed: byKey, sources, storageKey, title, onEdit, placement, pick }: StudioPlacementProps) {
     const m = useStudioMessages();
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
@@ -186,7 +186,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey, t
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} edit={edit} placement={placement} pick={pick} />;
+        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} onEdit={onEdit} placement={placement} pick={pick} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];

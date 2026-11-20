@@ -183,9 +183,9 @@ export interface StudioMessages {
     followAsk: () => string;
     /** Takes the link off. */
     stopFollowing: () => string;
-    /** A leader's menu's item: a new chart on the next row, on its source, already following it (LNK-8). */
+    /** A leader's action on its tile's frame: a new chart on the next row, on its source, already following it (LNK-8). */
     addLinked: () => string;
-    /** Starts linking on the canvas: a visual's menu's item, and the Follows block's button (LNK-6). */
+    /** Starts linking on the canvas: a visual's action on its tile's frame, and the Follows block's button (LNK-6). */
     linkOnCanvas: () => string;
     /** The banner while a leader is picked: what to do, naming the visual being linked. */
     linkPick: (p: { follower: string }) => string;
@@ -281,10 +281,6 @@ export interface StudioMessages {
     showRows: () => string;
     /** The tile menu's item, and the drawer's action, that downloads the rows as CSV. */
     exportCsv: () => string;
-    /** The tile menu's item that places a copy of the visual beside it. */
-    duplicate: () => string;
-    /** The tile menu's item, on the builder's canvas, that opens the visual's Configure tab (#1672). */
-    editVisual: () => string;
     /** The inspector's tab that edits what the selected placement holds (#1672). */
     configure: () => string;
     /** The palette's grouping by who configures a card: the operator, or its developer (#1672). */

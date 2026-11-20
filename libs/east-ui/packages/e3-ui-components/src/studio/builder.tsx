@@ -69,7 +69,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button as ChakraButton, HStack as ChakraHStack, Menu as ChakraMenu, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
+import { faDiagramNext, faEllipsis, faLink } from "@fortawesome/free-solid-svg-icons";
 import {
     ArrayType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -472,35 +472,38 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         setInspectorTab("configure");
         setCollapsed((was) => (was.end ? { ...was, end: false } : was));
     }, []);
-    // A visual's Duplicate: the canvas's copy of it, after it, selected.
-    const duplicatePlacement = useCallback((key: string) => {
-        setUi({ selected: some(key), request: some({ key, change: variant("duplicate", null) }) });
-    }, []);
-
     // A visual's Link: it is selected, and the canvas picks the visual it should follow (LNK-6).
     const startLinking = linking.start;
     const linkPlacement = useCallback((key: string) => {
         setUi({ selected: some(key), request: none });
         startLinking(key);
     }, [startLinking]);
+    // What the builder does to a selected visual stands on its tile's frame beside Edit, Duplicate and Remove — never in the
+    // menu its tile has on a page too (#1673): Link on the canvas, and Add a linked visual where its clicks tell a field,
+    // the one thing a follower can follow.
+    const tileActions = useCallback((key: string) => {
+        const placed = placedOf.current.get(key);
+        if (placed === undefined || placed.content.type !== "visual") return [];
+        const followable = clickFields(placed.content.value.view).length > 0;
+        return [
+            { key: "link", label: m.linkOnCanvas(), icon: faLink, onClick: () => linkPlacement(key) },
+            ...(followable ? [{ key: "add-linked", label: m.addLinked(), icon: faDiagramNext, onClick: () => addLinked(key) }] : []),
+        ];
+    }, [m, linkPlacement, addLinked]);
 
     // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
     const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
         const placed = placedOf.current.get(cell.key);
         if (placed === undefined) return null;
-        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it — and its menu
-        // edits and copies it.
+        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it — and a field its
+        // source lacks is picked again in its Configure tab.
         return (
             <StudioPlacement content={placed.content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`}
                 title={placed.title.type === "some" ? placed.title.value : undefined} placement={cell.key} pick={linking.stateOf(cell.key)}
-                edit={{
-                    onEdit: () => editPlacement(cell.key), onDuplicate: () => duplicatePlacement(cell.key), onLink: () => linkPlacement(cell.key),
-                    // Only a visual whose clicks tell a field can be followed.
-                    onAddLinked: placed.content.type === "visual" && clickFields(placed.content.value.view).length > 0 ? () => addLinked(cell.key) : undefined,
-                }} />
+                onEdit={() => editPlacement(cell.key)} />
         );
-    }, [listedByKey, sourceNames, storageKey, editPlacement, duplicatePlacement, linkPlacement, addLinked, linking]);
+    }, [listedByKey, sourceNames, storageKey, editPlacement, linking]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
@@ -763,6 +766,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                         joined={joined}
                         head={startingRail}
                         banners={linking.surface}
+                        tileActions={tileActions}
                         renderContent={renderContent}
                         onEdit={editPlacement}
                         panes={{

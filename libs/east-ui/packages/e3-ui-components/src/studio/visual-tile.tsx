@@ -7,8 +7,9 @@
  * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
  * — what its body says of itself (`visual/meta.tsx`) — and holds its
  * menu — Show rows, its rows as a value tree in a popover hanging from the
- * menu, and Export CSV (TIL-2), and on the builder's canvas Edit visual and
- * Duplicate (#1672); its
+ * menu, and Export CSV (TIL-2), the same on a page and on the builder's
+ * canvas, whose own actions — Edit, Link, Duplicate — stand on the tile's
+ * frame, never in this menu (#1673); its
  * programs printed, asked on e3, and its state drawn (`visual/states.tsx`) —
  * waiting, on the shared
  * loading clock; a well it needs empty; a field its source lacks; a value
@@ -76,18 +77,6 @@ function flush(visual: Visual): boolean {
     return visual.view.type === "table" || visual.view.type === "list";
 }
 
-/** What a visual's menu does on the builder's canvas (#1672): its Edit visual and its Duplicate. */
-export interface VisualEdit {
-    /** Selects the placement and opens its Configure tab. */
-    onEdit: () => void;
-    /** Places a copy of it after it, selected. */
-    onDuplicate: () => void;
-    /** Starts linking it on the canvas: a click then picks the visual it follows (#1673, LNK-6). */
-    onLink: () => void;
-    /** Places a new chart on the next row, on its source, already following it (#1673, LNK-8); `undefined` for a visual nothing can follow. */
-    onAddLinked: (() => void) | undefined;
-}
-
 /** Props of {@link StudioVisualTile}. */
 export interface StudioVisualTileProps {
     /** The visual, as the placement holds it. */
@@ -98,8 +87,8 @@ export interface StudioVisualTileProps {
     storageKey: string;
     /** Its placement's own title; `undefined` names it by its wells. */
     title?: string | undefined;
-    /** On the builder's canvas, what its menu's Edit visual and Duplicate do; omitted on a page, whose menu has neither. */
-    edit?: VisualEdit | undefined;
+    /** On the builder's canvas, opens its Configure tab: where a field its source lacks is picked again; omitted on a page. */
+    onEdit?: (() => void) | undefined;
     /** Its placement's key: what its selection is kept under, and what a visual that follows it names; `undefined` outside a layout. */
     placement?: string | undefined;
     /** While the canvas picks a leader (#1673, LNK-6): whether it is the visual being linked, or one that can lead. */
@@ -177,10 +166,10 @@ function FollowPrompt({ following, leader, visual }: FollowProps) {
  * view (`Column chart`) — with its meta and its menu at the end; then its
  * state, as its programs print and answer, which says the meta.
  *
- * @param props - The visual, the sources' names, where its parts keep their state, its title, its placement's key, and on the canvas its edits
+ * @param props - The visual, the sources' names, where its parts keep their state, its title, its placement's key, and on the canvas its Configure tab's opening
  * @returns The tile's content
  */
-export function StudioVisualTile({ content, names, storageKey, title, edit, placement, pick }: StudioVisualTileProps) {
+export function StudioVisualTile({ content, names, storageKey, title, onEdit, placement, pick }: StudioVisualTileProps) {
     const m = useStudioMessages();
     const styles = useSlotStyles("studioVisual");
     const east = studioEast();
@@ -225,8 +214,8 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                         </Box>
                     )}
                     {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
-                    {((source !== undefined && read !== undefined) || edit !== undefined) && (
-                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} edit={edit} placement={placement} />
+                    {source !== undefined && read !== undefined && (
+                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} placement={placement} />
                     )}
                 </Box>
             </Box>
@@ -243,7 +232,7 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                             ? (following.kind === "removed" || leader === undefined
                                 ? <PickPrompt state="leader-removed" icon={faLinkSlash} title={m.followGone()} hint={m.followGoneHint()} />
                                 : <FollowPrompt following={following} leader={leader} visual={visual} />)
-                            : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={edit?.onEdit} placement={placement} />}
+                            : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={onEdit} placement={placement} />}
                     </VisualClicksProvider>
                 </TileMetaSlot>
             </Box>
@@ -257,16 +246,14 @@ interface VisualMenuProps {
     visual: Visual;
     /** Its name, as its eyebrow says it: whose rows the popover's head says they are, and the file's. */
     name: string;
-    /** Its source, as the surface lists it; `undefined` while it lists none of its key, which has no rows to show. */
-    source: VisualSource | undefined;
-    /** Its source, as the printer reads it; `undefined` with none. */
-    read: PrintSource | undefined;
+    /** Its source, as the surface lists it. */
+    source: VisualSource;
+    /** Its source, as the printer reads it. */
+    read: PrintSource;
     /** Where its parts keep their state. */
     storageKey: string;
     /** Told why an export failed. */
     onFailed: (message: string | undefined) => void;
-    /** On the builder's canvas, its Edit visual and Duplicate. */
-    edit: VisualEdit | undefined;
     /** Its placement's key: the filter its own click made is no narrowing of its rows; `undefined` outside a layout. */
     placement: string | undefined;
 }
@@ -275,23 +262,24 @@ interface VisualMenuProps {
  * A visual's menu (TIL-2): Show rows — the rows under it, without its
  * grouping, as a value tree in a popover hanging from the menu, read a page
  * at a time, how many there are and Export CSV at its foot — and Export CSV,
- * the same rows, every one, as a file named after it; on the builder's
- * canvas, Edit visual and Duplicate after them (#1672).
+ * the same rows, every one, as a file named after it. It is a reader's, the
+ * same on the builder's canvas: what the builder does to the visual stands on
+ * its tile's frame (#1673).
  *
  * The rows open in a popover, never a drawer: the app's design keeps the
  * Drawer for its rail on a phone.
  */
-function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit, placement }: VisualMenuProps) {
+function VisualMenu({ visual, name, source, read, storageKey, onFailed, placement }: VisualMenuProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
     const f = useFormatters();
     const ask = useVisualAsk(visual.source);
     const state = useTileState(visual, read, placement);
     const [showing, setShowing] = useState(false);
-    const rows = useMemo(() => (source === undefined || read === undefined ? undefined : rowsVisual(visual, source, read)), [visual, source, read]);
+    const rows = useMemo(() => rowsVisual(visual, source, read), [visual, source, read]);
     // Every row, asked once through the page's answers, written as CSV.
     const exportRows = useCallback(async () => {
-        if (rows === undefined || read === undefined) return;
+        if (rows === undefined) return;
         const records = recordsOf(rows);
         const printed = printVisual(rows, read, state, { offset: 0, size: "all" });
         if (records === undefined || printed.kind !== "asks") return;
@@ -311,25 +299,17 @@ function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit, pl
     // How many rows there are, as the open popover's tree learns it.
     const [total, setTotal] = useState<number | undefined>(undefined);
     const csv: ReactNode = <Button size="xs" variant="outline" onClick={() => { void exportRows(); }} data-studio-export="">{m.exportCsv()}</Button>;
+    // A visual with no rows to show has nothing in its menu: it draws none.
+    if (rows === undefined) return null;
     const menu = (
         <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
             if (picked === "rows") setShowing(true);
             else if (picked === "csv") void exportRows();
-            else if (picked === "edit") edit?.onEdit();
-            else if (picked === "duplicate") edit?.onDuplicate();
-            else if (picked === "link") edit?.onLink();
-            else if (picked === "add-linked") edit?.onAddLinked?.();
         }}>
-            {rows !== undefined && <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>}
-            {rows !== undefined && <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>}
-            {edit !== undefined && rows !== undefined && <ChakraMenu.Separator />}
-            {edit !== undefined && <ChakraMenu.Item value="edit">{m.editVisual()}</ChakraMenu.Item>}
-            {edit !== undefined && <ChakraMenu.Item value="duplicate">{m.duplicate()}</ChakraMenu.Item>}
-            {edit !== undefined && <ChakraMenu.Item value="link">{m.linkOnCanvas()}</ChakraMenu.Item>}
-            {edit?.onAddLinked !== undefined && <ChakraMenu.Item value="add-linked">{m.addLinked()}</ChakraMenu.Item>}
+            <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>
+            <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>
         </ChipMenu>
     );
-    if (rows === undefined || source === undefined || read === undefined) return menu;
     return (
         <SliceEditPopover open={showing} onOpenChange={setShowing} label={m.rowsOf({ name })} size="lg" flush anchor={menu}
             footLeft={total === undefined ? undefined : <VisualNote>{m.rowsCount({ n: total, count: f.number(total) })}</VisualNote>}
