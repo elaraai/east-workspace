@@ -35,10 +35,10 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEllipsis, faHandPointer, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
+import { faCalendar, faDatabase, faEllipsis, faHandPointer, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
 import type { ValueTypeOf } from "@elaraai/east";
 import { kindEditor, type StudioCellType, type StudioContentType } from "@elaraai/e3-ui/internal";
-import { BannerView, ChipMenu, EmptyStateView, SliceEditPopover, downloadFile, useFormatters } from "@elaraai/east-ui-components";
+import { BannerView, ChipMenu, SliceEditPopover, downloadFile, useFormatters } from "@elaraai/east-ui-components";
 import { useLoadingReveal, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { resultFileName } from "../query/results.js";
 import { useVisualAnswers, useVisualAsk, useVisualSource } from "../query/visual/answers.js";
@@ -61,7 +61,7 @@ import { TileMeta, TileMetaSlot } from "./visual/meta.js";
 import { SourceFailed, VisualNote, problemOf } from "./visual/notes.js";
 import { PivotVisual } from "./visual/pivot.js";
 import { RowsTree } from "./visual/rows.js";
-import { FieldMissing, NoRows, PickPrompt, VisualLoading, WellsEmpty } from "./visual/states.js";
+import { FieldMissing, NoRows, TileMessage, VisualLoading, WellsEmpty } from "./visual/states.js";
 import { SummaryVisual } from "./visual/summary.js";
 import { fieldLabel, midSentence, pickLabel, visualName, type VisualSource } from "./visual/values.js";
 
@@ -157,7 +157,7 @@ function FollowPrompt({ following, leader, visual }: FollowProps) {
     const source = useVisualSource(leader.source);
     const from = visual.follow.type === "some" ? visual.follow.value.from : "";
     const field = midSentence(source === undefined ? from : fieldLabel(source, from));
-    return <PickPrompt state="prompt" icon={faHandPointer} title={m.followPrompt({ field, leader: name })} hint={m.followPromptHint({ field, view: visual.view.type })} />;
+    return <TileMessage state="prompt" icon={faHandPointer} title={m.followPrompt({ field, leader: name })} hint={m.followPromptHint({ field, view: visual.view.type })} />;
 }
 
 /**
@@ -230,7 +230,7 @@ export function StudioVisualTile({ content, names, storageKey, title, onEdit, pl
                             it follows, and nothing more. */}
                         {following !== undefined && following.kind !== "selected" && visual.follow.type === "some" && visual.follow.value.empty.type === "prompt"
                             ? (following.kind === "removed" || leader === undefined
-                                ? <PickPrompt state="leader-removed" icon={faLinkSlash} title={m.followGone()} hint={m.followGoneHint()} />
+                                ? <TileMessage state="leader-removed" icon={faLinkSlash} title={m.followGone()} hint={m.followGoneHint()} />
                                 : <FollowPrompt following={following} leader={leader} visual={visual} />)
                             : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={onEdit} placement={placement} />}
                     </VisualClicksProvider>
@@ -351,7 +351,7 @@ function VisualBody({ visual, source, read, sourceName, storageKey, onPick, plac
     // Until a visual draws, its meta is its source's name — but for a missing field, which it says.
     const named = <TileMeta>{sourceName}</TileMeta>;
     if (printed === undefined || source === undefined || read === undefined) {
-        return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "database" }} title={m.noSource({ key: visual.source })} description={m.noSourceHint()} /></>;
+        return <>{named}<TileMessage state="no-source" icon={faDatabase} title={m.noSource({ key: visual.source })} hint={m.noSourceHint()} /></>;
     }
     switch (printed.kind) {
         case "empty": {
@@ -366,9 +366,9 @@ function VisualBody({ visual, source, read, sourceName, storageKey, onPick, plac
         case "missing":
             return <><TileMeta>{m.metaNeedsField()}</TileMeta><FieldMissing source={sourceName} fields={printed.fields} onPick={onPick} /></>;
         case "range":
-            return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.noRange({ source: sourceName })} description={m.noRangeHint()} /></>;
+            return <>{named}<TileMessage state="no-range" icon={faCalendar} title={m.noRange({ source: sourceName })} hint={m.noRangeHint()} /></>;
         case "window":
-            return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.needsWindow({ source: sourceName })} description={m.needsWindowHint()} /></>;
+            return <>{named}<TileMessage state="no-window" icon={faCalendar} title={m.needsWindow({ source: sourceName })} hint={m.needsWindowHint()} /></>;
         case "asks":
             return <AskedVisual asks={printed.asks} visual={visual} listed={source} read={read} sourceName={sourceName} icon={icon} storageKey={storageKey} placement={placement} />;
     }
@@ -422,10 +422,7 @@ function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey,
                 default:
                     break;
             }
-            return (
-                <EmptyStateView icon={{ prefix: "fas", name: icon }}
-                    title={m.answerGroups({ n: read_.groups, groups: words.number(read_.groups), nr: read_.n, rows: words.number(read_.n) })} />
-            );
+            return <TileMessage state="answered" icon={icon} title={m.answerGroups({ n: read_.groups, groups: words.number(read_.groups), nr: read_.n, rows: words.number(read_.n) })} />;
         }
     }
 }

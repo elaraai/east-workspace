@@ -4,18 +4,22 @@
  */
 
 /**
- * A visual's states, as its tile draws them (#1671, TIL-3): the wells it
- * needs — its view's icon, "Add fields to draw it", and a checklist, a check
- * for what is chosen and a dot for what is missing; no rows — `no data` where
- * its value would be, and on the annotation line what emptied it, or that its
- * source has none; a follower that asks for a pick — what to pick, in which
- * visual, and what it then shows (#1673, LNK-5); a field its source
- * does not have — its name, as code, and the link that opens its fields; and,
- * while its answer is awaited, Skeleton blocks in its own shape.
+ * A visual's states, as its tile draws them (#1671, TIL-3). Its messages,
+ * each one look and centred in its body at whatever height the tile stands
+ * ({@link TileMessage}): the wells it needs — its view's icon, "Add fields to
+ * draw it", and a checklist, a check for what is chosen and a dot for what is
+ * missing; a follower that asks for a pick — what to pick, in which visual,
+ * and what it then shows (#1673, LNK-5); a field its source does not have —
+ * its name, as code, and the link that opens its fields; a source or a date
+ * range it cannot read. And what stands where its drawing would: no rows —
+ * `no data` where its value would be, and on the annotation line what emptied
+ * it, or that its source has none; and, while its answer is awaited, Skeleton
+ * blocks in its own shape.
  *
  * @packageDocumentation
  */
 
+import type { ReactNode } from "react";
 import { Box, Skeleton } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircle, faCircleCheck, faCircleExclamation, type IconDefinition, type IconName } from "@fortawesome/free-solid-svg-icons";
@@ -25,6 +29,45 @@ import type { PrintSource, PrintState } from "../../query/visual/print.js";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
 import { midSentence, type Visual, type VisualView } from "./values.js";
+
+/** Props of {@link TileMessage}. */
+export interface TileMessageProps {
+    /** Which state it says: what a tile's tests and the showcase's specs find it by (`data-studio-visual`). */
+    readonly state: string;
+    /** Its icon: Font Awesome's, solid — or its name. */
+    readonly icon: IconDefinition | string;
+    /** What it says. */
+    readonly title: string;
+    /** What it adds under its title, in the quiet ink; nothing unless given. */
+    readonly hint?: string | undefined;
+    /** What it holds under its title in place of a hint — the wells' checklist — drawn in the larger of its two forms. */
+    readonly children?: ReactNode;
+}
+
+/**
+ * A visual's message in place of its drawing (TIL-3): its icon, what it says,
+ * and a hint — or a checklist — under it, centred in its tile's body at
+ * whatever height the tile stands (the `studioVisual` recipe's `message`).
+ * Every message a visual's tile says is drawn by it, in one look: the spec's
+ * smaller form, a follower's prompt's, for words alone; its larger, the
+ * wells', with a checklist.
+ *
+ * @param props - Which state, its icon, its words, and what it holds
+ * @returns The message
+ */
+export function TileMessage({ state, icon, title, hint, children }: TileMessageProps) {
+    const styles = useSlotStyles("studioVisual");
+    return (
+        <Box css={styles.message} data-studio-visual={state}>
+            <Box css={styles.empty} data-prompt={children === undefined ? "" : undefined}>
+                <Box as="span" css={styles.emptyIcon} aria-hidden><FontAwesomeIcon icon={typeof icon === "string" ? ["fas", icon as IconName] : icon} /></Box>
+                <Box as="h4" css={styles.emptyTitle}>{title}</Box>
+                {hint !== undefined && <Box as="span" css={styles.emptyHint} data-studio-visual-hint="">{hint}</Box>}
+                {children}
+            </Box>
+        </Box>
+    );
+}
 
 /** Props of {@link WellsEmpty}. */
 export interface WellsEmptyProps {
@@ -45,57 +88,20 @@ export function WellsEmpty({ icon, needed }: WellsEmptyProps) {
     const m = useStudioMessages();
     const styles = useSlotStyles("studioVisual");
     return (
-        <Box css={styles.state} data-studio-visual="empty">
-            <Box css={styles.empty}>
-                <Box as="span" css={styles.emptyIcon} aria-hidden><FontAwesomeIcon icon={["fas", icon as IconName]} /></Box>
-                <Box as="h4" css={styles.emptyTitle}>{m.wellsEmpty()}</Box>
-                <Box as="ul" css={styles.checks}>
-                    <Box as="li" css={styles.check} data-done="">
-                        <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircleCheck} /></Box>
-                        {m.sourcePicked()}
-                    </Box>
-                    {needed.map((well) => (
-                        <Box as="li" key={well} css={styles.check}>
-                            <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircle} /></Box>
-                            {well}
-                        </Box>
-                    ))}
+        <TileMessage state="empty" icon={icon} title={m.wellsEmpty()}>
+            <Box as="ul" css={styles.checks}>
+                <Box as="li" css={styles.check} data-done="">
+                    <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircleCheck} /></Box>
+                    {m.sourcePicked()}
                 </Box>
+                {needed.map((well) => (
+                    <Box as="li" key={well} css={styles.check}>
+                        <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircle} /></Box>
+                        {well}
+                    </Box>
+                ))}
             </Box>
-        </Box>
-    );
-}
-
-/** Props of {@link PickPrompt}. */
-export interface PickPromptProps {
-    /** Which: a pick asked for on its leader, or a leader no longer on the page. */
-    readonly state: "prompt" | "leader-removed";
-    /** Its icon: Font Awesome's, solid. */
-    readonly icon: IconDefinition;
-    /** What to do — `Pick a customer in Customers`. */
-    readonly title: string;
-    /** What the visual then shows — `This chart shows the customer you select.` */
-    readonly hint: string;
-}
-
-/**
- * A follower that asks for a pick (LNK-5): with nothing selected on its
- * leader, what to pick and in which visual, or that its leader is gone — over
- * what it then shows, under its icon.
- *
- * @param props - Which, its icon, and its words
- * @returns The state
- */
-export function PickPrompt({ state, icon, title, hint }: PickPromptProps) {
-    const styles = useSlotStyles("studioVisual");
-    return (
-        <Box css={styles.state} data-studio-visual={state}>
-            <Box css={styles.empty} data-prompt="">
-                <Box as="span" css={styles.emptyIcon} aria-hidden><FontAwesomeIcon icon={icon} /></Box>
-                <Box as="h4" css={styles.emptyTitle}>{title}</Box>
-                <Box as="span" css={styles.emptyHint} data-studio-visual-hint="">{hint}</Box>
-            </Box>
-        </Box>
+        </TileMessage>
     );
 }
 
@@ -158,7 +164,7 @@ export function FieldMissing({ source, fields, onPick }: FieldMissingProps) {
     const m = useStudioMessages();
     const styles = useSlotStyles("studioVisual");
     return (
-        <Box css={styles.state} data-studio-visual="missing">
+        <Box css={styles.message} data-studio-visual="missing">
             <Box css={styles.missing}>
                 <Box css={styles.missingLine}>
                     <Box as="span" css={styles.missingIcon} aria-hidden><FontAwesomeIcon icon={faCircleExclamation} /></Box>
