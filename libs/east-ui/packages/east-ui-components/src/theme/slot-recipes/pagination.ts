@@ -14,11 +14,32 @@
  * container would place the pagination — a flex container's own
  * justification (the configurator's stage centres it), the start otherwise.
  *
+ * A pagination that declares a size draws the design system's
+ * (`parts-pagination`): its page chips, its runs of pages left out and its
+ * triggers each the size's height — 24 at `sm`, 32 at `md`, 40 at `lg` — the
+ * runs and the triggers a square of it. One that declares none keeps the look
+ * of the base styles.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+
+/** A previous or next trigger at a size: a square of its height, its chevron in its middle. */
+function trigger(side: number, icon: string) {
+    return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: `${side}px`, height: `${side}px`, padding: "0", fontSize: icon };
+}
+
+/** A size's page chips, its runs of pages left out and its triggers: each its height, a chip at least a square of it. */
+function sized(side: number, paddingX: string, text: string, icon: string) {
+    return {
+        item: { minWidth: `${side}px`, height: `${side}px`, paddingX, fontSize: text },
+        ellipsis: { minWidth: `${side}px`, height: `${side}px` },
+        prevTrigger: trigger(side, icon),
+        nextTrigger: trigger(side, icon),
+    };
+}
 
 export const paginationSlotRecipe = defineSlotRecipe({
     className: "elara-pagination",
@@ -63,5 +84,13 @@ export const paginationSlotRecipe = defineSlotRecipe({
         },
         prevTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", ...coarseHitArea({ position: true }), _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
         nextTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", ...coarseHitArea({ position: true }), _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
+    },
+    variants: {
+        /* The size a pagination declares: the design system's three. */
+        size: {
+            sm: sized(24, "6px", "11px", "12px"),
+            md: sized(32, "{spacing.2}", "12px", "14px"),
+            lg: sized(40, "{spacing.3}", "13px", "16px"),
+        },
     },
 });

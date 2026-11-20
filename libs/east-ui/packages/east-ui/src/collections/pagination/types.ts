@@ -48,11 +48,13 @@ export type PaginationVariantLiteral = "outline" | "subtle";
  * East VariantType for the Pagination size preset.
  *
  * @remarks
- * Controls the size of page-number triggers and prev/next buttons.
+ * Controls the size of the page-number triggers, the runs of pages left out
+ * and the prev/next buttons: the design system's three, each part that tall.
+ * A pagination that declares none draws its renderer's base look.
  *
- * @property sm - Small (28px tall triggers)
- * @property md - Medium (36px tall triggers — default)
- * @property lg - Large (44px tall triggers)
+ * @property sm - Small: 24px tall
+ * @property md - Medium: 32px tall
+ * @property lg - Large: 40px tall
  */
 export const PaginationSizeType = VariantType({
     sm: NullType,
@@ -168,7 +170,7 @@ export interface PaginationOptions {
     count: SubtypeExprOrValue<IntegerType>;
     /** Callback fired with the new 0-based page index — required. */
     onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
-    /** Size preset. Default `"md"`. */
+    /** Size preset — 24, 32 or 40px tall ({@link PaginationSizeType}); none draws the renderer's base look. */
     size?: SubtypeExprOrValue<PaginationSizeType> | PaginationSizeLiteral;
     /** Visual variant. Default `"subtle"`. */
     variant?: SubtypeExprOrValue<PaginationVariantType> | PaginationVariantLiteral;

@@ -28,6 +28,9 @@ export interface EastChakraPaginationProps {
     storageKey: string;
 }
 
+/** The icon button's size a run of left-out pages is drawn at, for each size a pagination declares: a square of its height. */
+const RUN_SIZE = { sm: "2xs", md: "md", lg: "lg" } as const;
+
 /**
  * Renders an East UI Pagination value using Chakra v3's `Pagination`
  * compound, styled through the `pagination` slot recipe.
@@ -47,6 +50,12 @@ export interface EastChakraPaginationProps {
  * draws it, holding Font Awesome's ellipsis (#1263) at the size Chakra's icon
  * took there (the `iconButtonMark` recipe).
  *
+ * The size the pagination declares is the design system's — 24, 32 or 40
+ * tall at `sm`, `md` and `lg` — its page chips, its triggers and its runs of
+ * pages left out each that height (the `pagination` recipe's `size`, and the
+ * icon button's square of it). One that declares none draws the recipe's
+ * base look.
+ *
  * Below 360px of room the page strip is a `page / total` readout (#351). The
  * room is the root's width, which the `pagination` recipe makes as wide as
  * the container leaves it whatever the pagination draws (#1268).
@@ -59,6 +68,7 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     const activeBackground = style ? getSomeorUndefined(style.activeBackground) : undefined;
     const activeColor = style ? getSomeorUndefined(style.activeColor) : undefined;
     const siblings = style ? getSomeorUndefined(style.siblings) : undefined;
+    const size = style ? getSomeorUndefined(style.size)?.type : undefined;
 
     const onPageChangeFn = value.onPageChange;
 
@@ -71,8 +81,9 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     }, [onPageChangeFn]);
 
     const recipe = useSlotRecipe({ key: "pagination" });
-    const styles = recipe();
-    const ellipsisMark = useRecipe({ key: "iconButtonMark" })({ size: "md" });
+    const styles = recipe(size === undefined ? {} : { size });
+    const runSize = size === undefined ? undefined : RUN_SIZE[size];
+    const ellipsisMark = useRecipe({ key: "iconButtonMark" })({ size: runSize ?? "md" });
 
     // Compact containers (#351): the page-number strip collapses to a
     // "page / total" readout between prev/next. The width read is the
@@ -108,6 +119,8 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     return (
         <ChakraPagination.Root
             ref={rootRef}
+            // The recipe's size for every part the Root's context styles — its chips and its runs of pages left out too.
+            size={size}
             count={count}
             pageSize={pageSize}
             page={irPage + 1}
@@ -130,7 +143,7 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
                         render={(page) => (
                             <Box as="button" aria-label={`Page ${page.value}`} css={itemCss}>{page.value}</Box>
                         )}
-                        ellipsis={<IconButton as="span" css={ellipsisMark}><FontAwesomeIcon icon={faEllipsis} /></IconButton>}
+                        ellipsis={<IconButton as="span" size={runSize} css={ellipsisMark}><FontAwesomeIcon icon={faEllipsis} /></IconButton>}
                     />
                 )}
 
