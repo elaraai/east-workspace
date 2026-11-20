@@ -15,9 +15,10 @@
  * hears the rows it draws. With `applies`, a screen asks it for an Apply
  * through the bound `apply` ({@link EditingSnapGrid.hostAsksApply}, #998).
  * With `joined` or `head`, a host's own sessions join the canvas's history and
- * its band stands over the grid (#1673), and with `banners` the host says what
- * it says in the frame's banners slot: the canvas is mounted as a host
- * renderer mounts it ({@link SnapGridEditor}), its value the same.
+ * its band stands over the grid (#1673), with `banners` the host says what it
+ * says in the frame's banners slot, and with `tileActions` it adds its own to
+ * the selected tile's frame: the canvas is mounted as a host renderer mounts
+ * it ({@link SnapGridEditor}), its value the same.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
  * kept, every apply request's bytes kept, and the real callback answers. Each
@@ -39,7 +40,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
-import { SnapGridEditor } from "./editor.js";
+import { SnapGridEditor, type SnapGridTileAction } from "./editor.js";
 import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
 import type { SnapGridJoined } from "./use-snap-grid-editing.js";
 
@@ -135,9 +136,12 @@ export interface CanvasOptions {
     head?: ReactNode | undefined;
     /** What the host says in the frame's banners slot (#1673); nothing by default. */
     banners?: ReactNode | undefined;
+    /** What the host does to the selected tile on its frame (#1673); nothing by default. */
+    tileActions?: ((key: string) => readonly SnapGridTileAction[]) | undefined;
 }
 
-type Resolved = Required<Omit<CanvasOptions, "joined" | "head" | "banners">> & Pick<CanvasOptions, "joined" | "head" | "banners">;
+type Hosted = "joined" | "head" | "banners" | "tileActions";
+type Resolved = Required<Omit<CanvasOptions, Hosted>> & Pick<CanvasOptions, Hosted>;
 
 /** The canvas's program — the factory's, compiled. */
 function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
@@ -306,9 +310,9 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             <DragLayerProvider>
                 <Card card="orders" />
                 <Card card={BLOCKED} />
-                {o.joined === undefined && o.head === undefined && o.banners === undefined
+                {o.joined === undefined && o.head === undefined && o.banners === undefined && o.tileActions === undefined
                     ? <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
-                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} banners={o.banners} />}
+                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} banners={o.banners} tileActions={o.tileActions} />}
             </DragLayerProvider>
         </ChakraProvider>
     );

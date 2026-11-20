@@ -30,7 +30,7 @@ import { slotActions } from "../query/slots.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import {
     components, PAGES, h, ASKED, withEntry, readRecord, commits, tile, palette, cardOf, inspector, openTabName, openTab, groupHeads, spanOf,
-    rowsDrawn, textIn, placed, select, press, pickFromMenu, dragOnto, dropCard, type Key, type Entry,
+    rowsDrawn, textIn, placed, select, press, dragOnto, dropCard, type Key, type Entry,
 } from "./builder.test-utils.js";
 
 describe("<Studio.Builder> — the Configure tab (#1672)", () => {
@@ -135,7 +135,7 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         ]);
     });
 
-    test("EDT-1: a visual or a text block selected opens the Configure tab, a component leaves the tab as it is; the canvas's Edit and a visual's Edit visual open Configure, the pane expanded", async () => {
+    test("EDT-1: a visual or a text block selected opens the Configure tab, a component leaves the tab as it is; the canvas's Edit opens Configure, the pane expanded — a visual's on its frame, its menu a reader's (#1673)", async () => {
         const { container } = await mountBoard();
         await select(container, "b-sales");
         expect(openTabName(container)).toBe("Configure");
@@ -153,17 +153,26 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         expect(screen.getByRole("button", { name: "Collapse Inspector" })).toBeTruthy();
         expect(openTabName(container)).toBe("Configure");
 
-        // A visual's menu's Edit visual: the visual selected, on Configure.
+        // A visual's menu is a reader's — Show rows and Export CSV, as on a page — and what the builder does to it stands on its
+        // tile's frame: Edit first, then Link on the canvas, then Duplicate and Remove (#1673).
         await openTab(container, "Layout");
-        await pickFromMenu(visualMenu(container, "b-sales"), "Edit visual");
+        await act(async () => { visualMenu(container, "b-sales").focus(); fireEvent.keyDown(visualMenu(container, "b-sales"), { key: "ArrowDown" }); });
+        expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Show rows", "Export CSV"]);
+        await act(async () => { fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }); });
+        await select(container, "b-sales");
+        const bar = [...tile(container, "b-sales").querySelectorAll("[data-snap-grid-tile-bar] button")].map((b) => b.getAttribute("aria-label"));
+        expect([bar[0], bar.includes("Link on the canvas"), bar.slice(-2)]).toEqual(["Edit", true, ["Duplicate", "Remove from page"]]);
+        await openTab(container, "Layout");
+        await act(async () => { fireEvent.click(within(tile(container, "b-sales")).getByRole("button", { name: "Edit" })); });
         await settle();
         expect(tile(container, "b-sales").hasAttribute("data-selected")).toBe(true);
         expect(openTabName(container)).toBe("Configure");
     });
 
-    test("a visual's menu's Duplicate is the canvas's copy: after it — in a row of its own, its row being full — selected, one gesture Undo takes back", async () => {
+    test("a visual's frame's Duplicate is the canvas's copy: after it — in a row of its own, its row being full — selected, one gesture Undo takes back", async () => {
         const { container } = await mountBoard();
-        await pickFromMenu(visualMenu(container, "b-sales"), "Duplicate");
+        await select(container, "b-sales");
+        await act(async () => { fireEvent.click(within(tile(container, "b-sales")).getByRole("button", { name: "Duplicate" })); });
         await settle();
         expect(rowsDrawn(container)).toEqual([["b-note"], ["b-sales", "b-kpi"], ["b-sales-1"]]);
         expect(tile(container, "b-sales-1").hasAttribute("data-selected")).toBe(true);

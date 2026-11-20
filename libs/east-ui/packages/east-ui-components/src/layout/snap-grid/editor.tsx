@@ -80,7 +80,7 @@ import {
 } from "react";
 import { Box, chakra, Menu as ChakraMenu, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
+import { library, type IconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faCaretDown, faCheck, faClone, faEye, faMinus, faPen, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
@@ -273,6 +273,8 @@ interface TileProps {
     onDuplicate: (key: string) => void;
     /** The host's edit of what it shows (#1672); `undefined` draws no Edit. */
     onEdit: ((key: string) => void) | undefined;
+    /** What the host does to it beside Edit, Duplicate and Remove while it is selected (#1673); none unless given. */
+    actions: readonly SnapGridTileAction[] | undefined;
     register: (key: string, el: HTMLElement | null) => void;
     /** Draws the tile's content, when the host does — else its East content. */
     renderContent: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
@@ -353,6 +355,18 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
                                 <FontAwesomeIcon icon={faPen} />
                             </chakra.button>
                         )}
+                        {p.actions?.map((action) => (
+                            <chakra.button key={action.key} type="button" css={styles.tileAction} aria-label={action.label} title={action.label} data-snap-grid-action={action.key}
+                                onClick={(e: ReactMouseEvent<HTMLButtonElement>) => {
+                                    e.stopPropagation();
+                                    // The focus back on its tile, as a menu hands it back to its trigger: the keys a mode the action
+                                    // starts hears — Esc, say — reach the canvas and the page, never this bar, which keeps them from both.
+                                    e.currentTarget.closest<HTMLElement>("[data-snap-grid-tile]")?.focus({ preventScroll: true });
+                                    action.onClick();
+                                }}>
+                                <FontAwesomeIcon icon={action.icon} />
+                            </chakra.button>
+                        ))}
                         <chakra.button type="button" css={styles.tileAction} aria-label={m.duplicate()} title={m.duplicate()} data-snap-grid-duplicate=""
                             onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onDuplicate(key); }}>
                             <FontAwesomeIcon icon={faClone} />
@@ -493,6 +507,26 @@ const SnapGridGapCell = memo(function SnapGridGapCell(p: GapProps) {
 // The canvas
 // ============================================================================
 
+/**
+ * What a host does to the selected tile, on its frame beside Edit, Duplicate
+ * and Remove (#1673): an icon button, its label its name and its title.
+ *
+ * @property key - Its own key among the tile's actions, which marks its button (`data-snap-grid-action`)
+ * @property label - Its name
+ * @property icon - Its Font Awesome solid icon
+ * @property onClick - What it does
+ */
+export interface SnapGridTileAction {
+    /** Its own key among the tile's actions, which marks its button (`data-snap-grid-action`). */
+    readonly key: string;
+    /** Its name: the button's label and title. */
+    readonly label: string;
+    /** Its Font Awesome solid icon. */
+    readonly icon: IconDefinition;
+    /** What it does. */
+    readonly onClick: () => void;
+}
+
 /** Props of {@link SnapGridEditor}. */
 export interface SnapGridEditorProps {
     /** The canvas's value, its `editing` declared — a SnapGrid's, or one a host renderer builds. */
@@ -541,6 +575,12 @@ export interface SnapGridEditorProps {
      * sessions' banners; on a phone, in the footer with them.
      */
     banners?: ReactNode | undefined;
+    /**
+     * What the host does to the selected tile, by its key: on the tile's frame
+     * beside Edit, Duplicate and Remove — a builder's actions there, never in a
+     * menu of what the tile shows (#1673). Omitted, the tile draws its own.
+     */
+    tileActions?: ((key: string) => readonly SnapGridTileAction[]) | undefined;
 }
 
 /**
@@ -550,7 +590,7 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined, banners: hostBanners }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined, banners: hostBanners, tileActions }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
@@ -1312,6 +1352,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     onRemove={onRemove}
                                                     onDuplicate={onDuplicate}
                                                     onEdit={onEdit}
+                                                    actions={tile.key === selected ? tileActions?.(tile.key) : undefined}
                                                     register={register}
                                                     renderContent={renderContent}
                                                 />

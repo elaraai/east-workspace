@@ -17,6 +17,7 @@
 
 import { describe, test, expect, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { faLink } from "@fortawesome/free-solid-svg-icons";
 import { IntegerType, StringType, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { resetKept } from "../../platform/kept.js";
@@ -264,6 +265,26 @@ describe("what a tile shows, and its copies (#1672)", () => {
         expect(faIcons(tile.querySelector<HTMLElement>("[data-snap-grid-duplicate]")!, "clone")).toHaveLength(1);
         // The others wear neither.
         expect(tileEl(c, "trend").querySelector("[data-snap-grid-badge], [data-snap-grid-tile-bar]")).toBeNull();
+    }, 30_000);
+
+    test("a host's own actions stand on the selected tile's frame before its Duplicate and Remove, each an icon button its name labels; a press does what it says, the tile still selected and its focus back on it (#1673)", async () => {
+        const pressed: string[] = [];
+        const canvas = await mountSnapGrid({ tileActions: (key) => [{ key: "link", label: "Link", icon: faLink, onClick: () => { pressed.push(`link:${key}`); } }] });
+        const c = canvas.container;
+        await clickTile(c, "region");
+        const tile = tileEl(c, "region");
+        expect([...tile.querySelectorAll("[data-snap-grid-tile-bar] button")].map((b) => [b.getAttribute("aria-label"), b.getAttribute("title")]))
+            .toEqual([["Link", "Link"], ["Duplicate", "Duplicate"], ["Remove from page", "Remove from page"]]);
+        expect(faIcons(tile.querySelector<HTMLElement>("[data-snap-grid-action=link]")!, "link")).toHaveLength(1);
+        const button = tile.querySelector<HTMLElement>("[data-snap-grid-action=link]")!;
+        button.focus();
+        await act(async () => { fireEvent.click(button); });
+        expect([pressed, selectedTile(c)]).toEqual([["link:region"], "region"]);
+        // The focus back on its tile, as a menu hands it back to its trigger: the keys a mode the action starts hears — Esc,
+        // say — reach the canvas and the page, never the bar, which keeps them from both.
+        expect(document.activeElement).toBe(tile);
+        // A tile not selected wears none.
+        expect(tileEl(c, "trend").querySelector("[data-snap-grid-action]")).toBeNull();
     }, 30_000);
 });
 
