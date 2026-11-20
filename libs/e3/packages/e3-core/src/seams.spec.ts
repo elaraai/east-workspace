@@ -50,16 +50,16 @@ function within(file: string, places: readonly string[]): boolean {
 
 /**
  * The local backend and the local runner, which are local by what they are:
- * the modules that run a unit as a process on this machine and judge its
- * processes here. The rest of `execution/` — the engine and its drivers, the
- * planners, the runner interface — is shared, and every backend's driver runs
- * it.
+ * the modules that run a unit as a process on this machine, build the
+ * environment it runs in here, and judge its processes here. The rest of
+ * `execution/` — the engine and its drivers, the planners, the runner
+ * interface — is shared, and every backend's driver runs it.
  */
 const LOCAL = [
   'storage/local/',
   'execution/LocalTaskRunner.ts', 'execution/processExec.ts', 'execution/processHelpers.ts', 'execution/runDetached.ts',
   'execution/intake.ts', 'execution/units.ts', 'execution/environment.ts', 'execution/environment-build.ts', 'execution/environment-install.ts',
-  'execution/environment-target.ts', 'execution/scratch.ts', 'execution/budget.ts',
+  'execution/environment-target.ts', 'execution/environment-node-tier.ts', 'execution/scratch.ts', 'execution/budget.ts',
   'execution/cgroups.ts', 'execution/memory.ts', 'execution/segment-fetch.ts', 'execution/local-orchestrator.ts',
 ];
 

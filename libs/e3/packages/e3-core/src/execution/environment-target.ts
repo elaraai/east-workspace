@@ -7,7 +7,8 @@
  * Installing an environment for a platform that is not this machine's, and
  * over the tier a rack runs it over: the platforms environments are
  * installed for, what a build for one may not hold, the interpreter it
- * carries, and what it leaves to the tier (#1655).
+ * carries, and what a python environment leaves to the tier (#1655); a node
+ * environment's is `environment-node-tier.ts`'s.
  *
  * @packageDocumentation
  */
@@ -19,7 +20,7 @@ import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
 import { canonicalPythonName } from '@elaraai/e3';
 import {
-  pythonMinor, readDistributionMetadata, recordedSiteFiles, tierImports, type InstalledDistribution, type TierManifest,
+  pythonMinor, readDistributionMetadata, recordedSiteFiles, tierImports, type InstalledDistribution, type PythonTier, type TierManifest,
 } from '../tier-manifest.js';
 import { TIER_GATE_MODULE, TIER_GATE_PATH_FILE, tierGateModule } from '../tier-gate.js';
 import type { ProcessSettings } from './processExec.js';
@@ -40,8 +41,9 @@ export interface EnvironmentTarget {
   /**
    * The tier the environment is built over, by what its image holds: the
    * rack then composes it over that tier. For an environment that fits it
-   * alone (`environmentFitsTier`). Absent, it is built whole, with an
-   * interpreter of its own.
+   * alone (`environmentFitsTier`): a python environment is built over the
+   * tier's Python, and a node one over its Node. Absent, it is built whole, a
+   * python one with an interpreter of its own.
    */
   readonly over?: TierManifest;
 }
@@ -88,8 +90,10 @@ export interface TargetEnvironment {
    *  {@link dir} with `/` between segments, sorted: what changes when the
    *  project's code does. Everything else is what its lock names. */
   readonly project: readonly string[];
-  /** How many distributions were left to the tier it was built over, which
-   *  holds them the same; `null` for an environment built whole. */
+  /** How many packages were left to the tier it was built over: for a python
+   *  environment, the distributions the tier holds the same; for a node one,
+   *  East's packages the tier holds, and each package only they need.
+   *  `null` for an environment built whole. */
   readonly fromTier: number | null;
 }
 
@@ -401,12 +405,13 @@ async function removeEmptyDirectories(dir: string): Promise<boolean> {
  *   (`composeEnvironmentOverTier`).
  *
  * @internal
+ * @param tier - What the tier holds of Python
  * @returns How many distributions were left to the tier
  * @throws {Error} When the virtualenv is not of the tier's Python
  */
-export async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number> {
+export async function leaveToTier(buildDir: string, tier: PythonTier): Promise<number> {
   const venv = path.join(buildDir, '.venv');
-  const minor = pythonMinor(tier.python.version);
+  const minor = pythonMinor(tier.version);
   const config = await fs.readFile(path.join(venv, 'pyvenv.cfg'), 'utf-8');
   const made = /^version_info\s*=\s*(\d+)\.(\d+)/m.exec(config);
   if (made === null || `${made[1]!}.${made[2]!}` !== minor) {
@@ -474,11 +479,11 @@ export async function leaveToTier(buildDir: string, tier: TierManifest): Promise
     if ((await fs.lstat(at)).isSymbolicLink() && path.isAbsolute(await fs.readlink(at))) await fs.rm(at);
   }
   await fs.writeFile(path.join(venv, 'pyvenv.cfg'), config
-    .replace(/^home\s*=.*$/m, `home = ${path.posix.dirname(tier.python.base)}`)
-    .replace(/^version_info\s*=.*$/m, `version_info = ${tier.python.version}`));
+    .replace(/^home\s*=.*$/m, `home = ${path.posix.dirname(tier.base)}`)
+    .replace(/^version_info\s*=.*$/m, `version_info = ${tier.version}`));
   // What it imports from the tier, through its gate: a line that begins
   // `import` is run as the site directory is read
-  await fs.writeFile(path.join(site, `${TIER_GATE_MODULE}.py`), tierGateModule(tier.python.site, imports));
+  await fs.writeFile(path.join(site, `${TIER_GATE_MODULE}.py`), tierGateModule(tier.site, imports));
   await fs.writeFile(path.join(site, TIER_GATE_PATH_FILE), `import ${TIER_GATE_MODULE}\n`);
   return left.size;
 }

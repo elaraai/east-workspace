@@ -20,13 +20,14 @@ import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastType
 import { canonicalPythonName, pythonLeftOut, pythonLockSettings, readRequiredDistribution } from '@elaraai/e3';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
-import { pythonMinor, type TierManifest } from '../tier-manifest.js';
+import { pythonMinor, type NodeTier, type PythonTier } from '../tier-manifest.js';
 import { giveDirectory, type ProcessSettings } from './processExec.js';
 import { giveDirectories, pathExists, run } from './environment-install.js';
 import {
   carryInterpreter, changedSince, EnvironmentTargetRefused, leaveToTier, refuseNativeAddon, treeEntries, unbuiltWheel, wheelOf,
   type TargetParts, type TargetPlatform,
 } from './environment-target.js';
+import { leaveNodeToTier } from './environment-node-tier.js';
 
 /** An environment's files are objects holding their bytes as beast2 Blobs. */
 const FILE_TYPE = toEastTypeValue(BlobType);
@@ -253,10 +254,10 @@ async function writeSdists(
  *   its dependencies are then the platform's wheels alone, copied, the
  *   project's packages are built to wheels here and must be pure, and it
  *   carries the platform's build of its Python
- * @param over - The tier it is built over, with a platform, and the hash of
- *   the environment's spec: its virtualenv is then of the tier's Python, what
- *   the tier holds the same is left to it once all is installed and checked,
- *   and it carries no interpreter
+ * @param over - What the tier it is built over holds of Python, with a
+ *   platform, and the hash of the environment's spec: its virtualenv is then
+ *   of the tier's Python, what the tier holds the same is left to it once all
+ *   is installed and checked, and it carries no interpreter
  * @internal
  * @returns The interpreter it carries and the project's own files, when a
  *   platform is given, and how many distributions were left to a tier; else
@@ -267,7 +268,7 @@ async function writeSdists(
 export async function buildPython(
   storage: StorageBackend, repo: string,
   spec: PythonSpec, buildDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform, over?: { readonly tier: TierManifest; readonly envHash: string },
+  platform?: TargetPlatform, over?: { readonly tier: PythonTier; readonly envHash: string },
 ): Promise<TargetParts> {
   if (platform === undefined) {
     await installPython(storage, repo, spec, buildDir, settings);
@@ -279,7 +280,7 @@ export async function buildPython(
   }
   // The same install for every tier of one Python and platform: shared by the
   // builds over each that run together
-  const python = pythonMinor(over.tier.python.version);
+  const python = pythonMinor(over.tier.version);
   const key = JSON.stringify([path.resolve(repo), over.envHash, platform.name, python, settings.uid ?? null, settings.gid ?? null, settings.env ?? null]);
   const project = await sharedInstall(key, buildDir, settings, (dir) => installPython(storage, repo, spec, dir, settings, platform, python));
   const fromTier = await leaveToTier(buildDir, over.tier);
@@ -450,7 +451,11 @@ async function installPython(
  * @param platform - The platform it is installed for, when not this machine's:
  *   its dependencies are then the platform's, and the project's own packages
  *   must hold no native addon, which is looked at before anything is installed
- * @returns The project's own files, when a platform is given; else none
+ * @param over - What the tier it is built over holds of Node, with a
+ *   platform: once all is installed, East's packages the tier holds, and what
+ *   only they need, are left to it (`leaveNodeToTier`)
+ * @returns The project's own files, when a platform is given, and how many
+ *   packages were left to a tier; else none of them
  * @throws {EnvironmentTargetRefused} When a platform is given and a project
  *   package holds a native addon, or the lock is pnpm's and this machine's
  *   pnpm installs for its own platform alone
@@ -458,7 +463,7 @@ async function installPython(
 export async function buildNode(
   storage: StorageBackend, repo: string,
   spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
+  platform?: TargetPlatform, over?: NodeTier,
 ): Promise<TargetParts> {
   const tarballs: Buffer[] = [];
   for (const hash of spec.value.tarballs) {
@@ -508,7 +513,9 @@ export async function buildNode(
     // A tree for another platform is packed and sent: the tarballs are not of it.
     if (platform !== undefined) await fs.rm(packDir, { recursive: true, force: true });
   }
-  return { interpreter: null, project: before === undefined ? [] : changedSince(before, await treeEntries(buildDir)), fromTier: null };
+  const project = before === undefined ? [] : changedSince(before, await treeEntries(buildDir));
+  if (over === undefined) return { interpreter: null, project, fromTier: null };
+  return { interpreter: null, ...await leaveNodeToTier(buildDir, over, project) };
 }
 
 /**
@@ -683,16 +690,20 @@ async function retargetWindowsJunctions(buildDir: string, envDir: string): Promi
  *
  * @internal
  * @param platform - The platform it is installed for, when not this machine's
+ * @param over - What the tier it is built over holds of Node, with a
+ *   platform: once all is installed, East's packages the tier holds, and what
+ *   only they need, are left to it (`leaveNodeToTier`)
  * @returns The members' own files, relative to the build directory, when a
- *   platform is given; else none
+ *   platform is given, and how many packages were left to a tier; else none
+ *   of them
  * @throws {EnvironmentTargetRefused} When a platform is given and a member
  *   holds a native addon
  */
 export async function buildWorkspaceNode(
   storage: StorageBackend, repo: string,
   spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
-): Promise<string[]> {
+  platform?: TargetPlatform, over?: NodeTier,
+): Promise<TargetParts> {
   // v1 supports npm workspaces only; pnpm capture ships later.
   const lockData = await readFile(storage, repo, spec.value.lock);
   if (nodeLockFilename(lockData) !== 'package-lock.json') {
@@ -744,5 +755,6 @@ export async function buildWorkspaceNode(
       throw new Error(`materialized workspace is incomplete: member '${member.name}' missing after install`);
     }
   }
-  return members;
+  if (over === undefined) return { interpreter: null, project: members, fromTier: null };
+  return { interpreter: null, ...await leaveNodeToTier(buildDir, over, members) };
 }

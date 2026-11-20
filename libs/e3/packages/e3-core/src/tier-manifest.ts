@@ -7,12 +7,17 @@
  * What a rack's tier image says it contains: its tier manifest, which an
  * environment the rack runs over that image is built without.
  *
- * A runtime image writes its manifest when it is built
- * (this package's `tier/tier-manifest.py`): its interpreter, the base interpreter a
- * virtualenv over it runs, its site directory, the namespace packages of
- * that directory, and each distribution installed for it, by name, version
- * and the digest of the files it installed. A manifest is named by the
- * SHA-256 of its bytes.
+ * A runtime image writes its manifest when it is built, by a script of this
+ * package's `tier/`. A python image's (`tier-manifest.py`) names its
+ * interpreter, the base interpreter a virtualenv over it runs, its site
+ * directory, the namespace packages of that directory, and each distribution
+ * installed for it, by name, version and the digest of the files it
+ * installed: the manifest's form 1. A node image's (`tier-manifest.mjs`)
+ * names its Node, the global `node_modules` directory, the registry its
+ * packages were installed from, and each of East's packages installed there,
+ * by name and version: form 2, whose `python` and `node` sections are each
+ * the image's when it holds that runtime. A manifest is named by the SHA-256
+ * of its bytes.
  *
  * @packageDocumentation
  */
@@ -31,22 +36,18 @@ export interface TierDistribution {
   readonly files: string;
 }
 
-/** What a tier image contains. */
-export interface TierManifest {
-  /** The manifest's form: 1 */
-  readonly version: 1;
-  /** The interpreter its tasks run with */
-  readonly python: {
-    /** Its version (`3.11.2`) */
-    readonly version: string;
-    /** Its path in the image, absolute */
-    readonly executable: string;
-    /** The interpreter a virtualenv over the tier runs, absolute: itself,
-     *  or, when it is a virtualenv's, the one that virtualenv was made from */
-    readonly base: string;
-    /** The directory its distributions are installed in, absolute */
-    readonly site: string;
-  };
+/** What a tier image holds of Python: the interpreter its tasks run with,
+ *  and what is installed for it. */
+export interface PythonTier {
+  /** The interpreter's version (`3.11.2`) */
+  readonly version: string;
+  /** Its path in the image, absolute */
+  readonly executable: string;
+  /** The interpreter a virtualenv over the tier runs, absolute: itself,
+   *  or, when it is a virtualenv's, the one that virtualenv was made from */
+  readonly base: string;
+  /** The directory its distributions are installed in, absolute */
+  readonly site: string;
   /**
    * The namespace packages of its site directory: each directory at its top
    * that holds no `__init__` module, sorted. Python reads such a package
@@ -56,6 +57,37 @@ export interface TierManifest {
   readonly namespaces: readonly string[];
   /** The distributions installed for it, sorted by name */
   readonly distributions: readonly TierDistribution[];
+}
+
+/** One of East's packages a node tier holds. */
+export interface TierPackage {
+  /** Its name (`@elaraai/east-node-io`) */
+  readonly name: string;
+  /** Its version, as the registry serves it */
+  readonly version: string;
+}
+
+/** What a tier image holds of Node: East's packages, installed globally. */
+export interface NodeTier {
+  /** Node's version (`22.12.0`) */
+  readonly version: string;
+  /** The global `node_modules` directory the packages are installed in,
+   *  absolute: each is `<root>/<name>` */
+  readonly root: string;
+  /** The registry they were installed from, as npm names it, ending in `/`:
+   *  `https://registry.npmjs.org/` */
+  readonly registry: string;
+  /** Each `@elaraai/*` package installed there, sorted by name */
+  readonly packages: readonly TierPackage[];
+}
+
+/** What a tier image contains: each runtime it holds for environments to be
+ *  built over. */
+export interface TierManifest {
+  /** Its Python, for an image that holds one */
+  readonly python?: PythonTier;
+  /** Its Node, for an image that holds East's node packages */
+  readonly node?: NodeTier;
 }
 
 /** What an installer writes beside a distribution's files, which says how it
@@ -157,18 +189,99 @@ export function tierManifestDigest(bytes: Uint8Array): string {
   return `sha256:${computeHash(bytes)}`;
 }
 
+/** A field of a manifest that names something: a string that is not empty. */
+function named(field: unknown, what: string): string {
+  if (typeof field !== 'string' || field === '') throw new Error(`the tier manifest names no ${what}`);
+  return field;
+}
+
+/** An absolute path of the image's, on one line. */
+function absolutePath(field: unknown, what: string): string {
+  const said = named(field, what);
+  if (!said.startsWith('/') || /[\u0000-\u001f\u007f]/.test(said)) throw new Error(`the tier manifest's ${what} ${JSON.stringify(said)} is not an absolute path`);
+  return said;
+}
+
+/** A manifest's python section: its interpreter, its namespace packages and its distributions. */
+function readPythonTier(section: Record<string, unknown>): PythonTier {
+  // A Python's version, as `platform.python_version()` writes one: `3.11.2`, `3.13.0rc1`, `3.14.0a1+`
+  const version = named(section.version, 'interpreter version');
+  if (!/^\d+\.\d+\.\d+[A-Za-z0-9.+]*$/.test(version)) throw new Error(`the tier manifest's interpreter version ${JSON.stringify(version)} is not a Python's`);
+  // Each a name at the top of its site directory: what a tier does not say of its packages is not guessed
+  const namespaces = section.namespaces;
+  if (!Array.isArray(namespaces) || !namespaces.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
+    throw new Error('the tier manifest names no namespace packages');
+  }
+  if (!Array.isArray(section.distributions)) throw new Error('the tier manifest lists no distributions');
+  return {
+    version,
+    executable: absolutePath(section.executable, 'interpreter'),
+    base: absolutePath(section.base, 'base interpreter'),
+    site: absolutePath(section.site, 'site directory'),
+    namespaces,
+    distributions: section.distributions.map((entry: unknown): TierDistribution => {
+      const { name, version: held, files } = (entry ?? {}) as Record<string, unknown>;
+      return { name: canonicalPythonName(named(name, 'distribution\'s name')), version: named(held, 'distribution\'s version'),
+        files: named(files, 'distribution\'s files digest') };
+    }),
+  };
+}
+
 /**
- * Reads a tier manifest.
+ * A package's name as npm writes one, scoped or not: lowercase, and safe as
+ * a path under a `node_modules` directory.
+ *
+ * @internal
+ */
+export const NPM_PACKAGE_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+
+/** A manifest's node section: its Node, its global root, its registry and East's packages there. */
+function readNodeTier(section: unknown): NodeTier {
+  if (typeof section !== 'object' || section === null || Array.isArray(section)) throw new Error('the tier manifest names no Node');
+  const fields = section as Record<string, unknown>;
+  const version = named(fields.version, 'Node version');
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`the tier manifest's Node version ${JSON.stringify(version)} is not a Node's`);
+  // What a lock's tarball is named under, by npm's own spelling: a URL that ends in `/`
+  const registry = named(fields.registry, 'registry');
+  let protocol: string | undefined;
+  try {
+    protocol = new URL(registry).protocol;
+  } catch {
+    protocol = undefined;
+  }
+  if ((protocol !== 'https:' && protocol !== 'http:') || !registry.endsWith('/') || /[\s\u0000-\u001f\u007f]/.test(registry)) {
+    throw new Error(`the tier manifest's registry ${JSON.stringify(registry)} is not a registry's URL`);
+  }
+  if (!Array.isArray(fields.packages)) throw new Error('the tier manifest lists no packages');
+  const seen = new Set<string>();
+  const packages = fields.packages.map((entry: unknown): TierPackage => {
+    const { name, version: held } = (entry ?? {}) as Record<string, unknown>;
+    const said = named(name, 'package\'s name');
+    if (!NPM_PACKAGE_NAME.test(said)) throw new Error(`the tier manifest's package ${JSON.stringify(said)} is not named as npm names one`);
+    if (seen.has(said)) throw new Error(`the tier manifest lists the package ${said} twice`);
+    seen.add(said);
+    const at = named(held, 'package\'s version');
+    if (/[\s/\\\u0000-\u001f\u007f]/.test(at)) throw new Error(`the tier manifest's version ${JSON.stringify(at)} of ${said} is not a package's version`);
+    return { name: said, version: at };
+  });
+  return { version, root: absolutePath(fields.root, 'node_modules root'), registry, packages };
+}
+
+/**
+ * Reads a tier manifest, of either form: a python image's form 1, or form 2,
+ * a section for each runtime the image holds.
  *
  * @remarks
  * It arrives from a rack, and what it names is written into an environment
  * built over the tier (its virtualenv's `pyvenv.cfg`, a path file of its site
- * directory): so its interpreter's version is a Python's, and its paths are
- * absolute, on one line each.
+ * directory), and is what an environment's links lead to: so an
+ * interpreter's version is a Python's, its paths and the node root are
+ * absolute, on one line each, and a package is named as npm names one.
  *
  * @param bytes - The manifest file's bytes
  * @returns The manifest
- * @throws {Error} When it is not a manifest of the form this build reads
+ * @throws {Error} When it is not a manifest of a form this build reads, or
+ *   names no runtime
  * @example
  * const manifest = readTierManifest(await readFile('/opt/e3/tier-manifest.json'));
  */
@@ -179,48 +292,24 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
   } catch {
     throw new Error('the tier manifest is not JSON');
   }
-  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; distributions?: unknown } | null;
-  if (typeof fields !== 'object' || fields === null || fields.version !== 1) {
-    throw new Error('the tier manifest is not of the form this e3 reads (version 1)');
+  const fields = value as { version?: unknown; python?: unknown; namespaces?: unknown; distributions?: unknown; node?: unknown } | null;
+  if (typeof fields !== 'object' || fields === null || (fields.version !== 1 && fields.version !== 2)) {
+    throw new Error('the tier manifest is not of a form this e3 reads (version 1 or 2)');
   }
-  const python = fields.python;
-  const text = (field: unknown, what: string): string => {
-    if (typeof field !== 'string' || field === '') throw new Error(`the tier manifest names no ${what}`);
-    return field;
-  };
-  // A Python's version, as `platform.python_version()` writes one: `3.11.2`, `3.13.0rc1`, `3.14.0a1+`
-  const version = (field: unknown): string => {
-    const said = text(field, 'interpreter version');
-    if (!/^\d+\.\d+\.\d+[A-Za-z0-9.+]*$/.test(said)) throw new Error(`the tier manifest's interpreter version ${JSON.stringify(said)} is not a Python's`);
-    return said;
-  };
-  // An absolute path of the image's, on one line
-  const absolute = (field: unknown, what: string): string => {
-    const said = text(field, what);
-    if (!said.startsWith('/') || /[\u0000-\u001f\u007f]/.test(said)) throw new Error(`the tier manifest's ${what} ${JSON.stringify(said)} is not an absolute path`);
-    return said;
-  };
-  if (typeof python !== 'object' || python === null) throw new Error('the tier manifest names no interpreter');
-  // Each a name at the top of its site directory: what a tier does not say of its packages is not guessed
-  const namespaces = fields.namespaces;
-  if (!Array.isArray(namespaces) || !namespaces.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
-    throw new Error('the tier manifest names no namespace packages');
+  const section = (field: unknown): Record<string, unknown> | undefined =>
+    typeof field === 'object' && field !== null && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
+  if (fields.version === 1) {
+    // A python image's: its interpreter, and beside it what is installed for it
+    const python = section(fields.python);
+    if (python === undefined) throw new Error('the tier manifest names no interpreter');
+    return { python: readPythonTier({ ...python, namespaces: fields.namespaces, distributions: fields.distributions }) };
   }
-  if (!Array.isArray(fields.distributions)) throw new Error('the tier manifest lists no distributions');
+  if (fields.python === undefined && fields.node === undefined) throw new Error('the tier manifest names no runtime');
+  const python = fields.python === undefined ? undefined : section(fields.python);
+  if (fields.python !== undefined && python === undefined) throw new Error('the tier manifest names no interpreter');
   return {
-    version: 1,
-    python: {
-      version: version(python.version),
-      executable: absolute(python.executable, 'interpreter'),
-      base: absolute(python.base, 'base interpreter'),
-      site: absolute(python.site, 'site directory'),
-    },
-    namespaces,
-    distributions: fields.distributions.map((entry: unknown): TierDistribution => {
-      const { name, version: held, files } = (entry ?? {}) as Record<string, unknown>;
-      return { name: canonicalPythonName(text(name, 'distribution\'s name')), version: text(held, 'distribution\'s version'),
-        files: text(files, 'distribution\'s files digest') };
-    }),
+    ...(python !== undefined && { python: readPythonTier(python) }),
+    ...(fields.node !== undefined && { node: readNodeTier(fields.node) }),
   };
 }
 
@@ -229,16 +318,50 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
  * the same installed files. Never by name and version alone: a `+cpu` build
  * is not a `+cu130` one, and a rebuilt wheel is not the one before it.
  *
- * @param manifest - The tier's manifest
+ * @param tier - What the tier holds of Python
  * @param distribution - The distribution, as an environment installed it
  * @returns Whether the tier's is the same
  * @example
  * const record = await readFile(join(site, 'idna-3.10.dist-info', 'RECORD'), 'utf8');
- * tierHolds(manifest, { name: 'idna', version: '3.10', files: installedFilesDigest(record) }); // true when the tier's idna is that one
+ * tierHolds(manifest.python, { name: 'idna', version: '3.10', files: installedFilesDigest(record) }); // true when the tier's idna is that one
  */
-export function tierHolds(manifest: TierManifest, distribution: TierDistribution): boolean {
+export function tierHolds(tier: PythonTier, distribution: TierDistribution): boolean {
   const name = canonicalPythonName(distribution.name);
-  return manifest.distributions.some((held) => held.name === name && held.version === distribution.version && held.files === distribution.files);
+  return tier.distributions.some((held) => held.name === name && held.version === distribution.version && held.files === distribution.files);
+}
+
+/**
+ * The tarball a registry serves a package's version as: what a lock that
+ * resolved the package from that registry names
+ * (`https://registry.npmjs.org/@elaraai/east/-/east-1.0.111.tgz`).
+ *
+ * @param registry - The registry, as npm names it, ending in `/`
+ * @param name - The package's name
+ * @param version - Its version
+ * @returns The tarball's URL
+ * @example
+ * registryTarball('https://registry.npmjs.org/', '@elaraai/east', '1.0.111'); // 'https://registry.npmjs.org/@elaraai/east/-/east-1.0.111.tgz'
+ */
+export function registryTarball(registry: string, name: string, version: string): string {
+  return `${registry}${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`;
+}
+
+/**
+ * Whether a node tier holds a package an environment installed: one of that
+ * name and version, which the environment's lock resolved from the registry
+ * the tier installed its own from. A published version is immutable, so it is
+ * then the same package; one from a path, git or another registry is not.
+ *
+ * @param tier - What the tier holds of Node
+ * @param installed - The package, as the environment's lock names it: its
+ *   name, its version, and where it was resolved from
+ * @returns Whether the tier's is the same
+ * @example
+ * nodeTierHolds(manifest.node, { name: '@elaraai/east', version: '1.0.111', resolved: 'https://registry.npmjs.org/@elaraai/east/-/east-1.0.111.tgz' }); // true for the 1.0.111 image
+ */
+export function nodeTierHolds(tier: NodeTier, installed: { readonly name: string; readonly version: string; readonly resolved: string | undefined }): boolean {
+  return installed.resolved === registryTarball(tier.registry, installed.name, installed.version)
+    && tier.packages.some((held) => held.name === installed.name && held.version === installed.version);
 }
 
 /** A distribution as an environment installed it. */
@@ -293,7 +416,7 @@ function packageFiles(installed: readonly InstalledDistribution[]): string[][][]
 /** The top-level namespace packages an environment and its tier both hold
  *  parts of: each the tier's manifest names, in which no distribution of the
  *  environment installs an `__init__` module. */
-function sharedNamespaces(files: readonly string[][][], manifest: TierManifest): Set<string> {
+function sharedNamespaces(files: readonly string[][][], manifest: PythonTier): Set<string> {
   // A package some distribution here gives an `__init__` module is an ordinary one
   const ordinary = new Set<string>();
   for (const parts of files.flat()) if (parts.length === 2 && parts[1]!.startsWith('__init__.')) ordinary.add(parts[0]!);
@@ -334,20 +457,20 @@ function sharedNamespaces(files: readonly string[][][], manifest: TierManifest):
  * the tier's copies the same way, and takes nothing.
  *
  * @param installed - The environment's distributions
- * @param manifest - The tier's manifest
+ * @param manifest - What the tier holds of Python
  * @returns The canonical names of those left to the tier
  * @example
- * const left = leftToTier(installed, manifest);
+ * const left = leftToTier(installed, manifest.python);
  * const shipped = installed.filter(({ name }) => !left.has(canonicalPythonName(name)));
  */
-export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
+export function leftToTier(installed: readonly InstalledDistribution[], manifest: PythonTier): Set<string> {
   const files = packageFiles(installed);
   return leftOf(installed, manifest, files, sharedNamespaces(files, manifest));
 }
 
 /** {@link leftToTier}, given each distribution's files and the namespace
  *  packages both hold parts of, which {@link tierImports} reads too. */
-function leftOf(installed: readonly InstalledDistribution[], manifest: TierManifest, files: readonly string[][][], namespaces: ReadonlySet<string>): Set<string> {
+function leftOf(installed: readonly InstalledDistribution[], manifest: PythonTier, files: readonly string[][][], namespaces: ReadonlySet<string>): Set<string> {
   // Each distribution's group, by what it shares with others: a top-level
   // name, or, in a namespace package, what is directly in it
   const group = installed.map((_, i) => i);
@@ -425,13 +548,13 @@ function importName(entry: string, file: boolean): string | null {
  * never the same.
  *
  * @param installed - The environment's distributions, as installed whole
- * @param manifest - The tier's manifest
+ * @param manifest - What the tier holds of Python
  * @returns What the environment imports from the tier
  * @example
- * const imports = tierImports(installed, manifest);
+ * const imports = tierImports(installed, manifest.python);
  * // imports.roots: ['idna', 'nvidia.cudnn', …]; imports.namespaces: ['nvidia']
  */
-export function tierImports(installed: readonly InstalledDistribution[], manifest: TierManifest): TierImports {
+export function tierImports(installed: readonly InstalledDistribution[], manifest: PythonTier): TierImports {
   // Each record read, and each distribution's files digested, once
   const files = packageFiles(installed);
   const shared = sharedNamespaces(files, manifest);

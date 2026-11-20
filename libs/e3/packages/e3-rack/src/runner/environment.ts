@@ -14,7 +14,8 @@ import { ENV_LAYER_MEDIA_TYPE, envManifestKey, envManifestName, type EnvLayerMan
  *   tier `over` names, when it is built over one;
  * - `built`: it did, in `ms`: `layers` layers of `bytes` bytes in all, `fresh`
  *   of them new to the repository; built over a tier, `fromTier` of its
- *   distributions were left to the tier's image, which holds them.
+ *   packages were left to the tier's image: the distributions it holds the
+ *   same, or East's node packages it holds and what only they need.
  *
  * An environment whose layers the repository keeps already says nothing.
  */
@@ -51,12 +52,15 @@ export interface EnvLayerTarget {
  * release; a second run that needs it waits for the first. A repository that
  * keeps the manifest already builds nothing, and no event is told.
  *
- * Given the image of the tier a rack boots it over, a python environment
- * whose lock takes that image's Python is built over it: without an
- * interpreter, and without each distribution the image holds the same. Its
- * manifest says so (`over`), under a key of its own, and a rack composes it
- * only over that image. Any other environment is built whole, as for a rack
- * that names no image.
+ * Given the image of the tier a rack boots it over, an environment that fits
+ * it is built over it: a python environment whose lock takes that image's
+ * Python, without an interpreter and without each distribution the image
+ * holds the same; a node one that npm locked, over an image that holds
+ * East's node packages, without those its lock resolved from the registry
+ * at the versions the image holds, and what only they need. Its manifest
+ * says so (`over`), under a key of its own, and a rack composes it only over
+ * that image. Any other environment is built whole, as for a rack that names
+ * no image.
  *
  * @param storage - The repository's storage, which holds the environment's
  *   spec and files

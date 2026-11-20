@@ -125,8 +125,8 @@ it('tells a run where work is placed lease by lease: its wait, its claims, what 
 });
 
 /** A python runtime image's manifest, which names no distribution. */
-const TIER: TierManifest = { version: 1, python: { version: '3.11.2', executable: '/opt/venv/bin/python', base: '/usr/bin/python3',
-  site: '/opt/venv/lib/python3.11/site-packages' }, namespaces: [], distributions: [] };
+const TIER: TierManifest = { python: { version: '3.11.2', executable: '/opt/venv/bin/python', base: '/usr/bin/python3',
+  site: '/opt/venv/lib/python3.11/site-packages', namespaces: [], distributions: [] } };
 
 it('builds an environment\'s layers once for each tier over an image, though two tiers boot one image, as their manifests\' keys name the tier', async () => {
   // A repository that holds no environment: a build fails at once, having asked for its spec

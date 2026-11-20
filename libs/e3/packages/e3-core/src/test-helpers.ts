@@ -9,10 +9,15 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
+import { pack as tarPack } from 'tar-stream';
 import {
   DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
   parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
@@ -30,6 +35,7 @@ import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
 import type { LogChunk, LogStore, RefStore, StorageBackend } from './storage/interfaces.js';
+import { registryTarball } from './tier-manifest.js';
 import { ZipWriter } from './zip.js';
 
 // Re-export InMemoryStorage for test consumers
@@ -671,6 +677,133 @@ export function tierManifestOf(python: string): string {
   } finally {
     removeTempDir(dir);
   }
+}
+
+/** The script a node image writes its tier manifest with: a file of this
+ *  package (`tier/tier-manifest.mjs`), found as the python one is. */
+const NODE_TIER_MANIFEST_SCRIPT = fileURLToPath(new URL('../../tier/tier-manifest.mjs', import.meta.url));
+
+/**
+ * The manifest of a node tier whose East packages are installed in `root`, as
+ * a node image's build writes its own: what the image's script
+ * (`tier/tier-manifest.mjs`) writes when this machine's Node runs it, npm's
+ * registry being `registry`.
+ *
+ * @param root - The tier's global `node_modules` directory
+ * @param registry - The registry its packages were installed from
+ * @returns The manifest's text
+ * @throws {Error} When the script fails
+ */
+export function nodeTierManifestOf(root: string, registry: string): string {
+  const dir = createTempDir();
+  try {
+    const out = join(dir, 'tier-manifest.json');
+    const ran = spawnSync(process.execPath, [NODE_TIER_MANIFEST_SCRIPT, out, root],
+      { encoding: 'utf8', env: { ...process.env, npm_config_registry: registry } });
+    if (ran.status !== 0) throw new Error(`the tier manifest was not written: ${ran.error?.message ?? ran.stderr}`);
+    return readFileSync(out, 'utf8');
+  } finally {
+    removeTempDir(dir);
+  }
+}
+
+/** A package a test's npm registry serves, or a test's tier holds. */
+export interface TestNodePackage {
+  /** Its name */
+  readonly name: string;
+  /** Its version */
+  readonly version: string;
+  /** Its files beside its `package.json`, by their paths in it */
+  readonly files?: Readonly<Record<string, string>>;
+  /** What it depends on */
+  readonly dependencies?: Readonly<Record<string, string>>;
+  /** What it takes from its dependents */
+  readonly peerDependencies?: Readonly<Record<string, string>>;
+  /** Its commands, by name, each a file of its own */
+  readonly bin?: Readonly<Record<string, string>>;
+}
+
+/** A test package's `package.json`, as npm reads one. */
+function testPackageJson(pkg: TestNodePackage): string {
+  return JSON.stringify({
+    name: pkg.name, version: pkg.version, main: 'index.js',
+    ...(pkg.dependencies !== undefined && { dependencies: pkg.dependencies }),
+    ...(pkg.peerDependencies !== undefined && { peerDependencies: pkg.peerDependencies }),
+    ...(pkg.bin !== undefined && { bin: pkg.bin }),
+  });
+}
+
+/**
+ * Writes test packages into a `node_modules` directory as a global install
+ * lays them out: each at `<root>/<name>`, its manifest and its files.
+ *
+ * @param root - The directory
+ * @param packages - The packages
+ */
+export function writeNodePackages(root: string, packages: readonly TestNodePackage[]): void {
+  for (const pkg of packages) {
+    const dir = join(root, ...pkg.name.split('/'));
+    for (const [file, text] of Object.entries({ ...pkg.files, 'package.json': testPackageJson(pkg) })) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), text, { mode: Object.values(pkg.bin ?? {}).includes(file) ? 0o755 : 0o644 });
+    }
+  }
+}
+
+/** A test package as `npm pack` packs one: a gzipped tar of its files under `package/`. */
+async function testTarball(pkg: TestNodePackage): Promise<Buffer> {
+  const tar = tarPack();
+  for (const [file, text] of Object.entries({ ...pkg.files, 'package.json': testPackageJson(pkg) })) {
+    tar.entry({ name: `package/${file}`, mode: Object.values(pkg.bin ?? {}).includes(file) ? 0o755 : 0o644 }, text);
+  }
+  tar.finalize();
+  const chunks: Buffer[] = [];
+  for await (const chunk of tar) chunks.push(chunk as Buffer);
+  return gzipSync(Buffer.concat(chunks));
+}
+
+/** A test's npm registry: its URL, and what closes it. */
+export interface TestRegistry {
+  /** Its URL, ending in `/`, as npm names a registry */
+  readonly url: string;
+  /** Stops it */
+  close(): Promise<void>;
+}
+
+/**
+ * Starts an npm registry of a test's own on this machine's loopback: it
+ * serves each package's metadata and its tarball by the paths the npm
+ * registry serves them at, so npm installs and locks from it, and a lock
+ * resolves each package to a tarball under its URL, with nothing fetched from
+ * anywhere else.
+ *
+ * @param packages - What it serves; a name may be served at several versions
+ * @returns The registry
+ */
+export async function startTestRegistry(packages: readonly TestNodePackage[]): Promise<TestRegistry> {
+  const routes = new Map<string, { type: string; body: Buffer }>();
+  const server = createServer((request, response) => {
+    const found = routes.get(decodeURIComponent((request.url ?? '/').split('?')[0]!.slice(1)));
+    response.writeHead(found === undefined ? 404 : 200, { 'content-type': found?.type ?? 'application/json' });
+    response.end(found?.body ?? '{"error":"not found"}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+  const documents = new Map<string, { name: string; 'dist-tags': { latest: string }; versions: Record<string, unknown> }>();
+  for (const pkg of packages) {
+    const tarball = await testTarball(pkg);
+    const at = registryTarball(url, pkg.name, pkg.version);
+    routes.set(at.slice(url.length), { type: 'application/octet-stream', body: tarball });
+    const document = documents.get(pkg.name) ?? { name: pkg.name, 'dist-tags': { latest: pkg.version }, versions: {} };
+    document['dist-tags'].latest = pkg.version;
+    document.versions[pkg.version] = {
+      ...JSON.parse(testPackageJson(pkg)) as object,
+      dist: { tarball: at, integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`, shasum: createHash('sha1').update(tarball).digest('hex') },
+    };
+    documents.set(pkg.name, document);
+  }
+  for (const [name, document] of documents) routes.set(name, { type: 'application/json', body: Buffer.from(JSON.stringify(document)) });
+  return { url, close: () => new Promise((resolve) => server.close(() => resolve())) };
 }
 
 /**

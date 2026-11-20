@@ -45,5 +45,16 @@ RUN mkdir -p /compile && \
     ln -s /usr/local/lib/node_modules /compile/node_modules && \
     echo '{"compilerOptions":{"target":"esnext","module":"nodenext","strict":true,"skipLibCheck":true,"noEmit":true}}' > /compile/tsconfig.json
 
+# What this image holds, for a node environment built over it: its tier
+# manifest (e3: environments built over their base tier), which names each of
+# East's packages in the global node_modules, by name and version. A node
+# environment's East packages of those versions are left to the image, and
+# linked to its copies. Written last, by the Node the image's tasks run with,
+# so it names everything installed.
+COPY libs/e3/packages/e3-core/tier/tier-manifest.mjs /tmp/tier-manifest.mjs
+RUN mkdir -p /opt/e3 && \
+    node /tmp/tier-manifest.mjs /opt/e3/tier-manifest.json && \
+    rm /tmp/tier-manifest.mjs
+
 # Default command
 CMD ["bash"]
