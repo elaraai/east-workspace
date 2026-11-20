@@ -8,8 +8,9 @@
  * starting filters beside its tiles: the host's gestures and the canvas's are
  * steps of the history in the order they were made, which Undo and Redo walk
  * through the history item and the keys — from the host's band too; Save sends
- * each session's change as its own request; each session's banners stand, the
- * host's named; and the band the host draws over the grid stands between the
+ * each session's change as its own request, and so does an Apply a screen asks
+ * for, answered once both read back; each session's banners stand, the host's
+ * named; and the band the host draws over the grid stands between the
  * selection bar and the grid, its clicks and keys its own.
  */
 
@@ -129,6 +130,23 @@ describe("a host's own session under the canvas's history (#1673)", () => {
         await editNote(c);
         await history(canvas, "Discard");
         expect([spanOf(c, "trend"), h.joined.history.pending, historyButton(canvas, "Undo").disabled]).toEqual([8, 0, true]);
+    }, 30_000);
+
+    test("an Apply a screen asks for (#998) sends each session's change, and is answered applied once both read back — never refused while the history is still sending them", async () => {
+        const h = host();
+        const canvas = await mountSnapGrid({ joined: h.joined, head: h.head, applies: true });
+        const c = canvas.container;
+        await clickTile(c, "region");
+        await key(c, { key: "[" }, "region");
+        await editNote(c);
+        await canvas.hostAsksApply("ask-1");
+        // Both sent, each its own request; the screen's ask waits for them to read back.
+        expect([canvas.applies.length, canvas.writes(), h.sent(), canvas.boundApply().type]).toEqual([1, 1, 1, "asked"]);
+        await canvas.confirm();
+        h.readBack("Draft+");
+        await settle();
+        expect(canvas.boundApply()).toEqual(variant("applied", "ask-1"));
+        expect([h.joined.history.status, h.joined.history.pending]).toEqual(["idle", 0]);
     }, 30_000);
 
     test("each session's banners stand: the host's under its name, its refusal its own, the canvas's change saved past it", async () => {

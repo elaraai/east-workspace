@@ -869,7 +869,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const asked = applyRead.ok && applyRead.value !== undefined && applyRead.value.type === "asked" ? applyRead.value.value : undefined;
     useEffect(() => {
         if (asked === undefined || applyBind === undefined) return;
+        let live = true;
         let started = false;
+        // Whether the Apply started here has returned. Until it has, a change
+        // of the subject is one of the Apply's own steps — a history accepts
+        // every session's drafts, telling its readers, before any session
+        // sends — never a refusal.
+        let sent = false;
         let answered = false;
         const answer = (state: ApplyState) => {
             answered = true;
@@ -883,21 +889,28 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         // host's: an Apply running is waited out; with no draft left, the
         // drafts landed; once, the drafts are applied as the history item
         // applies them — a request of unknown outcome retried; otherwise they
-        // cannot land, and the canvas says why.
+        // cannot land, and the canvas says why: one that could not start, or
+        // the one started here, once it has returned.
         const step = () => {
-            if (answered || subject.status === "applying" || subject.status === "reconciling") return;
+            if (!live || answered || subject.status === "applying" || subject.status === "reconciling") return;
             if (subject.pending === 0) {
                 answer(variant("applied", asked));
             } else if (!started && (subject.status === "unknown" || subject.canApply)) {
                 started = true;
-                void subject.apply();
-            } else {
+                void subject.apply().finally(() => {
+                    sent = true;
+                    step();
+                });
+            } else if (!started || sent) {
                 answer(variant("refused", { id: asked, reason: refusalOf(subject, words) }));
             }
         };
         const unsubscribe = subject.subscribe(step);
         step();
-        return () => { unsubscribe(); };
+        return () => {
+            live = false;
+            unsubscribe();
+        };
     }, [asked, applyBind, subject, words]);
 
     const onRemove = useCallback((key: string) => {
