@@ -18,7 +18,8 @@
  *   rebalances (D4).
  *
  * The bars stand in the frame's bottom panel, in the flow, so the page gives way
- * to them. Every gesture is one of the canvas's own session.
+ * to them. Every gesture is one of the canvas's own session. What the host draws
+ * over the grid (#1673) stands under the page's head.
  *
  * @packageDocumentation
  */
@@ -86,6 +87,8 @@ export interface SnapGridPhoneCanvasProps {
     readonly add: (card: { library: string; key: string }, drop: SnapGridDrop, narrows?: number) => string | undefined;
     readonly resize: (key: string, span: number, joins?: string) => boolean;
     readonly remove: (key: string) => void;
+    /** What the host draws over the grid (#1673): under the page's head. */
+    readonly head?: ReactNode | undefined;
 }
 
 /** A tile's twelve cells, its own columns lit (ST10). */
@@ -116,7 +119,7 @@ function PhoneFrame({ styles, fixed, children }: { styles: ReturnType<typeof use
  * @returns The page, and its bar in the frame's bottom panel
  */
 export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: SnapGridPhoneCanvasProps) {
-    const { rows, cellOf, savedSpans, selected, select, available, conflicted, words, storageKey, renderContent, register, options, placing, onPlacing, move, add, resize, remove } = props;
+    const { rows, cellOf, savedSpans, selected, select, available, conflicted, words, storageKey, renderContent, register, options, placing, onPlacing, move, add, resize, remove, head } = props;
     const styles = useSlotStyles("snapGridPhone");
     const m = words.m;
     const panel = useContext(FrameBottomPanel);
@@ -311,6 +314,7 @@ export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: Snap
                         {options.title !== undefined && <Box as="span" css={styles.title}>{options.title}</Box>}
                     </Box>
                 )}
+                {head !== undefined && <Box css={styles.pageHead} data-snap-grid-head="">{head}</Box>}
                 <Box css={styles.rows}>
                     {rows.length === 0 && placingNow === undefined && (
                         <Box css={styles.empty} data-snap-grid-empty="">
