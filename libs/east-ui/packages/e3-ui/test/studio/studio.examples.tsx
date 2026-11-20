@@ -733,8 +733,7 @@ export const orderFields = {
  * The Visuals page's placements: the quarter's revenue against its goal and
  * a year ago, and its orders against the quarter before, and a donut; the
  * series charts, the combo and the scatter; the list; the summary and the
- * pivot; the records; and two that cannot draw yet — a chart with no value,
- * and a KPI of a field its source lacks.
+ * pivot; and the records.
  */
 const visualCells = [
     { key: "v-revenue", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({
@@ -761,8 +760,6 @@ const visualCells = [
         rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
     })) },
     { key: "v-records", row: "r6", span: 12n, height: some(320n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true })) },
-    { key: "v-empty", row: "r7", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("region"), values: [] })) },
-    { key: "v-missing", row: "r7", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("net_revenue") })) },
 ];
 
 /**
@@ -793,7 +790,7 @@ export const studioVisuals = example({
         "Studio", "Studio.Page", "Studio.visual", "visual", "KPI", "goal", "trend", "chart", "column", "bar", "line", "area", "combo", "scatter",
         "pie", "donut", "list", "ranking bar", "table", "records", "summary", "total", "pivot", "heat", "Studio.source", "Data.bind",
     ],
-    description: "Every form a visual draws, on a published page over two years of orders, every reader starting in the latest quarter — the page's starting filter on the orders' dates, its window: the quarter's revenue as a KPI with its goal, its change on a year ago (`period: \"year_ago\"`) and its trend, and its orders' count against the quarter before (`period: \"previous\"`); a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; the latest orders, a page at a time; and two tiles that say why they cannot draw — a chart with no value yet, and a KPI of a field its source lacks",
+    description: "Every form a visual draws, on a published page over two years of orders, every reader starting in the latest quarter — the page's starting filter on the orders' dates, its window: the quarter's revenue as a KPI with its goal, its change on a year ago (`period: \"year_ago\"`) and its trend, and its orders' count against the quarter before (`period: \"previous\"`); a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; and the latest orders, a page at a time",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pages = $.let(Data.bind(studioVisualPages));

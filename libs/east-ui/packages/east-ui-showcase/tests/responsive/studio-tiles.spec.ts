@@ -6,7 +6,8 @@
 /**
  * The Studio's visual tiles against their designed mocks, measured in a real
  * browser (#1671): each part as the spec draws it, on the showcase's page of
- * every form a visual draws.
+ * every form a visual draws — and, where a tile that cannot draw is read, two
+ * such tiles the spec writes after the page's own (`./studio-visuals-page.ts`).
  *
  *  - T1 a tile's menu is a bare 24 × 24 icon button at the eyebrow's end: no
  *    border, no fill, its ellipsis 14px in the muted ink (TIL-2) — and it and
@@ -69,7 +70,7 @@ test.describe("Studio tiles, as designed (#1671)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
     test("T1: a tile's menu is a bare 24 × 24 icon button — no border, no fill, a 14px ellipsis in the muted ink", async ({ page }) => {
-        const grid = await openVisuals(page, "light");
+        const grid = await openVisuals(page, "light", { cannotDraw: true });
         const menus = await grid.evaluate((root) => {
             const probe = document.createElement("span");
             probe.style.color = "var(--chakra-colors-fg-muted)";
@@ -370,7 +371,7 @@ test.describe("Studio tiles, as designed (#1671)", () => {
     });
 
     test("T6: a tile that cannot draw says why as its mock does — the checklist of the wells it needs, a field its source lacks — and a drawn tile's meta says what it groups by", async ({ page }) => {
-        const grid = await openVisuals(page, "light");
+        const grid = await openVisuals(page, "light", { cannotDraw: true });
         const read = await grid.evaluate((root) => {
             const themed = (property: "color" | "backgroundColor" | "fontFamily", token: string) => {
                 const probe = document.createElement("span");

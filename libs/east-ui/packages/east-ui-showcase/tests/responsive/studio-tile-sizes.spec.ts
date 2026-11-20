@@ -35,23 +35,15 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
-import { PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
-import * as studio from "@elaraai/e3-ui/examples/studio/studio";
-import { installE3Faults, mutateE3 } from "./e3-faults";
+import { installE3Faults } from "./e3-faults";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { HASH, writeVisuals, type Cells } from "./studio-visuals-page";
 
 /** The widths a page's grid is read at: a wide desktop's, through the grid's half and whole tiers, to a phone's. */
 const WIDTHS = [1800, 1600, 1440, 1320, 1200, 1120, 1040, 960, 900, 800, 700, 600, 520, 480, 440, 390, 360, 320] as const;
-
-/** The showcase's page of visuals, over which the spec writes its own. */
-const HASH = "e3/studio/studio/studioVisuals";
-
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
-/** A page's placements. */
-type Cells = ValueTypeOf<typeof Studio.Types.Page>["cells"];
 
 const vis = Studio.visual;
 
@@ -156,26 +148,8 @@ const DONUT_SIZES: TilePage = {
 };
 
 /**
- * Writes a page of tiles over the page of visuals, as another session's publish would: its draft and its live
- * version, through its pages record's patch.
- *
- * @param page - The browser's page
- * @param cells - The page's placements
- */
-async function writePage(page: Page, cells: Cells): Promise<void> {
-    const { type, name, default: seeded } = studio.studioVisualPages;
-    if (seeded === undefined) throw new Error("the visuals' pages are seeded");
-    const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
-    const written = { title: "Tiles", cells, filters: [] };
-    const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => [
-        key, entry.type === "page" ? variant("page", { draft: written, live: some({ version: 2n, page: written }) }) : entry,
-    ]), compareFor(Studio.Types.Key));
-    await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
-}
-
-/**
  * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
- * rest.
+ * rest: the page's tiles alone, with no starting filter.
  *
  * @param page - The browser's page
  * @param at - The page of tiles
@@ -190,7 +164,7 @@ async function openTiles(page: Page, at: TilePage): Promise<Locator> {
     await entry.scrollIntoViewIfNeeded();
     const grid = entry.locator("[data-snap-grid]").first();
     await expect(grid).toBeVisible({ timeout: 30_000 });
-    await writePage(page, at.cells);
+    await writeVisuals(page, () => ({ title: "Tiles", cells: at.cells, filters: [] }));
     // e3 in the page answers each tile's programs: every tile drawn.
     await expect.poll(() => grid.evaluate((root, drawn) => root.querySelectorAll(drawn).length, at.drawn), { timeout: 120_000 }).toBe(at.tiles);
     await settled(page);
