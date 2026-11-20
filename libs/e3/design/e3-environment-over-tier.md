@@ -76,7 +76,8 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   no `__init__` module: its namespace packages, whose parts an environment
   may leave to the tier singly (section 7).
 - A manifest's **digest** is the SHA-256 of its bytes.
-- The node and C tiers write none: this change is python environments.
+- The node and C tiers write none: this change is python environments. The
+  node tier's came later, in a form of its own (section 10).
 
 ### 3.2 What makes two distributions the same
 
@@ -604,3 +605,131 @@ rack that names the digest honestly is asked, and its text kept (8.3).
 - The hub: a rack that sent a text that was not the bytes of its digest is not
   asked again, and another that names the digest is; a text refused for its
   own bytes is asked of no rack.
+
+## 10. Node environments over the node tier (#1697)
+
+Status: **built**, as decision 6 of section 5 left for later: East's node
+packages a node environment uses come from the image the work runs on, and are
+not sent.
+
+### 10.1 The problem, in numbers
+
+The `node` tier's image (`Dockerfile.east-node`) holds East's node packages,
+installed globally: `@elaraai/east`, `east-node-std`, `east-node-io`,
+`east-node-cli` and `east-ui`. `east-node-io` alone is 83 MB installed, most
+of it the AWS SDK, MongoDB and the other clients it brings. A node environment
+was built whole, from the project's `npm ci`, so each was packed and sent with
+every environment.
+
+A project create-e3 1.0.111 scaffolds with one node platform package
+(`--runners=east-node --node-packages=pricing`): its environment packs to
+44.2 MB whole, and to 28.4 MB over the image, 195 packages left to it (10.7).
+
+### 10.2 A node image says what it holds: form 2
+
+```json
+{ "node": { "packages": [{ "name": "@elaraai/east", "version": "1.0.111" }, …],
+            "registry": "https://registry.npmjs.org/", "root": "/usr/local/lib/node_modules", "version": "22.23.5" },
+  "version": 2 }
+```
+
+- Written to `/opt/e3/tier-manifest.json` by `tier-manifest.mjs`, a file of
+  `@elaraai/e3-core` beside `tier-manifest.py` (Node's standard library
+  alone), as the east-node image's last step. It asks npm the global
+  directory and the registry from the root of the file system, so no
+  project's settings are read as the image's. `packages` is each directory of
+  the global `@elaraai` scope, by the name and version its manifest gives,
+  sorted; a link is none, as no registry installed it.
+- Form 2 holds a section for each runtime the image holds, `python` and
+  `node`, each optional. e3-core reads both forms into one `TierManifest` of
+  optional sections; the python ones' fields are the same, in their section.
+- The python images keep writing form 1: an agent whose e3-core reads form 1
+  alone keeps composing python environments over them, and leaves a node
+  image out of what it reports, so it is answered whole node environments.
+
+### 10.3 What makes two East packages the same
+
+Name, version, and where the lock resolved it from: an entry
+`node_modules/@elaraai/<name>` of the lock, its name what its path says, whose
+`resolved` is the tarball the tier's registry serves of that version
+(`registryTarball`), at a version the tier holds (`nodeTierHolds`). A
+published npm version is immutable, so no file is compared, and no pins are
+needed: Node finds each package's dependencies from where that package is, so
+the image's East packages bring the image's own, while the project's code
+keeps the versions its lock chose. An alias, a path, a repository, another
+registry, another version: the project's own, and it ships.
+
+### 10.4 The build leaves out what the tier has
+
+`materializeEnvironmentFor` builds a node environment over a tier that holds
+Node when npm locked it (`environmentFitsTier`; a pnpm lock lays its tree out
+otherwise, and is built whole). It installs the environment whole, as today,
+the project's tarballs included, and then reads npm's account of the tree it
+installed (`node_modules/.package-lock.json`: each package by its path, where
+it came from, and what it needs):
+
+1. Each East package the tier holds the same (10.3) is left to the tier: it is
+   removed, and named, with where it was, in the environment's
+   `.e3-tier-links.json`.
+2. What each package needs is found as Node finds it: the nearest
+   `node_modules/<dependency>` above it, a link followed. Each package
+   reached from what the left ones need, and not from the project's own
+   packages (the root, each workspace member, each package installed from
+   the project's tarballs), is removed: the image's copy of a left package
+   finds its own where it is.
+3. A package the graph reaches from neither stays. A link npm made in a
+   `.bin` directory to what was removed goes; one to a left package stays,
+   and leads to the image's once that is linked. npm's account of the tree
+   goes too, as it is the tree's no longer.
+
+### 10.5 The agent composes it over the image
+
+`composeEnvironmentOverTier(envDir, manifest)` takes the image's whole
+manifest, and composes either kind: an environment that holds
+`.e3-tier-links.json` is a node one, and each package it names is linked
+where it was to `<root>/<name>` of the image's Node, once the image is found
+to hold every one at its version (refused otherwise, before any link is
+made). Any other is a python environment, whose interpreter is linked as
+before. Node loads the image's copy from its real path, so the project's code
+and the runner load one copy of East: two copies make equal East types compare
+unequal, which is why the image collapses its own nested copies.
+
+### 10.6 The protocol does not change
+
+A rack reports its node tier in `tiers`, its manifest's digest and its text,
+as for a python tier; `environments-over-tier` covers both kinds; a node
+environment's layer manifest says `over: { tier, manifest }` as a python
+one's does. A source that builds an image over a tier image for a task (a
+function or container image) applies the same rule over that image's
+manifest.
+
+### 10.7 What the real image showed
+
+The east-node image built from this change's Dockerfile at 1.0.111 writes the
+manifest above. The scaffold of 10.1, captured as an export captures it and
+built over that manifest, left 195 packages to the image: the four East
+packages it depends on and what only they need (`east-node-io`'s clients, and
+the TypeScript `@elaraai/east` takes as a peer). What still ships is the
+workspace root's own: its development dependencies (`@elaraai/e3-cli`, which
+brings `e3-core` and `e3-rack`; two TypeScripts; esbuild) and `@elaraai/e3`
+and `e3-types`, which the east-node image, AGPL, does not hold. A node
+workspace member's environment installs its root's dependencies, which a
+python member's stopped doing in #1654. Composed over the image and run in it
+(`east-node run`, from the environment's `.bin`: the image's CLI), a program
+calling the scaffold's own platform function returned its value, and East was
+loaded once, from the image.
+
+### 10.8 Tests
+
+- e3-core: `nodeTierShare` over trees (what is left, removed and kept; another
+  version, a path, a repository, another registry and an alias ship; a left
+  package nested under the project's, and one under a removed package; a
+  workspace member's development dependencies); a real `npm ci` against a
+  registry of the test's own, built over an image of East's packages,
+  packed, unpacked and composed, the project loading the image's East once,
+  and a workspace; the compose's refusals (a package the image does not hold,
+  an image with no Node, a links file that names what is no package of the
+  environment); form 2, and the script's bytes.
+- e3-rack: a node environment over a node tier, from hub to agent.
+- The images: the east-node image's manifest names East's five packages, at
+  the release's version.

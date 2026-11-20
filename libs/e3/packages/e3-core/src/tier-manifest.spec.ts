@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -14,10 +14,10 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { canonicalPythonName } from '@elaraai/e3';
 import {
-  installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, readTierManifest, recordedSiteFiles, tierHolds,
-  tierImports, tierManifestDigest, type InstalledDistribution, type TierManifest,
+  installedFilesDigest, leftToTier, nodeTierHolds, pythonMinor, pythonSatisfies, readDistributionMetadata, readTierManifest, recordedSiteFiles,
+  registryTarball, tierHolds, tierImports, tierManifestDigest, type InstalledDistribution, type NodeTier, type PythonTier,
 } from './tier-manifest.js';
-import { tierManifestOf, uvOnPath } from './test-helpers.js';
+import { nodeTierManifestOf, tierManifestOf, uvOnPath, writeNodePackages } from './test-helpers.js';
 
 const RECORD = [
   '../../../bin/idna,sha256=SYIN4TtFm5oeBgQEc2JCs68aY26k012xrN4Kmu6WEsw,354',
@@ -35,6 +35,10 @@ const TIER_PYTHON = { version: '3.11.2', executable: '/opt/venv/bin/python', bas
 
 /** The script a tier image writes its manifest with: a file of this package. */
 const SCRIPT = fileURLToPath(new URL('../../tier/tier-manifest.py', import.meta.url));
+
+/** A node runtime image's Node, as its script writes it. */
+const TIER_NODE = { packages: [{ name: '@elaraai/east', version: '1.0.111' }, { name: '@elaraai/east-node-io', version: '1.0.111' }],
+  registry: 'https://registry.npmjs.org/', root: '/usr/local/lib/node_modules', version: '22.23.5' };
 
 describe('a tier manifest', () => {
   it('digests the files a distribution installed, and not how it was installed', () => {
@@ -79,26 +83,39 @@ describe('a tier manifest', () => {
   });
 
   it('says a tier holds a distribution only of that name, that version and the same files', () => {
-    const manifest: TierManifest = { version: 1, python: TIER_PYTHON, namespaces: [],
+    const tier: PythonTier = { ...TIER_PYTHON, namespaces: [],
       distributions: [{ name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }, { name: 'elaraai-east-py', version: '1.0.109', files: 'sha256:bb' }] };
-    assert.equal(tierHolds(manifest, { name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }), true);
-    assert.equal(tierHolds(manifest, { name: 'Elaraai_East.Py', version: '1.0.109', files: 'sha256:bb' }), true, 'by its PEP 503 name');
-    assert.equal(tierHolds(manifest, { name: 'torch', version: '2.9.0+cpu', files: 'sha256:aa' }), false, 'a local label is part of the version');
-    assert.equal(tierHolds(manifest, { name: 'torch', version: '2.9.0+cu130', files: 'sha256:cc' }), false, 'never by name and version alone');
-    assert.equal(tierHolds(manifest, { name: 'numpy', version: '2.0.0', files: 'sha256:aa' }), false);
+    assert.equal(tierHolds(tier, { name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }), true);
+    assert.equal(tierHolds(tier, { name: 'Elaraai_East.Py', version: '1.0.109', files: 'sha256:bb' }), true, 'by its PEP 503 name');
+    assert.equal(tierHolds(tier, { name: 'torch', version: '2.9.0+cpu', files: 'sha256:aa' }), false, 'a local label is part of the version');
+    assert.equal(tierHolds(tier, { name: 'torch', version: '2.9.0+cu130', files: 'sha256:cc' }), false, 'never by name and version alone');
+    assert.equal(tierHolds(tier, { name: 'numpy', version: '2.0.0', files: 'sha256:aa' }), false);
     assert.equal(canonicalPythonName('Typing_Extensions'), 'typing-extensions');
   });
 
-  it('reads a manifest of the form it knows, and refuses any other by what is wrong with it', () => {
+  it('says a node tier holds a package only of that name and version, resolved from the registry it installed its own from', () => {
+    const tier: NodeTier = TIER_NODE;
+    const east = 'https://registry.npmjs.org/@elaraai/east/-/east-1.0.111.tgz';
+    assert.equal(registryTarball('https://registry.npmjs.org/', '@elaraai/east', '1.0.111'), east);
+    assert.equal(registryTarball('http://127.0.0.1:4873/', 'left-pad', '1.3.0'), 'http://127.0.0.1:4873/left-pad/-/left-pad-1.3.0.tgz', 'unscoped');
+    assert.equal(nodeTierHolds(tier, { name: '@elaraai/east', version: '1.0.111', resolved: east }), true);
+    assert.equal(nodeTierHolds(tier, { name: '@elaraai/east', version: '1.0.110', resolved: east.replaceAll('111', '110') }), false, 'another version');
+    assert.equal(nodeTierHolds(tier, { name: '@elaraai/east-node-std', version: '1.0.111', resolved: east.replaceAll('east', 'east-node-std') }), false, 'one it does not hold');
+    for (const resolved of ['https://mirror.example/@elaraai/east/-/east-1.0.111.tgz', 'file:vendor/east-1.0.111.tgz',
+      'git+ssh://git@github.com/elaraai/east.git#1.0.111', undefined]) {
+      assert.equal(nodeTierHolds(tier, { name: '@elaraai/east', version: '1.0.111', resolved }), false, `resolved from ${resolved}`);
+    }
+  });
+
+  it('reads a manifest of a form it knows, and refuses any other by what is wrong with it', () => {
     const bytes = new TextEncoder().encode(JSON.stringify({ version: 1, python: TIER_PYTHON, namespaces: ['cuda', 'nvidia'],
       distributions: [{ name: 'Typing_Extensions', version: '4.12.2', files: 'sha256:aa' }] }));
-    assert.deepEqual(readTierManifest(bytes).distributions, [{ name: 'typing-extensions', version: '4.12.2', files: 'sha256:aa' }]);
-    assert.deepEqual(readTierManifest(bytes).python, TIER_PYTHON);
-    assert.deepEqual(readTierManifest(bytes).namespaces, ['cuda', 'nvidia']);
+    assert.deepEqual(readTierManifest(bytes), { python: { ...TIER_PYTHON, namespaces: ['cuda', 'nvidia'],
+      distributions: [{ name: 'typing-extensions', version: '4.12.2', files: 'sha256:aa' }] } }, 'a python image\'s form 1: its Python alone');
     assert.match(tierManifestDigest(bytes), /^sha256:[0-9a-f]{64}$/);
     const refused = (value: unknown, words: RegExp): void => { assert.throws(() => readTierManifest(new TextEncoder().encode(JSON.stringify(value))), words); };
     assert.throws(() => readTierManifest(new TextEncoder().encode('not json')), /is not JSON/);
-    refused({ version: 2 }, /not of the form this e3 reads/);
+    refused({ version: 3 }, /not of a form this e3 reads \(version 1 or 2\)/);
     refused({ version: 1 }, /names no interpreter/);
     refused({ version: 1, python: { ...TIER_PYTHON, executable: '' }, namespaces: [], distributions: [] }, /names no interpreter$/);
     refused({ version: 1, python: { version: '3.11.2', executable: '/p', site: '/s' }, namespaces: [], distributions: [] }, /names no base interpreter/);
@@ -121,7 +138,64 @@ describe('a tier manifest', () => {
     refused(python({ site: '/opt/venv/site\u0000' }), /site directory .* is not an absolute path/);
     refused(python({ executable: '/opt/venv/bin/python\r' }), /interpreter .* is not an absolute path/);
     for (const version of ['3.13.0rc1', '3.14.0a1+', '3.11.12']) {
-      assert.equal(readTierManifest(new TextEncoder().encode(JSON.stringify(python({ version })))).python.version, version);
+      assert.equal(readTierManifest(new TextEncoder().encode(JSON.stringify(python({ version })))).python?.version, version);
+    }
+  });
+
+  it('reads form 2, a section for each runtime the image holds, and refuses a node section by what is wrong with it', () => {
+    const read = (value: unknown) => readTierManifest(new TextEncoder().encode(JSON.stringify(value)));
+    assert.deepEqual(read({ node: TIER_NODE, version: 2 }), { node: TIER_NODE }, 'a node image\'s: its Node alone');
+    const pythonSection = { ...TIER_PYTHON, namespaces: ['nvidia'], distributions: [{ name: 'Six', version: '1.17.0', files: 'sha256:aa' }] };
+    assert.deepEqual(read({ node: TIER_NODE, python: pythonSection, version: 2 }),
+      { node: TIER_NODE, python: { ...pythonSection, distributions: [{ name: 'six', version: '1.17.0', files: 'sha256:aa' }] } }, 'and both, in one image');
+    const refused = (value: unknown, words: RegExp): void => { assert.throws(() => read(value), words); };
+    refused({ version: 2 }, /names no runtime/);
+    refused({ version: 2, python: 'python3' }, /names no interpreter/);
+    refused({ version: 2, python: TIER_PYTHON }, /names no namespace packages/);
+    const node = (fields: Record<string, unknown>): unknown => ({ version: 2, node: { ...TIER_NODE, ...fields } });
+    refused({ version: 2, node: [] }, /names no Node$/);
+    for (const version of ['22', 'v22.23.5', '22.23.5\n', undefined]) refused(node({ version }), /Node version|names no Node version/);
+    for (const root of ['node_modules', '/usr/local/lib/node_modules\n', '']) refused(node({ root }), /node_modules root/);
+    for (const registry of ['https://registry.npmjs.org', 'ftp://registry.npmjs.org/', 'registry.npmjs.org/', 'https://registry .npmjs.org/']) {
+      refused(node({ registry }), /registry .* is not a registry's URL/);
+    }
+    refused(node({ packages: {} }), /lists no packages/);
+    for (const name of ['@elaraai/../../etc', '@Elaraai/east', '../east', '@elaraai/east/dist', '']) {
+      refused(node({ packages: [{ name, version: '1.0.0' }] }), /is not named as npm names one|names no package's name/);
+    }
+    refused(node({ packages: [{ name: '@elaraai/east', version: '1.0.0' }, { name: '@elaraai/east', version: '1.0.1' }] }), /lists the package @elaraai\/east twice/);
+    for (const version of ['1.0.0 ', '../1.0.0', '']) refused(node({ packages: [{ name: '@elaraai/east', version }] }), /is not a package's version|names no package's version/);
+  });
+
+  it('is written by a node image\'s script as this module reads it: each of East\'s packages in the global directory, by its name and version, the same bytes again',
+    { skip: process.platform === 'win32' ? 'a runtime image is Linux' : false }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'e3-node-tier-'));
+    try {
+      writeNodePackages(root, [{ name: '@elaraai/east-node-std', version: '1.0.111' }, { name: '@elaraai/east', version: '1.0.111' },
+        // Not one of East's
+        { name: 'typescript', version: '5.9.3' }]);
+      // A link no registry installed, and a directory that holds another package
+      symlinkSync(join(root, '@elaraai', 'east'), join(root, '@elaraai', 'east-linked'));
+      mkdirSync(join(root, '@elaraai', 'misplaced'));
+      writeFileSync(join(root, '@elaraai', 'misplaced', 'package.json'), JSON.stringify({ name: '@elaraai/east-ui', version: '1.0.111' }));
+      const text = nodeTierManifestOf(root, 'http://127.0.0.1:4873/');
+      assert.equal(nodeTierManifestOf(root, 'http://127.0.0.1:4873/'), text, 'the same image writes the same bytes, so its digest names it');
+      assert.ok(text.startsWith('{"node":{"packages":[') && text.endsWith('},"version":2}\n'), text);
+      assert.deepEqual(readTierManifest(Buffer.from(text)), { node: {
+        packages: [{ name: '@elaraai/east', version: '1.0.111' }, { name: '@elaraai/east-node-std', version: '1.0.111' }],
+        registry: 'http://127.0.0.1:4873/', root, version: process.versions.node,
+      } });
+      // A registry npm names without its last `/` is named with it
+      assert.equal(readTierManifest(Buffer.from(nodeTierManifestOf(root, 'http://127.0.0.1:4873'))).node?.registry, 'http://127.0.0.1:4873/');
+      // A directory with no scope of East's holds none of its packages
+      const bare = mkdtempSync(join(tmpdir(), 'e3-node-tier-bare-'));
+      try {
+        assert.deepEqual(readTierManifest(Buffer.from(nodeTierManifestOf(bare, 'https://registry.npmjs.org/'))).node?.packages, []);
+      } finally {
+        rmSync(bare, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -143,10 +217,10 @@ describe('a tier manifest', () => {
       { name: 'Own_Pkg', version: '0.1.0', record: record('own_pkg/__init__.py', 'own_pkg-0.1.0.dist-info/METADATA') },
     ].map((distribution) => ({ ...distribution, requires: [] }));
     // The tier names `nvidia` a namespace package, and it is none here: these distributions give it an `__init__` module
-    const held = (names: string[], version?: Record<string, string>): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'],
+    const held = (names: string[], version?: Record<string, string>): PythonTier => ({ ...TIER_PYTHON, namespaces: ['nvidia'],
       distributions: installed.filter(({ name }) => names.includes(name))
         .map(({ name, version: own, record: files }) => ({ name: canonicalPythonName(name), version: version?.[name] ?? own, files: installedFilesDigest(files) })) });
-    const left = (manifest: TierManifest): string[] => [...leftToTier(installed, manifest)].sort();
+    const left = (manifest: PythonTier): string[] => [...leftToTier(installed, manifest)].sort();
     assert.deepEqual(left(held([])), []);
     assert.deepEqual(left(held(['six', 'idna', 'nvidia-cublas', 'nvidia-cudnn'])), ['idna', 'nvidia-cublas', 'nvidia-cudnn', 'six'],
       'modules that share only the directory of compiled files are apart');
@@ -177,10 +251,10 @@ describe('a tier manifest', () => {
     ].map((distribution) => ({ ...distribution, requires: [] }));
     const names = installed.map(({ name }) => name);
     /** A tier that holds each of these but the ones named, and says which of its packages are namespace packages. */
-    const tier = (without: string[], namespaces: string[] = ['cuda', 'nvidia', 'outer']): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces,
+    const tier = (without: string[], namespaces: string[] = ['cuda', 'nvidia', 'outer']): PythonTier => ({ ...TIER_PYTHON, namespaces,
       distributions: installed.filter(({ name }) => !without.includes(name))
         .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) });
-    const shipped = (manifest: TierManifest): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
+    const shipped = (manifest: PythonTier): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
 
     assert.deepEqual(shipped(tier([])), [], 'all the tier\'s: all left');
     // xgboost's library, which nothing pins, is not the tier's: it ships, with the one that shares its directory, and no other of `nvidia/`
@@ -225,10 +299,10 @@ describe('a tier manifest', () => {
     ];
     const names = installed.map(({ name }) => name);
     /** A tier that holds each of these but the ones named. */
-    const tier = (without: string[]): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'],
+    const tier = (without: string[]): PythonTier => ({ ...TIER_PYTHON, namespaces: ['nvidia'],
       distributions: installed.filter(({ name }) => !without.includes(name))
         .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) });
-    const shipped = (manifest: TierManifest): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
+    const shipped = (manifest: PythonTier): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
 
     assert.deepEqual(shipped(tier([])), [], 'all the tier\'s: all left');
     // Another torch than the tier's: its libraries ship with it, theirs in turn, and what shares a directory with one;
@@ -256,7 +330,7 @@ describe('a tier manifest', () => {
       { name: 'nvidia-tools', version: '1', record: record('nvidia/_tools.cpython-311-x86_64-linux-gnu.so', 'nvidia_tools-1.dist-info/METADATA') },
     ].map((distribution) => ({ ...distribution, requires: [] }));
     // The tier holds all but nvidia-cublas, and names two namespace packages: one the environment holds no part of
-    const manifest: TierManifest = { version: 1, python: TIER_PYTHON, namespaces: ['google', 'nvidia'],
+    const manifest: PythonTier = { ...TIER_PYTHON, namespaces: ['google', 'nvidia'],
       distributions: installed.filter(({ name }) => name !== 'nvidia-cublas')
         .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) };
     assert.deepEqual(tierImports(installed, manifest), {
@@ -299,14 +373,16 @@ describe('a tier manifest', () => {
     assert.throws(() => pythonMinor('3'), /names no Python minor release/);
   });
 
-  it('ships its script as a file of this package, found by the package\'s own name', () => {
+  it('ships its scripts as files of this package, found by the package\'s own name', () => {
     // An image built elsewhere for a tier takes the script from the release's package
     const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { files: string[]; exports: Record<string, unknown> };
     assert.ok(manifest.files.includes('tier'), manifest.files.join(', '));
     assert.equal(manifest.exports['./tier/*'], './tier/*');
-    const script = createRequire(import.meta.url).resolve('@elaraai/e3-core/tier/tier-manifest.py');
-    assert.equal(realpathSync(script), realpathSync(fileURLToPath(new URL('../../tier/tier-manifest.py', import.meta.url))));
-    assert.match(readFileSync(script, 'utf8'), /^#!\/usr\/bin\/env python3\n/);
+    for (const [file, shebang] of [['tier-manifest.py', /^#!\/usr\/bin\/env python3\n/], ['tier-manifest.mjs', /^#!\/usr\/bin\/env node\n/]] as const) {
+      const script = createRequire(import.meta.url).resolve(`@elaraai/e3-core/tier/${file}`);
+      assert.equal(realpathSync(script), realpathSync(fileURLToPath(new URL(`../../tier/${file}`, import.meta.url))));
+      assert.match(readFileSync(script, 'utf8'), shebang);
+    }
   });
 
   it('is written by the image\'s script as this module reads and digests it: the same install, the same bytes',
@@ -318,37 +394,39 @@ describe('a tier manifest', () => {
         execFileSync('uv', ['pip', 'install', '--python', python, 'idna==3.10', 'six==1.17.0'], { stdio: 'ignore' });
         const bytes = Buffer.from(tierManifestOf(python));
         assert.deepEqual(Buffer.from(tierManifestOf(python)), bytes, 'the same image writes the same bytes, so its digest names it');
-        const manifest = readTierManifest(bytes);
-        assert.equal(manifest.python.executable, python);
+        const read = readTierManifest(bytes);
+        assert.equal(read.node, undefined, 'a python image\'s manifest is form 1, of its Python alone');
+        const manifest = read.python!;
+        assert.equal(manifest.executable, python);
         // The interpreter the virtualenv was made from, which one made over the tier runs
-        assert.equal(manifest.python.base, execFileSync(python, ['-c', 'import sys; print(sys._base_executable)'], { encoding: 'utf8' }).trim());
-        assert.notEqual(manifest.python.base, python);
+        assert.equal(manifest.base, execFileSync(python, ['-c', 'import sys; print(sys._base_executable)'], { encoding: 'utf8' }).trim());
+        assert.notEqual(manifest.base, python);
         assert.deepEqual(manifest.distributions.map(({ name, version }) => `${name}==${version}`), ['idna==3.10', 'six==1.17.0']);
         // Its namespace packages: each directory of the site directory with no `__init__` module, which idna's is not
         assert.ok(!manifest.namespaces.includes('idna') && manifest.namespaces.every((name) => !name.endsWith('.dist-info') && name !== '__pycache__'),
           manifest.namespaces.join(', '));
         for (const [name, file] of [['zz_namespace', 'part/__init__.py'], ['aa_namespace', 'module.py'], ['ordinary', '__init__.py'], ['extension', '__init__.cpython-311-x86_64-linux-gnu.so']] as const) {
-          mkdirSync(join(manifest.python.site, name, ...file.split('/').slice(0, -1)), { recursive: true });
-          writeFileSync(join(manifest.python.site, name, file), '');
+          mkdirSync(join(manifest.site, name, ...file.split('/').slice(0, -1)), { recursive: true });
+          writeFileSync(join(manifest.site, name, file), '');
         }
-        const named = readTierManifest(Buffer.from(tierManifestOf(python))).namespaces;
+        const named = readTierManifest(Buffer.from(tierManifestOf(python))).python!.namespaces;
         assert.deepEqual(named.filter((name) => !manifest.namespaces.includes(name)), ['aa_namespace', 'zz_namespace'], 'sorted, and none that has an `__init__` module');
 
         // A runtime image's own shape: its packages in a virtualenv that the
         // system's interpreter made itself (`python3 -m venv /opt/venv`)
         const image = join(dir, 'image');
-        execFileSync(manifest.python.base, ['-m', 'venv', '--without-pip', image], { stdio: 'ignore' });
+        execFileSync(manifest.base, ['-m', 'venv', '--without-pip', image], { stdio: 'ignore' });
         const imagePython = join(image, 'bin', 'python');
         execFileSync('uv', ['pip', 'install', '--python', imagePython, 'idna==3.10'], { stdio: 'ignore' });
-        const made = readTierManifest(Buffer.from(tierManifestOf(imagePython)));
+        const made = readTierManifest(Buffer.from(tierManifestOf(imagePython))).python!;
         const home = /^home\s*=\s*(.*?)\s*$/m.exec(readFileSync(join(image, 'pyvenv.cfg'), 'utf8'))![1]!;
-        assert.equal(made.python.executable, imagePython);
+        assert.equal(made.executable, imagePython);
         // The interpreter that made it, in the directory the virtualenv calls its home: what an
         // environment built over this tier names as its own home, where the standard library is found
-        assert.ok(!made.python.base.startsWith(image), made.python.base);
-        assert.equal(realpathSync(dirname(made.python.base)), realpathSync(home));
-        assert.ok(made.python.site.startsWith(join(image, 'lib')) && made.python.site.endsWith('site-packages'), made.python.site);
-        assert.equal(made.python.version, manifest.python.version);
+        assert.ok(!made.base.startsWith(image), made.base);
+        assert.equal(realpathSync(dirname(made.base)), realpathSync(home));
+        assert.ok(made.site.startsWith(join(image, 'lib')) && made.site.endsWith('site-packages'), made.site);
+        assert.equal(made.version, manifest.version);
         assert.deepEqual(made.distributions.map(({ name, version }) => `${name}==${version}`), ['idna==3.10']);
 
         // The distributions of its site directory alone, which an environment
@@ -359,25 +437,25 @@ describe('a tier manifest', () => {
         writeFileSync(join(elsewhere, 'elsewhere-1.0.dist-info', 'RECORD'), 'elsewhere.py,sha256=x,1\nelsewhere-1.0.dist-info/RECORD,,\n');
         const out = join(dir, 'manifest.json');
         execFileSync(imagePython, [SCRIPT, out], { env: { ...process.env, PYTHONPATH: elsewhere } });
-        assert.deepEqual(readTierManifest(readFileSync(out)).distributions.map(({ name }) => name), ['idna']);
+        assert.deepEqual(readTierManifest(readFileSync(out)).python!.distributions.map(({ name }) => name), ['idna']);
         // One that names no version is passed over, as one with no record is, and the manifest is read whole
-        const unversioned = join(made.python.site, 'noversion-0.dist-info');
+        const unversioned = join(made.site, 'noversion-0.dist-info');
         mkdirSync(unversioned);
         writeFileSync(join(unversioned, 'METADATA'), 'Metadata-Version: 2.1\nName: noversion\n');
         writeFileSync(join(unversioned, 'RECORD'), 'noversion.py,sha256=z,1\nnoversion-0.dist-info/RECORD,,\n');
         execFileSync(imagePython, [SCRIPT, out]);
-        assert.deepEqual(readTierManifest(readFileSync(out)).distributions.map(({ name }) => name), ['idna']);
+        assert.deepEqual(readTierManifest(readFileSync(out)).python!.distributions.map(({ name }) => name), ['idna']);
         // Two of one name in it, which no install makes: which files are whose cannot be told, so neither is the tier's
-        const twice = join(made.python.site, 'idna-9.9.dist-info');
+        const twice = join(made.site, 'idna-9.9.dist-info');
         mkdirSync(twice);
         writeFileSync(join(twice, 'METADATA'), 'Metadata-Version: 2.1\nName: IDNA\nVersion: 9.9\n');
         writeFileSync(join(twice, 'RECORD'), 'idna/__init__.py,sha256=y,2\nidna-9.9.dist-info/RECORD,,\n');
         execFileSync(imagePython, [SCRIPT, out]);
-        assert.deepEqual(readTierManifest(readFileSync(out)).distributions, []);
+        assert.deepEqual(readTierManifest(readFileSync(out)).python!.distributions, []);
         // This module's digest of each installed distribution is the script's
         for (const held of manifest.distributions) {
-          const info = readdirSync(manifest.python.site).find((entry) => entry.endsWith('.dist-info') && canonicalPythonName(entry).startsWith(`${held.name}-`))!;
-          assert.equal(installedFilesDigest(readFileSync(join(manifest.python.site, info, 'RECORD'), 'utf8')), held.files, held.name);
+          const info = readdirSync(manifest.site).find((entry) => entry.endsWith('.dist-info') && canonicalPythonName(entry).startsWith(`${held.name}-`))!;
+          assert.equal(installedFilesDigest(readFileSync(join(manifest.site, info, 'RECORD'), 'utf8')), held.files, held.name);
         }
       } finally {
         rmSync(dir, { recursive: true, force: true });

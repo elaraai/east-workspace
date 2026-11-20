@@ -140,8 +140,11 @@ export {
   isTransientFsError,
 } from './storage/local/localHelpers.js';
 
-// An environment's layers composed where they run, by any rack agent
-export { ENVIRONMENT_LAYER_ROOT, composeEnvironmentOverTier, environmentLinkInside, unpackEnvironmentLayer } from './environment-layer-unpack.js';
+// An environment's layers composed where they run, by any rack agent, over
+// the tier they were built over
+export {
+  ENVIRONMENT_LAYER_ROOT, NODE_TIER_LINKS, composeEnvironmentOverTier, environmentLinkInside, unpackEnvironmentLayer, type NodeTierLink,
+} from './environment-layer-unpack.js';
 
 // A local repository's kept environment layers: an environment installed for
 // a rack's platform, packed as the layers the rack composes it from
@@ -327,9 +330,9 @@ export {
 // And a stored value written out to a file, a segment or a range at a time
 export { writeOutputFile, type WriteOutputFileOptions } from './storage/local/output-file.js';
 export {
-  installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, readTierManifest, recordedSiteFiles, tierHolds,
-  tierManifestDigest,
-  type InstalledDistribution, type RecordedFile, type TierDistribution, type TierManifest,
+  installedFilesDigest, leftToTier, nodeTierHolds, pythonMinor, pythonSatisfies, readDistributionMetadata, readTierManifest, recordedSiteFiles,
+  registryTarball, tierHolds, tierManifestDigest,
+  type InstalledDistribution, type NodeTier, type PythonTier, type RecordedFile, type TierDistribution, type TierManifest, type TierPackage,
 } from './tier-manifest.js';
 export {
   datasetAdoptObject,

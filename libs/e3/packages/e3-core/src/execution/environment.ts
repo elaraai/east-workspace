@@ -30,7 +30,9 @@
  * ({@link EnvironmentTargetRefused}). A python environment then carries an
  * interpreter of its own, so it runs wherever its tree is put; or it is built
  * over the tier its rack boots it over, without the interpreter and without
- * each distribution the tier's image holds the same (#1655).
+ * each distribution the tier's image holds the same (#1655). A node
+ * environment built over a tier is without East's packages the image holds,
+ * and what only they need (#1697).
  *
  * And an environment built ahead of the call that declares it is placed where
  * this module looks for one. A directory already at `<repo>/envs/<hash>` is
@@ -57,7 +59,7 @@ import { isObjectHash } from '../objects.js';
 import { pythonSatisfies, type TierManifest } from '../tier-manifest.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
-import { buildNode, buildPython, buildTools, buildWorkspaceNode, readFile } from './environment-build.js';
+import { buildNode, buildPython, buildTools, buildWorkspaceNode, nodeLockFilename, readFile } from './environment-build.js';
 import {
   EnvironmentTargetRefused, targetPlatformOf, type EnvironmentTarget, type TargetEnvironment, type TargetParts,
 } from './environment-target.js';
@@ -279,13 +281,17 @@ export async function materializeEnvironment(
  * - a node or workspace environment's dependencies are the platform's, and
  *   the project's own packages must hold no native addon.
  *
- * With `target.over`, a python environment is built over that tier instead:
- * its virtualenv is of the tier's Python, what the tier's image holds the
- * same is left to it, and it carries no interpreter. It runs once the agent
- * that composes it over the tier has linked the tier's interpreter
- * (`composeEnvironmentOverTier`). Every distribution is still installed here
- * first, which is how one is told to be the tier's; builds over tiers of one
- * Python that run together share that install.
+ * With `target.over`, an environment is built over that tier instead. A
+ * python environment's virtualenv is of the tier's Python, what the tier's
+ * image holds the same is left to it, and it carries no interpreter. It runs
+ * once the agent that composes it over the tier has linked the tier's
+ * interpreter (`composeEnvironmentOverTier`). Every distribution is still
+ * installed here first, which is how one is told to be the tier's; builds
+ * over tiers of one Python that run together share that install. A node
+ * environment is installed whole, and then each of East's packages its lock
+ * resolved from the registry at a version the tier's image holds is left to
+ * the tier, with every package only they need: the agent links each to the
+ * image's copy.
  *
  * The tree is not this machine's to run, and is not cached: its caller packs
  * it. It may be put anywhere, as the links in it are relative. Every install
@@ -337,9 +343,10 @@ export async function materializeEnvironmentFor(
       `${named} is not installed for ${target.platform} on Windows, where a built environment has another layout`);
   }
   const platform = targetPlatformOf(target.platform);
-  if (target.over !== undefined && !await fitsTier(storage, repo, spec, target.over)) {
-    throw new Error(`environment materialization: ${named} is not built over a tier of Python ${target.over.python.version}: ` +
-      'a python environment whose lock takes that Python is');
+  const over = target.over;
+  if (over !== undefined && !await fitsTier(storage, repo, spec, over)) {
+    throw new Error(`environment materialization: ${named} does not fit the tier it is asked to be built over: a python environment ` +
+      'whose lock takes the tier\'s Python does, and a node one locked by npm over a tier that holds Node');
   }
 
   const buildDir = path.resolve(dir);
@@ -354,13 +361,13 @@ export async function materializeEnvironmentFor(
     switch (spec.type) {
       case 'python':
       case 'workspace_python':
-        parts = await buildPython(storage, repo, spec, buildDir, settings, platform, target.over === undefined ? undefined : { tier: target.over, envHash });
+        parts = await buildPython(storage, repo, spec, buildDir, settings, platform, over?.python === undefined ? undefined : { tier: over.python, envHash });
         break;
       case 'node':
-        parts = await buildNode(storage, repo, spec, buildDir, settings, platform);
+        parts = await buildNode(storage, repo, spec, buildDir, settings, platform, over?.node);
         break;
       case 'workspace_node':
-        parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform), fromTier: null };
+        parts = await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform, over?.node);
         break;
     }
     if (settings.uid !== undefined || settings.gid !== undefined) await takeBack(buildDir);
@@ -373,17 +380,30 @@ export async function materializeEnvironmentFor(
 
 /** Whether a decoded environment fits a tier ({@link environmentFitsTier}). */
 async function fitsTier(storage: StorageBackend, repo: string, spec: EnvironmentSpec, tier: TierManifest): Promise<boolean> {
-  if (spec.type !== 'python' && spec.type !== 'workspace_python') return false;
-  // The lock's own account of the Pythons it was resolved for
-  const lock = (await readFile(storage, repo, spec.value.lock)).toString('utf-8');
-  const requires = /^requires-python\s*=\s*"([^"]*)"/m.exec(lock)?.[1];
-  return requires !== undefined && pythonSatisfies(tier.python.version, requires);
+  switch (spec.type) {
+    case 'python':
+    case 'workspace_python': {
+      if (tier.python === undefined) return false;
+      // The lock's own account of the Pythons it was resolved for
+      const lock = (await readFile(storage, repo, spec.value.lock)).toString('utf-8');
+      const requires = /^requires-python\s*=\s*"([^"]*)"/m.exec(lock)?.[1];
+      return requires !== undefined && pythonSatisfies(tier.python.version, requires);
+    }
+    case 'node':
+    case 'workspace_node':
+      // npm's lock: what is left to the tier is read from npm's account of
+      // the tree it installs, and pnpm lays one out otherwise
+      return tier.node !== undefined && nodeLockFilename(await readFile(storage, repo, spec.value.lock)) === 'package-lock.json';
+    default:
+      return false;
+  }
 }
 
 /**
  * Whether an environment can be built over a tier ({@link EnvironmentTarget.over}):
- * a python environment whose lock takes the tier's Python. Any other is
- * built whole, with an interpreter of its own.
+ * a python environment whose lock takes the tier's Python, and a node one
+ * that npm locked, over a tier that holds Node. Any other is built whole, a
+ * python one with an interpreter of its own.
  *
  * @param storage - Storage backend holding the spec and its files
  * @param repo - Repository path

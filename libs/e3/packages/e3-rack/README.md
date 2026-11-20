@@ -313,16 +313,36 @@ name, its version and the files it installed. It says so as it builds:
   [ENV] 3f9a2b1c0d4e built in 41 s: 2 layers, 6.2 MB (2 new), 31 distributions from the tier
 ```
 
+A node environment is built over the `node` tier's image the same way. That
+image holds East's node packages, installed globally (`@elaraai/east`,
+`east-node-std`, `east-node-io`, `east-node-cli`, `east-ui`), and this machine
+builds the environment without each of them that its lock resolved from the
+registry at the version the image holds, and without each package only they
+need: what `east-node-io` alone brings is most of a node environment's bytes.
+The rack links each one left out to the image's copy, which finds what it
+needs where it is, so the project's code and the runner load one copy of
+East. What the project's own packages need ships, at the versions its lock
+chose:
+
+```text
+  [ENV] 8c41e07a9b2d for x86_64-manylinux_2_28 over node: building
+  [ENV] 8c41e07a9b2d built in 9 s: 2 layers, 1.4 MB (2 new), 187 packages from the tier
+```
+
 | The rack, the environment | What is built |
 | --- | --- |
 | The rack reports `environments-over-tier` and its tier's image; a python environment whose lock takes the image's Python | Over that image: what the image lacks, and the project's own code. |
+| The rack reports `environments-over-tier` and its node tier's image; a node environment npm locked | Over that image: the project's own code and what it needs, without East's packages the image holds and what only they need. |
 | The rack reports `environments` alone | Whole, as above. |
 | The environment pins another version of something the image holds | Its own ships, and is found first. |
-| The lock's `requires-python` leaves out the image's Python; a node environment | Whole. |
+| A node environment's lock takes an East package from another registry, a path or a repository, or at another version than the image's | That package ships, as the project's own. |
+| The lock's `requires-python` leaves out the image's Python; a node environment pnpm locked | Whole. |
 | The rack's tier image changes | Built again over the new image, which is quick. |
 
 Every distribution is still downloaded here once, into uv's cache: that is
-how one is told to be the image's. It is neither packed nor sent.
+how one is told to be the image's. It is neither packed nor sent. A node
+environment is installed whole here too, before what is left to the image is
+removed from it.
 
 **For torch to stay in the tier, ask for it through the datascience package's
 extras.** A member that lists `elaraai-east-py-datascience[torch,lightning]`,
@@ -800,8 +820,17 @@ hello names `tier-manifests`, the manifest's text:
 
 ```json
 { "features": ["resources", "environments", "environments-over-tier"], "target": "x86_64-manylinux_2_28",
-  "tiers": { "py-datascience": { "digest": "sha256:c41d…", "manifest": "{\"distributions\":[…],\"namespaces\":[…],\"python\":{…},\"version\":1}\n" } } }
+  "tiers": { "py-datascience": { "digest": "sha256:c41d…", "manifest": "{\"distributions\":[…],\"namespaces\":[…],\"python\":{…},\"version\":1}\n" },
+             "node": { "digest": "sha256:5e07…", "manifest": "{\"node\":{\"packages\":[…],\"registry\":\"https://registry.npmjs.org/\",\"root\":\"/usr/local/lib/node_modules\",\"version\":\"22.23.5\"},\"version\":2}\n" } } }
 ```
+
+A python image's manifest is form 1, its Python alone (e3-core's
+`tier/tier-manifest.py` writes it). A node image's is form 2, a section for
+each runtime the image holds (`tier/tier-manifest.mjs`): its Node, the global
+`node_modules` directory, the registry it installed from, and each of East's
+packages there, by name and version. An agent reports only a manifest its
+e3-core reads: one whose e3-core reads form 1 alone leaves a node image out,
+and is answered whole node environments for it.
 
 The text goes with the agent's first heartbeat to the source, and then only
 with the heartbeat after an answer whose `x-e3-rack-tier-manifests-wanted`
@@ -815,15 +844,18 @@ not read the header may send the text every time, as agents did before it.
 A source keeps a manifest whose text is the bytes its digest names, for as
 long as a rack reports it, and builds an environment over it. The manifest
 such an agent is then answered may say `over: { "tier", "manifest" }`: its
-layers hold no interpreter and nothing that image holds. The agent composes
-them only over the image whose manifest has that digest, and then links the
-environment's interpreter to the image's with e3-core's
-`composeEnvironmentOverTier(<tree>, manifest.python.base)`: no layer holds a
-link that leads out of the environment, so that one link is the agent's to
-make. An agent that reports the feature is still answered a whole environment
-when its source built one: for an environment that does not fit the image,
-and for one whose build over the image failed, which its source then builds
-whole for the platform.
+layers hold nothing that image holds, and a python environment's no
+interpreter. The agent composes them only over the image whose manifest has
+that digest, and then links the environment to the image with e3-core's
+`composeEnvironmentOverTier(<tree>, readTierManifest(<the image's manifest>))`:
+a python environment's interpreter to the image's base interpreter, and each
+of East's packages a node environment left to the image, which its
+`.e3-tier-links.json` names, to `<root>/<name>` of the image's Node. No layer
+holds a link that leads out of the environment, so those links are the
+agent's to make. An agent that reports the feature is still answered a whole
+environment when its source built one: for an environment that does not fit
+the image, and for one whose build over the image failed, which its source
+then builds whole for the platform.
 
 A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
 "unit", "cores": 1, "memoryBytes": 3328599654, "reserveBytes": 2219066436,

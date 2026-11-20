@@ -19,17 +19,65 @@
  */
 
 import * as path from 'node:path';
-import { createWriteStream, promises as fs } from 'node:fs';
+import { createWriteStream, promises as fs, type Stats } from 'node:fs';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import { extract as tarExtract } from 'tar-stream';
+import { NPM_PACKAGE_NAME, type NodeTier, type PythonTier, type TierManifest } from './tier-manifest.js';
 
 /**
  * Where a guest finds a composed environment, relative to its root: every
  * entry of every layer is under it.
  */
 export const ENVIRONMENT_LAYER_ROOT = 'var/task/.e3-env';
+
+/**
+ * The file in which a node environment built over a tier names what it left
+ * to the tier: each of East's packages, where it was, by its name and
+ * version. The agent that composes the environment links each to the image's
+ * copy ({@link composeEnvironmentOverTier}).
+ */
+export const NODE_TIER_LINKS = '.e3-tier-links.json';
+
+/** One of East's packages a node environment built over a tier left to it. */
+export interface NodeTierLink {
+  /** Where it was, relative to the environment, `/` between its segments:
+   *  `node_modules/@elaraai/east` */
+  readonly path: string;
+  /** Its name */
+  readonly name: string;
+  /** Its version, which the tier holds */
+  readonly version: string;
+}
+
+/**
+ * Makes or finds each directory from `base` down to `dir` real: one that is
+ * not there is made, and a link or a file among them refuses.
+ *
+ * @param base - Where the walk starts, taken as it is
+ * @param dir - The directory, at or under `base`
+ * @param real - The directories found or made real already, which it adds to
+ * @param refused - The refusal of what is at a path and is not a directory
+ */
+async function realDirectory(base: string, dir: string, real: Set<string>, refused: (at: string) => Error): Promise<void> {
+  let at = base;
+  for (const segment of path.relative(base, dir).split(path.sep).filter((part) => part !== '')) {
+    at = path.join(at, segment);
+    if (real.has(at)) continue;
+    let stat;
+    try {
+      stat = await fs.lstat(at);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      await fs.mkdir(at);
+      real.add(at);
+      continue;
+    }
+    if (!stat.isDirectory()) throw refused(at);
+    real.add(at);
+  }
+}
 
 /**
  * The directories above a path, the nearest last.
@@ -107,24 +155,8 @@ export async function unpackEnvironmentLayer(layer: Readable, root: string): Pro
   const real = new Set<string>();
   const shown = (at: string): string => path.relative(base, at).split(path.sep).join('/');
   /** Makes or finds each directory down to `dir` real, refusing a link or a file among them. */
-  const realDirectory = async (dir: string, entry: string): Promise<void> => {
-    let at = base;
-    for (const segment of path.relative(base, dir).split(path.sep).filter((part) => part !== '')) {
-      at = path.join(at, segment);
-      if (real.has(at)) continue;
-      let stat;
-      try {
-        stat = await fs.lstat(at);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-        await fs.mkdir(at);
-        real.add(at);
-        continue;
-      }
-      if (!stat.isDirectory()) throw new Error(`environment layers: the entry '${entry}' is at or under '${shown(at)}', which is not a directory`);
-      real.add(at);
-    }
-  };
+  const directory = (dir: string, entry: string): Promise<void> => realDirectory(base, dir, real,
+    (at) => new Error(`environment layers: the entry '${entry}' is at or under '${shown(at)}', which is not a directory`));
   /** Clears the way for a file or a link: what is at its path goes, unless a directory is. */
   const clear = async (dest: string, entry: string, directoryGoes: boolean): Promise<void> => {
     let stat;
@@ -152,19 +184,19 @@ export async function unpackEnvironmentLayer(layer: Readable, root: string): Pro
       }
       const dest = path.join(base, ...segments);
       if (header.type === 'directory') {
-        await realDirectory(dest, header.name);
+        await directory(dest, header.name);
         stream.resume();
       } else if (header.type === 'symlink' && inTree) {
         const linkname = header.linkname ?? '';
         if (!environmentLinkInside(name.slice(ENVIRONMENT_LAYER_ROOT.length + 1), linkname)) {
           throw new Error(`environment layers: the link '${header.name}' names '${linkname}', outside the environment or not as a layer writes one`);
         }
-        await realDirectory(path.dirname(dest), header.name);
+        await directory(path.dirname(dest), header.name);
         await clear(dest, header.name, true);
         await fs.symlink(linkname, dest);
         stream.resume();
       } else if (header.type === 'file' && inTree) {
-        await realDirectory(path.dirname(dest), header.name);
+        await directory(path.dirname(dest), header.name);
         await clear(dest, header.name, false);
         // Made new: a link that appeared at its path is not written through
         await pipeline(stream, createWriteStream(dest, { flags: 'wx', mode: ((header.mode ?? 0) & 0o111) !== 0 ? 0o755 : 0o644 }));
@@ -178,38 +210,60 @@ export async function unpackEnvironmentLayer(layer: Readable, root: string): Pro
 
 /**
  * Finishes an environment built over a tier, where it is composed over that
- * tier: links its virtualenv's `python` to the tier's base interpreter.
+ * tier: a python environment's virtualenv is linked to the tier's base
+ * interpreter, and each of East's packages a node environment left to the
+ * tier to the image's copy.
  *
  * @remarks
- * An environment built over a tier carries no interpreter, and no layer holds
- * a link that leads out of the environment: so the agent that composes it
- * makes the one link that does, once its layers are unpacked, to the
- * interpreter of the tier it boots it over. The environment's `pyvenv.cfg`
- * names that interpreter's directory as its `home`, written when it was
- * built from the tier's manifest; one that names another was built over
- * another tier, and is refused. Nothing is written through a link: the
- * virtualenv's directories are real, as the layers' unpacking leaves them.
+ * No layer holds a link that leads out of the environment: so the agent that
+ * composes it makes the links that do, once its layers are unpacked, into the
+ * image of the tier it boots it over. Nothing is written through a link: the
+ * directories on the way are real, as the layers' unpacking leaves them.
+ *
+ * A node environment is one that holds {@link NODE_TIER_LINKS}: each package
+ * it names is linked where it was to `<root>/<name>` of the tier's Node, once
+ * the tier is found to hold every one at its version. Node finds what the
+ * image's copy needs from where that copy is, so the project's code and the
+ * runner load one copy of East.
+ *
+ * Any other is a python environment, which carries no interpreter: its
+ * virtualenv's `python` is linked to the tier's base interpreter. Its
+ * `pyvenv.cfg` names that interpreter's directory as its `home`, written when
+ * it was built from the tier's manifest; one that names another was built
+ * over another tier, and is refused.
  *
  * @param envDir - The composed environment: `<root>/var/task/.e3-env`
- * @param interpreter - The tier's base interpreter, as its manifest names it
- *   (`python.base`): absolute, in the guest
- * @throws {Error} When the interpreter is not an absolute path, the
- *   virtualenv's directories are not real directories, or the environment
- *   was built over another interpreter
+ * @param tier - The manifest of the tier it is composed over
+ * @throws {Error} When the tier holds no runtime of the environment's kind,
+ *   or not a package the environment left to it at its version; when the
+ *   environment's directories are not real directories, its links file does
+ *   not read, or it was built over another interpreter
  *
  * @example
  * ```ts
  * for (const file of layers) await unpackEnvironmentLayer(createReadStream(file), root);
- * if (manifest.over !== undefined) await composeEnvironmentOverTier(path.join(root, ENVIRONMENT_LAYER_ROOT), tier.python.base);
+ * if (manifest.over !== undefined) await composeEnvironmentOverTier(path.join(root, ENVIRONMENT_LAYER_ROOT), readTierManifest(await readFile('/opt/e3/tier-manifest.json')));
  * ```
  */
-export async function composeEnvironmentOverTier(envDir: string, interpreter: string): Promise<void> {
+export async function composeEnvironmentOverTier(envDir: string, tier: TierManifest): Promise<void> {
+  const root = await fs.lstat(envDir).catch(() => null);
+  if (root === null || !root.isDirectory()) throw new Error(`environment layers: '${envDir}' is not a directory of an environment built over a tier`);
+  const links = await fs.lstat(path.join(envDir, NODE_TIER_LINKS)).catch(() => null);
+  if (links === null) await composePythonOverTier(envDir, tier.python);
+  else await composeNodeOverTier(envDir, links, tier.node);
+}
+
+/** Links a python environment's virtualenv to the tier's base interpreter
+ *  ({@link composeEnvironmentOverTier}). */
+async function composePythonOverTier(envDir: string, tier: PythonTier | undefined): Promise<void> {
+  if (tier === undefined) throw new Error('environment layers: the environment was built over a tier\'s Python, and the tier holds none');
+  const interpreter = tier.base;
   if (!path.posix.isAbsolute(interpreter) || interpreter.includes('\\')) {
     throw new Error(`environment layers: the tier's interpreter '${interpreter}' is not an absolute path`);
   }
   const venv = path.join(envDir, '.venv');
   const bin = path.join(venv, 'bin');
-  for (const dir of [envDir, venv, bin]) {
+  for (const dir of [venv, bin]) {
     const stat = await fs.lstat(dir).catch(() => null);
     if (stat === null || !stat.isDirectory()) throw new Error(`environment layers: '${dir}' is not a directory of an environment built over a tier`);
   }
@@ -223,4 +277,63 @@ export async function composeEnvironmentOverTier(envDir: string, interpreter: st
   // What is at its path goes, a link itself and never what it names
   await fs.rm(link, { recursive: true, force: true });
   await fs.symlink(interpreter, link);
+}
+
+/**
+ * Reads what a node environment built over a tier left to it: its
+ * {@link NODE_TIER_LINKS} file, which another machine wrote, so each path is
+ * checked to be a package's of the environment by its name.
+ *
+ * @internal
+ * @param text - The file's text
+ * @returns The packages, each where it was
+ * @throws {Error} When it does not read as one
+ */
+export function readNodeTierLinks(text: string): NodeTierLink[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error(`environment layers: ${NODE_TIER_LINKS} is not JSON`);
+  }
+  const links = (value as { links?: unknown } | null)?.links;
+  if (!Array.isArray(links)) throw new Error(`environment layers: ${NODE_TIER_LINKS} names no packages`);
+  const seen = new Set<string>();
+  return links.map((entry: unknown): NodeTierLink => {
+    const { path: where, name, version } = (entry ?? {}) as Record<string, unknown>;
+    const segments = typeof where === 'string' ? where.split('/') : [];
+    if (typeof where !== 'string' || typeof name !== 'string' || typeof version !== 'string' || version === '' || !NPM_PACKAGE_NAME.test(name)
+      || segments.some((segment) => segment === '' || segment === '.' || segment === '..' || segment.includes('\\'))
+      || !(where === `node_modules/${name}` || where.endsWith(`/node_modules/${name}`)) || seen.has(where)) {
+      throw new Error(`environment layers: ${NODE_TIER_LINKS} names ${JSON.stringify(entry)}, which is not a package of the environment`);
+    }
+    seen.add(where);
+    return { path: where, name, version };
+  });
+}
+
+/** Links each of East's packages a node environment left to the tier to the
+ *  image's copy ({@link composeEnvironmentOverTier}). */
+async function composeNodeOverTier(envDir: string, file: Stats, tier: NodeTier | undefined): Promise<void> {
+  if (!file.isFile()) throw new Error(`environment layers: ${NODE_TIER_LINKS} is not a file`);
+  if (tier === undefined) throw new Error('environment layers: the environment was built over a tier\'s Node, and the tier holds none');
+  if (!path.posix.isAbsolute(tier.root) || tier.root.includes('\\')) {
+    throw new Error(`environment layers: the tier's node_modules root '${tier.root}' is not an absolute path`);
+  }
+  const links = readNodeTierLinks(await fs.readFile(path.join(envDir, NODE_TIER_LINKS), 'utf-8'));
+  // Every one the tier's before any is linked: a refusal leaves the environment as its layers made it
+  for (const { name, version } of links) {
+    if (!tier.packages.some((held) => held.name === name && held.version === version)) {
+      throw new Error(`environment layers: the environment left ${name} ${version} to the tier, whose image does not hold it`);
+    }
+  }
+  const real = new Set<string>();
+  for (const link of links) {
+    const at = path.join(envDir, ...link.path.split('/'));
+    await realDirectory(envDir, path.dirname(at), real,
+      (dir) => new Error(`environment layers: '${link.path}' is under '${path.relative(envDir, dir).split(path.sep).join('/')}', which is not a directory`));
+    // What is at its path goes, a link itself and never what it names
+    await fs.rm(at, { recursive: true, force: true });
+    await fs.symlink(path.posix.join(tier.root, link.name), at);
+  }
 }

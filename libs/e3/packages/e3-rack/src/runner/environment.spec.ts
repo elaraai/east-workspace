@@ -12,18 +12,19 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { BlobType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { EnvironmentSpecType, TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, LocalStorage, LocalTaskRunner, datasetWrite, environmentLayerPath, hostEnvironmentPlatform, inputsHash, packageImport, packageRead,
   readEnvironmentManifest, readTierManifest, repoInit, tierManifestDigest, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
-import { tierManifestOf, uvOnPath } from '@elaraai/e3-core/test';
+import { nodeTierManifestOf, startTestRegistry, tierManifestOf, uvOnPath, withEnv, writeNodePackages } from '@elaraai/e3-core/test';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
@@ -228,11 +229,11 @@ it('builds an environment over the tier image a rack names, without what the ima
   // The rack composed it over its image: linked to the image's interpreter,
   // it finds its own six and the image's idna
   const composed = agent.composedAt(envHash);
-  assert.equal(await readlink(join(composed, '.venv', 'bin', 'python')), image.manifest.python.base);
+  assert.equal(await readlink(join(composed, '.venv', 'bin', 'python')), image.manifest.python!.base);
   assert.deepEqual((await readdir(composed)).sort(), ['.venv', 'pyproject.toml', 'uv.lock'], 'no interpreter of its own');
   const found = execFileSync(join(composed, '.venv', 'bin', 'python'), ['-c', 'import idna, six; print(idna.__file__); print(six.__file__)'],
     { encoding: 'utf8', cwd: tmpdir() }).trim().split('\n');
-  assert.equal(await realpath(found[0]!), await realpath(join(image.manifest.python.site, 'idna', '__init__.py')), 'the image\'s idna');
+  assert.equal(await realpath(found[0]!), await realpath(join(image.manifest.python!.site, 'idna', '__init__.py')), 'the image\'s idna');
   assert((await realpath(found[1]!)).startsWith(`${await realpath(composed)}/`), `its own six: ${found[1]!}`);
 
   // A second run builds nothing: the repository keeps the layers built over the image
@@ -242,6 +243,71 @@ it('builds an environment over the tier image a rack names, without what the ima
   assert.equal((await again).state, 'success');
   assert.equal(f.environments.length, 0);
 });
+
+it('builds a node environment over the tier image a rack names, without East\'s packages the image holds, and the rack composes it over that image and runs the work',
+  { skip: posix ? false : NOT_ON_WINDOWS }, async () => {
+    const f = await fixture();
+    const platform = hostEnvironmentPlatform();
+    assert(platform !== null, 'this machine is one an environment is installed for');
+    // A registry of the test's own: East as it serves it, what East alone needs, and what the project needs
+    const registry = await startTestRegistry([
+      { name: '@elaraai/east', version: '1.0.0', dependencies: { 'east-only': '1.0.0' }, files: { 'index.js': 'module.exports.where = "the registry";\n' } },
+      { name: 'east-only', version: '1.0.0', files: { 'index.js': 'module.exports = true;\n' } },
+      { name: 'own-dep', version: '1.0.0', files: { 'index.js': 'module.exports.mine = true;\n' } },
+    ]);
+    cleanup.push(() => registry.close());
+    // npm reads the registry this process serves: never with a call that holds the loop it answers on
+    const cache = join(f.home, 'npm-cache');
+    const npm = async (args: string[], cwd: string): Promise<string> => (await promisify(execFile)('npm', args,
+      { cwd, encoding: 'utf8', env: { ...process.env, npm_config_cache: cache, npm_config_registry: registry.url } })).stdout;
+
+    // A node project that depends on East and on a package of its own choosing, locked by npm
+    const project = join(f.home, 'node-project');
+    await mkdir(project);
+    await writeFile(join(project, 'package.json'), JSON.stringify({ name: 'e3-rack-tier-own', version: '1.0.0', main: 'index.js',
+      dependencies: { '@elaraai/east': '1.0.0', 'own-dep': '1.0.0' } }));
+    await writeFile(join(project, 'index.js'), 'module.exports = { east: require("@elaraai/east").where, own: require("own-dep").mine };\n');
+    await npm(['install', '--ignore-scripts', '--no-audit', '--no-fund'], project);
+    const [packed] = JSON.parse(await npm(['pack', '--json', '--pack-destination', project], project)) as [{ filename: string }];
+    const stored = (bytes: Uint8Array): Promise<string> => f.storage.objects.write(f.repo, encodeFile(bytes));
+    const envHash = await f.storage.objects.write(f.repo, encodeBeast2For(EnvironmentSpecType)(variant('node', {
+      packageJson: await stored(await readFile(join(project, 'package.json'))), lock: await stored(await readFile(join(project, 'package-lock.json'))),
+      tarballs: [await stored(await readFile(join(project, packed.filename)))],
+    })));
+
+    // The rack's image: East installed globally, the image's own copy, by the manifest its script writes
+    const root = join(f.home, 'image', 'node_modules');
+    writeNodePackages(root, [{ name: '@elaraai/east', version: '1.0.0', files: { 'index.js': 'module.exports.where = "the image";\n' } }]);
+    const text = nodeTierManifestOf(root, registry.url);
+    const image = { digest: tierManifestDigest(Buffer.from(text)), manifest: readTierManifest(Buffer.from(text)) };
+
+    const agent = await f.agent({ overTier: text });
+    const rack = await f.open();
+    const task = await f.declaring(envHash);
+    // The launching machine's installs read npm's cache of the test's own
+    await withEnv({ npm_config_cache: cache }, async () => {
+      const running = rack.runner.execute(f.storage, task, f.inputs, { taskName: 'length' });
+      const grant = await agent.claim(); assert(grant);
+      const remote = await agent.execute(grant); assert.equal(remote.status, 'success', remote.error);
+      const result = await running; assert.equal(result.state, 'success', result.error ?? '');
+    });
+    assert(f.placements.some((placed) => placed.kind === 'placed' && placed.where === 'rack')); assert(!f.placements.some(ranLocally));
+
+    // Built over the image, once: East, and what East alone needs, are the image's
+    assert.deepEqual(f.environments.map((event) => [event.kind, event.over]), [['building', 'node'], ['built', 'node']]);
+    const built = f.environments[1]!; assert(built.kind === 'built');
+    assert.equal(built.fromTier, 2);
+    const over = { tier: 'node', manifest: image.digest };
+    assert.notEqual(await readEnvironmentManifest(f.repo, envManifestName(envManifestKey(envHash, E3_RACK_VERSION, platform, over))!), null);
+    assert.equal(await readEnvironmentManifest(f.repo, envManifestName(envManifestKey(envHash, E3_RACK_VERSION, platform))!), null, 'no whole build was made');
+
+    // The rack composed it over its image: East linked to the image's copy, and its own beside it
+    const composed = agent.composedAt(envHash);
+    assert.equal(await readlink(join(composed, 'node_modules', '@elaraai', 'east')), join(root, '@elaraai', 'east'));
+    await assert.rejects(lstat(join(composed, 'node_modules', 'east-only')), 'what East alone needs is the image\'s');
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', 'console.log(JSON.stringify(require("e3-rack-tier-own")))'], { cwd: composed, encoding: 'utf8' })) as unknown;
+    assert.deepEqual(out, { east: 'the image', own: true });
+  });
 
 it('runs a call that declares an environment on a rack that composes environments, from the layers built for its platform, and returns a local call\'s value',
   { skip: posix ? false : NOT_ON_WINDOWS }, async () => {

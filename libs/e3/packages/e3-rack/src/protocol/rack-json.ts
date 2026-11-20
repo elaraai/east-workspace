@@ -121,9 +121,12 @@ export const RACK_TIER_MANIFESTS = 'tier-manifests';
 /**
  * The report's feature by which a rack says it composes an environment built
  * over the tier it boots it over: it unpacks the environment's layers over
- * that tier's image, and links the environment's interpreter to the tier's
- * (e3-core's `composeEnvironmentOverTier`). It says which image each tier is
- * by its manifest ({@link RackReport.tiers}).
+ * that tier's image, and links the environment to what the image holds
+ * (e3-core's `composeEnvironmentOverTier`): a python environment's
+ * interpreter to the image's, and each of East's packages a node one left to
+ * the tier to the image's copy. It says which image each tier is by its
+ * manifest ({@link RackReport.tiers}), and reports only a manifest its e3
+ * reads: one of a form it does not read is no image it composes over.
  */
 export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
 

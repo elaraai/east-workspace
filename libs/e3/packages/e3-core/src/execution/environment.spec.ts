@@ -376,8 +376,8 @@ describe('materializeEnvironment', () => {
     await assert.rejects(materializeEnvironment(storage, repo, envHash), refusal);
     assert.ok(!fs.existsSync(path.join(repo, 'envs', envHash)), 'nothing is materialized');
     await assert.rejects(materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28' }, path.join(tmpDir, 'earlier-spec')), refusal);
-    const tier = { version: 1 as const, python: { version: '3.12.3', executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.12/site-packages' },
-      namespaces: [], distributions: [] };
+    const tier = { python: { version: '3.12.3', executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.12/site-packages',
+      namespaces: [], distributions: [] } };
     await assert.rejects(environmentFitsTier(storage, repo, envHash, tier), refusal);
   });
 

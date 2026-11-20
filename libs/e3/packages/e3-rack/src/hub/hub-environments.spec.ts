@@ -99,12 +99,12 @@ it('asks each rack that names a manifest for its text but the one that sent a te
   assert.deepEqual(await manifest(image.digest), some(image.text));
 
   // A text that is the bytes its digest names, but no manifest this e3 reads: every rack's text of it is those bytes, so none is asked
-  const unread = `${JSON.stringify({ version: 2 })}\n`;
+  const unread = `${JSON.stringify({ version: 3 })}\n`;
   const unreadDigest = tierManifestDigest(new TextEncoder().encode(unread));
   assert.deepEqual(await wanted(wrong, { digest: unreadDigest, manifest: unread }), []);
   assert.deepEqual(await wanted(honest, { digest: unreadDigest }), [], 'no rack is asked for it');
   assert.deepEqual(await manifest(unreadDigest), none);
-  assert.equal(lines.filter((line) => /was not kept: the tier manifest is not of the form this e3 reads/.test(line)).length, 1);
+  assert.equal(lines.filter((line) => /was not kept: the tier manifest is not of a form this e3 reads/.test(line)).length, 1);
 });
 
 it('leases work that names an environment only to a rack that composes environments for a platform its session says it keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {

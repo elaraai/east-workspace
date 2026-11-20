@@ -128,7 +128,7 @@ if TierFinder not in sys.meta_path:
  * @returns The module's source, to be written as `_e3_tier.py` in the
  *   environment's site directory, which {@link TIER_GATE_PATH_FILE} imports
  * @example
- * await writeFile(join(site, `${TIER_GATE_MODULE}.py`), tierGateModule(tier.python.site, tierImports(installed, tier)));
+ * await writeFile(join(site, `${TIER_GATE_MODULE}.py`), tierGateModule(tier.site, tierImports(installed, tier)));
  * await writeFile(join(site, TIER_GATE_PATH_FILE), `import ${TIER_GATE_MODULE}\n`);
  */
 export function tierGateModule(site: string, imports: TierImports): string {

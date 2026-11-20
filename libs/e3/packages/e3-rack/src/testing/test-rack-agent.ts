@@ -130,12 +130,13 @@ export interface TestRackAgentOptions {
   transfersAtOnce?: number;
   /**
    * The manifest of the image the agent boots environments over, as the
-   * image's script wrote it (e3-core's `tier/tier-manifest.py`): this
-   * machine's own Python's, since the agent's guest is this machine. With it
-   * the agent says it composes environments built over a tier, names the
-   * manifest for every tier it runs, sends its text to a source that reads
-   * it, and composes such an environment by linking its interpreter to the
-   * manifest's.
+   * image's script wrote it (e3-core's `tier/tier-manifest.py` or
+   * `tier/tier-manifest.mjs`): of this machine's own Python, or of a
+   * directory of East's node packages on it, since the agent's guest is this
+   * machine. With it the agent says it composes environments built over a
+   * tier, names the manifest for every tier it runs, sends its text to a
+   * source that reads it, and composes such an environment over the
+   * manifest's image (e3-core's `composeEnvironmentOverTier`).
    */
   overTier?: string;
   /** Sends each tier manifest's text with every heartbeat, as an agent that
@@ -160,8 +161,8 @@ export interface TestRackAgentOptions {
  * the work with the tree linked where e3-core looks for a built environment:
  * nothing is installed on it. One built over a tier it composes only over
  * the image whose manifest the layers name, which is its own
- * ({@link TestRackAgentOptions.overTier}), and links to that image's
- * interpreter.
+ * ({@link TestRackAgentOptions.overTier}), and links it to what that image
+ * holds: its interpreter, or East's node packages.
  *
  * A call's lease runs e3-core's `runDetached` over its closure, and completes
  * with the call's outcome: its value inline up to {@link RACK_INLINE_VALUE_MAX},
@@ -596,8 +597,9 @@ export class TestRackAgent {
    * installs nothing. Each layer is checked against its digest and its size
    * before it is unpacked, and an environment composed for an earlier lease
    * is used as it is. Layers built over a tier are composed only when the
-   * tier's image is the agent's own, by its manifest's digest, and the
-   * environment's interpreter is then linked to that image's.
+   * tier's image is the agent's own, by its manifest's digest, and are then
+   * composed over that image: a python environment's interpreter linked to
+   * the image's, and a node one's East packages.
    * @param lease - The lease that names the environment
    * @param envHash - The environment spec's hash
    * @param signal - Ends the transfers with the lease
@@ -631,8 +633,8 @@ export class TestRackAgent {
         }
         await unpackEnvironmentLayer(Readable.from([bytes]), root);
       }
-      // Built over the tier's image, it runs on the image's interpreter
-      if (manifest.over !== undefined) await composeEnvironmentOverTier(this.composedAt(envHash), this.image!.manifest.python.base);
+      // Built over the tier's image, it runs on what the image holds
+      if (manifest.over !== undefined) await composeEnvironmentOverTier(this.composedAt(envHash), this.image!.manifest);
       await writeFile(composed, '');
     }
     await linkPrebuiltEnvironment(this.repo, { hash: envHash, dir: this.composedAt(envHash) });

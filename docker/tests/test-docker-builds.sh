@@ -79,8 +79,13 @@ echo "[1/5] Building Dockerfile.east-node..."
 docker build -f docker/images/Dockerfile.east-node $(pin $NODE_ARGS) -t test-east-node-$$ . --progress=plain
 runs test-east-node-$$ east-node --version
 runs test-east-node-$$ sh -c '! ls "$(npm root -g)/@elaraai" | grep -q "^e3"'
+# Its tier manifest names what it holds, for a node environment built over
+# it: East's packages, each at the release's version when one is named
+echo "  runs: check-node-tier.mjs"
+docker run --rm -e "RELEASE=${EAST_RELEASE_VERSION:-}" -v "$SCRIPT_DIR/check-node-tier.mjs:/tmp/check-node-tier.mjs:ro" test-east-node-$$ \
+    node /tmp/check-node-tier.mjs /opt/e3/tier-manifest.json @elaraai/east @elaraai/east-node-cli @elaraai/east-node-io @elaraai/east-node-std @elaraai/east-ui
 docker rmi test-east-node-$$ > /dev/null
-echo "[OK] Dockerfile.east-node (builds + east-node runs, and it carries no e3)"
+echo "[OK] Dockerfile.east-node (builds + east-node runs + tier manifest, and it carries no e3)"
 
 # Test 2: east-c image (tiny — just the prebuilt evaluator).
 echo "[2/5] Building Dockerfile.east-c..."

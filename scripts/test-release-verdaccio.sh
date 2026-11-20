@@ -306,12 +306,12 @@ for (const suffix of ['', '/protocol', '/server', '/testing']) {
 }
 SMOKE
 ( cd "$PROJ" && node rack-package-smoke.mjs "$VERSION" )
-# e3-core as an image built elsewhere for a tier takes it: the script a tier
-# image writes its manifest with is a file of the installed package, found by
-# the package's own name, and what it writes is what the package reads. It is
-# run where a runtime image could be built: not on Windows. Beside it are the
-# pins the release's python packages are installed under, each of which names
-# this release.
+# e3-core as an image built elsewhere for a tier takes it: the scripts a tier
+# image writes its manifest with, a python image's and a node image's, are
+# files of the installed package, found by the package's own name, and what
+# each writes is what the package reads. They are run where a runtime image
+# could be built: not on Windows. Beside them are the pins the release's
+# python packages are installed under, each of which names this release.
 cat > "$PROJ/tier-files-smoke.mjs" <<'SMOKE'
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -323,7 +323,8 @@ import { readTierManifest } from '@elaraai/e3-core';
 
 const require = createRequire(import.meta.url);
 const script = require.resolve('@elaraai/e3-core/tier/tier-manifest.py');
-assert.ok(existsSync(script), script);
+const nodeScript = require.resolve('@elaraai/e3-core/tier/tier-manifest.mjs');
+for (const file of [script, nodeScript]) assert.ok(existsSync(file), file);
 for (const pins of ['east-py-constraints.txt', 'east-py-overrides.txt']) {
   const first = readFileSync(require.resolve(`@elaraai/e3-core/tier/${pins}`), 'utf8').split('\n', 1)[0];
   assert.match(first, / of release \S+ /, `${pins}: ${first}`);
@@ -331,12 +332,17 @@ for (const pins of ['east-py-constraints.txt', 'east-py-overrides.txt']) {
 if (process.platform !== 'win32') {
   const out = join(mkdtempSync(join(tmpdir(), 'e3-tier-smoke-')), 'tier-manifest.json');
   execFileSync('python3', [script, out]);
-  const manifest = readTierManifest(readFileSync(out));
-  assert.ok(Array.isArray(manifest.namespaces) && manifest.python.site !== '');
+  const python = readTierManifest(readFileSync(out)).python;
+  assert.ok(python !== undefined && Array.isArray(python.namespaces) && python.site !== '');
+  // A node image's, of East's packages in a node_modules directory: this consumer's own
+  const nodeOut = join(mkdtempSync(join(tmpdir(), 'e3-tier-smoke-')), 'tier-manifest.json');
+  execFileSync(process.execPath, [nodeScript, nodeOut, join(process.cwd(), 'node_modules')]);
+  const node = readTierManifest(readFileSync(nodeOut)).node;
+  assert.ok(node !== undefined && node.packages.some(({ name, version }) => name === '@elaraai/east' && version === process.argv[2]), JSON.stringify(node));
 }
 console.log('ok');
 SMOKE
-echo -n "  @elaraai/e3-core ships the tier manifest script and the release's python pins: "; ( cd "$PROJ" && node tier-files-smoke.mjs )
+echo -n "  @elaraai/e3-core ships the tier manifest scripts and the release's python pins: "; ( cd "$PROJ" && node tier-files-smoke.mjs "$VERSION" )
 if [ -n "$JOB_LAUNCHER" ]; then
   # e3-core as a user installs it: its optionalDependency brought the job
   # launcher, and a runner it spawns is the launcher's child — inside its job.
