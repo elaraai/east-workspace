@@ -5,10 +5,13 @@
 
 import { IntegerType, NullType, OptionType, StringType, equalFor, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import { dataflowForce } from '@elaraai/e3-types';
-import type { TaskLogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
+import type {
+  TaskLogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, DataflowStartResult, TaskExecutionResult,
+} from './types.js';
 import {
   TaskLogChunkType,
   DataflowRequestType,
+  DataflowStartResultType,
   DataflowGraphType,
   DataflowBudgetType,
   DataflowExecutionStateType,
@@ -47,18 +50,37 @@ export interface DataflowPollOptions {
  * Use dataflowExecutePoll() to poll for progress.
  *
  * @remarks
+ * A start that names no filter and forces no task, and finds a run in flight,
+ * is handed to that run: the run looks for changed inputs at once, so what
+ * was written before the start reaches the tasks that read it, and the
+ * answer is `handed` with the run's cursor. A start with a filter or a force
+ * asks for a run of its own, and is refused while a run is in flight.
+ *
  * A workspace a run that is stopping still holds is refused with a
  * `Retry-After`, which the client waits out ({@link retryingRefusal}). One held
- * otherwise is asked of again a few times, backing off, before the refusal is
- * raised.
+ * otherwise — by a deploy, a removal or a copy, or by a run that cannot take
+ * the start in — is asked of again a few times, backing off, before the
+ * refusal is raised.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param dataflowOptions - Execution options
  * @param options - Request options including auth token
+ * @returns `started` when the start began a run; `handed` when a run in
+ *   flight took it in, with `since`, the cursor a poll passes to follow what
+ *   that run does next
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
+ *
+ * @example
+ * ```ts
+ * const answer = await dataflowExecuteLaunch(url, 'repo', 'main', {}, { token });
+ * // Follow the run from where the start found it: its first event, or the
+ * // cursor of a run that was already in flight
+ * const since = answer.type === 'handed' ? answer.value.since : 0n;
+ * const state = await dataflowExecutePoll(url, 'repo', 'main', { since }, { token });
+ * ```
  */
 export async function dataflowExecuteLaunch(
   url: string,
@@ -66,13 +88,13 @@ export async function dataflowExecuteLaunch(
   workspace: string,
   dataflowOptions: DataflowOptions = {},
   options: RequestOptions
-): Promise<void> {
+): Promise<DataflowStartResult> {
   const maxRetries = 5;
   const baseDelay = 200;
 
   for (let attempt = 0; ; attempt++) {
     try {
-      await retryingRefusal('workspace_locked', () => post(
+      return await retryingRefusal('workspace_locked', () => post(
         url,
         verboseQuery(`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`, options),
         {
@@ -80,10 +102,9 @@ export async function dataflowExecuteLaunch(
           filter: dataflowOptions.filter != null ? some(dataflowOptions.filter) : none,
         },
         DataflowRequestType,
-        NullType,
+        DataflowStartResultType,
         options
       ), options);
-      return;
     } catch (err) {
       // A refusal that names a wait has been waited out already.
       if (err instanceof ApiError && err.code === 'workspace_locked' && err.retryAfterMs === undefined && attempt < maxRetries) {
@@ -204,6 +225,10 @@ export function dataflowEventsRemain(state: Pick<DataflowExecutionState, 'nextSe
  * has ended `stopping` until it has let its workspace go, so a gc, a deploy or
  * a run asked of once this returns takes the workspace.
  *
+ * A start handed to a run in flight follows that run to its end, from the
+ * cursor the start was given: the result's tasks are those the run ran from
+ * then on, and its counts the whole run's.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
@@ -223,14 +248,14 @@ export async function dataflowExecute(
   const { pollInterval = 500, timeout = 300000 } = pollOptions;
 
   // Start execution
-  await dataflowExecuteLaunch(url, repo, workspace, dataflowOptions, options);
+  const started = await dataflowExecuteLaunch(url, repo, workspace, dataflowOptions, options);
 
   // Poll until complete, each poll served the events since the one before. A
   // poll is served at most DATAFLOW_POLL_EVENTS_MAX of them: one that left
   // some is followed at once, so the result has every event of the run.
   const startTime = Date.now();
   const events: DataflowExecutionState['events'] = [];
-  let since = 0n;
+  let since = started.type === 'handed' ? started.value.since : 0n;
   while (Date.now() - startTime < timeout) {
     const state = await dataflowExecutePoll(url, repo, workspace, { since }, options);
     events.push(...state.events);

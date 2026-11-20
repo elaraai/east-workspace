@@ -70,6 +70,20 @@ export {
   type RepositoryHoldOptions,
 } from './running-work.js';
 
+// A workspace's intent: how whatever takes a workspace whole — a deploy, a
+// removal, a copy onto it, an export — takes it, and what every other taker of
+// the workspace reads of it
+export {
+  EXCLUSIVE_WAIT_MS,
+  INTENT_PROBE_MS,
+  workspaceIntentLock,
+  announcedIntent,
+  intentWords,
+  acquireWorkspaceExclusive,
+  acquireWorkspaceShared,
+  workspaceLockRefusal,
+} from './deploy-lock.js';
+
 // Moving many objects at once
 export {
   OBJECT_CONCURRENCY,
@@ -216,6 +230,7 @@ export {
   type WorkspaceExportResult,
   type WorkspaceExportOptions,
   type WorkspaceRemoveOptions,
+  type WorkspaceCopyOptions,
   type WorkspaceListed,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,
@@ -453,11 +468,16 @@ export {
   dataflowCheckCache,
   dataflowGetDependentsToSkip,
   dataflowResolveInputHashes,
-  findAffectedTasks,
+  dataflowResolveInputs,
+  dataflowRecords,
+  recordCommitOrder,
   parsePathString,
+  type CatchUpPhase,
   type DataflowGraph,
   type DataflowOptions,
   type DataflowResult,
+  type ResolvedInputs,
+  type ResolveInputsOptions,
   type TaskExecutionResult,
 } from './dataflow.js';
 
@@ -476,6 +496,10 @@ export {
   type InitializeResult,
   type PrepareTaskResult,
   type PrepareTaskWaiting,
+  type PrepareTaskBehind,
+  type CatchUpRun,
+  type DeferReason,
+  type TaskCommits,
   type TaskExecuteResult,
   type TaskCompletedResult,
   type TaskFailedResult,
@@ -502,9 +526,11 @@ export {
   stepYield,
   stepApplyTreeUpdate,
   stepDetectInputChanges,
-  stepInvalidateTasks,
-  stepCheckVersionConsistency,
-  stepTaskResultStale,
+  stepTasksDue,
+  stepTaskDueAgain,
+  stepResumedTasksDue,
+  stepTaskCommits,
+  deferralPath,
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,
@@ -573,8 +599,6 @@ export {
 
 // Dataset refs (reactive dataflow)
 export {
-  checkVersionConsistency,
-  mergeVersionVectors,
   inputVersionVector,
   keypathToRefPath,
   refPathToKeypath,

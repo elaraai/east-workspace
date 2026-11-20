@@ -3,8 +3,8 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { IntegerType, NullType, OptionType, lessFor, some, none, variant } from '@elaraai/east';
-import { DATAFLOW_POLL_EVENTS_MAX } from '@elaraai/e3-types';
+import { IntegerType, NullType, OptionType, StringType, equalFor, lessFor, some, none, variant } from '@elaraai/east';
+import { DATAFLOW_POLL_EVENTS_MAX, DataflowStartResultType } from '@elaraai/e3-types';
 import {
   dataflowGetGraph,
   workspaceStatus,
@@ -28,7 +28,7 @@ import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRun
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
-import { endedRunHolds, sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
+import { endedRunHolds, runIsStopping, sendLockRefusal } from '../stopping-run.js';
 import type { DataflowRunnerLease, OpenDataflowRunner } from '../dataflow-runner.js';
 import {
   WorkspaceStatusResultType,
@@ -191,6 +191,50 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
   };
 }
 
+/** Whether two runs' ids name one run. */
+const sameRun = equalFor(StringType);
+
+/**
+ * Hands a start to the run in flight on a workspace: the run looks for changed
+ * inputs at once ({@link DataflowOrchestrator.wake}).
+ *
+ * @remarks
+ * The cursor is read before the run is woken, so a poll from it is served
+ * what the wake starts. The run woken is whichever is in flight as the wake
+ * arrives, which the orchestrator names: where the run read has ended since,
+ * and another begun, the cursor read is not that run's, and the answer is
+ * the run's start, so a poll is served every event of the run that took the
+ * start. A run asked to stop takes nothing in, and neither does one the
+ * orchestrator cannot reach, or one that leaves tasks out. A wake that fails
+ * is a start not handed over: its caller is refused as a held workspace
+ * refuses it, and the run finds the change as its next task ends.
+ *
+ * @param storage - Storage backend
+ * @param orchestrator - The orchestrator that runs the repository's dataflows
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @param run - The workspace's latest run, as its store summarises it
+ * @returns The answer, `handed` with the cursor of the run that took the
+ *   start; `null` when no run took it
+ */
+async function handToRun(
+  storage: StorageBackend,
+  orchestrator: DataflowOrchestrator,
+  repoPath: string,
+  workspace: string,
+  run: ExecutionStateSummary | null,
+): Promise<Response | null> {
+  if (run === null || run.status !== 'running' || run.cancelRequested) return null;
+  let woken: string | null = null;
+  try {
+    woken = await orchestrator.wake(storage, repoPath, workspace);
+  } catch (error) {
+    console.warn('Dataflow wake failed; the start is not handed to the run in flight:', error);
+  }
+  if (woken === null) return null;
+  return sendSuccessWithStatus(DataflowStartResultType, variant('handed', { since: sameRun(woken, run.id) ? run.lastSeq : 0n }), 202);
+}
+
 /**
  * Start dataflow execution (non-blocking).
  *
@@ -200,6 +244,12 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  * getDataflowExecution() polls. A run's end is the orchestrator's to handle
  * where it starts the run — a local one in its own process — so this never
  * waits on it.
+ *
+ * A start that names no filter and forces no task, and finds a run in flight,
+ * is handed to that run ({@link handToRun}), and answers 202 too: the run
+ * takes in what was written before the start, and no second run is asked
+ * for, nor anything opened for one. A start with a filter or a force asks for
+ * a run of its own, and is refused while a run is in flight.
  *
  * The workspace's name is checked before the orchestrator is asked, so a name
  * no workspace can have is refused alike whichever orchestrator runs the
@@ -215,11 +265,13 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  *   the server's budget; the tasks and units the loop keeps in flight, the
  *   orchestrator's own default when absent; what the run forces — `true` for
  *   every task, or the tasks' names — its filter and its verbosity
- * @returns 202 once the run has started, or the error that stopped it: a name
- *   no workspace can have is `invalid_name`, a forced task the graph does not
- *   have `task_not_found`, one the filter's run set leaves out
- *   `dataflow_error`, and a workspace something holds `workspace_locked`, with
- *   a `Retry-After` when the holder is a run that is stopping
+ * @returns 202 with `started` once the run has started, or with `handed` and
+ *   the run's cursor once a run in flight has taken the start; or the error
+ *   that stopped it: a name no workspace can have is `invalid_name`, a forced
+ *   task the graph does not have `task_not_found`, one the filter's run set
+ *   leaves out `dataflow_error`, and a workspace something holds
+ *   `workspace_locked`, with a `Retry-After` when the holder is a run that is
+ *   stopping
  */
 export async function startDataflow(
   storage: StorageBackend,
@@ -230,6 +282,10 @@ export async function startDataflow(
   options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean; dataflowRunner?: OpenDataflowRunner }
 ): Promise<Response> {
   let stopping = false;
+  // A start that asks for every task, forcing none, is one a run in flight
+  // can take in
+  const plain = options.filter === undefined && (options.force === false || (options.force !== true && options.force.length === 0));
+  let asked = false;
   let lease: DataflowRunnerLease | undefined;
   const close = async () => {
     const owned = lease;
@@ -240,8 +296,17 @@ export async function startDataflow(
     // A host's own orchestrator may take a lock named for whatever it is
     // given, and a lock's name may hold the `#` and `~` no workspace's may.
     checkName('workspace', workspace);
-    // Asked before the start as well as after a refusal (sendLockRefusal).
-    stopping = await stoppingRunBefore(storage, stateStore, repoPath, workspace);
+    // The workspace's latest run, read once: whether it is stopping, asked
+    // before the start as well as after a refusal (sendLockRefusal), and
+    // whether it is in flight to take the start. A run that cannot be told
+    // is neither.
+    const latest = await stateStore.readLatestSummary(repoPath, workspace).catch(() => null);
+    stopping = await runIsStopping(storage, repoPath, workspace, latest).catch(() => false);
+    if (plain && latest?.status === 'running') {
+      asked = true;
+      const handed = await handToRun(storage, orchestrator, repoPath, workspace, latest);
+      if (handed !== null) return handed;
+    }
 
     try {
       lease = await options.dataflowRunner?.(repoPath, workspace);
@@ -270,11 +335,19 @@ export async function startDataflow(
     if (lease !== undefined) void orchestrator.wait(run).then(close, close);
 
     // How the run ends is in its state, which a poll reads.
-    return sendSuccessWithStatus(NullType, null, 202);
+    return sendSuccessWithStatus(DataflowStartResultType, variant('started', null), 202);
   } catch (err) {
     await close();
-    if (err instanceof WorkspaceLockError) return sendLockRefusal(NullType, err, stopping, storage, stateStore, repoPath, workspace);
-    return sendError(NullType, errorToVariant(err));
+    if (err instanceof WorkspaceLockError) {
+      // A run that began between the look and the start takes it in too
+      if (plain && !asked) {
+        const handed = await handToRun(
+          storage, orchestrator, repoPath, workspace, await stateStore.readLatestSummary(repoPath, workspace).catch(() => null));
+        if (handed !== null) return handed;
+      }
+      return sendLockRefusal(DataflowStartResultType, err, stopping, storage, stateStore, repoPath, workspace);
+    }
+    return sendError(DataflowStartResultType, errorToVariant(err));
   }
 }
 

@@ -39,7 +39,7 @@ rest: the logic, the routes and the tests.
 | `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record and the upgrade under way among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the calls of named functions a workspace keeps, each until its `expiresAt` (`calls`, a `FunctionCallStore`), and gc's scan of what a live call names (`RepoStore.gcScanCallRoots`); the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
 | `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state, and its events kept apart from it — a write of the state appends the run's new ones, a segment at most rewritten, and a poll reads those past its cursor, never the state — and every run of a repository as stored, which an upgrade step rewrites (`readStored`, `writeEvents`) | `FileStateStore`, `InMemoryStateStore`, over the shared segments (`dataflow/state-store/events.ts`) | `WebStateStore`, in IndexedDB, a record per segment |
-| `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
+| `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run, and wakes one in flight (`wake`) | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
 | `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls; and where a call of a named function runs, and what is heard of its end (`functionCalls`, a `FunctionCallDispatch`) | `InMemoryTransferBackend`, the local server's; its calls run in its process (`InProcessFunctionCallDispatch`) | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB; its calls run in the e3 worker (`InProcessFunctionCallDispatch`) |
 | The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
 
@@ -289,6 +289,33 @@ repository still, and an upgrade, wait for the call; a checkpoint names the
 release that wrote it, so an export whose calls straddle a new release starts
 again.
 
+**A run in flight is reached through the orchestrator, and whatever takes a
+workspace whole announces itself through the lock service.** A start that names no filter and
+forces no task, and finds a run in flight, is handed to that run by
+`DataflowOrchestrator.wake`: the run looks for changed inputs at once, and the
+route answers `handed` with the run's cursor. `wake` answers the id of the run
+it woke, since the run in flight as the wake arrives need not be the one the
+route read of: the route answers with that run's cursor, its start where it
+is another run. The shared `LocalOrchestrator`
+wakes a run its own process holds. A host whose runs are held by other
+processes or instances implements `wake` to reach them, as it reaches one to
+cancel, and its loop takes the wake as the shared loop does: a look for input
+changes, then a launch of what became ready. Where `wake` answers `null` the
+start is refused as a held workspace refuses it, and the run takes the change
+in as its next task ends, so nothing is lost. A deploy, a removal, a copy onto
+a workspace and an export of it each announce themselves by a lock of the
+workspace's own, its intent, `<ws>#intent`, taken through the lock service
+before the workspace's (e3-core `deploy-lock.ts`, `acquireWorkspaceExclusive`,
+with the operation): every shared taker of the workspace's lock asks it first
+(`acquireWorkspaceShared`), and a run in flight asks once a second, by a read
+of the lock's state, and stops when one holds it, saying which
+(`intentWords`). No backend implements a method for it: its lock service takes
+the name, as it takes `<ws>#dataflow`, and a host that holds the workspace for
+a job over several calls — a deploy's (`ProcessDeployDeps.lock`), an export's
+(`ProcessExportDeps.lock`) — takes that lock through
+`acquireWorkspaceExclusive`, or its job would wait behind a run people keep
+editing under.
+
 **A route factory takes its seams as arguments.** Each is exported from
 e3-api-server and given the storage, a repository's identifier from its name,
 and, as it needs them, the transfer backend, each repository's runner, for
@@ -318,8 +345,11 @@ the host's own job has applied them — a part per run of the job
 (`repositoryUpgradeStep`), each taking a step up where the last stopped, by the
 step's cursor, which the ref store keeps beside the repository record
 (`RefStore.repositoryUpgradeRead`) — and tells the host each time through
-`onUpgradePending`. An in-page request has no time limit, so e3-web's gate
-applies the upgrades in the request.
+`onUpgradePending`. Such a host keeps under its limit, too, how long a
+removal and a copy onto a workspace wait in their request for a run in the
+workspace to stop and a write in it to finish: 30 seconds unless the workspace
+routes are given `lockWaitMs`. An in-page request has no time limit, so e3-web's
+gate applies the upgrades in the request.
 
 ## Where the local backend's code lives
 
@@ -421,7 +451,15 @@ gives the hook, or the suite never holds it to answering such a record with
 over `LocalStorage` and `InMemoryStorage` (`stores.spec.ts` is the pattern),
 and another backend runs them over its own by giving its own setup: e3-web
 runs them over `WebStorage` and `WebStateStore` (its own `stores.spec.ts`),
-in Node over its adapters in memory, and gives the `damage` hook.
+in Node over its adapters in memory, and gives the `damage` hook. The dataflow
+loop's suite replays a run's interleavings a step at a time on
+`GatedTaskRunner`, exported with the suites: a runner that holds each task
+until the case lets it go, so no case waits on a clock but the one of a
+workspace's intent, which a run asks for once a second. Its cases are a result
+landing though its input moved, a change travelling a task at a time, a
+catch-up run and two tasks sharing one, a deferral, a wake, a deploy, an
+export, a copy and a removal stopping a run, and a run that yielded taken up
+by a second orchestrator.
 
 - A behaviour every backend must have is a case in the suite, not in one
   implementation's spec. A case only one implementation needs — the file
@@ -449,9 +487,14 @@ platform functions. One whose server runs no commands says so
 (`TestConfig.commands: false`). Every task the suites run is East, which every
 server runs, but the dataflow suite's one command case: a custom task whose
 command fails, which a server that runs commands records `failed`, exit code
-1, and one that runs none records `error`, saying it runs no commands. Both
-default to what a server does — the global `fetch`, and commands that run —
-so a harness that gives neither is held to that. The suites that drive the e3
+1, and one that runs none records `error`, saying it runs no commands. One
+whose server's start cannot reach its runs says so
+(`TestConfig.wakesRuns: false`): the dataflow suite then expects a start made
+while a run is in flight refused `workspace_locked`, where it otherwise
+expects it handed to that run. Each
+defaults to what a server does — the global `fetch`, commands that run, and a
+start that reaches a run in flight — so a harness that gives none is held to
+that. The suites that drive the e3
 CLI (`cliTests`, `transferTests`) need a server the CLI reaches over HTTP,
 which an in-page e3 does not serve; e3-web runs every other suite
 (`apiTestSuites`).

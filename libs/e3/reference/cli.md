@@ -19,7 +19,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 package list [repo]` · `remove [repo] <pkg[@ver]>` | |
 | **Workspaces** | |
 | `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
-| `e3 workspace copy [repo] <from> <to>` | Make `<to>` what `<from>` is now — its package and every input, record and task output, so nothing runs again — made, or replaced whole with its runs. It writes refs only, so its cost follows the number of datasets, never their size; a write to either afterwards leaves the other as it was. Refused while a dataflow runs in `<to>`. |
+| `e3 workspace copy [repo] <from> <to>` | Make `<to>` what `<from>` is now — its package and every input, record and task output, so nothing runs again — made, or replaced whole with its runs. It writes refs only, so its cost follows the number of datasets, never their size; a write to either afterwards leaves the other as it was. A dataflow running in `<to>` stops for it (below). |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
 | `… [--schema <policy>] [--inputs <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, an input's, and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on, and with `--from-source` the workspace packages exporting their functions at once; `--memory`: what those may reserve (local). |
@@ -86,6 +86,45 @@ and the live line says what the server's commit is doing with each in flight.
 While a deploy runs, its lock carries the same progress for `e3-ui` or any
 client to read (`workspaceLockStatus`). A workspace deployed for the first time
 has no status until its deploy ends, so the lock is the only place to see it.
+
+**A run follows its inputs.** What is written while a run is in flight — an
+input set, a record's mutation — is taken in by that run. Each task's result
+lands as it finishes, though an input moved while it ran, and the task runs
+once more, on the newest, however many changes arrived meanwhile; what reads it
+runs again once that next result lands, so a change travels a task at a time
+and no task in flight is stopped for it. A task that reads several results
+reads them as of one commit of each record they share, the oldest its inputs
+were made from: a newer result is read there from the cache, or made there by a
+catch-up run, which a local run prints (`[CATCH-UP] capacity for plan`, then
+`[DONE] capacity for plan [<ms>]`), which writes nothing to the workspace and
+which the summary does not count. An input keeps no earlier value, so where two
+of a task's inputs read one at two values the task waits until they agree
+(`[DEFER] plan: input 'rates' is read at two values (through forecast and
+capacity): it runs once they agree`). The run ends once no task is due or in
+flight. Against a server, a `dataflow run` with no `--filter`, `--force` or
+`--force-task` that finds a run in flight is handed to it, and that run looks
+for changes at once: the command says `A run is in flight on <ws>: it takes
+your changes in now.`, prints what the run does from then on and its summary,
+and on Ctrl-C stops following and leaves the run going. One with `--filter`,
+`--force` or `--force-task` asks for a run of its own, and is refused while a
+run is in flight, as a second local run of a workspace is.
+
+**A deploy, a removal, a copy onto a workspace and an export stop a run.**
+Whatever takes a workspace whole announces itself before it takes it. A run in
+flight stops within about a second — a local one prints `[CANCELLED]` for each
+task in flight, then `Stopped: a deploy of <ws> started.` (`a removal of <ws>`,
+`a copy onto <ws>`, `an export of <ws>`) and `Completed before it stopped: <n>`,
+and exits 130; one followed on a server prints its summary, then `Stopped: the
+run on <ws> was stopped before it finished.`, and exits 130 too, as it does for
+a run another caller stopped; `e3 watch` says `Dataflow stopped: a deploy of
+<ws> started` — and every result it landed stands. Nothing restarts it: run
+again once the deploy, the copy or the export is done, and the cache answers
+what it left. While one has announced itself, a dataset write, a mutation, a
+bundle's export, a copy and a run's start are refused at once, naming it
+(`Workspace '<ws>' is locked by a deploy in process <pid> (since <time>)`, `…
+by a removal …`). Each waits up to 30 seconds in all for what holds the
+workspace, so a write in progress finishes, and is then refused, naming the
+holder. `--plan` announces nothing and stops nothing.
 
 **`-v`** passes `-v` to the runners, which print to the task's logs, identically
 on every runtime, how each input was read — opened lazily, and what reading it

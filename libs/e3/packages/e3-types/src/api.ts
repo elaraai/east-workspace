@@ -790,6 +790,26 @@ export const DataflowRequestType = StructType({
 });
 
 /**
+ * What a start of a workspace's dataflow answers.
+ *
+ * - `started`: it began a run
+ * - `handed`: a run was in flight, and took the start in: it looks for
+ *   changed inputs at once, so an edit written just before the start reaches
+ *   the tasks that read it without waiting for a task to end. `since` is the
+ *   run's last event as the start was handed over, the cursor a poll passes
+ *   to follow what the run does next
+ *
+ * A start that names a filter or forces a task asks for a run of its own, and
+ * is refused `workspace_locked` while a run is in flight; so is any start a
+ * run in flight cannot take in — one that is stopping, or one its server
+ * cannot reach.
+ */
+export const DataflowStartResultType = VariantType({
+  handed: StructType({ since: IntegerType }),
+  started: NullType,
+});
+
+/**
  * Chunk of log data from task execution.
  *
  * @property data - Log content (UTF-8 text)
@@ -2039,6 +2059,7 @@ export type WorkspaceStatusResult = ValueTypeOf<typeof WorkspaceStatusResultType
 export type TaskListItem = ValueTypeOf<typeof TaskListItemType>;
 export type TaskDetails = ValueTypeOf<typeof TaskDetailsType>;
 export type DataflowRequest = ValueTypeOf<typeof DataflowRequestType>;
+export type DataflowStartResult = ValueTypeOf<typeof DataflowStartResultType>;
 export type LogChunk = ValueTypeOf<typeof LogChunkType>;
 export type TaskLogChunk = ValueTypeOf<typeof TaskLogChunkType>;
 export type TaskExecutionResult = ValueTypeOf<typeof TaskExecutionResultType>;

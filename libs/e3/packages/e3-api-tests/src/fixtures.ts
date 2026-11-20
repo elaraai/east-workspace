@@ -1529,30 +1529,44 @@ export async function createCommandPackageZip(
  *
  * Creates a package with:
  * - Input: "value" (String, default "test")
- * - Task: "slow" - sleeps for specified seconds then copies input to output
+ * - Task: "slow" - sleeps for specified seconds then copies input to output.
+ *   Given `slowOn`, it sleeps on that value of the input alone, and copies
+ *   any other at once
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
  * @param version - Package version
  * @param sleepSeconds - How long the task should sleep (default: 10)
+ * @param slowOn - The one value of the input the task sleeps on: a run of it
+ *   on that value is found in flight, and a run of it on an edit does not
+ *   wait. Omitted, the task sleeps on every value
  * @returns Path to the created zip file
  */
 export async function createSlowPackageZip(
   tempDir: string,
   name: string,
   version: string,
-  sleepSeconds: number = 10
+  sleepSeconds: number = 10,
+  slowOn?: string
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
   const input = e3.input('value', StringType, variant('value', 'test'));
+  const sleepMs = BigInt(sleepSeconds * 1000);
   const task = e3.task(
     'slow',
     [input],
-    East.asyncFunction([StringType], StringType, ($, val) => {
-      $(Time.sleep(BigInt(sleepSeconds * 1000)));
-      return $.return(val);
-    })
+    slowOn === undefined
+      ? East.asyncFunction([StringType], StringType, ($, val) => {
+        $(Time.sleep(sleepMs));
+        return $.return(val);
+      })
+      : East.asyncFunction([StringType], StringType, ($, val) => {
+        $.if(East.equal(val, slowOn), ($) => {
+          $(Time.sleep(sleepMs));
+        });
+        return $.return(val);
+      })
   );
   const pkg = e3.package(name, version, task);
 

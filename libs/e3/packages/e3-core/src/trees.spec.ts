@@ -701,7 +701,7 @@ describe('trees', () => {
         await assert.rejects(workspaceSetDataset(storage, testRepo, 'myws', path, 'during', StringType), (err: unknown) => {
           assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
           assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-          assert.strictEqual(err.message, `Workspace 'myws' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
+          assert.strictEqual(err.message, `Workspace 'myws' is locked by a deploy in process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
           return true;
         });
       } finally {

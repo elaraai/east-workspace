@@ -6,11 +6,11 @@
 /**
  * Dataset ref utilities for reactive dataflow.
  *
- * Provides version vector operations, root hash computation from refs,
- * and input change detection for the reactive execution loop.
+ * Provides a root's version vector, root hash computation from refs, and
+ * input change detection for the reactive execution loop.
  */
 
-import { variant, printIdentifier } from '@elaraai/east';
+import { StringType, equalFor, variant, printIdentifier } from '@elaraai/east';
 import { type DataRef, type Structure, type VersionVector, type DatasetRef } from '@elaraai/e3-types';
 import { treeWrite } from './trees.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -18,53 +18,6 @@ import type { StorageBackend } from './storage/interfaces.js';
 // =============================================================================
 // Version Vector Operations
 // =============================================================================
-
-/**
- * Check version vector consistency across a set of input vectors.
- *
- * All vectors must agree on shared keys (same root input path must have
- * the same hash in every vector that contains it). This ensures that
- * a task's inputs are all derived from the same snapshot of each root input.
- *
- * @param inputVectors - Version vectors from each task input
- * @returns Consistency result: either consistent (with merged vector) or inconsistent (with conflict path)
- */
-export function checkVersionConsistency(
-  inputVectors: VersionVector[]
-): { consistent: true; merged: VersionVector } | { consistent: false; conflictPath: string } {
-  const merged = new Map<string, string>();
-
-  for (const vv of inputVectors) {
-    for (const [path, hash] of vv) {
-      const existing = merged.get(path);
-      if (existing !== undefined && existing !== hash) {
-        return { consistent: false, conflictPath: path };
-      }
-      merged.set(path, hash);
-    }
-  }
-
-  return { consistent: true, merged };
-}
-
-/**
- * Merge consistent version vectors (union of all keys).
- *
- * Assumes all vectors are consistent (no conflicting hashes for shared keys).
- * Use checkVersionConsistency first if consistency is not guaranteed.
- *
- * @param vectors - Version vectors to merge
- * @returns Merged version vector
- */
-export function mergeVersionVectors(vectors: VersionVector[]): VersionVector {
-  const merged = new Map<string, string>();
-  for (const vv of vectors) {
-    for (const [path, hash] of vv) {
-      merged.set(path, hash);
-    }
-  }
-  return merged;
-}
 
 /**
  * Build a version vector for a root input dataset.
@@ -77,6 +30,76 @@ export function mergeVersionVectors(vectors: VersionVector[]): VersionVector {
  */
 export function inputVersionVector(path: string, hash: string): VersionVector {
   return new Map([[path, hash]]);
+}
+
+/**
+ * The roots a version vector names, each with its version: the datasets a
+ * value was made from.
+ *
+ * @remarks
+ * A ref's vector also carries reserved slots, whose keys begin `$`: a
+ * record's own bookkeeping, which names no dataset. Whatever compares two
+ * vectors, or reads what one was made from, reads its roots through here, so
+ * a slot a writer changed between two reads is never taken for a root that
+ * moved.
+ *
+ * @param vector - A version vector
+ * @returns Its roots' entries, in the vector's order
+ *
+ * @example
+ * ```ts
+ * versionRoots(new Map([['$idem', 'k1'], ['.records.orders', 'c2'], ['.inputs.rates', 'r1']]));
+ * // [['.records.orders', 'c2'], ['.inputs.rates', 'r1']]
+ * ```
+ */
+export function versionRoots(vector: VersionVector): Array<[string, string]> {
+  return [...vector].filter(([root]) => !root.startsWith('$'));
+}
+
+/**
+ * Whether two versions of a root are the same: two of a plain input's hashes,
+ * or two of a record's commits.
+ */
+export const sameVersion = equalFor(StringType);
+
+/**
+ * Whether two version vectors name the same versions of the same roots.
+ *
+ * @remarks
+ * Each is read through {@link versionRoots}, so their reserved slots, whose
+ * keys begin `$`, are left out: each names as many roots as the other, and
+ * every root of one stands at its version in the other ({@link madeAt}).
+ *
+ * @param a - A version vector
+ * @param b - Another
+ * @returns Whether they name the same roots, each at the same version
+ */
+export function sameVersions(a: VersionVector, b: VersionVector): boolean {
+  return versionRoots(a).length === versionRoots(b).length && madeAt(a, b);
+}
+
+/**
+ * Whether a value was made from the versions given: each root its vector
+ * names stands at its version in `versions`, which may name more roots.
+ *
+ * @remarks
+ * What a run asks of a task's result, when another task reads it as of a set
+ * of versions: the result is read there when it was made there.
+ *
+ * @param made - The version vector the value was made from
+ * @param versions - The version of each root a reader reads
+ * @returns Whether every root the value was made from stands at its version
+ *
+ * @example
+ * ```ts
+ * madeAt(new Map([['.records.orders', 'c1']]), new Map([['.records.orders', 'c1'], ['.inputs.rates', 'r1']])); // true
+ * ```
+ */
+export function madeAt(made: VersionVector, versions: VersionVector): boolean {
+  return versionRoots(made).every(([root, version]) => {
+    const wanted = versions.get(root);
+    return wanted !== undefined && sameVersion(wanted, version);
+  });
 }
 
 /**
@@ -191,7 +214,7 @@ export async function detectInputChanges(
   // Check for changes in current snapshot vs previous
   for (const [path, newHash] of currentSnapshot) {
     const prevHash = previousSnapshot.get(path) ?? null;
-    if (prevHash !== newHash) {
+    if (prevHash === null || !sameVersion(prevHash, newHash)) {
       changes.push({ path, previousHash: prevHash, newHash });
     }
   }

@@ -25,6 +25,9 @@ import {
   keypathToRefPath,
   refPathToKeypath,
   computeRootHash,
+  madeAt,
+  sameVersions,
+  versionRoots,
   writeRefsFromTree,
 } from './dataset-refs.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -60,6 +63,33 @@ describe('refPathToKeypath', () => {
 
   it('quotes non-identifier segments', () => {
     assert.equal(refPathToKeypath('inputs/sales 2026'), '.inputs.`sales 2026`');
+  });
+});
+
+describe('versionRoots', () => {
+  it('answers the roots a vector names, in its order, and leaves its reserved slots out', () => {
+    assert.deepEqual(
+      versionRoots(new Map([['$idem', 'k1'], ['.records.orders', 'c2'], ['$idem.commit', 'c2'], ['.inputs.rates', 'r1']])),
+      [['.records.orders', 'c2'], ['.inputs.rates', 'r1']],
+    );
+    assert.deepEqual(versionRoots(new Map([['$schema', 'add_site']])), [], 'a vector of slots alone names no root');
+    assert.deepEqual(versionRoots(new Map()), []);
+  });
+});
+
+describe('what a vector was made from, compared', () => {
+  it('compares two vectors by their roots alone, and says a value was made at a set of versions where each root it names stands there', () => {
+    const made = new Map([['.records.orders', 'c2'], ['$load.erp', 'd1'], ['.inputs.rates', 'r1']]);
+    assert.equal(sameVersions(made, new Map([['.inputs.rates', 'r1'], ['.records.orders', 'c2'], ['$load.erp', 'd9']])), true,
+      'a slot that differs is no root that moved');
+    assert.equal(sameVersions(made, new Map([['.records.orders', 'c2']])), false, 'a root the other lacks');
+    assert.equal(sameVersions(made, new Map([['.records.orders', 'c3'], ['.inputs.rates', 'r1']])), false, 'a root at another version');
+
+    const versions = new Map([['.records.orders', 'c2'], ['.inputs.rates', 'r1'], ['.inputs.other', 'o1']]);
+    assert.equal(madeAt(made, versions), true, 'the versions may name roots the value was not made from');
+    assert.equal(madeAt(made, new Map([['.records.orders', 'c1'], ['.inputs.rates', 'r1']])), false);
+    assert.equal(madeAt(made, new Map([['.records.orders', 'c2']])), false, 'a root the versions do not name');
+    assert.equal(madeAt(new Map([['$schema', 'add_site']]), new Map()), true, 'a vector of slots alone was made from no root');
   });
 });
 

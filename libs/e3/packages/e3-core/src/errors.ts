@@ -229,12 +229,24 @@ export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
   return info;
 }
 
+/** What takes a workspace whole, by its lock's operation, as a refusal names
+ *  it: what a refused write or run start waits out. */
+const TAKES_WHOLE: Readonly<Record<string, string>> = {
+  deployment: 'a deploy',
+  removal: 'a removal',
+  workspace_copy: 'a copy',
+  export: 'an export',
+};
+
 /**
  * Thrown when a workspace is locked by another process.
  *
- * This error is thrown when attempting to acquire an exclusive lock on a
- * workspace that is already locked by another process (e.g., another
- * `e3 start` command or API server).
+ * This error is thrown when attempting to acquire a lock on a workspace that
+ * another holder excludes (e.g., another `e3 start` command or API server).
+ * A holder that takes the workspace whole — a deploy, a removal, a copy onto
+ * it or an export of it — is named as what it is, whether it holds the
+ * workspace or has announced itself and waits for it, since that is what a
+ * refused write or run start waits out.
  */
 export class WorkspaceLockError extends E3Error {
   constructor(
@@ -244,10 +256,14 @@ export class WorkspaceLockError extends E3Error {
     let msg: string;
     if (!holder) {
       msg = `Workspace '${workspace}' is locked by another process`;
-    } else if (holder.pid !== undefined) {
-      msg = `Workspace '${workspace}' is locked by process ${holder.pid} (since ${printDateTime(holder.acquiredAt)})`;
     } else {
-      msg = `Workspace '${workspace}' is locked (since ${printDateTime(holder.acquiredAt)})`;
+      const whole = holder.operation === undefined ? undefined : TAKES_WHOLE[holder.operation];
+      const since = `(since ${printDateTime(holder.acquiredAt)})`;
+      if (holder.pid !== undefined) {
+        msg = `Workspace '${workspace}' is locked by ${whole === undefined ? 'process' : `${whole} in process`} ${holder.pid} ${since}`;
+      } else {
+        msg = `Workspace '${workspace}' is locked ${whole === undefined ? '' : `by ${whole} `}${since}`;
+      }
     }
     super(msg);
   }
@@ -512,9 +528,18 @@ export class DataflowError extends E3Error {
  * This is not an error condition - it indicates the execution was intentionally
  * cancelled (e.g., by an API server before applying a write). The partial
  * results contain the status of tasks that completed before the abort.
+ *
+ * A run that stopped itself says why: something that takes its workspace
+ * whole announced itself (`a deploy of main started`, `a removal of main
+ * started`, `a copy onto main started`, `an export of main started`). A run
+ * stopped by its caller's signal, or by a stop request, has no reason.
  */
 export class DataflowAbortedError extends E3Error {
-  constructor(public readonly partialResults?: TaskExecutionResult[]) {
+  constructor(
+    public readonly partialResults?: TaskExecutionResult[],
+    /** Why the run stopped itself; `undefined` for a run its caller stopped */
+    public readonly reason?: string,
+  ) {
     super('Dataflow execution was aborted');
   }
 }

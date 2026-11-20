@@ -81,6 +81,21 @@ export interface TestConfig {
    * running in a page — sets it false.
    */
   commands?: boolean;
+
+  /**
+   * Whether the server's start reaches a run in flight to hand it a start
+   * (default true): its orchestrator's `wake` names the run for a run of every
+   * task that is not stopping. The dataflow suite then expects a start that
+   * names no filter and forces no task, made while a run is in flight,
+   * answered `handed`.
+   *
+   * @remarks
+   * A harness whose server's runs are held where its start cannot reach them
+   * sets it false: the suite expects the start refused `workspace_locked`, as
+   * a held workspace refuses it, and the run to take the change in as its
+   * next task ends.
+   */
+  wakesRuns?: boolean;
 }
 
 /**
@@ -110,6 +125,10 @@ export interface TestContext {
   /** Whether the server runs commands: {@link TestConfig.commands}, or true
    *  when the harness does not say. */
   commands: boolean;
+
+  /** Whether the server's start reaches a run in flight:
+   *  {@link TestConfig.wakesRuns}, or true when the harness does not say. */
+  wakesRuns: boolean;
 
   /** Create a test package and return path to zip file */
   createPackage: (name: string, version: string) => Promise<string>;
@@ -226,6 +245,8 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     fetch: (input, init) => requestFetch(config)(input, init),
 
     commands: config.commands ?? true,
+
+    wakesRuns: config.wakesRuns ?? true,
 
     createPackage: async (name: string, version: string) => {
       const zipPath = await createPackageZip(tempDir, name, version);

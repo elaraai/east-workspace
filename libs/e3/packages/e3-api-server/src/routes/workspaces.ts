@@ -35,6 +35,11 @@ import { pathsQuery } from './query.js';
  *   and index builds on the runner the backend was given.
  * @param getRunner - The runner a repository's tasks run on, which the status
  *   asks whether an execution recorded running can still finish
+ * @param options - How long a removal, and a copy onto a workspace, wait in
+ *   the request for the workspace — for a dataflow running in it to stop, and
+ *   a write in progress to finish — before they are refused: e3-core's
+ *   `EXCLUSIVE_WAIT_MS` unless set. A host whose requests have a time limit
+ *   sets less.
  * @returns The routes
  */
 export function createWorkspaceRoutes(
@@ -42,6 +47,7 @@ export function createWorkspaceRoutes(
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
   getRunner: GetRunner,
+  options: { readonly lockWaitMs?: number } = {},
 ) {
   const app = new Hono();
 
@@ -95,7 +101,7 @@ export function createWorkspaceRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const body = await decodeBody(c, WorkspaceCopyRequestType);
-    return copyWorkspace(storage, repoPath, ws, body.to);
+    return copyWorkspace(storage, repoPath, ws, body.to, options);
   });
 
   // DELETE /api/repos/:repo/workspaces/:ws - Remove a workspace
@@ -103,7 +109,7 @@ export function createWorkspaceRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return deleteWorkspace(storage, repoPath, ws);
+    return deleteWorkspace(storage, repoPath, ws, options);
   });
 
   // POST /api/repos/:repo/workspaces/:ws/deploy - Start a deploy job

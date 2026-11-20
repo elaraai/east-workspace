@@ -55,6 +55,7 @@ export type {
   TaskLogChunk,
   TaskExecutionResult,
   DataflowResult,
+  DataflowStartResult,
   DataflowEvent,
   ExecutionStatus,
   DataflowExecutionSummary,

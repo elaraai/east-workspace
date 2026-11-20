@@ -441,6 +441,7 @@ export {
   TaskDetailsType,
   // Execution
   DataflowRequestType,
+  DataflowStartResultType,
   LogChunkType,
   TaskLogChunkType,
   TaskExecutionResultType,
@@ -544,6 +545,7 @@ export {
   type TaskListItem,
   type TaskDetails,
   type DataflowRequest,
+  type DataflowStartResult,
   type LogChunk,
   type TaskLogChunk,
   type TaskExecutionResult,

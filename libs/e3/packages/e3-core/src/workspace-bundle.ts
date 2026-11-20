@@ -25,6 +25,7 @@ import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost, readInOrder } from './conc
 import { dataflowGetGraph } from './dataflow.js';
 import { inputObject } from './dataset-open.js';
 import { collectLeafPaths, keypathToRefPath, refPathToKeypath } from './dataset-refs.js';
+import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 import {
   InvalidNameError, ObjectNotFoundError, PackageExistsError, WorkspaceBundleInvalidError, WorkspaceExistsError,
   WorkspaceLockError, checkHash, checkId, checkName, lockStateToHolderInfo,
@@ -158,11 +159,8 @@ async function exportBundle(
   destination: WritableStream<Uint8Array>,
   options: WorkspaceBundleExportOptions,
 ): Promise<WorkspaceBundleExportResult> {
-  const lock = await storage.locks.acquire(repo, ws, variant('export', null), { mode: 'shared' });
-  if (lock === null) {
-    const state = await storage.locks.getState(repo, ws);
-    throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
-  }
+  const lock = await acquireWorkspaceShared(storage, repo, ws, variant('export', null));
+  if (lock === null) throw await workspaceLockRefusal(storage, repo, ws);
   try {
     const head = await headOf(storage, repo, ws);
     const roots = bundleRoots(head);

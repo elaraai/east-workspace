@@ -108,10 +108,75 @@ export interface PrepareTaskResult {
 }
 
 /**
+ * A catch-up run: a task run once over the inputs it had at earlier versions
+ * of the run's records, for a task that reads its result there
+ * (`dataflowResolveInputs`).
+ *
+ * @remarks
+ * A task that reads several results reads them all as of one commit of each
+ * record, the oldest its inputs came from. A result made from a newer commit
+ * is read at the older one from the execution cache, and where the cache has
+ * none the task that made it runs there once. The run applies it to no task's
+ * state and writes no ref for it: its execution is recorded, and nothing else.
+ */
+export interface CatchUpRun {
+  /** The task run, by name */
+  task: string;
+  /** Its task object's hash */
+  taskHash: string;
+  /** Its inputs' objects at the versions, in the task's input order */
+  inputHashes: string[];
+  /** The hash of those inputs, which with the task is the run's identity in
+   *  the execution cache */
+  inputsHash: string;
+  /** The versions it runs at: each root it reads, at the version the task
+   *  that waits for it reads */
+  versions: Map<string, string>;
+}
+
+/**
+ * What stepPrepareTask answers for a task whose inputs are not all at hand at
+ * the versions it reads: the catch-up runs that make them, those whose own
+ * inputs are at hand, the deepest first. Once they have settled the task is
+ * prepared again at the same versions.
+ */
+export interface PrepareTaskBehind {
+  /** The task waits for catch-up runs */
+  kind: 'behind';
+  /** Task name */
+  task: string;
+  /** The runs to make, or to wait for where one is in flight already */
+  runs: CatchUpRun[];
+}
+
+/**
+ * Why a task is deferred: nothing says which version of an input it reads.
+ *
+ * @remarks
+ * A task never waits for results made from different commits of a record: it
+ * reads them all as of the oldest. A plain input keeps no earlier value to
+ * read, so a task whose inputs read one at different values waits until they
+ * agree.
+ */
+export type DeferReason =
+  /** A plain input the task's inputs read at different values: `through`
+   *  names those inputs, each a task by its name, or the input's own keypath
+   *  where the task reads it directly, which comes first */
+  { kind: 'plain'; input: string; through: string[] };
+
+/**
+ * What stepTaskCommits answers: the version of each root the task reads —
+ * for a record, the commit — or why it is deferred.
+ */
+export type TaskCommits =
+  | { kind: 'commits'; versions: Map<string, string> }
+  | { kind: 'deferred'; reason: DeferReason };
+
+/**
  * What stepPrepareTask answers for a task that cannot run yet: an input of it
  * cannot be read — one nothing has set, a record whose first state is not yet
  * committed, or an index its record's state does not hold
- * (`dataflowResolveInputHashes`) — so the task is left waiting
+ * (`dataflowResolveInputs`) — so the task is left waiting
  * (stepTasksWaiting) and the run goes on without it.
  */
 export interface PrepareTaskWaiting {

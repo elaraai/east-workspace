@@ -8,21 +8,18 @@
  * driven by the orchestrator with a mock runner, through nothing but the
  * backend's stores — its order, its outputs and its run record, the execution
  * cache, a failure, a change that lands mid-run, a task left waiting on an
- * input nothing has set, and a cancel.
+ * input nothing has set, and a cancel; and, a step at a time on a runner that
+ * holds each task (`dataflow-follow.ts`), a run that follows its inputs.
  */
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowForceType, PackageObjectType, dataflowForce } from '@elaraai/e3-types';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
-import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
-import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DataflowAbortedError, DataflowError, TaskNotFoundError } from '../errors.js';
 import { inputsHash } from '../executions.js';
@@ -32,20 +29,9 @@ import { workspaceSetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
+import { dataflowFollowCases } from './dataflow-follow.js';
 import type { BackendContext, BackendSetup } from './setup.js';
-
-/** A directory for a test's own files, removed when the test ends. */
-function scratch(t: TestContext): string {
-  const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
-/** The store a case's runs keep their state in: the one the backend's setup
- *  gives, or one in memory. */
-function stateStoreOf(context: BackendContext): ExecutionStateStore {
-  return context.stateStore ?? new InMemoryStateStore();
-}
+import { inputPath, scratch, stateStoreOf } from './support.js';
 
 /**
  * Deploys a chain of three tasks over one input to workspace `ws`: `extract`,
@@ -89,9 +75,6 @@ async function deployPartial(t: TestContext, { storage, repo }: BackendContext):
   const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
   return { double: deployed.tasks.get('double')!, sum: deployed.tasks.get('sum')!, report: deployed.tasks.get('report')! };
 }
-
-/** The tree path of input `name`. */
-const inputPath = (name: string) => [variant('field', 'inputs'), variant('field', name)];
 
 /**
  * Makes the store's execution index of one task unreadable for the rest of
@@ -556,5 +539,8 @@ export function dataflowTests(setup: BackendSetup): void {
       assert.equal(ended?.status, 'failed');
       assert.equal(ended?.tasks.get('total')?.status, 'pending', 'the task can run again');
     });
+
+    // A run that follows its inputs, replayed a step at a time
+    dataflowFollowCases(setup);
   });
 }

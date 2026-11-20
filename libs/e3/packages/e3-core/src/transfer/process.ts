@@ -84,6 +84,11 @@ export interface ProcessExportDeps {
    * to the last: nothing changes it in between, and so the export's resume is
    * never refused for a workspace that changed. A package's export takes no
    * lock, and leaves it alone.
+   *
+   * @remarks
+   * The caller takes it through `acquireWorkspaceExclusive`, as an export
+   * takes its own: that announces the export, which stops a dataflow running
+   * in the workspace and holds every new write and run start off.
    */
   lock?: LockHandle;
   /**
@@ -344,6 +349,12 @@ export interface ProcessDeployDeps {
    * its own and leaves this one held, so a caller that runs one job over
    * several calls holds the workspace from the first to the last: no dataflow
    * or other deploy takes it in between.
+   *
+   * @remarks
+   * The caller takes it through `acquireWorkspaceExclusive`, as a deploy
+   * takes its own: that announces the deploy, which stops a dataflow running
+   * in the workspace and holds every new write and run start off. A lock
+   * taken any other way waits behind a dataflow for as long as it runs.
    */
   lock?: LockHandle;
   /**

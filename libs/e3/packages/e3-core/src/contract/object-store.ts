@@ -8,22 +8,15 @@
  * do.
  */
 
-import { describe, it, type TestContext } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ObjectNotFoundError } from '../errors.js';
 import { computeHash } from '../objects.js';
 import { MALFORMED_HASHES, hashRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
-
-/** A directory for a test's own files, removed when the test ends. */
-function scratch(t: TestContext): string {
-  const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
+import { scratch } from './support.js';
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const text = (data: Uint8Array): string => new TextDecoder().decode(data);

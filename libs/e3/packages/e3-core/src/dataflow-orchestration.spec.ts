@@ -793,10 +793,11 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(result.executed, 1);
     });
 
-    it('re-executes chain when input changes during execution', async () => {
+    it('lands each result of a chain when input changes during execution, and runs each task once more on the next', async () => {
       // Setup: input → taskA → middle → taskB → output
       // During taskA execution, input changes
-      // taskA should re-run, then taskB should run with new output
+      // taskA's result lands, and taskB runs on it; taskA runs once more on
+      // the new input, and taskB once more on what that writes
       const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
@@ -851,10 +852,16 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(result.success, true);
       // taskA should run twice (initial + re-execution after input change)
       assert.strictEqual(taskACallCount, 2);
-      // taskB should run once (blocked until taskA re-executes, then runs with fresh data)
-      assert.strictEqual(taskBCallCount, 1);
-      // One re-execution (taskA)
-      assert.strictEqual(result.reexecuted, 1);
+      // taskB runs on each result of taskA as it lands: it is never held back
+      // for taskA's next
+      assert.strictEqual(taskBCallCount, 2);
+      assert.deepStrictEqual(mockRunner.getCalls().filter((call) => call.taskHash === taskBHash).map((call) => call.inputHashes),
+        [['middle-v1'], ['middle-v2']]);
+      // Two re-executions: taskA, then taskB once taskA's next result landed
+      assert.strictEqual(result.reexecuted, 2);
+      assert.strictEqual(result.executed, 2);
+      const written = await storage.datasets.read(testRepo, 'test-ws', 'output');
+      assert.ok(written?.type === 'value' && written.value.hash === 'output-v2', 'the workspace holds the last result');
     });
 
     it('tracks reexecuted count correctly', async () => {

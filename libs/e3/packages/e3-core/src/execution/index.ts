@@ -29,6 +29,7 @@ export { runIntake, INTAKE_CANDIDATES, type IntakeCandidate, type RunIntakeOptio
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';
 export { MockTaskRunner, type MockTaskCall, type MockTaskResult, type MockUnitCall } from './MockTaskRunner.js';
+export { GatedTaskRunner, type GatedLaunch } from './GatedTaskRunner.js';
 
 // An execution attempt's records, as every runner writes them
 export {

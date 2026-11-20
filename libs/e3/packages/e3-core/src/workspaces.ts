@@ -41,11 +41,9 @@ import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
-  WorkspaceLockError,
   RecordDeployRefusedError,
   InvalidNameError,
   checkName,
-  lockStateToHolderInfo,
 } from './errors.js';
 import type { BatchResult, StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -53,6 +51,7 @@ import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLea
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
 import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
 import { withRunningWork } from './running-work.js';
+import { acquireWorkspaceExclusive, acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 
 /**
  * List workspace names.
@@ -196,6 +195,15 @@ export interface WorkspaceRemoveOptions {
    * @defaultValue true
    */
   sweep?: boolean;
+  /**
+   * How long the removal waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the removal
+   * stops, or a write in progress, lets go. A removal given its `lock` waits
+   * for nothing.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
 }
 
 /**
@@ -203,8 +211,12 @@ export interface WorkspaceRemoveOptions {
  *
  * Objects remain until repoGc is run.
  *
- * Acquires a workspace lock to prevent removing a workspace while a dataflow
- * is running. Throws WorkspaceLockError if the workspace is currently locked.
+ * Takes the workspace whole ({@link acquireWorkspaceExclusive}): it announces
+ * itself, so a dataflow running in the workspace stops and no write or run
+ * starts, then holds the workspace exclusively. It waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go, and throws
+ * WorkspaceLockError when something still holds it, or another removal, a
+ * deploy, a copy onto it or an export holds its intent.
  *
  * @remarks
  * The removal goes in two phases, as `RefStore.workspaceRemove` and
@@ -227,7 +239,8 @@ export interface WorkspaceRemoveOptions {
  * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
  *   is taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
- * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {WorkspaceLockError} If the workspace is still held once the wait is
+ *   over, naming what holds it
  */
 export async function workspaceRemove(
   storage: StorageBackend,
@@ -243,14 +256,7 @@ export async function workspaceRemove(
 
   // Acquire lock if not provided externally
   const externalLock = options.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('removal', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
-    }
-  }
+  const lock = externalLock ?? await acquireWorkspaceExclusive(storage, repo, name, variant('removal', null), { waitMs: options.lockWaitMs });
   try {
     // Check if workspace exists
     const existing = await storage.refs.workspaceRead(repo, name);
@@ -294,6 +300,20 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
 }
 
 /**
+ * Options for a workspace's copy.
+ */
+export interface WorkspaceCopyOptions {
+  /**
+   * How long the copy waits for its target, in milliseconds: for the target's
+   * intent, and then for its lock, which a dataflow the copy stops, or a write
+   * in progress, lets go.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
+}
+
+/**
  * Copy a workspace within its repository: the target becomes the source as it
  * is now — its deployed package and every dataset ref, so each record's head
  * and indexes and each task's output with them, and nothing needs to run
@@ -308,9 +328,14 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
  * It holds the source shared, as a dataflow run or a dataset write does, so
  * the source's work goes on while it copies — a ref written meanwhile is
  * copied as it stood before the write or after it — and a deploy, a removal or
- * an export holding the source refuses the copy. It holds the target
- * exclusively, as a deploy does, so a copy onto a workspace a dataflow runs
- * in, or that a write, a deploy, a removal or an export holds, is refused. Both
+ * an export holding the source refuses the copy. It takes the target whole, as
+ * a deploy does ({@link acquireWorkspaceExclusive}): it announces itself, so a
+ * dataflow running in the target stops and no write or run starts there, and
+ * waits up to `EXCLUSIVE_WAIT_MS` for what held the target to let go. The
+ * source is taken, and found there, before the target: a copy refused for its
+ * source — one that does not exist, or that something holds whole — announces
+ * nothing, and the target's dataflow goes on. So two copies, each onto the
+ * other's source, wait for one another until both are refused. Both
  * locks name the copy (`workspace_copy`), so what either refuses, and what
  * reads them, sees a copy. And it holds the repository's running work
  * ({@link withRunningWork}): the refs it writes name objects the source may
@@ -329,12 +354,13 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
  * @param repo - Repository identifier
  * @param from - The workspace copied
  * @param to - The workspace it is copied to, made or replaced
+ * @param options - How long the copy waits for its target
  * @throws {InvalidNameError} When either name is no workspace's, or `to` is
  *   `from`, before a lock is taken
  * @throws {WorkspaceNotFoundError} When the source does not exist
- * @throws {WorkspaceLockError} When something holds the target — a dataflow
- *   runs in it, or a write, a deploy, a removal or an export holds it — or
- *   holds the source exclusively
+ * @throws {WorkspaceLockError} When something still holds the target once the
+ *   wait is over, or another removal, deploy, copy or export holds its intent,
+ *   or something holds the source exclusively
  * @throws {Error} When a garbage collection or an upgrade holds the repository
  */
 export async function workspaceCopy(
@@ -342,6 +368,7 @@ export async function workspaceCopy(
   repo: string,
   from: string,
   to: string,
+  options: WorkspaceCopyOptions = {},
 ): Promise<void> {
   // Checked before a lock is taken, as every lock's resource is: a lock's
   // name may hold the `#` and `~` no workspace's may.
@@ -349,17 +376,13 @@ export async function workspaceCopy(
   checkName('workspace', to);
   if (from === to) throw new InvalidNameError('workspace', to, 'is the workspace copied: a workspace cannot be copied onto itself');
 
-  const target = await storage.locks.acquire(repo, to, variant('workspace_copy', null));
-  if (target === null) {
-    const state = await storage.locks.getState(repo, to);
-    throw new WorkspaceLockError(to, state ? lockStateToHolderInfo(state) : undefined);
-  }
+  // The source first, held and found there before the copy announces itself
+  // on its target: a copy refused for its source stops no dataflow there
+  const source = await acquireWorkspaceShared(storage, repo, from, variant('workspace_copy', null));
+  if (source === null) throw await workspaceLockRefusal(storage, repo, from);
   try {
-    const source = await storage.locks.acquire(repo, from, variant('workspace_copy', null), { mode: 'shared' });
-    if (source === null) {
-      const state = await storage.locks.getState(repo, from);
-      throw new WorkspaceLockError(from, state ? lockStateToHolderInfo(state) : undefined);
-    }
+    if (await storage.refs.workspaceRead(repo, from) === null) throw new WorkspaceNotFoundError(from);
+    const target = await acquireWorkspaceExclusive(storage, repo, to, variant('workspace_copy', null), { waitMs: options.lockWaitMs });
     try {
       await withRunningWork(storage, repo, async () => {
         const record = await storage.refs.workspaceRead(repo, from);
@@ -388,10 +411,10 @@ export async function workspaceCopy(
           deployed.type === 'some' ? some({ ...deployed.value, currentRunId: none }) : none));
       });
     } finally {
-      await source.release();
+      await target.release();
     }
   } finally {
-    await target.release();
+    await source.release();
   }
 }
 
@@ -580,8 +603,23 @@ export interface WorkspaceDeployOptions {
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
    * will acquire and release a lock internally.
+   *
+   * @remarks
+   * A caller that holds the workspace for a deploy takes it through
+   * `acquireWorkspaceExclusive`, as the deploy does when it takes its own: a
+   * lock taken any other way announces nothing, so a dataflow running in the
+   * workspace holds the deploy off for as long as it runs.
    */
   lock?: LockHandle;
+  /**
+   * How long the deploy waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the deploy
+   * stops, or a write in progress, lets go. A deploy given its `lock` waits
+   * for nothing, and a plan takes the workspace shared without waiting.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
   /**
    * Whether this deploy reads the package's `file` sources and adopts them.
    *
@@ -734,9 +772,20 @@ const NO_FILES: DeployFiles = {
  * `inputs: 'keep-edited'` keeps the one someone set while its type is the
  * package's.
  *
- * Acquires a workspace lock to prevent conflicts with running dataflows
- * or concurrent deploys. Throws WorkspaceLockError if the workspace is
- * currently locked by another process.
+ * Takes the workspace whole for the deploy ({@link acquireWorkspaceExclusive}):
+ * it announces itself, so a dataflow running in the workspace stops and no
+ * write or run starts, then holds the workspace exclusively. It waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go, and throws
+ * WorkspaceLockError when something still holds it, or another deploy, a
+ * removal, a copy onto it or an export holds its intent.
+ * A plan (`options.plan`) shares the workspace instead, and stops nothing.
+ *
+ * What would refuse the deploy — a package that does not resolve, a record it
+ * cannot carry, a `file` source that does not read — is decided once before it
+ * announces itself, sharing the workspace as a plan does: a deploy that is
+ * refused stops no dataflow. It is decided again once the deploy holds the
+ * workspace, and what it then decides is what it writes. A deploy given its
+ * `lock` holds the workspace already, and decides once.
  *
  * A package's `file` source names a file on the machine that exported it,
  * which the root entry's `workspaceDeploy` reads. This entry reads no files:
@@ -752,7 +801,8 @@ const NO_FILES: DeployFiles = {
  * @param options - Optional settings including external lock
  * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
  *   is taken
- * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {WorkspaceLockError} If the workspace is still held once the
+ *   deploy's wait is over, or another deploy holds it
  * @throws {RecordDeployRefusedError} When a record cannot be carried into the
  *   package: it changed type with no migration, its applied migrations are not
  *   the package's, the policy runs none, or the package drops it
@@ -793,38 +843,39 @@ export async function workspaceDeployWith(
   // refuse a malformed one, if at all, as a lock's.
   checkName('workspace', name);
 
-  // Acquire lock if not provided externally
+  // Acquire lock if not provided externally. A deploy announces itself and
+  // takes the workspace exclusively; a plan writes nothing, so it shares the
+  // workspace with what runs in it, and announces and stops nothing.
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;
   if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('deployment', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
+    if (options.plan === true) {
+      lock = await acquireWorkspaceShared(storage, repo, name, variant('deployment', null));
+      if (!lock) throw await workspaceLockRefusal(storage, repo, name);
+    } else {
+      // Announcing stops the workspace's dataflow, which nothing starts again:
+      // so what would refuse the deploy is decided once before it announces
+      // itself, sharing the workspace as a plan does, and a deploy that is
+      // refused stops nothing. Where the workspace cannot be shared, something
+      // else has it whole, and the deploy waits for it as it always has.
+      const shared = await acquireWorkspaceShared(storage, repo, name, variant('deployment', null));
+      if (shared !== null) {
+        try {
+          const ahead = await decideDeploy(storage, repo, name, pkgName, pkgVersion, options, true);
+          checkedDeploySources(ahead.pkg, options, files, true);
+        } finally {
+          await shared.release();
+        }
+      }
+      lock = await acquireWorkspaceExclusive(storage, repo, name, variant('deployment', null), { waitMs: options.lockWaitMs });
     }
   }
   try {
-    // Resolve package hash and read package object
-    const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
-    const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
-
-    // Decide what happens to each record BEFORE any destructive write, so a
-    // refused redeploy leaves the workspace fully intact rather than
-    // half-wiped with a torn state/data-dir mismatch.
-    const prior = await readPriorDeployment(storage, repo, name);
-    const deployments = await planRecordDeployments(
-      storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
-    );
-    for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
-    // Each input someone set is read now, under the lock, before the wipe
-    // below takes the workspace's refs with it.
-    const inputs = await planInputDeployments(
-      storage, repo, name, pkg, prior?.package ?? null, options.inputs ?? 'reset', options.resolveFileSources ?? true,
-    );
-    for (const input of inputs) options.onInputPlan?.(input.plan);
-    const refusals = deployments.flatMap(({ plan }) =>
-      plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
-    if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
+    // Decide what happens to each record and each input BEFORE any
+    // destructive write, so a refused redeploy leaves the workspace fully
+    // intact rather than half-wiped with a torn state/data-dir mismatch: under
+    // the lock, since what was decided ahead of it may have moved since.
+    const { packageHash, pkg, deployments, inputs } = await decideDeploy(storage, repo, name, pkgName, pkgVersion, options, false);
 
     // The state each record holds once the refs are written, which its
     // indexes are built over: the package's initial value for a record minted
@@ -852,16 +903,7 @@ export async function workspaceDeployWith(
     // A path-initialised input whose delivery is missing or has drifted
     // follows the same rule as a record: every file source is validated here,
     // before the wipe.
-    const sourceFiles = validateDatasetSources(
-      pkg, options.sourceWarning, options.resolveFileSources ?? true, files,
-    );
-    if (options.runner === undefined) {
-      for (const [refPath, { declared }] of sourceFiles) {
-        if (isCollectionRoot(declared.type)) {
-          throw new Error(`input '${refPath.split('/').pop() ?? refPath}': a collection delivery is taken in by intake units, and the deploy was given no runner to run them`);
-        }
-      }
-    }
+    const sourceFiles = checkedDeploySources(pkg, options, files, false);
 
     // The tasks lock is held from the first object this deploy writes — an
     // adopted delivery's segments, an index build's output — to the last ref
@@ -984,6 +1026,100 @@ export async function workspaceDeployWith(
       await lock.release();
     }
   }
+}
+
+/**
+ * What a deploy decides before it writes anything: the package it deploys,
+ * and what becomes of each record and each input of the deployment it finds.
+ *
+ * @remarks
+ * Read-only, so a deploy decides twice: once sharing the workspace, before it
+ * announces itself, and again once it holds the workspace whole, where it
+ * writes what it then decided. Decided ahead (`ahead`), it tells its caller
+ * nothing of a deploy that goes on — the plans are told as they are decided
+ * again — and tells all of one it refuses, as that refusal is the deploy's.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @param pkgName - Package name
+ * @param pkgVersion - Package version
+ * @param options - The deploy's policies, and what hears its plans
+ * @param ahead - Whether the deploy has yet to announce itself
+ * @returns The package and its hash, and each record's and each input's
+ *   deployment
+ * @throws {RecordDeployRefusedError} When a record cannot be carried into the
+ *   package, unless the deploy only plans
+ * @throws {Error} When the package does not resolve, or the workspace's
+ *   deployment does not read
+ */
+async function decideDeploy(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  pkgName: string,
+  pkgVersion: string,
+  options: WorkspaceDeployOptions,
+  ahead: boolean,
+): Promise<{
+  packageHash: string;
+  pkg: PackageObject;
+  deployments: Awaited<ReturnType<typeof planRecordDeployments>>;
+  inputs: Awaited<ReturnType<typeof planInputDeployments>>;
+}> {
+  // Resolve package hash and read package object
+  const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
+  const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
+
+  const prior = await readPriorDeployment(storage, repo, name);
+  const deployments = await planRecordDeployments(
+    storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
+  );
+  const refusals = deployments.flatMap(({ plan }) =>
+    plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
+  const refused = refusals.length > 0 && options.plan !== true;
+  const told = !ahead || refused;
+  if (told) for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
+  // Each input someone set is read now, before the wipe takes the workspace's
+  // refs with it.
+  const inputs = await planInputDeployments(
+    storage, repo, name, pkg, prior?.package ?? null, options.inputs ?? 'reset', options.resolveFileSources ?? true,
+  );
+  if (told) for (const input of inputs) options.onInputPlan?.(input.plan);
+  if (refused) throw new RecordDeployRefusedError(refusals);
+  return { packageHash, pkg, deployments, inputs };
+}
+
+/**
+ * The `file` sources a deploy adopts, each validated ({@link validateDatasetSources}),
+ * and none a collection the deploy has no runner to take in.
+ *
+ * @param pkg - The package being deployed
+ * @param options - The deploy's warning sink, whether it reads `file` sources, and its runner
+ * @param files - How this process reads the files the sources name
+ * @param ahead - Whether the deploy has yet to announce itself: it then warns
+ *   of nothing, and what it would warn of is told as the sources are checked
+ *   again
+ * @returns refPath -> the file and the type it must hold, for the sources to adopt
+ * @throws {Error} When a source does not validate, or a collection delivery
+ *   has no runner to take it in
+ */
+function checkedDeploySources(
+  pkg: PackageObject,
+  options: WorkspaceDeployOptions,
+  files: DeployFiles,
+  ahead: boolean,
+): ReturnType<typeof validateDatasetSources> {
+  const warn = options.sourceWarning === undefined || !ahead ? options.sourceWarning : () => {};
+  const sourceFiles = validateDatasetSources(pkg, warn, options.resolveFileSources ?? true, files);
+  if (options.runner === undefined) {
+    for (const [refPath, { declared }] of sourceFiles) {
+      if (isCollectionRoot(declared.type)) {
+        throw new Error(`input '${refPath.split('/').pop() ?? refPath}': a collection delivery is taken in by intake units, and the deploy was given no runner to run them`);
+      }
+    }
+  }
+  return sourceFiles;
 }
 
 /** `inputs/table` back to the tree path the dataset APIs take. */
@@ -1227,6 +1363,15 @@ export interface WorkspaceExportOptions {
   /** External workspace lock. If not provided, an exclusive lock will be acquired internally. */
   lock?: LockHandle;
   /**
+   * How long the export waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the export
+   * stops, or a write in progress, lets go. An export given its `lock` waits
+   * for nothing.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
+  /**
    * Aborting it stops the export once the entry it is writing is written: it
    * throws an `ExportStoppedError` holding the checkpoint it resumes from. A
    * stream is left open, holding the zip so far; a file destination of the
@@ -1268,6 +1413,11 @@ const LOG_BYTES = new TextEncoder();
  * as a package's export does, and gc holding the repository still sweeps none
  * of it, and an upgrade waits for it.
  *
+ * It takes the workspace whole, for a consistent snapshot
+ * ({@link acquireWorkspaceExclusive}): it announces itself, so a dataflow
+ * running in the workspace stops and no write or run starts, and waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
@@ -1281,6 +1431,8 @@ const LOG_BYTES = new TextEncoder();
  *   taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ * @throws {WorkspaceLockError} If the workspace is still held once the wait is
+ *   over, naming what holds it
  * @throws {ExportStoppedError} When `options.signal` stopped the export.
  * @throws {TypeError} When the destination is no `WritableStream`: a path or a
  *   Node stream, which the root entry writes to.
@@ -1320,16 +1472,9 @@ async function exportWorkspace(
     throw new Error('a resumed export of a workspace names the version the export it resumes named');
   }
 
-  // Acquire workspace lock for snapshot consistency
+  // The workspace whole, for snapshot consistency
   const externalLock = options?.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('export', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
-    }
-  }
+  const lock = externalLock ?? await acquireWorkspaceExclusive(storage, repo, name, variant('export', null), { waitMs: options?.lockWaitMs });
   try {
 
   // Get workspace state

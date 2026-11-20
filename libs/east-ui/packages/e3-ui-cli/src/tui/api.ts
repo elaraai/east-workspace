@@ -176,7 +176,10 @@ export function createHttpApi(config: HttpApiConfig): Api {
         datasetGetPage: async (ws, path, window) => datasetGetPage(apiUrl, repo(), ws, path, window, await options()),
         datasetFindKey: async (ws, path, query) => datasetFindKey(apiUrl, repo(), ws, path, query, await options()),
         datasetSet: async (ws, path, data) => datasetSet(apiUrl, repo(), ws, path, data, await options()),
-        dataflowExecuteLaunch: async (ws, dataflowOptions) => dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options()),
+        // The run screen follows the workspace's latest run, whichever start began it
+        dataflowExecuteLaunch: async (ws, dataflowOptions) => {
+            await dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options());
+        },
         dataflowExecutePoll: async (ws, window) => dataflowExecutePoll(apiUrl, repo(), ws, window, await options()),
         dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),

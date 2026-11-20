@@ -10,13 +10,14 @@
  * workspace's removal the workspace's lock refuses while a stopping run holds
  * it is answered `workspace_locked` with a `Retry-After` — one asked to stop
  * that has not, or one that has ended and still holds the dataflow lock it took
- * as it started. Any other holder's refusal names no wait.
+ * as it started. Any other holder's refusal names no wait. A removal waits for
+ * the workspace before it is refused: here, not long.
  */
 
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { NullType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { NullType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType } from '@elaraai/east';
 import {
   InMemoryStateStore, LocalOrchestrator, MockTaskRunner, WorkspaceLockError, workspaceCreate,
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
@@ -26,10 +27,13 @@ import { BEAST2_CONTENT_TYPE, E3_RELEASE, dataflowForce } from '@elaraai/e3-type
 import { deleteWorkspace } from './handlers/workspaces.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { heldByStoppingRun } from './stopping-run.js';
-import { DataflowExecutionStateType, DataflowRequestType, ResponseType } from './types.js';
+import { DataflowExecutionStateType, DataflowRequestType, DataflowStartResultType, ResponseType } from './types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
+
+/** How long a removal here waits for the workspace before it is refused. */
+const REMOVAL_WAIT = { lockWaitMs: 200 };
 
 /** A run's state, of no tasks, in workspace `main`, which ended at `completedAt` if given. */
 function runState(id: string, status: 'running' | 'completed' | 'cancelled', completedAt?: Date): DataflowExecutionState {
@@ -156,6 +160,7 @@ describe('a run that is stopping (#1286)', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => null,
     };
     const start = async (store: ExecutionStateStore) => {
       const app = new Hono();
@@ -169,7 +174,7 @@ describe('a run that is stopping (#1286)', () => {
         headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
         body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
       });
-      const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
+      const answer = decodeBeast2For(ResponseType(DataflowStartResultType))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
     assert.deepEqual(await start(cancelling(inner)), { refused: 'workspace_locked', retryAfter: '1' });
@@ -181,7 +186,7 @@ describe('a run that is stopping (#1286)', () => {
     await storage.repos.create(REPO);
     await workspaceCreate(storage, REPO, WS);
     const remove = async () => {
-      const response = await deleteWorkspace(storage, REPO, WS);
+      const response = await deleteWorkspace(storage, REPO, WS, REMOVAL_WAIT);
       const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
@@ -203,8 +208,8 @@ describe('a run that is stopping (#1286)', () => {
   });
 
   it('names a wait for a refusal the run lets go of its locks just after, before the server asks why', async () => {
-    const answered = async (response: Response) => {
-      const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
+    const answered = async (response: Response, type: EastType = NullType) => {
+      const answer = decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
 
@@ -225,7 +230,7 @@ describe('a run that is stopping (#1286)', () => {
       }
       return lock;
     });
-    assert.deepEqual(await answered(await deleteWorkspace(storage, REPO, WS)), { refused: 'workspace_locked', retryAfter: '1' });
+    assert.deepEqual(await answered(await deleteWorkspace(storage, REPO, WS, REMOVAL_WAIT)), { refused: 'workspace_locked', retryAfter: '1' });
 
     // A start: the run lets go of its dataflow lock as the orchestrator is refused.
     const starting = new InMemoryStorage();
@@ -242,6 +247,7 @@ describe('a run that is stopping (#1286)', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(starting, () => REPO, {
@@ -254,6 +260,6 @@ describe('a run that is stopping (#1286)', () => {
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
       body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
-    assert.deepEqual(await answered(response), { refused: 'workspace_locked', retryAfter: '1' });
+    assert.deepEqual(await answered(response, DataflowStartResultType), { refused: 'workspace_locked', retryAfter: '1' });
   });
 });

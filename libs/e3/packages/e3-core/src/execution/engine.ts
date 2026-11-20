@@ -54,7 +54,8 @@
  * While the units run, the task's own execution is recorded `running`, under
  * the owner its driver passes, whose identity its record carries, and its log
  * names each unit's execution. An aborted run records it `cancelled`, for the
- * reason `aborted`; a run that yields leaves it `interrupted`, for the reason
+ * reason `aborted`, as does a run that leaves it for good, which no run takes
+ * up again; a run that yields leaves it `interrupted`, for the reason
  * `yielded`; and a failure is the lowest-index failing unit's. However it
  * ends, its end is recorded once its log is written and flushed, so a reader
  * that finds the task ended reads its whole log.
@@ -815,14 +816,15 @@ export class SplitTask {
   }
 
   /**
-   * Ends the task stopped because the run was aborted: its execution is
-   * recorded `cancelled`, for the reason `aborted`, with the cause as the last
-   * line of its stderr log.
+   * Ends the task stopped: its execution is recorded `cancelled`, for the
+   * reason `aborted`, with the cause as the last line of its stderr log, and
+   * its plan is unrooted.
    *
+   * @param cause - Why it stopped, as its log's last line says it: by default,
+   *   that the run was aborted
    * @returns The task's execution
    */
-  async cancel(): Promise<ExecutionResult> {
-    const cause = "cancelled: e3 stopped the task's units because the run was aborted";
+  async cancel(cause = "cancelled: e3 stopped the task's units because the run was aborted"): Promise<ExecutionResult> {
     await this.stoppedLine(cause);
     await this.finish(variant('cancelled', {
       executionId: this.ids.executionId,
@@ -833,6 +835,21 @@ export class SplitTask {
       reason: { kind: variant('aborted', null), message: cause },
     }));
     return this.ended('error', cause, null, true);
+  }
+
+  /**
+   * Ends the task for good, for a run that leaves it and that no run takes up
+   * again — a catch-up run, which lives in its run's memory alone — as
+   * {@link cancel} does, for the cause given: its plan is unrooted, and a run
+   * that needs its output makes it again, its finished units answered from the
+   * cache. A task that has ended, or that is one piece, whose unit is its own
+   * execution, is left as it is.
+   *
+   * @param cause - Why it stopped, as its log's last line says it
+   */
+  async abandon(cause: string): Promise<void> {
+    if (!this.running) return;
+    await this.cancel(cause);
   }
 
   /**

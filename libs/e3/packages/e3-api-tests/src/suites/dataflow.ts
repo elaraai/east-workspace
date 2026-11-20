@@ -12,6 +12,10 @@
  * its message in its stderr log. One case runs a command, a custom task's,
  * which a server that runs no commands records `error`
  * ({@link TestContext.commands}).
+ *
+ * A start made while a run is in flight is handed to that run, where the
+ * server's start reaches it ({@link TestContext.wakesRuns}), and one that asks
+ * for a run of its own is refused; and a deploy stops a run in flight.
  */
 
 import { describe, it } from 'node:test';
@@ -150,6 +154,19 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
     await packageImport(ctx.config.baseUrl, ctx.repoName, packageZip, opts);
     await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
     await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow-pkg@1.0.0', opts);
+    return ctx;
+  };
+  // The slow task, slow on the value it is deployed with alone: its run is
+  // found in flight for as long as `slow-ws`'s is, and the task's second
+  // run, on an edit, does not wait
+  const withSlowOnce: TestSetup<TestContext> = async (t) => {
+    const ctx = await setup(t);
+    const opts = await ctx.opts();
+    const zipPath = await createSlowPackageZip(ctx.tempDir, 'once-pkg', '1.0.0', 30, 'test');
+    const packageZip = readFileSync(zipPath);
+    await packageImport(ctx.config.baseUrl, ctx.repoName, packageZip, opts);
+    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'once-ws', opts);
+    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'once-ws', 'once-pkg@1.0.0', opts);
     return ctx;
   };
   const withSlowDiamond: TestSetup<TestContext> = async (t) => {
@@ -703,6 +720,117 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
             `Expected lock-related error, got: ${err.message}`
           );
         }
+      });
+
+      it('hands a start that names no filter and forces no task to the run in flight, which runs its task once more on what was written before it', async (t) => {
+        const ctx = await withSlowOnce(t);
+        const opts = await ctx.opts();
+        const url = ctx.config.baseUrl;
+        const inputPath = [variant('field', 'inputs'), variant('field', 'value')];
+        const outputPath = [variant('field', 'tasks'), variant('field', 'slow'), variant('field', 'output')];
+
+        const first = await dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts);
+        assert.strictEqual(first.type, 'started', 'a start that finds no run in flight begins one');
+        // The task has started, on the input as the run found it, which it
+        // sleeps half a minute on: the edit lands while it runs, and its
+        // start is behind the cursor the second start is given
+        await waitFor(async () => {
+          try {
+            return (await dataflowExecutePoll(url, ctx.repoName, 'once-ws', {}, opts)).events.some((event) => event.type === 'start');
+          } catch {
+            return false; // execution record not created yet
+          }
+        }, 60000);
+        const run = (await dataflowExecutePoll(url, ctx.repoName, 'once-ws', { limit: 0 }, opts)).runId;
+
+        // An edit, then the start a view follows it with
+        await datasetSet(url, ctx.repoName, 'once-ws', inputPath, encodeBeast2For(StringType)('edited'), opts);
+        let since = 0n;
+        if (ctx.wakesRuns) {
+          const second = await dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts);
+          if (second.type !== 'handed') assert.fail('a start that finds a run in flight is handed to it, not answered that it began a run');
+          since = second.value.since;
+        } else {
+          // A server whose start does not reach its runs refuses it, as a
+          // held workspace refuses any start
+          await assert.rejects(dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts), (err: unknown) => {
+            assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+            assert.strictEqual(err.code, 'workspace_locked');
+            return true;
+          });
+        }
+
+        // Followed from the cursor the start was given, the same run lands
+        // the result it was making and starts its task again, on the edit,
+        // which the task copies at once
+        const events: Awaited<ReturnType<typeof dataflowExecutePoll>>['events'] = [];
+        await waitFor(async () => {
+          const state = await dataflowExecutePoll(url, ctx.repoName, 'once-ws', { since }, opts);
+          assert.strictEqual(state.runId, run, 'no second run began');
+          events.push(...state.events);
+          since = state.nextSeq;
+          if (state.status.type === 'failed' || state.status.type === 'aborted') assert.fail(`the run ended ${state.status.type}`);
+          return state.status.type === 'completed' && !dataflowEventsRemain(state);
+        }, 180000, 200);
+        const past = events.map((event) => `${event.type} ${event.value.task}`);
+        if (ctx.wakesRuns) {
+          assert.deepStrictEqual(past, ['complete slow', 'start slow', 'complete slow'],
+            'past the cursor: the result in the making lands, and the task runs once more');
+        }
+        const { data } = await datasetGet(url, ctx.repoName, 'once-ws', outputPath, opts);
+        assert.strictEqual(decodeBeast2For(StringType)(data), 'edited', 'the run ended on the edit');
+      });
+
+      it('refuses a start that names a filter or forces a task while a run is in flight: each asks for a run of its own', async (t) => {
+        const ctx = await withSlow(t);
+        const opts = await ctx.opts();
+        const url = ctx.config.baseUrl;
+
+        await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', {}, opts);
+        await waitForRunning(url, ctx.repoName, 'slow-ws', opts);
+        const run = (await dataflowExecutePoll(url, ctx.repoName, 'slow-ws', { limit: 0 }, opts)).runId;
+        for (const own of [{ filter: 'slow' }, { force: ['slow'] }]) {
+          await assert.rejects(dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', own, opts), (err: unknown) => {
+            assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+            assert.strictEqual(err.code, 'workspace_locked', JSON.stringify(own));
+            return true;
+          });
+        }
+        const state = await dataflowExecutePoll(url, ctx.repoName, 'slow-ws', { limit: 0 }, opts);
+        assert.deepStrictEqual([state.runId, state.status.type], [run, 'running'], 'the run in flight goes on');
+        await dataflowCancel(url, ctx.repoName, 'slow-ws', opts);
+      });
+
+      it('stops a run in flight for a deploy: the deploy goes through with no cancel asked, the run is answered aborted, and the next start begins a run', async (t) => {
+        const ctx = await withSlow(t);
+        const opts = await ctx.opts();
+        const url = ctx.config.baseUrl;
+        const history = () => taskExecutionList(url, ctx.repoName, 'slow-ws', 'slow', opts);
+
+        await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', {}, opts);
+        // The task's attempt is recorded running: the deploy stops a task in flight
+        await waitFor(async () => (await history()).some((item) => item.status.type === 'running'), 60000);
+        const run = (await dataflowExecutePoll(url, ctx.repoName, 'slow-ws', { limit: 0 }, opts)).runId;
+
+        // The task sleeps for half a minute: the deploy does not wait for it
+        await workspaceDeploy(url, ctx.repoName, 'slow-ws', 'slow-pkg@1.0.0', opts);
+
+        // The run has ended, and lets its workspace go
+        await waitFor(async () => {
+          const state = await dataflowExecutePoll(url, ctx.repoName, 'slow-ws', { limit: 0 }, opts);
+          assert.strictEqual(state.runId, run, 'the deploy began no run');
+          if (state.status.type === 'completed' || state.status.type === 'failed') assert.fail(`the run ended ${state.status.type}, not stopped`);
+          return state.status.type === 'aborted';
+        }, 60000);
+        const stopped = (await history()).find((item) => item.status.type === 'cancelled');
+        assert.ok(stopped !== undefined, 'the task in flight was stopped, not left to finish');
+
+        // Nothing restarts the run: the next start begins one
+        const next = await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', {}, opts);
+        assert.strictEqual(next.type, 'started');
+        await waitForRunning(url, ctx.repoName, 'slow-ws', opts);
+        assert.notStrictEqual((await dataflowExecutePoll(url, ctx.repoName, 'slow-ws', { limit: 0 }, opts)).runId, run);
+        await dataflowCancel(url, ctx.repoName, 'slow-ws', opts);
       });
 
       it('dataflowCancel stops a running execution', async (t) => {

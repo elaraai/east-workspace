@@ -66,9 +66,31 @@ export async function endedRunHolds(
 }
 
 /**
- * Whether a run that is stopping holds a workspace: one asked to stop that has
- * not yet stopped, or one that has ended and still holds the dataflow lock it
- * took as it started ({@link endedRunHolds}).
+ * Whether a workspace's latest run is stopping and holds it: one asked to
+ * stop that has not yet stopped, or one that has ended and still holds the
+ * dataflow lock it took as it started ({@link endedRunHolds}).
+ *
+ * @param storage - Storage backend, whose lock service holds the run's lock
+ * @param repo - Repository identifier
+ * @param workspace - The workspace
+ * @param run - The workspace's latest run, as its store summarises it; `null`
+ *   when it has none
+ * @returns Whether the run is stopping and holds the workspace
+ */
+export async function runIsStopping(
+  storage: StorageBackend,
+  repo: string,
+  workspace: string,
+  run: ExecutionStateSummary | null,
+): Promise<boolean> {
+  if (run === null) return false;
+  if (run.status === 'running') return run.cancelRequested;
+  return endedRunHolds(storage, repo, workspace, run);
+}
+
+/**
+ * Whether a run that is stopping holds a workspace ({@link runIsStopping}),
+ * read from the store.
  *
  * @param storage - Storage backend, whose lock service holds the run's lock
  * @param stateStore - The store the repository's runs keep their state in
@@ -82,10 +104,7 @@ export async function heldByStoppingRun(
   repo: string,
   workspace: string,
 ): Promise<boolean> {
-  const run = await stateStore.readLatestSummary(repo, workspace);
-  if (run === null) return false;
-  if (run.status === 'running') return run.cancelRequested;
-  return endedRunHolds(storage, repo, workspace, run);
+  return runIsStopping(storage, repo, workspace, await stateStore.readLatestSummary(repo, workspace));
 }
 
 /**

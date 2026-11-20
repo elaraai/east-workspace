@@ -8,10 +8,8 @@
  * backend, holding the repository still and beside running work.
  */
 
-import { describe, it, type TestContext } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BooleanType, DictType, East, IntegerType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor, none,
@@ -34,6 +32,7 @@ import { packageImport } from '../package-files.js';
 import type { GcObjectEntry, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import type { BackendSetup } from './setup.js';
+import { scratch } from './support.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -42,13 +41,6 @@ const HOUR = 60 * 60 * 1000;
 function idAt(ms: number, n: number): string {
   const time = ms.toString(16).padStart(12, '0');
   return `${time.slice(0, 8)}-${time.slice(8)}-7000-8000-${n.toString(16).padStart(12, '0')}`;
-}
-
-/** A directory for one test's package zips, removed when the test ends. */
-function zipDir(t: TestContext): string {
-  const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
 }
 
 /** The failure an object store answers a burst of requests with under load:
@@ -498,7 +490,7 @@ export function gcTests(setup: BackendSetup): void {
 
       it('retains what a package names', async (t) => {
         const { storage, repo } = await setup(t);
-        const zip = join(zipDir(t), 'gc-test.zip');
+        const zip = join(scratch(t), 'gc-test.zip');
         await e3.export(e3.package('gc-test', '1.0.0', e3.input('greeting', StringType, variant('value', 'hello'))), zip);
         const imported = await packageImport(storage, repo, zip);
 
@@ -514,7 +506,7 @@ export function gcTests(setup: BackendSetup): void {
         // burst of requests. Read as the object's absence, the mark would stop
         // there, and the sweep delete the package and everything it names.
         const { storage, repo } = await setup(t);
-        const zip = join(zipDir(t), 'gc-read-fault.zip');
+        const zip = join(scratch(t), 'gc-read-fault.zip');
         await e3.export(e3.package('gc-read-fault', '1.0.0', e3.input('salutation', StringType, variant('value', 'hello'))), zip);
         const imported = await packageImport(storage, repo, zip);
         const before = (await storage.objects.list(repo)).sort();
@@ -564,7 +556,7 @@ export function gcTests(setup: BackendSetup): void {
 
       it('deletes what only a removed package named', async (t) => {
         const { storage, repo } = await setup(t);
-        const zip = join(zipDir(t), 'remove-gc.zip');
+        const zip = join(scratch(t), 'remove-gc.zip');
         await e3.export(e3.package('remove-gc', '1.0.0'), zip);
         const imported = await packageImport(storage, repo, zip);
         await packageRemove(storage, repo, 'remove-gc', '1.0.0');
@@ -577,7 +569,7 @@ export function gcTests(setup: BackendSetup): void {
 
       it('retains what a removed package shares with a kept one', async (t) => {
         const { storage, repo } = await setup(t);
-        const dir = zipDir(t);
+        const dir = scratch(t);
         for (const name of ['shared-a', 'shared-b']) {
           await e3.export(e3.package(name, '1.0.0'), join(dir, `${name}.zip`));
           await packageImport(storage, repo, join(dir, `${name}.zip`));
@@ -591,7 +583,7 @@ export function gcTests(setup: BackendSetup): void {
 
       it('keeps a function\'s body while its package is kept (PackageObject → FunctionObject → bodyIr)', async (t) => {
         const { storage, repo } = await setup(t);
-        const zip = join(zipDir(t), 'fn-gc.zip');
+        const zip = join(scratch(t), 'fn-gc.zip');
         const double = e3.function('double', East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
         await e3.export(e3.package('fn-gc', '1.0.0', double), zip);
         await packageImport(storage, repo, zip);
@@ -608,7 +600,7 @@ export function gcTests(setup: BackendSetup): void {
 
       it('deletes a function once its package is removed', async (t) => {
         const { storage, repo } = await setup(t);
-        const zip = join(zipDir(t), 'fn-gc-rm.zip');
+        const zip = join(scratch(t), 'fn-gc-rm.zip');
         const triple = e3.function('triple', East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n)));
         await e3.export(e3.package('fn-gc-rm', '1.0.0', triple), zip);
         const imported = await packageImport(storage, repo, zip);
@@ -627,7 +619,7 @@ export function gcTests(setup: BackendSetup): void {
             migration.rows('retitle', East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title }))),
           ],
         });
-        const zip = join(zipDir(t), 'migration-gc.zip');
+        const zip = join(scratch(t), 'migration-gc.zip');
         await e3.export(e3.package('migration-gc', '1.0.0', plans), zip);
         await packageImport(storage, repo, zip);
 
@@ -856,7 +848,7 @@ export function gcTests(setup: BackendSetup): void {
         const type = DictType(StringType, IntegerType);
         const rows = new Map<string, bigint>();
         for (let i = 0; i < 20_000; i++) rows.set(`k${String(i).padStart(7, '0')}`, BigInt(i));
-        const zip = join(zipDir(t), 'gc-manifest.zip');
+        const zip = join(scratch(t), 'gc-manifest.zip');
         await e3.export(e3.package('gc-manifest', '1.0.0', e3.input('rows', type, variant('value', rows))), zip);
         await packageImport(storage, repo, zip);
 
@@ -971,7 +963,7 @@ export function gcTests(setup: BackendSetup): void {
         const type = DictType(StringType, IntegerType);
         const rows = new Map<string, bigint>();
         for (let i = 0; i < 20_000; i++) rows.set(`k${String(i).padStart(7, '0')}`, BigInt(i));
-        const zip = join(zipDir(t), 'gc-retouch.zip');
+        const zip = join(scratch(t), 'gc-retouch.zip');
         await e3.export(e3.package('gc-retouch', '1.0.0', e3.input('retouched', type, variant('value', rows))), zip);
         await packageImport(storage, repo, zip);
         const pkg = await packageRead(storage, repo, 'gc-retouch', '1.0.0');
@@ -1035,7 +1027,7 @@ export function gcTests(setup: BackendSetup): void {
         const start = Date.now();
         const rows = new Map<string, bigint>();
         for (let i = 0; i < 5_000; i++) rows.set(`k${String(i).padStart(6, '0')}`, BigInt(i));
-        const zip = join(zipDir(t), 'gc-marking.zip');
+        const zip = join(scratch(t), 'gc-marking.zip');
         // The package is a visit of the mark, and so is each value it names: a
         // collection's manifest, which names its segments, and two more
         await e3.export(e3.package('gc-marking', '1.0.0',

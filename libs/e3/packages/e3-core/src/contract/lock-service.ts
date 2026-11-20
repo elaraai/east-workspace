@@ -5,18 +5,20 @@
 
 /**
  * The lock service's contract: the shared and exclusive holds e3-core relies
- * on to keep a deploy, a dataflow and a write off each other, over any
- * backend.
+ * on to keep a deploy, a removal, a copy, an export, a dataflow and a write
+ * off each other, over any backend.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { variant } from '@elaraai/east';
-import type { LockProgress } from '@elaraai/e3-types';
-import { InvalidNameError } from '../errors.js';
+import type { LockOperation, LockProgress } from '@elaraai/e3-types';
+import { InvalidNameError, WorkspaceLockError } from '../errors.js';
+import { acquireWorkspaceExclusive, acquireWorkspaceShared, announcedIntent, workspaceIntentLock, workspaceLockRefusal } from '../deploy-lock.js';
 import { workspaceLockStatus } from '../workspaces.js';
 import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
+import { untilAnnounced } from './support.js';
 
 /** A deploy's progress: `done` of its three file sources taken in, the next
  *  one under way, and its one record waiting. */
@@ -142,6 +144,68 @@ export function lockServiceTests(setup: BackendSetup): void {
       } finally {
         await held.release();
       }
+    });
+
+    it("holds a workspace's intent as a lock of its own: what takes the workspace whole reads as what it is once it has announced itself, and holds off every shared taker", async (t) => {
+      const { storage, repo } = await setup(t);
+      assert.equal(await announcedIntent(storage, repo, 'main'), null, 'nothing has announced itself');
+
+      const deploy = await acquireWorkspaceExclusive(storage, repo, 'main', variant('deployment', null), { waitMs: 0 });
+      assert.equal(deploy.resource, 'main', "the handle is the workspace lock's");
+      assert.deepEqual(await announcedIntent(storage, repo, 'main'), variant('deployment', null));
+      assert.deepEqual((await storage.locks.getState(repo, workspaceIntentLock('main')))?.operation, variant('deployment', null));
+      assert.deepEqual((await storage.locks.getState(repo, 'main'))?.operation, variant('deployment', null), 'it holds the workspace too');
+      assert.equal(await announcedIntent(storage, repo, 'other'), null, "another workspace's intent is its own");
+
+      // Its progress reads as the workspace's, as a deploy's does
+      await deploy.report(deploying(1));
+      assert.deepEqual(await storage.locks.getProgress(repo, 'main'), deploying(1));
+
+      assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null);
+      const refusal = await workspaceLockRefusal(storage, repo, 'main');
+      assert.ok(refusal instanceof WorkspaceLockError);
+      assert.equal(refusal.holder?.operation, 'deployment', 'the refusal names the deploy');
+      await assert.rejects(acquireWorkspaceExclusive(storage, repo, 'main', variant('deployment', null), { waitMs: 0 }), WorkspaceLockError,
+        'a second deploy is refused');
+      await assert.rejects(acquireWorkspaceExclusive(storage, repo, 'main', variant('removal', null), { waitMs: 0 }), WorkspaceLockError,
+        'and so is a removal');
+
+      await deploy.release();
+      await deploy.release();
+      assert.equal(await announcedIntent(storage, repo, 'main'), null, 'the intent goes with the deploy');
+      assert.equal(await storage.locks.getState(repo, 'main'), null);
+      const shared = await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null));
+      assert.ok(shared !== null, 'the workspace is shared again');
+      await shared.release();
+
+      // A removal, a copy onto it and an export each announce themselves as what they are
+      for (const operation of [variant('removal', null), variant('workspace_copy', null), variant('export', null)] as LockOperation[]) {
+        const taken = await acquireWorkspaceExclusive(storage, repo, 'main', operation, { waitMs: 0 });
+        assert.deepEqual(await announcedIntent(storage, repo, 'main'), operation);
+        assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null);
+        assert.equal((await workspaceLockRefusal(storage, repo, 'main')).holder?.operation, operation.type, 'the refusal names it');
+        await taken.release();
+        assert.equal(await announcedIntent(storage, repo, 'main'), null);
+      }
+    });
+
+    it('announces a deploy while a shared holder still holds the workspace, holds new shared takers off, and takes the workspace once it is let go', async (t) => {
+      const { storage, repo } = await setup(t);
+      const running = await acquireWorkspaceShared(storage, repo, 'main', variant('dataflow', null));
+      assert.ok(running !== null);
+
+      // A deploy with no time to wait is refused, and leaves no intent behind
+      await assert.rejects(acquireWorkspaceExclusive(storage, repo, 'main', variant('deployment', null), { waitMs: 0 }), WorkspaceLockError);
+      assert.equal(await announcedIntent(storage, repo, 'main'), null);
+
+      const deploying = acquireWorkspaceExclusive(storage, repo, 'main', variant('deployment', null), { waitMs: 10_000 });
+      // The intent is what a holder of the workspace reads, and stops for
+      await untilAnnounced(storage, repo, 'main', deploying);
+      assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null, 'no new shared taker starts');
+      await running.release();
+      const deploy = await deploying;
+      assert.deepEqual((await storage.locks.getState(repo, 'main'))?.operation, variant('deployment', null));
+      await deploy.release();
     });
 
     it('refuses a resource whose name cannot be one path segment, naming it, before it takes or reads anything', async (t) => {

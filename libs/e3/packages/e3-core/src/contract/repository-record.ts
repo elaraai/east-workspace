@@ -10,8 +10,6 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   ArrayType, IntegerType, OptionType, SortedMap, encodeBeast2For, equalFor, isTypeValueEqual, none, printFor, readBeast2Type, some, toEastTypeValue,
@@ -44,6 +42,7 @@ import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
 import type { RepositoryUpgrade, StorageBackend } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
+import { scratch } from './support.js';
 
 /** How a step {@link register} adds behaves. */
 interface StepOptions {
@@ -569,9 +568,7 @@ export function repositoryRecordTests(setup: BackendSetup): void {
 
     it('leaves a workspace\'s records their states and histories across an upgrade, and they take commits after it', async (t) => {
       const { storage, repo } = await setup(t);
-      const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
-      t.after(() => rmSync(dir, { recursive: true, force: true }));
-      const zip = join(dir, 'records.zip');
+      const zip = join(scratch(t), 'records.zip');
       await e3.export(e3.package('records', '1.0.0', e3.record('counter', IntegerType, { initial: 0n })), zip);
       await packageImport(storage, repo, zip);
       await workspaceCreate(storage, repo, 'main');

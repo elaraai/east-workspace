@@ -6,9 +6,10 @@
 /**
  * The dataflow routes run, poll and cancel a dataflow through the seams their
  * host gives — its orchestrator, and the state store the orchestrator writes —
- * as e3-cloud mounts them over its own; and they serve the budget the host's
- * runner holds. And a server's budget settings that do not resolve refuse the
- * server.
+ * as e3-cloud mounts them over its own; a start that finds a run in flight is
+ * handed to it through the orchestrator's wake; and they serve the budget the
+ * host's runner holds. And a server's budget settings that do not resolve
+ * refuse the server.
  */
 
 import { describe, it } from 'node:test';
@@ -18,14 +19,22 @@ import {
   IntegerType, NullType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant,
 } from '@elaraai/east';
 import {
-  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus, storeDatasetBytes,
+  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, WorkspaceLockError, stateToStatus, storeDatasetBytes,
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
 } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { BEAST2_CONTENT_TYPE, E3_RELEASE, PackageObjectType, WorkspaceRecordType, dataflowForce } from '@elaraai/e3-types';
 import { createExecutionRoutes } from '../routes/executions.js';
 import { createServer } from '../server.js';
-import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, ResponseType, WorkspaceStatusResultType } from '../types.js';
+import {
+  DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, DataflowStartResultType, ResponseType, WorkspaceStatusResultType,
+} from '../types.js';
+
+/** A start's answer, as the route sends it. */
+const StartAnswer = ResponseType(DataflowStartResultType);
+const decodeStart = decodeBeast2For(StartAnswer);
+const sameStart = equalFor(StartAnswer);
+const printStart = printFor(StartAnswer);
 
 /** A run's state, of no tasks, in workspace `main` of `test-repo`. */
 function runState(id: string, status: 'running' | 'completed' | 'failed' | 'cancelled'): DataflowExecutionState {
@@ -127,6 +136,7 @@ describe('dataflow routes', () => {
         await stateStore.updateStatus(handle.repo, handle.workspace, handle.id, 'cancelled');
       },
       getEvents: async () => [],
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -136,26 +146,27 @@ describe('dataflow routes', () => {
     }));
     const decodeNull = decodeBeast2For(ResponseType(NullType));
     const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
-    const post = async (path: string, body?: Uint8Array) => decodeNull(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow${path}`, {
+    const post = async (path: string, body?: Uint8Array) => new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow${path}`, {
       method: 'POST',
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
       ...(body !== undefined && { body }),
-    })).arrayBuffer()));
+    })).arrayBuffer());
     const poll = async () => decodeState(new Uint8Array(await (await app.request('/api/repos/r/workspaces/main/dataflow/execution')).arrayBuffer()));
 
-    assert.equal((await post('', encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }))).type, 'success');
+    const started = decodeStart(await post('', encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none })));
+    assert.ok(sameStart(started, variant('success', variant('started', null))), `the start began a run, and is answered ${printStart(started)}`);
     const running = await poll();
     if (running.type !== 'success') assert.fail(`the poll was refused: ${running.value.type}`);
     assert.equal(running.value.status.type, 'running');
     assert.deepEqual(running.value.waiting.map((wait) => wait.task), ['train'], 'the orchestrator running the run answers its waits');
 
-    assert.equal((await post('/cancel')).type, 'success');
+    assert.equal(decodeNull(await post('/cancel')).type, 'success');
     assert.deepEqual(cancelled, ['run-1'], 'the host\'s orchestrator cancels the run its state names');
     const ended = await poll();
     if (ended.type !== 'success') assert.fail(`the poll was refused: ${ended.value.type}`);
     assert.equal(ended.value.status.type, 'aborted');
 
-    const again = await post('/cancel');
+    const again = decodeNull(await post('/cancel'));
     assert.equal(again.type, 'error', 'no run is running');
   });
 
@@ -173,6 +184,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -187,7 +199,7 @@ describe('dataflow routes', () => {
       body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
     assert.equal(response.status, 202);
-    assert.equal(decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())).type, 'success');
+    assert.equal(decodeStart(new Uint8Array(await response.arrayBuffer())).type, 'success');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(waits, 0);
   });
@@ -207,6 +219,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -214,8 +227,8 @@ describe('dataflow routes', () => {
       getOrchestrator: () => orchestrator,
       getStateStore: () => new InMemoryStateStore(),
     }));
-    const Answer = ResponseType(NullType);
-    const decode = decodeBeast2For(Answer);
+    const Answer = StartAnswer;
+    const decode = decodeStart;
     const joins = 'holds "#", which joins the parts of a lock\'s name';
 
     for (const [name, why] of [
@@ -461,6 +474,179 @@ describe('dataflow routes', () => {
     const without = new Hono();
     without.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', seams));
     assert.deepEqual(await budgetOf(without), variant('success', none));
+  });
+});
+
+describe('a start while a run is in flight', () => {
+  /**
+   * A host whose run of `main` is in flight, with seven events recorded: its
+   * orchestrator refuses a second run, as the workspace's lock does, and
+   * takes a wake as `wake` says.
+   *
+   * @returns The start route's caller, and what the orchestrator and the
+   *   host's runner attachment were asked
+   */
+  async function inFlight(wake: () => Promise<string | null>, state: Partial<DataflowExecutionState> = {}): Promise<{
+    start(request?: { force?: boolean | string[]; filter?: string }): Promise<{ status: number; retryAfter: string | null; answer: ReturnType<typeof decodeStart> }>;
+    asked: { starts: number; wakes: number; attachments: number };
+    stateStore: InMemoryStateStore;
+  }> {
+    const stateStore = new InMemoryStateStore();
+    await stateStore.create({ ...runState('run-1', 'running'), eventSeq: 7n, ...state });
+    const asked = { starts: 0, wakes: 0, attachments: 0 };
+    const orchestrator: DataflowOrchestrator = {
+      start: () => {
+        asked.starts++;
+        return Promise.reject(new WorkspaceLockError('main'));
+      },
+      wait: () => new Promise(() => {}),
+      getStatus: () => Promise.reject(new Error('not polled')),
+      getProgress: () => Promise.reject(new Error('not polled')),
+      cancel: async () => {},
+      getEvents: async () => [],
+      wake: () => {
+        asked.wakes++;
+        return wake();
+      },
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => orchestrator,
+      getStateStore: () => stateStore,
+      dataflowRunner: async () => {
+        asked.attachments++;
+        return { runner: new MockTaskRunner(), extraConcurrency: 0, close: async () => {} };
+      },
+    }));
+    const start = async (request: { force?: boolean | string[]; filter?: string } = {}) => {
+      const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
+        method: 'POST',
+        headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+        body: encodeBeast2For(DataflowRequestType)({
+          force: dataflowForce(request.force ?? false), filter: request.filter === undefined ? none : some(request.filter),
+        }),
+      });
+      return {
+        status: response.status,
+        retryAfter: response.headers.get('retry-after'),
+        answer: decodeStart(new Uint8Array(await response.arrayBuffer())),
+      };
+    };
+    return { start, asked, stateStore };
+  }
+  const locked = variant('error', variant('workspace_locked', { workspace: 'main', holder: variant('unknown', null) }));
+
+  it('hands a start that names no filter and forces no task to the run: 202, `handed` with the run\'s last event, and no second run asked for nor a runner attached for one', async () => {
+    const { start, asked } = await inFlight(async () => 'run-1');
+    const { status, answer } = await start();
+    assert.equal(status, 202);
+    assert.ok(sameStart(answer, variant('success', variant('handed', { since: 7n }))), `answered ${printStart(answer)}`);
+    assert.deepEqual(asked, { starts: 0, wakes: 1, attachments: 0 });
+  });
+
+  it('answers a start with the cursor of the run that took it: where the run it read of ended, and another was woken, that run\'s start', async () => {
+    // run-1 is the workspace's latest as the route reads it, seven events in; the run in flight as the wake arrives is another
+    const { start, asked } = await inFlight(async () => 'run-2');
+    const { status, answer } = await start();
+    assert.equal(status, 202);
+    assert.ok(sameStart(answer, variant('success', variant('handed', { since: 0n }))), `answered ${printStart(answer)}`);
+    assert.deepEqual(asked, { starts: 0, wakes: 1, attachments: 0 });
+  });
+
+  it('refuses a start with a filter or a force as a held workspace is refused, and never wakes the run for one: each asks for a run of its own', async () => {
+    const { start, asked } = await inFlight(async () => 'run-1');
+    for (const request of [{ filter: 'report' }, { force: true }, { force: ['report'] }]) {
+      const { answer, retryAfter } = await start(request);
+      assert.ok(sameStart(answer, locked), `${JSON.stringify(request)} is answered ${printStart(answer)}`);
+      assert.equal(retryAfter, null);
+    }
+    assert.equal(asked.wakes, 0);
+  });
+
+  it('refuses a start the run does not take in — one its orchestrator cannot reach, or one that leaves tasks out — asking the run once', async () => {
+    const { start, asked } = await inFlight(async () => null);
+    const { answer, retryAfter } = await start();
+    assert.ok(sameStart(answer, locked), `answered ${printStart(answer)}`);
+    assert.equal(retryAfter, null, 'the client backs off and asks again, as it does of any held workspace');
+    assert.deepEqual(asked, { starts: 1, wakes: 1, attachments: 1 });
+  });
+
+  it('refuses a start as a held workspace is refused when the wake fails: the run finds the change as its next task ends', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const { start, asked } = await inFlight(() => Promise.reject(new Error('the run\'s host did not answer')));
+    const { answer } = await start();
+    assert.ok(sameStart(answer, locked), `answered ${printStart(answer)}`);
+    assert.deepEqual([asked.starts, asked.wakes], [1, 1]);
+  });
+
+  it('wakes no run that is stopping: the start is refused with the wait a stopping run\'s refusal names', async () => {
+    const { start, asked, stateStore } = await inFlight(async () => 'run-1');
+    const stopping: ExecutionStateStore = {
+      ...countingStore(stateStore).store,
+      readLatestSummary: async (repo, workspace) => {
+        const summary = await stateStore.readLatestSummary(repo, workspace);
+        return summary === null ? null : { ...summary, cancelRequested: true };
+      },
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => ({
+        start: () => Promise.reject(new WorkspaceLockError('main')),
+        wait: () => new Promise(() => {}),
+        getStatus: () => Promise.reject(new Error('not polled')),
+        getProgress: () => Promise.reject(new Error('not polled')),
+        cancel: async () => {},
+        getEvents: async () => [],
+        wake: async () => {
+          asked.wakes++;
+          return 'run-1';
+        },
+      }),
+      getStateStore: () => stopping,
+    }));
+    const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
+      method: 'POST',
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
+    });
+    const answer = decodeStart(new Uint8Array(await response.arrayBuffer()));
+    assert.ok(sameStart(answer, locked), `answered ${printStart(answer)}`);
+    assert.equal(response.headers.get('retry-after'), '1');
+    assert.equal(asked.wakes, 0);
+    assert.equal((await start()).answer.type, 'success', 'the same run, not stopping, takes the start');
+  });
+
+  it('hands a start to a run that began between its look and its start, with that run\'s cursor', async () => {
+    const stateStore = new InMemoryStateStore();
+    const orchestrator: DataflowOrchestrator = {
+      // Another start's run takes the workspace first
+      start: async () => {
+        await stateStore.create({ ...runState('run-2', 'running'), eventSeq: 3n });
+        throw new WorkspaceLockError('main');
+      },
+      wait: () => new Promise(() => {}),
+      getStatus: () => Promise.reject(new Error('not polled')),
+      getProgress: () => Promise.reject(new Error('not polled')),
+      cancel: async () => {},
+      getEvents: async () => [],
+      wake: async () => 'run-2',
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => orchestrator,
+      getStateStore: () => stateStore,
+    }));
+    const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
+      method: 'POST',
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
+    });
+    const answer = decodeStart(new Uint8Array(await response.arrayBuffer()));
+    assert.equal(response.status, 202);
+    assert.ok(sameStart(answer, variant('success', variant('handed', { since: 3n }))), `answered ${printStart(answer)}`);
   });
 });
 

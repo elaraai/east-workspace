@@ -61,7 +61,8 @@ import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError, WorkspaceLockError, checkName, lockStateToHolderInfo } from './errors.js';
+import { DatasetRefConflictError, checkName } from './errors.js';
+import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 import { touchReachable } from './gc-graph.js';
 import { acquireRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
@@ -407,7 +408,8 @@ export interface RecordMutateOptions {
  * @returns What `fn` returns
  * @throws {InvalidNameError} When `ws` is no workspace's name, before the lock
  *   is taken
- * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the
+ *   workspace, or a deploy has announced itself and waits for it
  * @throws {Error} When a garbage collection or an upgrade holds the
  *   repository
  *
@@ -437,7 +439,7 @@ export async function withSharedWorkspaceLock<T>(
   const [workspace, tasks] = await Promise.allSettled([
     externalLock !== undefined
       ? Promise.resolve(externalLock)
-      : storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' }),
+      : acquireWorkspaceShared(storage, repo, ws, variant('dataset_write', null)),
     acquireRunningWork(storage, repo),
   ]);
   // The workspace's lock, when this took it
@@ -445,10 +447,7 @@ export async function withSharedWorkspaceLock<T>(
   if (workspace.status === 'rejected' || workspace.value === null || tasks.status === 'rejected') {
     await Promise.all([own?.release(), tasks.status === 'fulfilled' ? tasks.value.release() : undefined]);
     if (workspace.status === 'rejected') throw workspace.reason;
-    if (workspace.value === null) {
-      const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
-    }
+    if (workspace.value === null) throw await workspaceLockRefusal(storage, repo, ws);
     throw (tasks as PromiseRejectedResult).reason;
   }
   try {

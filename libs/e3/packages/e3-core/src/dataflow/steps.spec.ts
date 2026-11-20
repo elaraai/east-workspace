@@ -12,14 +12,18 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { createHash } from 'node:crypto';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type DataflowForce, type TreePath, type Structure } from '@elaraai/e3-types';
 import {
   checkDataflowStart,
-  stepInvalidateTasks,
+  stepTasksDue,
+  stepTaskDueAgain,
+  stepResumedTasksDue,
+  stepTaskCommits,
+  deferralPath,
+  stepGetReady,
   stepDetectInputChanges,
-  stepCheckVersionConsistency,
-  stepTaskResultStale,
   stepYield,
   stepTaskSplit,
   stepTaskMergeStarted,
@@ -27,6 +31,7 @@ import {
   stepTaskCompleted,
   stepTaskFailed,
   stepTaskForced,
+  stepTasksSkipped,
   stepTasksWaiting,
   stepIsComplete,
   stepFinalize,
@@ -36,7 +41,7 @@ import { DataflowError, TaskNotFoundError } from '../errors.js';
 import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
-import type { DataflowGraph } from '../dataflow.js';
+import { catchUpKey, dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
@@ -44,8 +49,11 @@ import { workspaceSetDataset } from '../trees.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import {
   PackageObjectType,
+  RecordCommitType,
+  RecordObjectType,
   TASK_OBJECT_KIND,
   TaskObjectType,
+  WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { East, ArrayType, IRType } from '@elaraai/east';
@@ -111,6 +119,20 @@ function makeTaskState(name: string, status: TaskState['status']): TaskState {
     execution: none,
   } as TaskState;
 }
+
+/** A task that completed with a result, counted as executed or cached. */
+function makeCompleted(name: string, output: string, cached = false): TaskState {
+  return {
+    ...makeTaskState(name, 'completed'),
+    cached: some(cached),
+    outputHash: some(output),
+    execution: some({ inputsHash: `inputs-${name}`, executionId: `execution-${name}` }),
+  } as TaskState;
+}
+
+/** A storage no step of these tests reads: the steps they call decide from
+ *  the run's state alone. */
+const unread = new LocalStorage();
 
 describe('stepYield', () => {
   const graph: DataflowGraph = {
@@ -287,18 +309,19 @@ describe('tasks waiting on an unassigned input', () => {
     assert.strictEqual(state.status, 'completed');
   });
 
-  it('decides them again as an input is assigned, unless a task they read still waits', () => {
+  it('decides them again as an input is assigned, unless a task they read still waits', async () => {
     const state = pending();
     stepTasksWaiting(state, 'a', ['.input']);
     stepTasksWaiting(state, 'd', ['.other']);
     // `.other` assigned: d is decided again; b reads it too, but still waits
     // on a, and c on b
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.other' }]);
-    assert.deepStrictEqual(invalidated, [], 'none had run');
+    const { due } = await stepTasksDue(unread, state, [{ path: '.other' }]);
+    assert.deepStrictEqual(due, [], 'none had run');
     assert.deepStrictEqual(statuses(state), [['a', 'waiting'], ['b', 'waiting'], ['c', 'waiting'], ['d', 'pending']]);
-    // `.input` assigned: a, and b and c after it, are decided again
-    stepInvalidateTasks(state, [{ path: '.input' }]);
-    assert.deepStrictEqual(waitingTasks(state), []);
+    // `.input` assigned: a is decided again, which reads it; b and c wait on
+    // it still, and are decided again as it completes
+    await stepTasksDue(unread, state, [{ path: '.input' }]);
+    assert.deepStrictEqual(statuses(state), [['a', 'pending'], ['b', 'waiting'], ['c', 'waiting'], ['d', 'pending']]);
   });
 
   it('decides a waiting dependent again as the task it waited on completes, unless another it reads still waits', () => {
@@ -306,7 +329,7 @@ describe('tasks waiting on an unassigned input', () => {
     stepTasksWaiting(state, 'a', ['.input']);
     // `.input` assigned and a run, as the loop runs it once decided again
     (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
-    const { result } = stepTaskCompleted(state, 'a', 'out-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' });
+    const { result } = stepTaskCompleted(state, 'a', 'out-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' }, new Map());
     assert.deepStrictEqual(result.newlyReady, ['b', 'd'], 'b, decided again, and d, which reads the other input alone');
     assert.deepStrictEqual(statuses(state), [['a', 'completed'], ['b', 'ready'], ['c', 'waiting'], ['d', 'ready']],
       'c waits on b still');
@@ -360,7 +383,7 @@ describe('split task stages', () => {
     assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
     assert.deepStrictEqual(state.tasks.get('task-a')!.plan, some('plan-a'));
 
-    stepTaskCompleted(state, 'task-a', 'output-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' });
+    stepTaskCompleted(state, 'task-a', 'output-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' }, new Map());
     stepTaskFailed(state, 'task-b', 'Piece 1 of 4 failed', 1, 10);
     assert.deepStrictEqual(state.tasks.get('task-a')!.plan, none);
     assert.deepStrictEqual(state.tasks.get('task-b')!.plan, none);
@@ -369,144 +392,190 @@ describe('split task stages', () => {
   });
 });
 
-describe('stepInvalidateTasks', () => {
-  it('does not invalidate failed tasks', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
+describe('stepTasksDue', () => {
+  // input → a → b: b reads a's output alone
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+    ],
+  };
 
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'failed'));
+  /** A run whose input stands at `input`: a holds a result made from `aFrom`,
+   *  in the status given, and b one made from a's. */
+  function run(input: string, aFrom: string, aStatus: TaskState['status'] = 'completed', aCached = false): DataflowExecutionState {
+    const state = makeState(graph, new Map([
+      ['a', { ...makeCompleted('a', 'a-out', aCached), status: aStatus } as TaskState],
+      ['b', makeCompleted('b', 'b-out')],
+    ]), { executed: aCached ? 1n : 2n, cached: aCached ? 1n : 0n });
+    state.inputSnapshot.set('.input', input);
+    state.versionVectors.set('.input', new Map([['.input', input]]));
+    state.versionVectors.set('.a_out', new Map([['.input', aFrom]]));
+    state.versionVectors.set('.b_out', new Map([['.input', aFrom]]));
+    return state;
+  }
 
-    const state = makeState(graph, tasks);
+  it('puts a completed task that reads the changed input back to pending, keeping its result and its count, and counts it a re-execution', async () => {
+    const state = run('v2', 'v1');
+    const { due, events } = await stepTasksDue(unread, state, [{ path: '.input' }]);
 
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, []);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'failed');
+    assert.deepStrictEqual(due, ['a']);
+    const a = state.tasks.get('a')!;
+    assert.strictEqual(a.status, 'pending');
+    assert.deepStrictEqual(a.outputHash, some('a-out'), 'its result stays, for its dependents to read');
+    assert.deepStrictEqual(a.execution, some({ inputsHash: 'inputs-a', executionId: 'execution-a' }));
+    assert.deepStrictEqual(state.versionVectors.get('.a_out'), new Map([['.input', 'v1']]), "and so do its output's versions");
+    assert.deepStrictEqual([state.executed, state.reexecuted], [2n, 1n], 'it is counted by the result it holds');
+    assert.strictEqual(events.length, 1);
+    assert.ok(events[0]!.type === 'task_invalidated');
+    assert.deepStrictEqual([events[0].value.task, events[0].value.reason], ['a', 'input changed: .input']);
   });
 
-  it('resets completed tasks to pending, forgetting the execution each completed with', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
+  it('leaves its dependents as they are: a change travels a step at a time, and they are asked once its next result lands', async () => {
+    const state = run('v2', 'v1');
+    await stepTasksDue(unread, state, [{ path: '.input' }]);
+    assert.strictEqual(state.tasks.get('b')!.status, 'completed', 'b reads a, not the input');
+    assert.deepStrictEqual(stepGetReady(state), ['a'], 'a is ready; b is not due');
 
-    const tasks = new Map<string, TaskState>();
-    const completedTask = makeTaskState('task-a', 'completed');
-    // Mark as executed (not cached) so the counter decrement path is exercised
-    (completedTask as Mutable<TaskState>).cached = some(false);
-    (completedTask as Mutable<TaskState>).outputHash = some('old-output');
-    (completedTask as Mutable<TaskState>).execution = some({ inputsHash: 'old-inputs', executionId: 'old-execution' });
-    tasks.set('task-a', completedTask);
-
-    const state = makeState(graph, tasks, { executed: 1n });
-
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, ['task-a']);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
-    assert.deepStrictEqual(state.tasks.get('task-a')!.execution, none);
-    assert.strictEqual(state.executed, 0n);
+    // a's next result lands, made from v2: b would now read another result
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'v2']]));
+    const { due } = await stepTasksDue(unread, state, [{ path: '.a_out' }]);
+    assert.deepStrictEqual(due, ['b']);
+    assert.deepStrictEqual(state.tasks.get('b')!.outputHash, some('b-out'));
   });
 
-  it('resets deferred tasks to pending without counting as invalidated', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'deferred'));
-
-    const state = makeState(graph, tasks);
-
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, []);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+  it('leaves a completed task whose inputs stand where its result was made', async () => {
+    const state = run('v1', 'v1');
+    const { due, events } = await stepTasksDue(unread, state, [{ path: '.input' }, { path: '.a_out' }]);
+    assert.deepStrictEqual([due, events], [[], []]);
+    assert.deepStrictEqual([state.tasks.get('a')!.status, state.tasks.get('b')!.status], ['completed', 'completed']);
   });
 
-  it('does not invalidate skipped tasks', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
+  it('keeps a task due again counted by the result it holds, until what settles it next counts it: its next result, its failure or its skip', async () => {
+    // a's result came from the cache, and b's ran
+    const state = run('v2', 'v1', 'completed', true);
+    await stepTasksDue(unread, state, [{ path: '.input' }]);
+    assert.deepStrictEqual([state.cached, state.executed], [1n, 1n], 'due again, a is still counted as it landed');
 
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'skipped'));
+    // a's next result runs: its count moves from cached to executed
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'v2']]));
+    assert.deepStrictEqual([state.cached, state.executed], [0n, 2n]);
 
-    const state = makeState(graph, tasks);
+    // b is due again, and fails: it is counted as failed, and no longer by the result it held
+    (state.tasks.get('b') as Mutable<TaskState>).status = 'in_progress';
+    stepTaskFailed(state, 'b', 'the model did not converge', 1, 10);
+    assert.deepStrictEqual([state.executed, state.failed], [1n, 1n]);
 
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, []);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'skipped');
+    // a is due again, and skipped: counted as skipped alone
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'pending';
+    stepTasksSkipped(state, ['a'], 'b');
+    assert.deepStrictEqual([state.cached, state.executed, state.skipped], [0n, 0n, 1n]);
   });
 
-  it('does not invalidate pending tasks', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'pending'));
-
-    const state = makeState(graph, tasks);
-
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, []);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+  it('leaves a task in flight, which is asked as it lands, and one failed, skipped or pending', async () => {
+    for (const status of ['in_progress', 'failed', 'skipped', 'pending', 'ready'] as const) {
+      const state = run('v2', 'v1', status);
+      const { due, events } = await stepTasksDue(unread, state, [{ path: '.input' }]);
+      assert.deepStrictEqual([due, events], [[], []], status);
+      assert.strictEqual(state.tasks.get('a')!.status, status);
+    }
   });
 
-  it('does not invalidate in-progress tasks', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
-
-    const state = makeState(graph, tasks);
-
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
-
-    assert.deepStrictEqual(invalidated, []);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'in_progress');
+  it('decides a deferred task again, without counting it a re-execution', async () => {
+    const state = run('v2', 'v1', 'deferred');
+    const { due } = await stepTasksDue(unread, state, [{ path: '.input' }]);
+    assert.deepStrictEqual(due, []);
+    assert.strictEqual(state.tasks.get('a')!.status, 'pending');
+    assert.strictEqual(state.reexecuted, 0n);
   });
 
-  it('decrements cached counter when invalidating cached task', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
-      ],
-    };
+  it('is the step every entry exports', () => {
+    assert.strictEqual(root.stepTasksDue, stepTasksDue);
+    assert.strictEqual(portable.stepTasksDue, stepTasksDue);
+  });
 
-    const tasks = new Map<string, TaskState>();
-    const completedTask = makeTaskState('task-a', 'completed');
-    (completedTask as Mutable<TaskState>).cached = some(true);
-    (completedTask as Mutable<TaskState>).outputHash = some('old-output');
-    tasks.set('task-a', completedTask);
+  it('asks every completed task as a run resumes, whichever input moved: one that would read others is due, and no other is touched', async () => {
+    // The snapshot moved to v2 before the run yielded, and a was never asked
+    const state = run('v2', 'v1');
+    const { due, events } = await stepResumedTasksDue(unread, state);
+    assert.deepStrictEqual(due, ['a'], 'b reads a, whose result stands: it is asked once a lands');
+    assert.ok(events[0]?.type === 'task_invalidated');
+    assert.deepStrictEqual([events.length, events[0].value.task, events[0].value.reason], [1, 'a', 'its inputs moved before the run resumed']);
+    assert.deepStrictEqual([state.tasks.get('a')!.status, state.tasks.get('a')!.outputHash], ['pending', some('a-out')], 'a keeps its result');
+    assert.deepStrictEqual([state.executed, state.reexecuted], [2n, 1n]);
 
-    const state = makeState(graph, tasks, { cached: 1n, executed: 1n });
+    // A run whose results stand where they were made finds none due, and a task that is not completed is left
+    assert.deepStrictEqual(await stepResumedTasksDue(unread, run('v1', 'v1')), { due: [], events: [] });
+    for (const status of ['in_progress', 'failed', 'skipped', 'pending', 'ready', 'waiting'] as const) {
+      const other = run('v2', 'v1', status);
+      assert.deepStrictEqual((await stepResumedTasksDue(unread, other)).due, [], status);
+      assert.strictEqual(other.tasks.get('a')!.status, status);
+    }
+    assert.strictEqual(root.stepResumedTasksDue, stepResumedTasksDue);
+    assert.strictEqual(portable.stepResumedTasksDue, stepResumedTasksDue);
+  });
+});
 
-    const { invalidated } = stepInvalidateTasks(state, [{ path: '.input' }]);
+describe('stepTaskDueAgain', () => {
+  const graph: DataflowGraph = {
+    tasks: [{ name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] }],
+  };
 
-    assert.deepStrictEqual(invalidated, ['task-a']);
-    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
-    assert.strictEqual(state.cached, 0n);
-    // executed counter should not be decremented for cached tasks
-    assert.strictEqual(state.executed, 1n);
+  /** a's result has just landed, made from `launched`, the input now at `input`. */
+  function landed(input: string, launched: string): DataflowExecutionState {
+    const state = makeState(graph, new Map([['a', makeTaskState('a', 'in_progress')]]));
+    state.versionVectors.set('.input', new Map([['.input', input]]));
+    stepTaskCompleted(state, 'a', 'a-out', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' }, new Map([['.input', launched]]));
+    return state;
+  }
+
+  it('lands the result, and puts its task back to pending when its inputs moved while it ran', async () => {
+    const state = landed('v2', 'v1');
+    assert.deepStrictEqual(state.versionVectors.get('.a_out'), new Map([['.input', 'v1']]), 'the result is of the versions it was launched with');
+
+    const event = await stepTaskDueAgain(unread, state, 'a');
+    assert.ok(event?.type === 'task_invalidated');
+    assert.strictEqual(event.value.reason, 'its inputs moved while it ran');
+    const a = state.tasks.get('a')!;
+    assert.strictEqual(a.status, 'pending');
+    assert.deepStrictEqual(a.outputHash, some('a-out'), 'the result that landed stays');
+    assert.deepStrictEqual([state.executed, state.reexecuted], [1n, 1n], 'and counts, until the next lands');
+  });
+
+  it('leaves a task whose inputs stand where it was launched, and one that is not completed', async () => {
+    const state = landed('v1', 'v1');
+    assert.strictEqual(await stepTaskDueAgain(unread, state, 'a'), null);
+    assert.strictEqual(state.tasks.get('a')!.status, 'completed');
+
+    const failed = landed('v2', 'v1');
+    (failed.tasks.get('a') as Mutable<TaskState>).status = 'failed';
+    assert.strictEqual(await stepTaskDueAgain(unread, failed, 'a'), null);
+  });
+});
+
+describe('stepGetReady', () => {
+  // a → b → c
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+    ],
+  };
+
+  it('readies a task once every task it reads holds a result, whatever that task\'s status, save one that waits, failed or was skipped', () => {
+    const ready = (a: TaskState): string[] => stepGetReady(makeState(graph, new Map([
+      ['a', a], ['b', makeTaskState('b', 'pending')], ['c', makeTaskState('c', 'pending')],
+    ])));
+    assert.deepStrictEqual(ready(makeTaskState('a', 'in_progress')), [], 'no result yet in the run');
+    assert.deepStrictEqual(ready(makeCompleted('a', 'a-out')), ['b']);
+    assert.deepStrictEqual(ready({ ...makeCompleted('a', 'a-out'), status: 'in_progress' } as TaskState), ['b'], 'running again: b runs on the result it holds');
+    assert.deepStrictEqual(ready({ ...makeCompleted('a', 'a-out'), status: 'pending' } as TaskState), ['a', 'b'], 'due again');
+    for (const status of ['waiting', 'failed', 'skipped'] as const) {
+      assert.deepStrictEqual(ready({ ...makeCompleted('a', 'a-out'), status } as TaskState).filter((name) => name !== 'a'), [], status);
+    }
   });
 });
 
@@ -634,138 +703,326 @@ describe('stepDetectInputChanges', () => {
     assert.strictEqual(result1.changes[0]!.path, result2.changes[0]!.path);
     assert.strictEqual(result1.changes[0]!.newHash, result2.changes[0]!.newHash);
   });
-});
 
-describe('stepCheckVersionConsistency', () => {
-  it('returns consistent for non-conflicting version vectors', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.x', '.y'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'pending'));
-
-    const state = makeState(graph, tasks);
-    // Both inputs agree on the shared key '.root'
-    state.versionVectors.set('.x', new Map([
-      ['.root', 'hash-1'],
-    ]));
-    state.versionVectors.set('.y', new Map([
-      ['.root', 'hash-1'],
-      ['.other', 'hash-2'],
-    ]));
-
-    const result = stepCheckVersionConsistency(state, 'task-a');
-
-    assert.strictEqual(result.consistent, true);
-    assert.ok('mergedVV' in result);
-    assert.strictEqual(result.mergedVV.get('.root'), 'hash-1');
-    assert.strictEqual(result.mergedVV.get('.other'), 'hash-2');
-  });
-
-  it('returns inconsistent for conflicting version vectors', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.x', '.y'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'pending'));
-
-    const state = makeState(graph, tasks);
-    // Inputs disagree on '.root' — different hashes
-    state.versionVectors.set('.x', new Map([
-      ['.root', 'hash-1'],
-    ]));
-    state.versionVectors.set('.y', new Map([
-      ['.root', 'hash-DIFFERENT'],
-    ]));
-
-    const result = stepCheckVersionConsistency(state, 'task-a');
-
-    assert.strictEqual(result.consistent, false);
-    assert.ok('conflictPath' in result);
-    assert.strictEqual(result.conflictPath, '.root');
-  });
-
-  it('treats missing version vectors as consistent', () => {
-    const graph: DataflowGraph = {
-      tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.x', '.y'], output: '.output', dependsOn: [] },
-      ],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    tasks.set('task-a', makeTaskState('task-a', 'pending'));
-
-    const state = makeState(graph, tasks);
-    // Only set VV for one input — the other defaults to empty map
-    state.versionVectors.set('.x', new Map([
-      ['.root', 'hash-1'],
-    ]));
-
-    const result = stepCheckVersionConsistency(state, 'task-a');
-
-    assert.strictEqual(result.consistent, true);
-    assert.ok('mergedVV' in result);
-    assert.strictEqual(result.mergedVV.get('.root'), 'hash-1');
-  });
-
-  it('throws for task not found in graph', () => {
-    const graph: DataflowGraph = {
-      tasks: [],
-    };
-
-    const tasks = new Map<string, TaskState>();
-    const state = makeState(graph, tasks);
-
-    assert.throws(
-      () => stepCheckVersionConsistency(state, 'nonexistent'),
-      { message: /nonexistent.*not found/ },
+  it('lets go of older versions once for a look, however many inputs it finds changed', async () => {
+    const structure = writableStrings(['a', 'b', 'output']);
+    const a: TreePath = [variant('field', 'a')];
+    const b: TreePath = [variant('field', 'b')];
+    await createPackageWithTasks(
+      testRepo,
+      [{ name: 'task-a', command: ['echo'], inputs: [a, b], output: [variant('field', 'output')] }],
+      structure,
     );
+    await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+    await workspaceSetDataset(storage, testRepo, 'test-ws', a, 'one', StringType);
+    await workspaceSetDataset(storage, testRepo, 'test-ws', b, 'two', StringType);
+    const graph: DataflowGraph = {
+      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [] }],
+    };
+    const state = makeState(graph, new Map([['task-a', makeTaskState('task-a', 'pending')]]), {
+      repo: testRepo,
+      workspace: 'test-ws',
+      taskOutputPaths: ['.output'],
+    });
+    state.inputSnapshot.set('.a', 'a-before');
+    state.inputSnapshot.set('.b', 'b-before');
+
+    // Letting go reads every version vector of the run: each read is counted
+    let scans = 0;
+    const values = state.versionVectors.values.bind(state.versionVectors);
+    state.versionVectors.values = () => {
+      scans++;
+      return values();
+    };
+    const { changes } = await stepDetectInputChanges(storage, state, structure);
+    assert.deepStrictEqual(changes.map((change) => change.path), ['.a', '.b']);
+    assert.strictEqual(scans, 1, 'one read of the run\'s vectors for the look, not one for each changed input');
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0, gone: 0 }, 'each input\'s snapshot is numbered, before and after');
   });
 });
 
-describe('stepTaskResultStale', () => {
-  // input → a → c: c reads a's output; x reads two outputs
+describe('stepTaskCommits', () => {
+  let testRepo: string;
+  let storage: StorageBackend;
+
+  // The task reads two results, x and y, and the record itself
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'c', hash: 'hash-c', inputs: ['.a_out'], output: '.c_out', dependsOn: ['a'] },
-      { name: 'x', hash: 'hash-x', inputs: ['.a_out', '.c_out'], output: '.x_out', dependsOn: ['a', 'c'] },
+      { name: 'x', hash: 'hash-x', inputs: ['.records.orders', '.rates'], output: '.x_out', dependsOn: [] },
+      { name: 'y', hash: 'hash-y', inputs: ['.records.orders', '.rates'], output: '.y_out', dependsOn: [] },
+      { name: 'plan', hash: 'hash-plan', inputs: ['.x_out', '.y_out'], output: '.plan_out', dependsOn: ['x', 'y'] },
+      { name: 'direct', hash: 'hash-direct', inputs: ['.rates', '.x_out'], output: '.direct_out', dependsOn: ['x'] },
     ],
   };
 
-  /** A run whose snapshot holds the input at `input`, a's output carrying `aOut`. */
-  function run(input: string | null, aOut: string): DataflowExecutionState {
-    const state = makeState(graph, new Map(graph.tasks.map((task) => [task.name, makeTaskState(task.name, 'in_progress')] as const)));
-    if (input !== null) state.inputSnapshot.set('.input', input);
-    state.versionVectors.set('.a_out', new Map([['.input', aOut]]));
+  beforeEach(async () => {
+    testRepo = createTestRepo();
+    storage = new LocalStorage();
+    // A workspace whose package declares one record, `orders`
+    const record = await objectWrite(testRepo, encodeBeast2For(RecordObjectType)({
+      path: 'records/orders', mutations: new Map(), indexes: new Map(), migrations: [],
+    }));
+    const pkg = await objectWrite(testRepo, encodeBeast2For(PackageObjectType)({
+      data: { structure: writableStrings(['rates']), refs: new Map() },
+      tasks: new Map(),
+      functions: new Map(),
+      records: new Map([['orders', record]]),
+      sources: new Map(),
+    }));
+    await storage.refs.workspaceWrite(testRepo, 'test-ws', encodeBeast2For(WorkspaceRecordType)(some({
+      packageName: 'test', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(), currentRunId: none,
+    })));
+  });
+
+  afterEach(() => {
+    removeTestRepo(testRepo);
+  });
+
+  /** A run in which x's result was made from `x` and y's from `y`: each the
+   *  versions of the record and of the plain input. */
+  function run(x: { orders: string; rates: string }, y: { orders: string; rates: string }): DataflowExecutionState {
+    const state = makeState(graph, new Map(graph.tasks.map((task) => [task.name, makeTaskState(task.name, 'pending')] as const)), {
+      repo: testRepo, workspace: 'test-ws',
+    });
+    state.versionVectors.set('.rates', new Map([['.rates', y.rates]]));
+    state.versionVectors.set('.x_out', new Map([['.records.orders', x.orders], ['.rates', x.rates]]));
+    state.versionVectors.set('.y_out', new Map([['.records.orders', y.orders], ['.rates', y.rates]]));
     return state;
   }
-  const given = (hash: string) => new Map([['.input', hash]]);
 
-  it('is fresh while the root inputs and the inputs\' version vectors are those the task was given', () => {
-    assert.strictEqual(stepTaskResultStale(run('v1', 'v1'), 'c', given('v1')), false);
+  /** Stores a commit of the record whose parent is `parent`, and answers its hash. */
+  const commit = (parent: string | null, mutation: string): Promise<string> => objectWrite(testRepo, encodeBeast2For(RecordCommitType)({
+    parent: parent === null ? none : some(parent), state: 'state', mutation, args: none, actor: 'test', at: new Date(), delta: none,
+  }));
+
+  it('reads each root at the version its inputs agree on, leaving out a vector\'s reserved slots', async () => {
+    const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c1', rates: 'r1' });
+    state.versionVectors.get('.x_out')!.set('$load.erp', 'a-delivery');
+    state.versionVectors.get('.y_out')!.set('$load.erp', 'another');
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', 'c1'], ['.rates', 'r1']]),
+    });
   });
 
-  it('is stale once a root input the task was given has changed, though the output it read has yet to move', () => {
-    assert.strictEqual(stepTaskResultStale(run('v2', 'v1'), 'c', given('v1')), true);
+  it('reads a record its inputs name at different commits as of the older, by the order the run took its snapshots', async () => {
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    const state = run({ orders: c1, rates: 'r1' }, { orders: c2, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', c1], ['.rates', 'r1']]),
+    });
+    // Whichever input names the older
+    const other = run({ orders: c2, rates: 'r1' }, { orders: c1, rates: 'r1' });
+    other.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(other, [{ path: '.records.orders', version: c2 }]);
+    const at = await stepTaskCommits(storage, other, 'plan');
+    assert.ok(at.kind === 'commits');
+    assert.strictEqual(at.versions.get('.records.orders'), c1);
   });
 
-  it('is stale once its inputs\' version vectors have moved, or no longer agree, where the snapshot holds no root they name', () => {
-    assert.strictEqual(stepTaskResultStale(run(null, 'v2'), 'c', given('v1')), true, 'moved');
-    assert.strictEqual(stepTaskResultStale(run(null, 'v1'), 'c', new Map([['.input', 'v1'], ['.other', 'v1']])), true, 'one fewer');
-    const another = run(null, 'v1');
-    another.versionVectors.set('.a_out', new Map([['.input', 'v1'], ['.other', 'v1']]));
-    assert.strictEqual(stepTaskResultStale(another, 'c', given('v1')), true, 'one more');
-    assert.strictEqual(stepTaskResultStale(run(null, 'v1'), 'c', given('v1')), false, 'unmoved');
-    const disagreeing = run(null, 'v1');
-    disagreeing.versionVectors.set('.c_out', new Map([['.input', 'v2']]));
-    assert.strictEqual(stepTaskResultStale(disagreeing, 'x', given('v1')), true, 'disagreeing');
+  it('takes a commit the run never took a snapshot of for older than those it took, and orders two such by the record\'s history', async () => {
+    const before = await commit(null, '$init');
+    const between = await commit(before, 'edit');
+    const first = await commit(between, 'edit');
+    const cut = await commit(null, 'a commit a compaction cut');
+    const state = run({ orders: before, rates: 'r1' }, { orders: first, rates: 'r1' });
+    // A resumed run: its first snapshot is the one its state holds
+    state.inputSnapshot.set('.records.orders', first);
+
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', before, first), before, 'never taken: the older');
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', first, between), between);
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', before, between), before, 'the first met walking back is the newer');
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', between, before), before, 'whichever is asked first');
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', cut, between), cut, 'one never met is the older');
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', first, first), first);
+
+    const at = await stepTaskCommits(storage, state, 'plan');
+    assert.ok(at.kind === 'commits');
+    assert.strictEqual(at.versions.get('.records.orders'), before);
+  });
+
+  it('lets go of the versions older than every one the run names as it takes a newer snapshot, and orders one let go as the older still', async () => {
+    // A record edited c1 to c21, a commit at a time, and two commits outside its history
+    const commits: string[] = [];
+    for (let i = 1; i <= 21; i++) commits.push(await commit(commits.at(-1) ?? null, 'edit'));
+    const c = (n: number): string => commits[n - 1]!;
+    const [apart, elsewhere] = [await commit(null, 'apart'), await commit(null, 'elsewhere')];
+    const state = run({ orders: c(1), rates: 'r1' }, { orders: c(1), rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', c(1));
+    state.inputSnapshot.set('.rates', 'r1');
+    /** The run takes a snapshot of the record, as a look for changed inputs does */
+    const take = (version: string): void => {
+      dataflowSnapshotTaken(state, [{ path: '.records.orders', version }]);
+      state.inputSnapshot.set('.records.orders', version);
+      state.versionVectors.set('.records.orders', new Map([['.records.orders', version]]));
+    };
+
+    // The run takes c2 to c20 while both results stay made at c1: it holds each, and the order of a pair it never took
+    for (let n = 2; n <= 20; n++) take(c(n));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', apart, elsewhere), [apart, elsewhere].sort()[0]);
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 21, pairs: 1, gone: 0 }, 'c1 to c20, and r1');
+
+    // Both results land on c19: the next snapshot lets go of every version before it, and of the pair
+    state.versionVectors.set('.x_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
+    state.versionVectors.set('.y_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
+    take(c(21));
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0, gone: 0 }, 'c19 to c21, and r1');
+
+    // A result made at a version let go — a task's in flight, launched at c5 — is the older; two let go are ordered
+    // by the record's history
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(5), c(21)), c(5));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(20), c(19)), c(19));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(7), c(4)), c(4));
+  });
+
+  it('reads a record as of the oldest commit its inputs name that the store still holds, or as the run\'s snapshot holds it where none is', async () => {
+    const first = await commit(null, '$init');
+    // Two commits a compaction cut and gc swept: the store holds neither
+    const swept = (what: string): string => createHash('sha256').update(what).digest('hex');
+    const [goneA, goneB] = [swept('a commit gc swept'), swept('another')];
+
+    // x's result was made at a commit swept, y's at one the store holds: the task passes over the first
+    const state = run({ orders: goneA, rates: 'r1' }, { orders: first, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', first);
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', first], ['.rates', 'r1']]),
+    });
+
+    // Both were made at commits swept: the task reads the record as the run's snapshot holds it
+    const both = run({ orders: goneA, rates: 'r1' }, { orders: goneB, rates: 'r1' });
+    both.inputSnapshot.set('.records.orders', first);
+    assert.deepStrictEqual(await stepTaskCommits(storage, both, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', first], ['.rates', 'r1']]),
+    });
+  });
+
+  it('asks the store for a commit only as a task launches: whether a task is due is decided from the run\'s memory, and writes nothing', async () => {
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    const c3 = await commit(c2, 'edit');
+    const swept = createHash('sha256').update('a commit gc swept').digest('hex');
+    const at = (orders: string) => ({ kind: 'commits', versions: new Map([['.records.orders', orders], ['.rates', 'r1']]) });
+    /** A run whose snapshot of the record is `snapshot`, where plan holds a result made at `made`. */
+    const holding = (x: string, y: string, snapshot: string, made: string): DataflowExecutionState => {
+      const state = run({ orders: x, rates: 'r1' }, { orders: y, rates: 'r1' });
+      state.inputSnapshot.set('.records.orders', snapshot);
+      (state.tasks as Map<string, TaskState>).set('plan', makeCompleted('plan', 'plan-out'));
+      state.versionVectors.set('.plan_out', new Map([['.records.orders', made], ['.rates', 'r1']]));
+      return state;
+    };
+
+    // Each commit the store is asked for, which re-references it
+    const touch = storage.objects.touch.bind(storage.objects);
+    const touched: string[] = [];
+    storage.objects.touch = async (repo, hashes) => {
+      touched.push(...hashes);
+      return touch(repo, hashes);
+    };
+    try {
+      // plan's inputs name the record at c1 and c2, and its result was made at c1: asked whether it is due, it is
+      // not, and the store is asked for nothing
+      const state = holding(c1, c2, c1, c1);
+      dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
+      assert.deepStrictEqual((await stepTasksDue(storage, state, [{ path: '.x_out' }])).due, []);
+      assert.deepStrictEqual(touched, []);
+      // As plan launches, the commit it reads is re-referenced, so a sweep leaves it
+      assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), at(c1));
+      assert.deepStrictEqual(touched, [c1]);
+
+      // x's result was made at a commit gc swept: until a launch finds it gone it is the oldest named
+      touched.length = 0;
+      const later = holding(swept, c2, c2, c2);
+      assert.deepStrictEqual(await stepTaskCommits(storage, later, 'plan', { hold: false }), at(swept));
+      assert.deepStrictEqual(await stepTaskCommits(storage, later, 'plan'), at(c2), 'the launch passes it over');
+      assert.deepStrictEqual(touched, [swept, c2]);
+      // The run remembers it: asked whether it is due, plan would read what it launched at, with nothing asked
+      touched.length = 0;
+      assert.deepStrictEqual((await stepTasksDue(storage, later, [{ path: '.x_out' }])).due, [], 'not due: its result was made at c2');
+      assert.deepStrictEqual([touched, dataflowRootsHeld(later).gone], [[], 1]);
+      // until the run's state names the commit no more
+      later.versionVectors.set('.x_out', new Map([['.records.orders', c2], ['.rates', 'r1']]));
+      dataflowSnapshotTaken(later, [{ path: '.records.orders', version: c3 }]);
+      assert.strictEqual(dataflowRootsHeld(later).gone, 0);
+    } finally {
+      storage.objects.touch = touch;
+    }
+  });
+
+  it('asks the store for no commit as it defers a task: a plain input read at two values is found first, whatever its records are read at', async () => {
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    // plan's inputs name the record at two commits, and the plain input at two values
+    const state = run({ orders: c1, rates: 'r1' }, { orders: c2, rates: 'r2' });
+    state.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
+
+    // Each commit the store is asked for, which re-references it
+    const touch = storage.objects.touch.bind(storage.objects);
+    const touched: string[] = [];
+    storage.objects.touch = async (repo, hashes) => {
+      touched.push(...hashes);
+      return touch(repo, hashes);
+    };
+    try {
+      assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+        kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['x', 'y'] },
+      });
+      assert.deepStrictEqual(touched, [], 'a deferred task launches nothing: no commit is re-referenced for it');
+    } finally {
+      storage.objects.touch = touch;
+    }
+  });
+
+  it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {
+    const before = await commit(null, '$init');
+    const between = await commit(before, 'edit');
+    const first = await commit(between, 'edit');
+    const state = run({ orders: before, rates: 'r1' }, { orders: first, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', first);
+
+    // The store fails one read of the history: no commit is missing from it
+    const read = storage.objects.read.bind(storage.objects);
+    let failed = false;
+    storage.objects.read = async (repo, hash) => {
+      if (!failed && hash === first) {
+        failed = true;
+        throw new Error('the store went away');
+      }
+      return read(repo, hash);
+    };
+    try {
+      await assert.rejects(recordCommitOrder(storage, state, '.records.orders', before, between), { message: 'the store went away' });
+      assert.strictEqual(failed, true);
+      assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', before, between), before, 'asked again, it reads the history');
+    } finally {
+      storage.objects.read = read;
+    }
+  });
+
+  it('defers a task whose inputs read a plain input at two values, naming the input and the inputs that read it, a direct read first', async () => {
+    const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c1', rates: 'r2' });
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+      kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['x', 'y'] },
+    });
+    // `direct` reads the input itself, at r2, and x's result, made from r1
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'direct'), {
+      kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['.rates', 'x'] },
+    });
+  });
+
+  it('names the input a deferral is for, which its event records', () => {
+    assert.strictEqual(deferralPath({ kind: 'plain', input: '.rates', through: ['x', 'y'] }), '.rates');
+  });
+
+  it('throws for a task the graph lacks, and is the step every entry exports', async () => {
+    const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c1', rates: 'r1' });
+    await assert.rejects(stepTaskCommits(storage, state, 'nonexistent'), { message: /nonexistent.*not found/ });
+    assert.strictEqual(root.stepTaskCommits, stepTaskCommits);
+    assert.strictEqual(portable.stepTaskCommits, stepTaskCommits);
+    assert.strictEqual(root.recordCommitOrder, recordCommitOrder);
+    assert.strictEqual(portable.recordCommitOrder, recordCommitOrder);
   });
 });
 
@@ -783,12 +1040,12 @@ describe('stepTaskCompleted', () => {
 
   it('decides its deferred dependents again: pending, and ready once their inputs are all complete', () => {
     const state = makeState(graph, new Map([
-      ['b', makeTaskState('b', 'completed')],
+      ['b', makeCompleted('b', 'b-out')],
       ['c', makeTaskState('c', 'in_progress')],
       ['k', makeTaskState('k', 'deferred')],
       ['d', makeTaskState('d', 'deferred')],
     ]));
-    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution);
+    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution, new Map());
     assert.deepStrictEqual(result.newlyReady, ['k']);
     assert.strictEqual(state.tasks.get('k')!.status, 'ready');
     assert.strictEqual(state.tasks.get('d')!.status, 'deferred', 'a task that does not read the output stays deferred');
@@ -801,8 +1058,84 @@ describe('stepTaskCompleted', () => {
       ['k', makeTaskState('k', 'deferred')],
       ['d', makeTaskState('d', 'completed')],
     ]));
-    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution);
+    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution, new Map());
     assert.deepStrictEqual(result.newlyReady, []);
     assert.strictEqual(state.tasks.get('k')!.status, 'pending');
+  });
+});
+
+describe('stepTaskFailed', () => {
+  // a → b → c
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+    ],
+  };
+
+  it('leaves a dependent that has failed as it failed: one that ran beside its producer, due again, is not skipped when the producer fails too', () => {
+    // a is due again and runs again; b runs on the result a holds, and c waits for b
+    const state = makeState(graph, new Map([
+      ['a', { ...makeCompleted('a', 'a-out'), status: 'in_progress' } as TaskState],
+      ['b', makeTaskState('b', 'in_progress')],
+      ['c', makeTaskState('c', 'pending')],
+    ]), { executed: 1n });
+
+    // b fails first, and c is skipped for it
+    const first = stepTaskFailed(state, 'b', 'the model did not converge', 1, 10);
+    assert.deepStrictEqual(first.result.toSkip, ['c']);
+    stepTasksSkipped(state, first.result.toSkip, 'b');
+
+    // Then a fails: b has failed, and c is skipped already
+    const { result } = stepTaskFailed(state, 'a', 'the source went away', 1, 10);
+    assert.deepStrictEqual(result.toSkip, [], 'no task is skipped a second time, and none that failed is skipped');
+    assert.deepStrictEqual(stepTasksSkipped(state, result.toSkip, 'a'), [], 'no skip is recorded over b\'s failure');
+    assert.deepStrictEqual([state.tasks.get('b')!.status, state.tasks.get('c')!.status], ['failed', 'skipped']);
+    assert.deepStrictEqual([state.executed, state.failed, state.skipped], [0n, 2n, 1n], 'each task is counted once, as it ended');
+  });
+});
+
+describe('a task due again behind a task left waiting', () => {
+  // input → a → b, b reading another input too
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
+    ],
+  };
+
+  it('waits with it, keeping its result, and is decided again as that task completes: the run does not end stuck on it', async () => {
+    // a was due again, launched again and left waiting, holding the result it made; then b's own input moves
+    const state = makeState(graph, new Map([
+      ['a', { ...makeCompleted('a', 'a-out'), status: 'waiting' } as TaskState],
+      ['b', makeCompleted('b', 'b-out')],
+    ]), { executed: 2n });
+    state.versionVectors.set('.input', new Map([['.input', 'i1']]));
+    state.versionVectors.set('.other', new Map([['.other', 'o2']]));
+    state.versionVectors.set('.out_a', new Map([['.input', 'i1']]));
+    state.versionVectors.set('.out_b', new Map([['.input', 'i1'], ['.other', 'o1']]));
+
+    const { due, events } = await stepTasksDue(unread, state, [{ path: '.other' }]);
+    assert.deepStrictEqual([due, events.length], [['b'], 1], 'b would read another value of its input: it is due');
+    const b = state.tasks.get('b')!;
+    assert.deepStrictEqual([b.status, b.outputHash], ['waiting', some('b-out')], 'it waits with a, which it cannot run before, and keeps its result');
+    assert.deepStrictEqual(stepGetReady(state), []);
+    assert.strictEqual(stepIsComplete(state), true, 'the run ends with both waiting');
+    assert.deepStrictEqual([...state.tasks.values()].filter((task) => task.status === 'pending' || task.status === 'ready'), [],
+      'and with none pending, which a run reports as stuck');
+
+    // a's input is assigned, and a runs: b is decided again
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    const { result } = stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'i1']]));
+    assert.deepStrictEqual(result.newlyReady, ['b']);
+  });
+});
+
+describe('catchUpKey', () => {
+  it('keys a catch-up run by its task and the hash of its inputs, the one key the run\'s loop and its resolver of inputs both use', () => {
+    assert.strictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), 'capacity@inputs-at-c1');
+    assert.notStrictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c2' }));
+    assert.notStrictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), catchUpKey({ task: 'forecast', inputsHash: 'inputs-at-c1' }));
   });
 });

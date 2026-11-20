@@ -510,8 +510,8 @@ the closures it returns name them: an edit that moves one of those lines — a
 comment or an import added above a function — re-runs the task. One that leaves
 them where they were — another function, the end of a module, another package —
 re-runs only the tasks whose environment it is in, their runner's `{ custom }`
-packages. A change to an input re-runs its
-consumers, even during a run. A split task is cached a unit at a time: each piece
+packages. A change to an input re-runs its consumers, even during a run, which follows its inputs: each task's result lands, a task whose
+input moved while it ran runs once more on the newest, and a deploy, a removal, a copy onto the workspace or an export of it stops a run in flight (reference/cli.md). A split task is cached a unit at a time: each piece
 and each merge is its own execution, and pieces are cut by content, so an append
 or an insertion re-runs only the pieces it reaches and the merges above them.
 
