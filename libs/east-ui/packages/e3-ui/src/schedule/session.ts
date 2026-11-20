@@ -34,7 +34,7 @@ import {
     type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
 import {
-    EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, buildWireApply, buildWireToDraft, withEditingSave,
+    EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, FIELD_HINT, Fields, buildWireApply, buildWireToDraft, withEditingSave,
 } from "@elaraai/east-ui/internal";
 import { Record, checkRecordKeyField } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
@@ -47,6 +47,22 @@ import { keyOfText, keyTextOf, scheduleEntryByKey, scheduleLastKey } from "./win
  * east-workspace#1624 — is a draft of this mutation, as the session's own is.
  */
 export const SCHEDULE_PATCH_DOOR = "patch";
+
+/**
+ * A form's hints with the record's key field shown read only: the builder
+ * keeps a row's key in that field, so no person edits it — under the label
+ * and the line its own hint gives, where it has one.
+ *
+ * @param hints - The form's hints, by field
+ * @param keyField - The field the record's rows hold their key in; `undefined` for a record whose rows hold none
+ * @returns The hints, the key field's read only
+ */
+export function keyFieldHints(hints: Readonly<globalThis.Record<string, unknown>>, keyField: string | undefined): Readonly<globalThis.Record<string, unknown>> {
+    if (keyField === undefined) return hints;
+    const own = hints[keyField];
+    const said = typeof own === "object" && own !== null && FIELD_HINT in own ? own as { readonly label?: string; readonly help?: string } : undefined;
+    return { ...hints, [keyField]: Fields.readonly({ ...(said?.label !== undefined && { label: said.label }), ...(said?.help !== undefined && { help: said.help }) }) };
+}
 
 /** One entry read by its key: still reading, absent, or held. */
 type KeyRead = VariantType<{ reading: NullType; absent: NullType; held: EastType }>;

@@ -91,7 +91,9 @@
  * `values` of what the builder decided of it (#1526), or its type's default.
  *
  * A record may be keyed by any type: an event is named by its key's text, a
- * String key as it is, any other key as East prints it.
+ * String key as it is, any other key as East prints it. Where its rows hold
+ * their own key in a field too, `keyField` names it: an event a builder adds
+ * holds its key there, and is saved with it.
  *
  * @packageDocumentation
  */
@@ -110,7 +112,8 @@ import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFi
 import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
-import { scheduleRecordSession } from "./session.js";
+import { keyFieldHints, scheduleRecordSession } from "./session.js";
+import type { RecordKeyField } from "../bind/record.js";
 import { checkEntries, checkIndexWindow, keyText, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
 import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import {
@@ -345,6 +348,14 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * `quantity` field holds the quantity to its bounds, on a Plan and an Allocation, as it holds a form field (#1585).
      */
     fields?: FieldHints<R["fields"]>;
+    /**
+     * The field of the record's rows that holds each one's key, for a record whose rows carry their own — jobs keyed by
+     * their number, each job's `number` its key. An event a builder adds holds its key there from the first, whatever
+     * its template's values give, and is saved with it: where another Save takes the key first and the builder gives
+     * the event another, the field follows. An event the record holds already keeps what its field holds. The form shows
+     * the field read only, and no role writes it. The field is of the record's key type.
+     */
+    keyField?: RecordKeyField<K, R>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
@@ -659,6 +670,7 @@ interface AnyConfig {
     status?: { field: string; cases: unknown };
     backlog?: { duration: (row: unknown, key: unknown) => unknown; due?: (row: unknown, key: unknown) => unknown };
     fields?: Readonly<Record<string, unknown>>;
+    keyField?: string;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
     locked?: (row: unknown, key: unknown) => unknown;
@@ -734,7 +746,8 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  *   `of` that is not a slot name for a key field, or whose cases are not the variant's; a `status` that is not a variant;
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
  *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
- *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
+ *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a `keyField` that is no field
+ *   of the row of the record's key type, or that one of the kind's roles writes; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
@@ -1054,12 +1067,25 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // The record's session (`session.ts`): its reads, whole and by key, and its Save, one patch commit through the
     // record's patch door, its entries checked against what the drafts began from — declared now, so a record bound
     // without its patch door is refused where its kind is.
-    const session = scheduleRecordSession(record, keyType, rowType, entries);
+    // Where its rows hold their own key in a field, the builder keeps an event's key there: none of the kind's roles
+    // writes that field, and the form shows it read only.
+    const keyField = config.keyField;
+    if (keyField !== undefined) {
+        const writes = ([["title", titleField], ["start", instantKind ? undefined : startField], ["end", instantKind ? undefined : endField],
+            ["at", instantKind ? startField : undefined], ["resource.field", resource?.field], ["status.field", config.status?.field], ["state", stateField],
+            ["quantity.field", quantityField], ["lane", laneField], ["child.field", child?.field], ["shift", shiftField], ["group", groupField],
+            ["position", positionField], ["activity", activityField], ["arrival", arrivalField], ["parts.field", partsField], ["hold", holdField],
+            ["kind", kindField]] as const).find(([, name]) => name === keyField);
+        if (writes !== undefined) {
+            throw new Error(`${where}: \`keyField\` names "${keyField}", which \`${writes[0]}\` writes — an event's key is kept in its key field by the builder, and nothing else writes it`);
+        }
+    }
+    const session = scheduleRecordSession(record, keyType, rowType, entries, keyField === undefined ? undefined : { field: keyField, where });
     const { readAll, byKey, idOf, keyOf } = session;
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
     // records draws its roles in its own sections, so its form leaves out the fields they name too.
-    const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, (config.fields ?? {}) as never,
+    const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, keyFieldHints(config.fields ?? {}, keyField) as never,
         [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
     const formSpecs = formOver([titleField, ...placed, config.status?.field]);
 

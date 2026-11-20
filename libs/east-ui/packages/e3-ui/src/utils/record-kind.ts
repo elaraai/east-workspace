@@ -39,13 +39,13 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import type { UIComponentType } from "@elaraai/east-ui";
 import {
-    EditingReadinessType, EditingType, FIELD_HINT, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
+    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
     type FieldHints, type RecordSliceConfigType, type RecordSliceStateType,
 } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType, checkRecordKeyField, type RecordKeyField } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldValue, type KeyField } from "../schedule/fields.js";
-import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
+import { keyFieldHints, scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
@@ -778,18 +778,13 @@ export function recordSide<R extends StructType, K extends EastType>(bound: Kind
     // A record whose rows hold their own key in a field: the builder keeps a row's key there, so no role writes the
     // field, and the form shows it read only, under the label and the line its hint gives.
     const keyField = config.keyField as string | undefined;
-    const given = (config.fields ?? {}) as Readonly<Record<string, unknown>>;
-    let hints = given;
     if (keyField !== undefined) {
         checkRecordKeyField(where, DictType(bound.keyType, rowType), keyField);
         if (omitted.includes(keyField)) {
             throw new Error(`${where}: \`keyField\` names "${keyField}", which one of the kind's roles writes — a row's key is kept in its key field by the builder, and nothing else writes it`);
         }
-        const own = given[keyField];
-        const said = typeof own === "object" && own !== null && FIELD_HINT in own ? own as { readonly label?: string; readonly help?: string } : undefined;
-        hints = { ...given, [keyField]: Fields.readonly({ ...(said?.label !== undefined && { label: said.label }), ...(said?.help !== undefined && { help: said.help }) }) };
     }
-    const form = Fields.specs(rowType, hints as never,
+    const form = Fields.specs(rowType, keyFieldHints((config.fields ?? {}) as Readonly<Record<string, unknown>>, keyField) as never,
         [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
     const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
         `${where}: \`inspector\` is the kind's own Details — an East.function over the row and its writer: ` +
