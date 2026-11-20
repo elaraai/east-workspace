@@ -76,7 +76,7 @@ jobs:
           # The built bin carries its release's python pins, and writes them
           grep -q "^# >>> east release pins" smoke-e3/pyproject.toml
           grep -q '"elaraai-east-py-datascience==' smoke-e3/pyproject.toml
-          test ! -e smoke-e3/_pins
+          test ! -e smoke-e3/_release-pins.json
 
       # NOTE: a full "install + run the generated project's commands" e2e is
       # intentionally omitted here. Emitted projects pin *published* @elaraai/*

@@ -3,12 +3,14 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE for details.
  */
 
-import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { parse as parseToml } from "smol-toml";
 
 import { hasReleasePins, withReleasePins, type ReleasePins } from "./pins.js";
 import { uvSync } from "./scaffold.js";
+import { isPlainObject } from "./util.js";
 
 const DEP_BUCKETS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
@@ -47,7 +49,7 @@ export interface UpdateOptions {
   /**
    * Reads the release's python pins (`readReleasePins`): called only for a
    * project whose `pyproject.toml` carries a release's pins, which then take
-   * these. One that finds none (create-east's) leaves them, and says so.
+   * these. One that finds none, create-east's, refuses such a project.
    */
   pins?: () => ReleasePins | null;
   /** Progress sink; defaults to `console.log`. */
@@ -66,12 +68,15 @@ export interface UpdateOptions {
  *
  * A python project whose `pyproject.toml` carries a release's pins, the block
  * a scaffold writes, takes this release's ({@link withReleasePins}), so its
- * next lock resolves what the release's images hold. A project without the
+ * next lock resolves what the release's images hold. The npm stack and the
+ * python pins move together or not at all: a block this update cannot move
+ * stops it before anything is written, with the reason. A project without the
  * block is left as it is: its author never took the pins, or removed them.
  *
  * @param options - Target directory, version, the release's python pins, and install/log controls
  * @returns Which deps changed, how many `@elaraai/*` deps were found, whether the project carries this release's python pins and they were locked, and whether install ran
- * @throws {Error} If there is no package.json, it has no `@elaraai/*` dependencies, or install fails
+ * @throws {Error} If there is no package.json, it has no `@elaraai/*` dependencies, its python pins cannot move with
+ *   it (nothing is then written), or install fails
  */
 export function updateStack(options: UpdateOptions): UpdateResult {
   const { cwd, version, install = false } = options;
@@ -103,6 +108,10 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     throw new Error(`no @elaraai/* dependencies in ${pkgPath} — is this an East / e3 project?`);
   }
 
+  // The python pins' move, worked out before anything is written: one that
+  // cannot be made stops the update, so the stack never moves without them
+  const python = pythonMove(cwd, version, options.pins, log);
+
   if (changed.length > 0) {
     // Preserve the file's existing indent + trailing newline.
     const indent = /^\{\n( +)/.exec(raw)?.[1].length ?? 2;
@@ -120,7 +129,8 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     rmSync(join(cwd, "package-lock.json"), { force: true });
   }
 
-  const pythonPinned = pinPython(cwd, version, options.pins, log);
+  if (python.write !== null) writeFileSync(join(cwd, "pyproject.toml"), python.write);
+  if (python.said !== null) log(python.said);
 
   let installed = false;
   let pythonLocked = false;
@@ -133,7 +143,7 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     installed = true;
     // Its lock may be of an earlier release's pins, or never synced under
     // these: a sync locks again where it is stale.
-    if (pythonPinned) {
+    if (python.pinned) {
       const synced = uvSync(cwd, log);
       if (synced === "failed") {
         throw new Error("uv sync failed. Where uv says the project's dependencies conflict with the release's pins, those " +
@@ -144,40 +154,84 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     }
   }
 
-  return { projectName: pkg.name ?? "project", changed, found, pythonPinned, pythonLocked, installed };
+  return { projectName: pkg.name ?? "project", changed, found, pythonPinned: python.pinned, pythonLocked, installed };
 }
 
 /**
- * Gives a project's block of a release's python pins this release's. A
- * project with no block is left as it is, and so is one whose pins this
- * initializer does not carry, or that cannot take them: the log says why.
+ * What an update does to a project's python pins: the `pyproject.toml` to
+ * write, or null when it stays as it is; what the log is told; and whether
+ * the project carries this release's pins after it.
  *
- * @returns Whether its `pyproject.toml` carries this release's pins now
+ * @throws {Error} When the project carries a block of pins this update cannot
+ *   move: this initializer carries none, or the block cannot take them
  */
-function pinPython(cwd: string, version: string, loadPins: (() => ReleasePins | null) | undefined, log: (msg: string) => void): boolean {
+function pythonMove(cwd: string, version: string, loadPins: (() => ReleasePins | null) | undefined, log: (msg: string) => void):
+  { write: string | null; said: string | null; pinned: boolean } {
   const path = join(cwd, "pyproject.toml");
-  if (!existsSync(path)) return false;
+  if (!existsSync(path)) return { write: null, said: null, pinned: false };
   const before = readFileSync(path, "utf8");
+  const refused = (why: string): Error =>
+    new Error(`${why}. Nothing was changed: the npm packages and the python pins move together`);
+  const reason = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+  let carries: boolean;
   try {
-    if (!hasReleasePins(before)) {
-      log("pyproject.toml carries no east release pins (a project create-e3 scaffolds does): its python dependencies are left as they are.");
-      return false;
-    }
-    const pins = loadPins?.() ?? null;
-    if (pins === null) {
-      log(`pyproject.toml's east release pins are left as they are: run \`npm create @elaraai/e3@${version} -- --update\` to move them.`);
-      return false;
-    }
-    const after = withReleasePins(before, pins);
-    if (after === before) {
-      log(`The python dependencies are pinned to east release ${pins.release}'s already.`);
-    } else {
-      writeFileSync(path, after);
-      log(`Pinned the python dependencies to east release ${pins.release}'s.`);
-    }
-    return true;
+    carries = hasReleasePins(before);
   } catch (err) {
-    log(`Python pins not written: ${err instanceof Error ? err.message : String(err)}.`);
-    return false;
+    throw refused(reason(err));
   }
+  if (!carries) {
+    log("pyproject.toml carries no east release pins (a project create-e3 scaffolds does): its python dependencies are left as they are.");
+    return { write: null, said: null, pinned: false };
+  }
+  const pins = loadPins?.() ?? null;
+  if (pins === null) {
+    throw refused(`pyproject.toml carries east release pins, which this initializer does not move: update the project with ` +
+      `\`npm create @elaraai/e3@${version} -- --update\`, which moves them with the npm packages`);
+  }
+  let after: string;
+  try {
+    after = withReleasePins(before, pins, workspaceMembers(cwd, before));
+  } catch (err) {
+    throw refused(reason(err));
+  }
+  return after === before
+    ? { write: null, said: `The python dependencies are pinned to east release ${pins.release}'s already.`, pinned: true }
+    : { write: after, said: `Pinned the python dependencies to east release ${pins.release}'s.`, pinned: true };
+}
+
+/**
+ * The names of a uv workspace's members, by their own `pyproject.toml`: each
+ * `[tool.uv.workspace] members` entry that is a directory, or every directory
+ * in one (`packages/python/*`). An entry of another pattern, or a member that
+ * cannot be read, names none: a member the project depends on is named by
+ * its `[tool.uv.sources]` too.
+ */
+function workspaceMembers(cwd: string, pyproject: string): string[] {
+  let members: unknown;
+  try {
+    const uv = (parseToml(pyproject) as { tool?: { uv?: { workspace?: { members?: unknown } } } }).tool?.uv;
+    members = uv?.workspace?.members;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(members)) return [];
+  const dirs = members.flatMap((entry): string[] => {
+    if (typeof entry !== "string") return [];
+    if (!entry.includes("*")) return [join(cwd, entry)];
+    if (!entry.endsWith("/*") || entry.slice(0, -2).includes("*")) return [];
+    const parent = join(cwd, entry.slice(0, -2));
+    try {
+      return readdirSync(parent).map((name) => join(parent, name)).filter((dir) => statSync(dir).isDirectory());
+    } catch {
+      return [];
+    }
+  });
+  return dirs.flatMap((dir) => {
+    try {
+      const project = (parseToml(readFileSync(join(dir, "pyproject.toml"), "utf8")) as Record<string, unknown>)["project"];
+      return isPlainObject(project) && typeof project["name"] === "string" ? [project["name"]] : [];
+    } catch {
+      return [];
+    }
+  });
 }

@@ -215,7 +215,8 @@ function printHelp(kind: ProjectKind): void {
     console.log("  A python project's east release pins in pyproject.toml, which a scaffold");
     console.log("  writes, take <version>'s too.");
   } else {
-    console.log("  A python project's east release pins in pyproject.toml are create-e3's to move.");
+    console.log("  A python project that carries east release pins is refused: create-e3's");
+    console.log("  --update moves them with the npm packages.");
   }
   console.log("");
   console.log("Options:");

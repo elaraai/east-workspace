@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -145,29 +145,38 @@ test("reads the release's pins only for a project that carries a block of them",
   }
 });
 
-test("an initializer that carries no pins (create-east's) leaves the block, and says how to move it", () => {
+test("refuses, writing nothing, a project whose pins this initializer cannot move with its npm packages", () => {
   const pinned = withReleasePins(PYPROJECT, pinsOf("1.0.35"));
-  const dir = e3Project(pinned);
-  try {
-    const said: string[] = [];
-    const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: () => null });
-    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), pinned);
-    assert.equal(result.pythonPinned, false);
-    assert.ok(said.some((msg) => msg.includes("npm create @elaraai/e3@1.0.42 -- --update")), said.join("\n"));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  for (const [pyproject, pins, refusal] of [
+    // create-east's update, which carries no python pins
+    [pinned, () => null, /does not move: update the project with `npm create @elaraai\/e3@1\.0\.42 -- --update`/],
+    // a block that lost its last line
+    [pinned.replace("# <<< east release pins\n", ""), () => pinsOf("1.0.42"), /lost their last line/],
+    // a block beside constraints of the project's own
+    [pinned.replace("[tool.uv]\n# >>>", '[tool.uv]\nconstraint-dependencies = ["numpy<3"]\n# >>>'), () => pinsOf("1.0.42"), /sets its own/],
+  ] as const) {
+    const dir = e3Project(pyproject);
+    try {
+      assert.throws(() => updateStack({ cwd: dir, version: "1.0.42", ...silent, pins }), (err: Error) =>
+        refusal.test(err.message) && err.message.includes("Nothing was changed"));
+      assert.equal(readPkg(dir).dependencies["@elaraai/e3"], "1.0.35", "the npm packages stay where the python pins are");
+      assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), pyproject);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
-test("a block that cannot take the pins is left as it is, and the log says why", () => {
-  const lost = withReleasePins(PYPROJECT, pinsOf("1.0.35")).replace("# <<< east release pins\n", "");
-  const dir = e3Project(lost);
+test("leaves out the pin of a workspace member named as a package the release pins", () => {
+  const workspace = '[project]\nname = "shop"\ndependencies = []\n\n[tool.uv.workspace]\nmembers = ["packages/python/*"]\n';
+  const pins = { release: "1.0.42", constraints: ["elaraai-east-py==1.0.42", "rich==13.9.4"], overrides: [] };
+  const dir = e3Project(withReleasePins(workspace, { ...pins, release: "1.0.35", constraints: ["elaraai-east-py==1.0.35", "rich==13.9.4"] }));
   try {
-    const said: string[] = [];
-    const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: () => pinsOf("1.0.42") });
-    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), lost);
-    assert.equal(result.pythonPinned, false);
-    assert.ok(said.some((msg) => msg.startsWith("Python pins not written: ") && msg.includes("lost their last line")), said.join("\n"));
+    mkdirSync(join(dir, "packages", "python", "rich"), { recursive: true });
+    writeFileSync(join(dir, "packages", "python", "rich", "pyproject.toml"), '[project]\nname = "rich"\nversion = "0.1.0"\n');
+    updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: () => pins });
+    const block = readFileSync(join(dir, "pyproject.toml"), "utf8");
+    assert.ok(block.includes('"elaraai-east-py==1.0.42"') && !block.includes('"rich=='), "uv takes the member for the package, and refuses a pin of it");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

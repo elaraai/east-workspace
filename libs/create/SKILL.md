@@ -75,7 +75,7 @@ npm create @elaraai/e3@latest -- --update      # inside a project: move every @e
 - The **project name** is the first non-`-` argument; omit it (or pass `.`) to scaffold into the current directory.
 - Under `npm create`, flags go **after `--`** (npm forwards them). The `create-e3` / `create-east` bins take flags directly.
 - A run is **interactive** only when stdin and stdout are a TTY **and** no selection flag is passed. The selection flags are `--tests`/`--no-tests`, `--ui`/`--no-ui`, `--platform`/`--no-platform`, `--eslint`/`--no-eslint`, `--runners=…` and the `--*-packages` flags — any one makes the run non-interactive (safe for CI and pipes). `--install`/`--no-install` and `--editor-diagnostics` do not.
-- **`--update`** (either initializer, inside an existing project) scaffolds nothing: it rewrites every `@elaraai/*` dependency to the initializer's own version — the lockstep stack version, so `@latest` for the newest — and drops the stale lock so the install resolves without an `ERESOLVE`. With create-e3, a python project's block of a release's python pins ([below](#the-releases-python-pins)) takes that release's, and `uv sync` locks under them: run with the install, or printed as the next step. create-east leaves the block, and says so. `--install`/`--no-install` apply as for a scaffold.
+- **`--update`** (either initializer, inside an existing project) scaffolds nothing: it rewrites every `@elaraai/*` dependency to the initializer's own version — the lockstep stack version, so `@latest` for the newest — and drops the stale lock so the install resolves without an `ERESOLVE`. With create-e3, a python project's block of a release's python pins ([below](#the-releases-python-pins)) takes that release's, and `uv sync` locks under them: run with the install, or printed as the next step. The npm packages and the python pins move together or not at all: create-east, which carries no pins, refuses a project with the block, and so does an update whose block cannot take the pins, before anything is written. `--install`/`--no-install` apply as for a scaffold.
 
 ## CLI flags — and exactly what each does
 
@@ -132,7 +132,9 @@ environment built over a rack's tier image leaves nearly everything it installs
 to the image, so a rack is sent the project's own code and little else. Edit
 your dependencies, not the block: create-e3's `--update` replaces it with its
 release's, and leaves a project without the block as it is. To pin by hand,
-remove the block, or put `constraint-dependencies` of your own in its place.
+remove the block, or put `constraint-dependencies` of your own in its place. A
+pin of a package the project is itself (its own name, a workspace member, a
+package it takes from a source of its own) is left out, as uv refuses one.
 
 ## Custom platform functions
 

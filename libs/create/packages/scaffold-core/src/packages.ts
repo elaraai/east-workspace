@@ -36,7 +36,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join, relative } from "node:path";
 
 import type { ProjectNames } from "./names.js";
-import { EAST_PY_DISTRIBUTIONS } from "./pins.js";
+
+/** The east python distributions a python workspace's root depends on, as the template's own pyproject.toml does. */
+const EAST_PY_DEPENDENCIES = [
+  "elaraai-east-py",
+  "elaraai-east-py-std",
+  "elaraai-east-py-io",
+  "elaraai-east-py-datascience",
+  "elaraai-east-py-cli",
+] as const;
 
 /** Named packages to generate, grouped by runtime. */
 export interface PackageSpec {
@@ -166,7 +174,7 @@ function writePythonWorkspaceRoot(projectDir: string, names: ProjectNames, membe
     `version = "0.1.0"\n` +
     `description = "${names.displayName}"\n` +
     `requires-python = ">=3.12"\n` +
-    `dependencies = [\n${EAST_PY_DISTRIBUTIONS.map((name) => `  "${name}",\n`).join("")}]\n\n` +
+    `dependencies = [\n${EAST_PY_DEPENDENCIES.map((name) => `  "${name}",\n`).join("")}]\n\n` +
     `# This project is a uv workspace root: each package under packages/python/*\n` +
     `# is its own member with its own dependency closure (and its own captured\n` +
     `# execution environment). No [build-system] — the root is not itself a\n` +

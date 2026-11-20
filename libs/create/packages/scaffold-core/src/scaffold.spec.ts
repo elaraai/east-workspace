@@ -11,8 +11,8 @@ import { join, dirname } from "node:path";
 
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
 import { deriveNames } from "./names.js";
-import { RELEASE_PINS_FILE } from "./pins.js";
-import { PINNED_UV_TABLE, TEMPLATES, readScaffolded, readToml, templateWithPins } from "./spec-fixtures.js";
+import { RELEASE_PINS_FILE, parseReleasePins } from "./pins.js";
+import { PINNED_UV_TABLE, TEMPLATES, readScaffolded, readToml, repositoryPinTexts, templateWithPins } from "./spec-fixtures.js";
 
 function scaffoldInto(kind: ProjectKind, name: string, version: string, features?: Features, templateDir = join(TEMPLATES, kind)): string {
   const cwd = mkdtempSync(join(tmpdir(), "create-test-"));
@@ -164,6 +164,22 @@ test("scaffold e3: a template that carries its release's pins writes them into t
     writeFileSync(join(here, "pyproject.toml"), theirs);
     scaffold({ kind: "e3", name: ".", cwd: here, templateDir: template, version: "1.0.0", features: { "runner:east-py": false }, log: () => {} });
     assert.equal(readFileSync(join(here, "pyproject.toml"), "utf8"), theirs, "the directory's own pyproject, as it was");
+  } finally {
+    for (const done of made) rmSync(done, { recursive: true, force: true });
+  }
+});
+
+test("scaffold e3: a project named as a package the release pins takes every pin but its own", () => {
+  const pins = parseReleasePins(repositoryPinTexts());
+  const named = (pin: string): string => pin.split("==")[0]!.toLowerCase();
+  assert.ok(pins.constraints.some((pin) => named(pin) === "optuna"), "the release pins optuna, which this project is named");
+  const template = templateWithPins(pins);
+  const made = [dirname(template)];
+  try {
+    const dir = scaffoldInto("e3", "optuna", "1.0.0", undefined, template);
+    made.push(dirname(dir));
+    const written = (readToml(readScaffolded(dir, "pyproject.toml")) as { tool: { uv: { "constraint-dependencies": string[] } } }).tool.uv["constraint-dependencies"];
+    assert.deepEqual(written, pins.constraints.filter((pin) => named(pin) !== "optuna"), "uv takes the project for the package, and refuses a pin of it");
   } finally {
     for (const done of made) rmSync(done, { recursive: true, force: true });
   }

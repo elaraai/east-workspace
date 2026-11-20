@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { deriveNames, type ProjectNames } from "./names.js";
 import { generatePackages, type PackageSpec } from "./packages.js";
 import { readReleasePins, withReleasePins } from "./pins.js";
+import { isPlainObject } from "./util.js";
 
 export type ProjectKind = "e3" | "east";
 
@@ -127,10 +128,6 @@ function substituteTokens(content: string, names: ProjectNames): string {
     .replaceAll("__PROJECT_NAME__", names.projectName)
     .replaceAll("__DISPLAY_NAME__", names.displayName)
     .replaceAll("__WORKSPACE_NAME__", names.workspaceName);
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** Deep-merge `source` into `target` in place; nested plain objects merge, everything else overwrites. */
@@ -315,7 +312,7 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   if (pins !== null && wrotePyproject) {
     const pyproject = join(projectDir, "pyproject.toml");
     writeFileSync(pyproject, withReleasePins(readFileSync(pyproject, "utf8"), pins));
-    log(`Pinned the python dependencies to east release ${pins.release}'s (${pins.constraints.length} pins).`);
+    log(`Pinned the python dependencies to east release ${pins.release}'s.`);
   }
 
   if (options.install) {

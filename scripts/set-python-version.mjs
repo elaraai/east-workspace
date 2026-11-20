@@ -37,6 +37,19 @@ export const PYPROJECTS = [
   'libs/east-py/packages/east-py-datascience/pyproject.toml',
 ];
 
+/**
+ * The release's own python distributions, by the names their pyproject.toml
+ * files give them: what a project pins at the release, beside the pins of
+ * what they depend on, which name none of them.
+ */
+export function eastPyDistributions() {
+  return PYPROJECTS.map((rel) => {
+    const m = fs.readFileSync(path.join(repoRoot, rel), 'utf8').match(/\[project\][\s\S]*?\nname\s*=\s*"([^"]+)"/m);
+    if (!m) throw new Error(`Failed to find [project].name in ${rel}`);
+    return m[1];
+  });
+}
+
 function main() {
   const NEW_VERSION = process.argv[2];
   if (!NEW_VERSION) {

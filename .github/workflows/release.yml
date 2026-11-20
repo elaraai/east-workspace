@@ -765,9 +765,19 @@ jobs:
   #     Trusted publishing must be configured per package name in the npm
   #     UI before this job's first non-dry run — see scripts/bootstrap-
   #     east-c-npm.mjs and libs/east-c/docs/npm-runner-distribution.md.
+  #
+  #     Like publish-npm, it starts once PyPI serves the release's python
+  #     packages, so a release whose PyPI half failed reaches npm not at all.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-npm:
-    needs: [prepare, publish-c-native, validate-release]
+    needs: [prepare, publish-c-native, validate-release, publish-pypi-upload]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.publish-c-native.result == 'success' &&
+          needs.validate-release.result == 'success' &&
+          (needs.publish-pypi-upload.result == 'success' ||
+           (inputs.dry_run && needs.publish-pypi-upload.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write

@@ -48,7 +48,8 @@ the prompts.
   `@elaraai/e3-core`'s `tier/`, refuses them unless they are of its own
   version, and ships them in its template (`_release-pins.json`, never
   scaffolded). `--update` replaces a project's block with its own release's,
-  and leaves a project without one as it is.
+  leaves a project without one as it is, and stops, changing nothing, when a
+  project's block cannot move with its npm packages.
 - Each `create-*` bin is esbuild-bundled with `scaffold-core` inlined and its
   one template tree copied in, so the published package is self-contained and
   dependency-free.

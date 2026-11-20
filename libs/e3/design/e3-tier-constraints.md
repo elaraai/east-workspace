@@ -556,3 +556,9 @@ release's settings (3.6) was sent 1.3 MB. So create-e3 writes them:
   with that release's. A project without one, from before or one whose
   author removed it or pins by hand, is left as it is: adding some 200 exact
   pins under a project's own dependencies can make its lock unsatisfiable.
+  The npm packages and the pins move together or not at all: a block an
+  update cannot move, and an update by create-east, which carries no pins,
+  stop it before anything is written.
+- A pin of a package the project is itself (its own name, a workspace member,
+  a package it takes from a source of its own) is left out: uv takes the
+  project for that package, and refuses a pin of it.

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { RELEASE_PINS_FILE, parseReleasePins } from "@elaraai/scaffold-core";
-import { EAST_PY_CONSTRAINTS, EAST_PY_OVERRIDES, EAST_PY_PINS_DIR, semverToPep440 } from "../../../../scripts/set-python-version.mjs";
+import { EAST_PY_CONSTRAINTS, EAST_PY_OVERRIDES, EAST_PY_PINS_DIR, eastPyDistributions, semverToPep440 } from "../../../../scripts/set-python-version.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..", "..");
@@ -39,6 +39,8 @@ const tier = join(repoRoot, EAST_PY_PINS_DIR);
 const pins = parseReleasePins({
   constraints: readFileSync(join(tier, EAST_PY_CONSTRAINTS), "utf8"),
   overrides: readFileSync(join(tier, EAST_PY_OVERRIDES), "utf8"),
+  // The release's own python distributions, which the constraints leave out
+  distributions: eastPyDistributions(),
 });
 const release = semverToPep440(JSON.parse(readFileSync(join(here, "package.json"), "utf8")).version);
 if (pins.release !== release) throw new Error(`${EAST_PY_PINS_DIR}'s pins are of release ${pins.release}, and create-${KIND} is ${release}`);

@@ -24,19 +24,25 @@ export const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "..
 /** The repository's root. */
 const REPO_ROOT = join(TEMPLATES, "..", "..", "..");
 
-/** Where the release keeps its pin files, and their names: the release script's own, which create-e3's build reads them by. */
-const PIN_FILES = await import(pathToFileURL(join(REPO_ROOT, "scripts", "set-python-version.mjs")).href) as {
+/**
+ * Where the release keeps its pin files, their names, and its own python
+ * distributions: the release script's own, which create-e3's build reads
+ * them by.
+ */
+const RELEASE_SCRIPT = await import(pathToFileURL(join(REPO_ROOT, "scripts", "set-python-version.mjs")).href) as {
   EAST_PY_PINS_DIR: string;
   EAST_PY_CONSTRAINTS: string;
   EAST_PY_OVERRIDES: string;
+  eastPyDistributions: () => string[];
 };
 
-/** The texts of the repository's own release pin files: `@elaraai/e3-core`'s `tier/`. */
-export function repositoryPinTexts(): { constraints: string; overrides: string } {
-  const dir = join(REPO_ROOT, PIN_FILES.EAST_PY_PINS_DIR);
+/** What create-e3's build reads the repository's own release pins from: `@elaraai/e3-core`'s `tier/`, and the release's own python distributions. */
+export function repositoryPinTexts(): { constraints: string; overrides: string; distributions: string[] } {
+  const dir = join(REPO_ROOT, RELEASE_SCRIPT.EAST_PY_PINS_DIR);
   return {
-    constraints: readFileSync(join(dir, PIN_FILES.EAST_PY_CONSTRAINTS), "utf8"),
-    overrides: readFileSync(join(dir, PIN_FILES.EAST_PY_OVERRIDES), "utf8"),
+    constraints: readFileSync(join(dir, RELEASE_SCRIPT.EAST_PY_CONSTRAINTS), "utf8"),
+    overrides: readFileSync(join(dir, RELEASE_SCRIPT.EAST_PY_OVERRIDES), "utf8"),
+    distributions: RELEASE_SCRIPT.eastPyDistributions(),
   };
 }
 
