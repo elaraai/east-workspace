@@ -9,7 +9,8 @@
  * booking duplicated — the copy an hour on from the one it copies — is keyed by
  * the app's own rule (`newKey`), by the key its row builds (`key`), or holds
  * the key its session makes in its own field (`keyField`); and Save writes it
- * so.
+ * so. Where the app's rule gives a key a booking holds, the copy is refused,
+ * and its Details say which key.
  */
 
 import { describe, expect, test } from "vitest";
@@ -60,6 +61,14 @@ const fielded = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", keyField: "ref" }) } });
 }))) };
 
+/** The bookings' day, under a rule that gives every new booking the key the one booking holds: B-1. */
+const clashing = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(bookings, ["patch"]));
+    const held = $.const(East.function([SetType(StringType)], StringType, (_$2, _taken) => "B-1"));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", newKey: held }) } });
+}))) };
+
 /** The keys of the bookings the day draws. */
 const drawn = (c: HTMLElement): string[] => [...c.querySelectorAll<HTMLElement>("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")!);
 
@@ -107,6 +116,13 @@ describe("a Calendar's new event under each of the three key options (east-works
         expect(made).toBeDefined();
         expect(sameBooking(rows.get(made!)!, { ref: made!, title: "Safety check", start: TEN, end: ELEVEN })).toBe(true);
         expect(rows.get("B-1")!.ref).toBe("B-1");
+    });
+
+    test("ruling 1 — where the app's rule gives a key a booking holds, Duplicate adds no booking and says which key, in the words every refused key is said in — never that the copy must wait", async () => {
+        const { container: c } = await h.mount(clashing);
+        await duplicate(c);
+        expect(within(slot(c, "end")).getByRole("alert").textContent).toBe('Another booking is keyed "B-1" already');
+        expect(drawn(c)).toHaveLength(1);
     });
 });
 

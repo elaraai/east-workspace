@@ -183,8 +183,11 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
             const changes: ScheduleChange[] = []; const refs: CalendarRef[] = []; const minted = new Set<string>();
             for (const item of items) {
                 const kind = kindOf(item); const read = editing.read(item.kind, item.key);
+                if (kind === undefined || read === undefined) return "This event cannot be duplicated yet";
                 const id = editing.mint(item.kind, item.key, minted);
-                if (kind === undefined || read === undefined || id === undefined) return "This event cannot be duplicated yet";
+                // No key for the copy: its kind's rule gave one a row holds, or failed — said as any refused key is — or
+                // its record is still being asked for its largest.
+                if (id === undefined) return keyRefused() ?? "This event cannot be duplicated yet";
                 if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
                 if (item.start.type === "some" && item.end.type === "some") {
                     const at = { start: item.end.value, end: new Date(2 * item.end.value.getTime() - item.start.value.getTime()), resource: item.resource };
