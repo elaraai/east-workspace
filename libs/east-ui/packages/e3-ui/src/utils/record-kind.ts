@@ -32,7 +32,7 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, PatchType, StringType,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, PatchType, SetType, StringType,
     StructType, TypeMismatchError, isSubtype, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -46,7 +46,7 @@ import { RecordOutcomeType, checkRecordKeyField, type RecordKeyField } from "../
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldValue, type KeyField } from "../schedule/fields.js";
 import { keyFieldHints, scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
-import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
+import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType, type ScheduleNewKeyType } from "../schedule/types.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
 
@@ -374,6 +374,32 @@ export function accessorRole<T extends EastType>(keyType: EastType, rowType: Str
     if (typeof fn !== "function") throw new Error(`${where}: \`${role}\` is an accessor, (row, key) => ${what}`);
     return scheduleAccessor(rowType, keyType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
         (returns) => `${where}: \`${role}\` returns ${what} — and this one returns ${returns}`);
+}
+
+/**
+ * A declaration's `newKey`, checked and put on the wire: the app's rule for a
+ * new row's key — an East function from the keys taken to a new one, at the
+ * record's key type — over the keys' text, as rows' ids are: a String key's
+ * function as it is, any other key's read from its text and printed back.
+ * What every builder that adds rows to a record takes.
+ *
+ * @param keyType - The record's key type
+ * @param where - The declaration, as a refusal names it
+ * @param newKey - What it was given
+ * @returns The rule over the keys' text
+ * @throws {Error} When it is no East function from a Set of the record's keys to one, naming both types
+ */
+export function newKeyOf(keyType: EastType, where: string, newKey: unknown): ExprType<ScheduleNewKeyType> {
+    const fn = East.value(newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(fn as Expr<EastType>) as EastType;
+    if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, SetType(keyType)) || !isTypeEqual(type.output, keyType)) {
+        throw new Error(`${where}: \`newKey\` takes the keys taken and gives a new one — an East function from ${printType(SetType(keyType))} to ${printType(keyType)}`);
+    }
+    if (keyType.type === "String") return fn as ExprType<ScheduleNewKeyType>;
+    return East.function([SetType(StringType)], StringType, ($, taken) => {
+        const mint = $.const(fn as ExprType<FunctionType<[SetType<EastType>], EastType>>);
+        return East.print(mint(taken.toSet((_$, id) => id.parse(keyType))));
+    });
 }
 
 /**

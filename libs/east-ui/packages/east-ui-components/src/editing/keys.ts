@@ -27,7 +27,7 @@
  * ({@link placeholderKeys}); any of them past the keys its host shows rows
  * under ({@link pastKeys}); and any of them made once only, for entries other
  * drafts name by key ({@link onceKeys}). A collection whose app gives its own rule — a
- * function of the keys taken — binds that as its policy. A key an app builds
+ * function of the keys taken — binds that as its policy ({@link givenKeys}). A key an app builds
  * from the entry itself is the entry's identity by the app's own word: it is
  * never made here, and two entries that build the same one are a conflict.
  *
@@ -43,8 +43,9 @@
  *
  * @packageDocumentation
  */
-import { IntegerType, compareFor, parseFor, printFor } from "@elaraai/east";
+import { IntegerType, SortedSet, StringType, compareFor, parseFor, printFor } from "@elaraai/east";
 
+const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
 const parseInteger = parseFor(IntegerType);
 const printInteger = printFor(IntegerType);
@@ -120,6 +121,34 @@ export function randomKeys(): EntryKeys {
                 const id = uuid();
                 if (!known.has(id)) return id;
             }
+        },
+    };
+}
+
+/**
+ * Keys by an app's own rule: its function of the keys taken, given every key
+ * known taken, each as its id. A key it gives that is taken, and a rule that
+ * throws, make no key: `refused` is told which, and throws to refuse the
+ * gesture with its host's own words, or returns and none is made.
+ *
+ * @param rule - The app's rule: every key taken, each as its id, to a new one's
+ * @param refused - Told of a key the rule gave that is taken, or of what the rule threw
+ * @returns The policy
+ */
+export function givenKeys(rule: (taken: SortedSet<string>) => string,
+    refused: (why: { readonly taken: string } | { readonly failed: unknown }) => void): EntryKeys {
+    return {
+        make: (known) => {
+            let id: string;
+            try {
+                id = rule(new SortedSet(known.ids(), compareString));
+            } catch (error) {
+                refused({ failed: error });
+                return undefined;
+            }
+            if (!known.has(id)) return id;
+            refused({ taken: id });
+            return undefined;
         },
     };
 }

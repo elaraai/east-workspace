@@ -121,6 +121,7 @@ import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadines
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
 import { scheduleLastKey } from "../schedule/window.js";
+import { newKeyOf } from "../utils/record-kind.js";
 import type { RecordSaveTypeFor } from "../bind/record.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
@@ -849,21 +850,8 @@ function buildSheet(
             `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
-    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are — a String key's function as it is, any
-    // other key's read from its text and printed back, as `Record.onApply` reads an id.
-    const appKey = opts.newKey === undefined ? undefined : (() => {
-        const key = keyType ?? StringType;
-        const fn = East.value(opts.newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-        const type = Expr.type(fn as Expr<EastType>) as EastType;
-        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, SetType(key)) || !isTypeEqual(type.output, key)) {
-            throw new Error(`Sheet: \`newKey\` takes the keys taken and gives a new one — an East function from ${printType(SetType(key))} to ${printType(key)}`);
-        }
-        if (key.type === "String") return fn as ExprType<FunctionType<[SetType<StringType>], StringType>>;
-        return East.function([SetType(StringType)], StringType, ($, taken) => {
-            const mint = $.const(fn as ExprType<FunctionType<[SetType<EastType>], EastType>>);
-            return East.print(mint(taken.toSet((_$, id) => id.parse(key))));
-        });
-    })();
+    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are, as every builder's is.
+    const appKey = opts.newKey === undefined ? undefined : newKeyOf(keyType ?? StringType, "Sheet", opts.newKey);
     // With no `newKey`, an Integer key is one past the largest (#1549), as the Plan's is: of every key taken — the rows the
     // sheet has read, its drafts and what its gesture made — and, paging the record's own entries, of the last key they
     // hold: until that read lands no key is made, and the gesture is refused, saying so. With no key at all, the first is

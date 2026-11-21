@@ -15,13 +15,19 @@
  * jobs keyed by their reference, an event kind's (`Schedule.events`), as the
  * Calendar's, the Plan's, the Roster's and the Allocation's are: where
  * another session's Save takes a new job's key first, the job goes on under
- * the next, and its field follows. Over records deployed to e3 itself.
+ * the next, and its field follows. And tickets whose kind gives the app's own
+ * rule for a new key (`newKey`, east-workspace#1709): a new ticket takes the
+ * key the rule gives, and the rule is asked again where another session's
+ * Save takes it first. Over records deployed to e3 itself.
  */
 
 import { useMemo } from "react";
 import { describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
-import { DateTimeType, DictType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, printFor, type EastType, type ExprType, type ValueTypeOf } from "@elaraai/east";
+import {
+    DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, printFor,
+    type EastType, type ExprType, type ValueTypeOf,
+} from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
 import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
@@ -51,7 +57,27 @@ const jobs = e3.record("key_field_jobs", DictType(StringType, Job), {
     }),
 });
 
-const h = e3Harness({ "schedule/key-field": { racks, jobs } }, { measure: false });
+/** The tickets: one, which a new ticket is copied from — keyed in the desk's own scheme, T-1, T-2, … */
+const tickets = e3.record("new_key_tickets", DictType(StringType, Job), {
+    initial: new Map([["T-1", { ref: "", title: "Reset a password", start: DAY, end: LATER }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets } }, { measure: false });
+/** The tickets' kind, told the app's rule for a new ticket's key: the first T-n no ticket holds. */
+const ticketsKind = East.function([], Schedule.Types.Kind, ($) => {
+    const handle = $.let(Record.bind(tickets));
+    const newKey = $.const(East.function([SetType(StringType)], StringType, ($2, taken) => {
+        const n = $2.let(taken.size().add(1n));
+        $2.while(taken.has(East.str`T-${n}`), ($3) => {
+            $3.assign(n, n.add(1n));
+        });
+        return East.str`T-${n}`;
+    }));
+    return Schedule.events(handle, { name: "Ticket", icon: "ticket", title: "title", start: "start", end: "end", newKey }).build("tickets");
+});
 /** The jobs' kind, as the Calendar builds one, told the field its rows hold their key in. */
 const jobsKind = East.function([], Schedule.Types.Kind, ($) => {
     const handle = $.let(Record.bind(jobs));
@@ -82,15 +108,15 @@ function Probe() {
     return null;
 }
 
-/** The jobs as an event kind whose new events take another key where another Save took theirs, under the shared editing. */
-const REKEYS: ReadonlySet<string> = new Set(["jobs"]);
-function JobsProbe() {
-    const run = useMemo(() => jobsKind.toIR().compile(getRegisteredPlatformImplementations()), []);
+/** An event kind whose new events take another key where another Save took theirs, under the shared editing: the jobs, or the tickets. */
+const REKEYS: ReadonlySet<string> = new Set(["jobs", "tickets"]);
+function EventsProbe({ kind: fn, storageKey }: { readonly kind: typeof jobsKind; readonly storageKey: string }) {
+    const run = useMemo(() => fn.toIR().compile(getRegisteredPlatformImplementations()), [fn]);
     const { result } = useTrackedEvaluation(run);
     if (!result.ok) throw result.error;
     const kind = result.value;
     const kinds = useMemo(() => [kind as unknown as ScheduleEditingKind], [kind]);
-    probe.editing = useScheduleEditing({ kinds, storageKey: "schedule-key-field-jobs", joined: NO_JOINED, rekeys: REKEYS, autosave: false });
+    probe.editing = useScheduleEditing({ kinds, storageKey, joined: NO_JOINED, rekeys: REKEYS, autosave: false });
     return null;
 }
 
@@ -138,7 +164,7 @@ describe("the shared editing over a record whose rows hold their own key in a fi
     });
 
     test("an event whose key another session's Save takes first goes on under the next its kind makes, its key field with it: both saved, each holding the key it is saved under", async () => {
-        await h.mount({ fn: jobsKind }, { view: <JobsProbe /> });
+        await h.mount({ fn: jobsKind }, { view: <EventsProbe kind={jobsKind} storageKey="schedule-key-field-jobs" /> });
         await waitFor(() => expect(editing().available("jobs")).toBe(true));
         // A job made from J-1: J-1-2, the next in its row, as another session's copy of J-1 is keyed too.
         const id = editing().mint("jobs", "J-1", new Set());
@@ -167,5 +193,26 @@ describe("the shared editing over a record whose rows hold their own key in a fi
         expect(jobEqual(moved.value, { ...copy, ref: "J-1-3" })).toBe(true);
         const saved = await h.read(jobs);
         expect([jobEqual(saved.get("J-1-2")!, theirs), jobEqual(saved.get("J-1-3")!, { ...copy, ref: "J-1-3" })], printJobs(saved)).toEqual([true, true]);
+    });
+});
+
+describe("the shared editing over an event kind told the app's rule for a new key", () => {
+    test("ruling 4 — a new ticket takes the key the app's rule gives, never the next after the one it is copied from; where another session's Save takes that key first, the rule is asked again and both are saved", async () => {
+        await h.mount({ fn: ticketsKind }, { view: <EventsProbe kind={ticketsKind} storageKey="schedule-new-key-tickets" /> });
+        await waitFor(() => expect(editing().available("tickets")).toBe(true));
+        // A copy of T-1: the rule's T-2, where a kind told no rule makes T-1-2.
+        expect(editing().mint("tickets", "T-1", new Set())).toBe("T-2");
+        const copy: ValueTypeOf<typeof Job> = { ref: "", title: "Reset a password again", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "tickets", id: "T-2", row: encodeJob(copy), created: true }], "insert", "Copy a ticket")).toBe(true); });
+        await settle();
+        // Another session saves its own T-2 just as Save goes.
+        const theirs: ValueTypeOf<typeof Job> = { ref: "", title: "Theirs", start: DAY, end: LATER };
+        await h.race(tickets, () => { void editing().history.apply(); }, (now) => {
+            now.set("T-2", theirs);
+            return now;
+        });
+        await waitFor(async () => expect((await h.read(tickets)).has("T-3")).toBe(true));
+        const saved = await h.read(tickets);
+        expect([jobEqual(saved.get("T-2")!, theirs), jobEqual(saved.get("T-3")!, copy)], printFor(tickets.type)(saved)).toEqual([true, true]);
     });
 });

@@ -22,7 +22,7 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
-    EntryRefType, drawnFromKeys, fieldBreaches, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
+    EntryRefType, drawnFromKeys, fieldBreaches, givenKeys, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
     useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryKeys, type EntryVersion, type LandedEntry, type Origin,
@@ -175,6 +175,8 @@ export interface ScheduleEditingRecord {
     readonly editing: ValueTypeOf<typeof ScheduleKindType>["editing"];
     /** The record read by key, for one read a window at a time; `none` for one read whole. */
     readonly entries: ValueTypeOf<typeof ScheduleKindType>["entries"];
+    /** The app's rule for a new row's key (`newKey`), given the keys taken; none unless given, and its session makes one by its key's type. */
+    readonly newKey?: ValueTypeOf<typeof ScheduleKindType>["newKey"] | undefined;
     /** The app's check over its drafted rows, which holds Save, naming the row; none unless given. */
     readonly ready?: ValueTypeOf<typeof ScheduleKindType>["ready"] | undefined;
     /**
@@ -388,7 +390,8 @@ export interface ScheduleEditing<I extends Item = Item> {
     rowsByKey(kind: string, ids: readonly string[]): ReadonlyMap<string, option<unknown>> | undefined;
     /**
      * A new event's key, as its text — its kind's session's to make
-     * (`EditSession.mint`): a text key from an event's key or a template's,
+     * (`EditSession.mint`): by the app's own rule where its kind gives one
+     * (`newKey`), given every key known taken; else a text key from an event's key or a template's,
      * else made up — the next in a row (`J-1001-2`) for a kind whose record
      * its session holds whole, and with a suffix drawn at random
      * (`J-1001-5f3a9c2e`) for one read a window at a time, whose earlier
@@ -402,8 +405,9 @@ export interface ScheduleEditing<I extends Item = Item> {
      * @param kind - The kind's slot, or the record's key
      * @param from - The key's text it is made from; empty for a row made from none
      * @param minted - The keys a gesture has made already
-     * @returns The key's text; `undefined` for a kind keyed by neither String nor Integer, and while an Integer kind
-     *   read a window at a time has its largest key read
+     * @returns The key's text; `undefined` for a kind keyed by neither String nor Integer and given no rule, while an
+     *   Integer kind read a window at a time has its largest key read, and where the app's rule throws or gives a key
+     *   that is taken
      */
     mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined;
     /**
@@ -506,6 +510,8 @@ interface EditedPart<I extends Item> {
     readonly editing: ScheduleEditingKind<I>["editing"];
     /** Its record read by key, for one read a window at a time. */
     readonly entries: ScheduleEditingKind<I>["entries"];
+    /** The app's rule for a new entry's key, where it gives one. */
+    readonly newKey: ScheduleEditingKind<I>["newKey"];
     /** The author's check over its drafts: a kind's. */
     readonly ready: ScheduleEditingKind<I>["ready"];
     /** Its row's form: its numbers held to bounds (#1585). */
@@ -610,10 +616,12 @@ export function useScheduleEditing<I extends Item = Item>({
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
         ...kinds.map((kind) => ({
-            key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind, read: reads?.[kind.key],
+            key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, newKey: kind.newKey, ready: kind.ready, fields: kind.fields, kind,
+            read: reads?.[kind.key],
             drawsLanded: drawsLanded?.has(kind.key) === true ? true : undefined, rekeys: rekeys?.has(kind.key) === true,
         })),
-        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: record.ready ?? none,
+        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, newKey: record.newKey ?? none,
+            ready: record.ready ?? none,
             fields: record.fields ?? NO_FIELDS, kind: undefined, read: reads?.[record.key], drawsLanded: record.drawsLanded, rekeys: false })),
     ], [kinds, records, reads, drawsLanded, rekeys]);
     const codecs = useMemo(() => parts.map((kind): KindCodecs => {
@@ -668,7 +676,9 @@ export function useScheduleEditing<I extends Item = Item>({
         const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
             (id, held) => fieldBreaches(heldTo(held), held).map((breach) => breachIssue(breach, id)), originals, app);
         // How its new entries are keyed (#1583, east-ui-components' `keys.ts`): its session makes each key, and holds it as
-        // its own until the entry is saved. A text key is made from the key its entry is made from — a template's, a
+        // its own until the entry is saved. By the app's own rule where it gives one (`newKey`), given every key known
+        // taken: a key it gives that is taken, or a rule that throws, makes none, and the gesture adds nothing. Else by
+        // its key's type. A text key is made from the key its entry is made from — a template's, a
         // copied event's — else made up: the next in a row (`brackets-2`) where the session holds the record whole, and
         // with a suffix drawn at random where it is read a window at a time — there the session cannot know which of a
         // row's keys are taken, and the next in a row is, as often as not, an earlier copy's out of view. An Integer key
@@ -676,7 +686,11 @@ export function useScheduleEditing<I extends Item = Item>({
         // a key of another type is given none here. A kind given `rekeys` has it made another where another Save took
         // it; any other part keeps the key, the two a conflict.
         const windowed = kind.entries.type === "some";
-        const rule: EntryKeys | undefined = codecs[i]!.keys === "string" ? (windowed ? drawnFromKeys(randomKeys()) : madeFromKeys(randomKeys()))
+        const rule: EntryKeys | undefined = kind.newKey.type === "some" ? givenKeys(kind.newKey.value, (why) => {
+            if ("taken" in why) console.error(`[Schedule] ${kind.name}'s newKey gave "${why.taken}", a key already taken: nothing was added`);
+            else console.error(`[Schedule] ${kind.name}'s newKey failed: nothing was added:`, why.failed);
+        })
+            : codecs[i]!.keys === "string" ? (windowed ? drawnFromKeys(randomKeys()) : madeFromKeys(randomKeys()))
             : codecs[i]!.keys !== "integer" ? undefined
                 : nextIntegerKeys(!windowed ? undefined : () => {
                     const last = lastKeysRef.current.get(kind.key);
