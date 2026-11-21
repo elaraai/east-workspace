@@ -17,7 +17,12 @@
  * remove — kept until Apply. A row the answer changes that the sheet does not
  * hold is read by its key first (rule 8); one whose own edit is still
  * incomplete — a field missing, text that could not be read — refuses the
- * answer whole, naming the row (rule 11): the function read it as saved.
+ * answer whole, naming the row (rule 11): the function read it as saved. An
+ * answer is an edit like any other (east-workspace#1709, ruling 14): where
+ * the app builds a row's key from the row (`key`), a row whose key it changes
+ * moves under the key its row builds, with what the runs left on it, and one
+ * that would stand under another row's key, or whose key fails as it is built,
+ * refuses the answer whole, in the words the footer says a refused key in.
  *
  * @packageDocumentation
  */
@@ -31,14 +36,16 @@ import {
     type SheetOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
-import { diffOptimisePatch, optimiseIdOf, recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { diffOptimisePatch, optimiseIdOf, recordOptimiseRun, type OptimiseLanded, type OptimiseRecorder } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { SheetRefused } from "./creation.js";
 import { liftDraft } from "./draft-values.js";
-import { NULL_CELL, cellIsBlank, countNoun, lineId } from "./model.js";
+import { NULL_CELL, cellIsBlank, countNoun, lineId, parseLineId } from "./model.js";
+import type { SheetNotice } from "./sheet-types.js";
 import type { EntryUpdate, EntryVersion, Origin, Placement } from "./transactions.js";
 import type { SheetCellValue, SheetNounValue, SheetRootValue, SheetRowValue } from "./values.js";
-import type { SheetWords } from "./words.js";
+import { noticeText, type SheetWords } from "./words.js";
 
 /** A sheet's optimiser as its payload carries it: the function's binding, the record, the rows' type and the entry's key. */
 export type SheetOptimiseBound = ValueTypeOf<SheetOptimiseBindingType>;
@@ -98,6 +105,7 @@ export interface SheetOptimiseTypes {
 const ROWS = "rows";
 
 const sameCell = equalFor(Sheet.Types.Cell);
+const sameId = equalFor(StringType);
 const decodeWire = decodeBeast2For(Sheet.Types.Row);
 
 /** A sheet with no optimiser: nothing is asked, and nothing answered. */
@@ -177,8 +185,16 @@ export interface SheetLanding {
     readonly incomplete: (id: string) => boolean;
     /** A row as a refusal names it: its row's words, else its key. */
     readonly nameOf: (id: string) => string;
-    /** Records the versions as one transaction of the session; answers whether it did. */
+    /**
+     * Records the versions as one transaction of the session; answers whether it did. Where the app builds a row's key
+     * from the row, each stands under the key its row builds (east-workspace#1709, ruling 14), and versions a row's key
+     * refuses throw {@link SheetRefused}, as a gesture's do (`SheetEditingResult.recordVersions`).
+     */
     readonly record: (updates: readonly EntryUpdate[], origin: Origin, label: string) => boolean;
+    /** The key an entry stands under since the versions were recorded (`SheetEditingResult.under`). */
+    readonly under: (id: string) => string;
+    /** The sheet's words: what a refusal of a row's key is said in, as the footer says it of a gesture. */
+    readonly words: SheetWords;
     /** What earlier runs left on the rows, still the session's drafts. */
     readonly before?: SheetOptimised | undefined;
 }
@@ -232,16 +248,18 @@ function markRows(marks: Map<string, SheetRowOps>, before: SheetRowValue | undef
  * nothing and leaves what earlier runs left as it is (R10); one that changes
  * rows lays its marks over theirs. One that changes a row whose own edit is
  * still incomplete is refused whole, naming the row; one that touches a row
- * the sheet does not hold names it, to be read by its key.
+ * the sheet does not hold names it, to be read by its key. A row the answer
+ * moves under the key its row builds takes what the runs left on it there, its
+ * lines' with it; one a row's key refuses records nothing, saying why.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the rows — unchanged by a run that changed nothing;
- *   the rows to read first; a refusal, naming the row; `undefined` for an answer that does not fit the rows the sheet
- *   holds, or one the session would not take
+ *   the rows to read first; a refusal, naming the row or the key refused; `undefined` for an answer that does not fit
+ *   the rows the sheet holds, or one the session would not take
  */
 export function landSheetOptimise(args: SheetLanding,
 ): OptimiseLanded<SheetOptimised> | OptimiseMissing | OptimiseRefused | undefined {
-    const { editing, types, draftType, keyed, result, label, runText, versionOf, held, incomplete, nameOf, record, before: earlier } = args;
+    const { editing, types, draftType, keyed, result, label, runText, versionOf, held, incomplete, nameOf, record, under, words, before: earlier } = args;
     const rowType = types.rows.value as EastType;
     const diff = diffOptimisePatch<unknown, unknown>(ROWS, types.rows, optimiseIdOf(types.rows.key as EastType), result.rows, held, incomplete);
     if (diff === undefined || "missing" in diff) return diff;
@@ -251,7 +269,8 @@ export function landSheetOptimise(args: SheetLanding,
     // A new row's place: its key's on a keyed source, else after every row the sheet holds.
     const place: Placement = keyed ? some(variant("keyOrder", null)) : some(variant("ordered", variant("end", null)));
     const updates: EntryUpdate[] = [];
-    const marks = new Map<string, SheetRowOps>();
+    // Each row the answer leaves, as it drew before the run and as the answer leaves it: what the run marks on it.
+    const answered: { readonly id: string; readonly row: unknown; readonly before: SheetRowValue | undefined; readonly wire: SheetRowValue }[] = [];
     for (const op of diff.ops.values()) {
         const { id } = op;
         const before = versionOf(id);
@@ -262,7 +281,34 @@ export function landSheetOptimise(args: SheetLanding,
         const wire = project(op.row, id);
         const after: EntryVersion = { draft: liftDraft(draftType, op.row), wire, place: op.op === "add" ? place : before.place };
         updates.push({ id, before, after });
-        markRows(marks, op.op === "add" ? undefined : before.wire, wire, runText);
+        answered.push({ id, row: op.row, before: op.op === "add" ? undefined : before.wire, wire });
     }
-    return recordOptimiseRun({ changes: updates, counts: diff.counts }, { record }, label, () => ({ rows: new Map([...(earlier?.rows ?? []), ...marks]) }));
+    // A row's key refused (east-workspace#1709, ruling 14): what the run says, in the footer's words for a gesture's.
+    let keyRefused: SheetNotice | undefined;
+    const recorder: OptimiseRecorder<EntryUpdate> = {
+        record: (changes, origin, step) => {
+            try {
+                return record(changes, origin, step);
+            } catch (err) {
+                if (!(err instanceof SheetRefused)) throw err;
+                keyRefused = err.notice;
+                return false;
+            }
+        },
+        refusal: () => (keyRefused === undefined ? undefined : noticeText(keyRefused, words)),
+        under: (_kind, id) => under(id),
+    };
+    return recordOptimiseRun({ changes: updates, counts: diff.counts }, recorder, label, (at) => {
+        // What earlier runs left, each row's under the key it stands under now — its lines' with it — and this run's over theirs.
+        const rows = new Map<string, SheetRowOps>();
+        for (const [id, marks] of earlier?.rows ?? []) {
+            const line = parseLineId(id);
+            rows.set(line === undefined ? at(ROWS, id) : lineId(at(ROWS, line.groupId), line.key), marks);
+        }
+        for (const { id, row, before, wire } of answered) {
+            const now = at(ROWS, id);
+            markRows(rows, before, sameId(now, id) ? wire : project(row, now), runText);
+        }
+        return { rows };
+    });
 }

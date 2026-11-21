@@ -18,10 +18,11 @@
  * a late answer (R3, R4); nothing to change and a failed call say so (R10).
  * What it does with any answer — one that inserts, updates and deletes, one
  * that replaces the whole Dict, one that moves a job out of the week, another
- * page's save while the call is out, a key another page takes — is the
- * builders' shared cases (`optimise-cases.test-utils.ts`), over the week's
- * jobs. A job of the week the rail narrows out, which the Calendar holds none
- * of, is read by its key before an answer that changes it lands (rule 8).
+ * page's save while the call is out, a key another page takes, a job whose
+ * title builds its key (east-workspace#1709, ruling 14) — is the builders'
+ * shared cases (`optimise-cases.test-utils.ts`), over the week's jobs. A job
+ * of the week the rail narrows out, which the Calendar holds none of, is read
+ * by its key before an answer that changes it lands (rule 8).
  */
 
 import { describe, expect, test } from "vitest";
@@ -36,6 +37,7 @@ import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { readsRow } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
+import { eventKey } from "./model.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt }, { main: "data-calendar-main" });
@@ -262,6 +264,23 @@ describe("a job the Calendar does not hold (rule 8)", () => {
     });
 });
 
+/** The shop's jobs with its optimiser, each keyed by the key its title builds (`key`, east-workspace#1709). */
+const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const machines = $.let(Record.bind(ex.calendarMachines, []));
+    const jobs = $.let(Record.bind(ex.calendarJobs));
+    const optimise = $.let(Func.bind(opt.scheduleBacklog));
+    return Calendar({
+        view: { period: "week", date: new Date("2026-10-01T00:00:00Z") }, now: opt.SHOP_NOW, optimise,
+        resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: (row) => row.name }) },
+        events: {
+            job: Calendar.events(jobs, {
+                name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due }, key: (row) => row.title,
+            }),
+        },
+    });
+}))) };
+
 // The week in view, Mon 28 Sep – Sun 4 Oct 2026: its jobs, and one the optimiser adds.
 optimiseCases<typeof ex.CalendarJob>({
     builder: "the Calendar", h,
@@ -278,4 +297,11 @@ optimiseCases<typeof ex.CalendarJob>({
     other: ["job2", (job) => ({ ...job, customer: "Birch Engineering · north works" })],
     // The Monday after the week in view.
     outside: { to: (job) => ({ ...job, start: some(new Date("2026-10-12T09:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")) }), named: "Bearing collars" },
+    // A job the answer gives a new title stands under it; one given another job's key is refused.
+    keyed: {
+        mounted: async () => (await h.mount(keyedJobs)).container,
+        move: ["job4", (job) => ({ ...job, title: "Collars" }), "Collars"],
+        taken: [(job) => ({ ...job, title: "job2" }), 'Another production is keyed "job2" already'],
+        op: (c, key) => c.querySelector<HTMLElement>(`[data-calendar-event=${JSON.stringify(eventKey({ kind: "job", key }))}]`)?.getAttribute("data-op") ?? undefined,
+    },
 });

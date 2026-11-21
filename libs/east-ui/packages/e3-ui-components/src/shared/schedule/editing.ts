@@ -530,6 +530,17 @@ export interface ScheduleEditing<I extends Item = Item> {
      * @returns The refusal; `undefined` where the gesture's keys stand, whatever else may refuse it
      */
     keyRefusalOf(changes: readonly ScheduleChange[]): ScheduleKeyRefusal | undefined;
+    /**
+     * Where a row the last gesture recorded changed stands now (east-workspace#1709): under the key its fields build,
+     * where the gesture moved it there — a row whose key it changed, one it made under a key that stood for it until
+     * then, or one that names a moved row by its key and followed it — else under the key it had. What a builder keeps
+     * what an optimiser's answer left on a row under (ruling 14).
+     *
+     * @param kind - The kind's slot, or the record's key
+     * @param id - The key's text the gesture named the row by
+     * @returns The key's text it stands under
+     */
+    under(kind: string, id: string): string;
 }
 
 /** What {@link useScheduleEditing} reads. */
@@ -1033,6 +1044,8 @@ export function useScheduleEditing<I extends Item = Item>({
     const movesRef = useRef(new Map<string, Map<string, string>>());
     // The moves that hold, by the part's key, as last asked: the same object while they hold, at whatever version.
     const movedRef = useRef(new Map<string, { readonly version: number; readonly moves: ReadonlyMap<string, string> }>());
+    // What the last gesture recorded moved, by the part's key, then by the key each row had ({@link ScheduleEditing.under}).
+    const lastMovesRef = useRef<ScheduleRenumbered>(NO_RENUMBERED);
 
     // ── The gestures ─────────────────────────────────────────────────────────
     /**
@@ -1317,7 +1330,18 @@ export function useScheduleEditing<I extends Item = Item>({
             const now = settle();
             if (now === undefined) return undefined;
             if (now.all.size === 0) break;
-            for (const [kind, byKey] of now.all) moves.set(kind, new Map([...(moves.get(kind) ?? []), ...byKey]));
+            // Each row from the key it had before the gesture to the key it stands under now: one a round moves again
+            // moves on from where an earlier round left it, and one moved back is no move.
+            for (const [kind, byKey] of now.all) {
+                const went = moves.get(kind) ?? new Map<string, string>();
+                const first = new Map([...went].map(([from, to]) => [to, from] as const));
+                for (const [from, to] of byKey) {
+                    const had = first.get(from) ?? from;
+                    if (stringEqual(had, to)) went.delete(had);
+                    else went.set(had, to);
+                }
+                moves.set(kind, went);
+            }
             const follow = now.held.size === 0 ? undefined : followingRef.current?.(now.held);
             if (follow === undefined) break;
             if ("refused" in follow) {
@@ -1450,6 +1474,7 @@ export function useScheduleEditing<I extends Item = Item>({
             // holds it under.
             const holding = new Map([...made.moves.keys()].map((kind) => [kind, movesNow(kind)] as const));
             if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
+            lastMovesRef.current = made.moves.size === 0 ? NO_RENUMBERED : made.moves;
             // Each move of a row its record holds, or of a row such a move left — kept, to the key its record holds it
             // under, for what the row's drafts are compared with ({@link ScheduleEditing.movedFrom}). A new row's, from the
             // key made for it, keeps none: from then on the key it takes holds a new row, never one moved there before.
@@ -1465,6 +1490,9 @@ export function useScheduleEditing<I extends Item = Item>({
             }
             if (made.moves.size > 0) setMoved(made.moves);
             return true;
+        },
+        under(kind: string, id: string): string {
+            return lastMovesRef.current.get(kind)?.get(id) ?? id;
         },
     };
     // Stable to the canvas and the inspector: each runs the latest render's.
@@ -1486,10 +1514,11 @@ export function useScheduleEditing<I extends Item = Item>({
     const record = useCallback((changes: readonly ScheduleChange[], origin: Origin, label: string) => latest.current.record(changes, origin, label), []);
     const keyRefusal = useCallback(() => latest.current.keyRefusal(), []);
     const keyRefusalOf = useCallback((changes: readonly ScheduleChange[]) => latest.current.keyRefusalOf(changes), []);
+    const under = useCallback((kind: string, id: string) => latest.current.under(kind, id), []);
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
-        shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf,
+        shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under,
     }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row,
-        rowsByKey, mint, record, keyRefusal, keyRefusalOf]);
+        rowsByKey, mint, record, keyRefusal, keyRefusalOf, under]);
 }

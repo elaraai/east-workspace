@@ -127,6 +127,10 @@ export interface SheetEditingResult {
      * Record entry versions a gesture computed whole — the optimiser's answer
      * (#1409), each entry's draft and wire row given — as one transaction of
      * the origin and label named. Answers whether the session recorded it.
+     * They are an edit like any other (east-workspace#1709, ruling 14): where the app builds a row's key from the row
+     * (`key`), each stands under the key its row builds — an answer that changes what a row's key reads moves the row —
+     * and versions that would leave a row under a key another row stands under, or whose key fails as it is built, throw
+     * {@link SheetRefused}, and nothing is drafted, as for a gesture's.
      */
     recordVersions: (updates: readonly EntryUpdate[], origin: Origin, label: string) => boolean;
     /**
@@ -441,14 +445,23 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);
-        // An entry the versions add holds its key in its record's key field, as one a gesture adds does.
-        const keyed = keyedAs === undefined ? updates
-            : updates.map((update) => (update.before.draft === undefined ? { ...update, after: keyedAs(update.id, update.after) } : update));
-        // An answer names each row's key itself: none is moved under another.
-        const recorded = session.record(keyed, origin, label);
-        if (recorded) lastMoves.current = NO_MOVES;
+        // Each entry the versions leave stands under the key its row builds, as a gesture's does: an answer is an edit like
+        // any other.
+        const touched = new Map(updates.map(({ id, before, after }) => [id, { before, after }] as const));
+        const moves = rekey(touched, original);
+        const arrived = new Set(moves.values());
+        // An entry the versions add holds its key in its record's key field, as one a gesture adds does; one just moved
+        // under the key it builds holds it there already.
+        if (keyedAs !== undefined) {
+            for (const [id, { before, after }] of touched) if (before.draft === undefined && !arrived.has(id)) touched.set(id, { before, after: keyedAs(id, after) });
+        }
+        const recorded = session.record([...touched].map(([id, versions]): EntryUpdate => ({ id, ...versions })), origin, label);
+        if (recorded) {
+            lastMoves.current = moves;
+            if (moves.size > 0) setMoved(moves);
+        }
         return recorded;
-    }, [session, observed, replacing, keyedAs]);
+    }, [session, observed, replacing, keyedAs, rekey, original]);
     // The source position each drafted row the rows draw stood at as the layer was last made: what stands through a
     // carry-over (`standing-rows.ts`).
     const stoodRef = useRef<ReadonlyMap<string, number>>(new Map());

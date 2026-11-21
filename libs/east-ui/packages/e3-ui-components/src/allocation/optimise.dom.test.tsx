@@ -28,7 +28,8 @@
  * (ruled 27 Oct 2026, "Into the View menu"). What it does with any answer —
  * one that inserts, updates and deletes, one that replaces the whole Dict, one
  * that moves a bin out of the day, another page's save while the call is out,
- * a key another page takes — is the builders' shared cases
+ * a key another page takes, a bin whose measured spec builds its key
+ * (east-workspace#1709, ruling 14) — is the builders' shared cases
  * (`optimise-cases.test-utils.ts`), over the day's bins.
  */
 
@@ -43,7 +44,7 @@ import { act, e3Harness, settle, slot, toolbarAtFloor, width } from "../e3-web-m
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
-import { stubLinkGeometry } from "./harness.test-utils.js";
+import { kilnYard, stubLinkGeometry } from "./harness.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "allocation/allocation": ex, "allocation/optimise": opt }, { main: "data-allocation-main" });
@@ -313,4 +314,15 @@ optimiseCases<typeof ex.kilnBins.type.value>({
     other: ["3101", (bin) => ({ ...bin, instruction: some("Stack on bearers") })],
     // The same slot a day on.
     outside: { to: (bin) => ({ ...bin, at: new Date("2027-05-12T01:56:00Z") }), named: "LD-2202" },
+    // Each bin keyed by its measured spec: one the answer measures anew stands under it; one measured as another bin's key, refused.
+    keyed: {
+        mounted: async () => {
+            const { container } = await h.mount(kilnYard({ key: (bin) => bin.specMeasured, optimise: true }));
+            await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+            return container;
+        },
+        move: ["3102", (bin) => ({ ...bin, specMeasured: "MC-3102" }), "MC-3102"],
+        taken: [(bin) => ({ ...bin, specMeasured: "3101" }), 'Another bin is keyed "3101" already'],
+        op: (c, key) => c.querySelector<HTMLElement>(`[data-allocation-card="${key}"]`)?.getAttribute("data-op") ?? undefined,
+    },
 });

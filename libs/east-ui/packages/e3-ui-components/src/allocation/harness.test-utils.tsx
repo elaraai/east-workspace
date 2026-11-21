@@ -24,10 +24,11 @@
  * @packageDocumentation
  */
 import { vi } from "vitest";
-import { East, none, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
+import { East, none, some, variant, type ExprType, type StringType, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
+import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
 import type { E3Dataset } from "../e3-web.test-utils.js";
 import { e3Harness, type E3Harness, type Example } from "../e3-web-mount.test-utils.js";
 import { fitCalls, type FitCalls } from "../shared/func/fit-calls.test-utils.js";
@@ -102,16 +103,21 @@ export function allocationHarness(): AllocationHarness {
  * its days (#1550), each row keyed by its week's first day, the week starting
  * on the day named. Given `halls`, it is the page for those kiln groups
  * (#1621): its kilns a source of the slice scoped to them, through their index
- * by group — every kiln still read whole, for the fits and the loads.
+ * by group — every kiln still read whole, for the fits and the loads. Given
+ * `key`, each bin is keyed by the key its row builds (east-workspace#1709);
+ * given `optimise`, the yard's optimiser is behind the Elara eye
+ * (`allocation/optimise`, which the file deploys).
  *
- * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, where its weeks start when it publishes weeks, and the kiln groups its page is for
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, where its weeks start when it publishes weeks, the kiln groups its page is for, the key a bin's row builds, and whether it has the yard's optimiser
  * @returns The example
  */
 export function kilnYard(options: {
     readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
     readonly weeks?: "monday" | "sunday"; readonly halls?: readonly string[];
+    readonly key?: (bin: ExprType<KilnBinType>) => ExprType<StringType>; readonly optimise?: boolean;
 } = {}): Example {
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks, halls = options.halls;
+    const keyed = options.key === undefined ? {} : { key: options.key };
     // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
     const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
         label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),
@@ -148,8 +154,9 @@ export function kilnYard(options: {
                 : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" } }));
         // The yard's fit over the bins the board edits: the locked bins' own, which reads them through their index.
         const fit = $.let(lockedBins ? Func.bind(ex.yardLockedFit) : Func.bind(ex.yardFit));
+        const optimise = options.optimise === true ? $.let(Func.bind(opt.yardOptimise)) : undefined;
         return Allocation({
-            id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true,
+            id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true, ...(optimise === undefined ? {} : { optimise }),
             library: [Allocation.library.arrivals(), Allocation.library.resources()], view: { layout: "timeline", date: TUE },
             events: { bin: Schedule.events(bins, {
                 name: "Bin", icon: "box", entries,
@@ -158,6 +165,7 @@ export function kilnYard(options: {
                 ...check,
                 ...failing,
                 ...bounded,
+                ...keyed,
             }) },
             resources: {
                 bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),

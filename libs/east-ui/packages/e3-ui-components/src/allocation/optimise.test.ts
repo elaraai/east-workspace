@@ -13,9 +13,10 @@
  * highlight; a run that changes nothing records nothing; a bin the page does
  * not hold is named to be read by its key first (rule 8), and an answer that
  * changes a bin outside the day it was asked of, or any bin of a day that
- * takes no edit, is refused whole, naming the bin (rule 11); the lock while a
- * run is out; and a ghost's place in the lane grid, a row of its slot's band
- * after the slot's cards.
+ * takes no edit, is refused whole, naming the bin (rule 11); a bin the step
+ * moves under the key its fields build keeps what the runs left on it there
+ * (east-workspace#1709, ruling 14); the lock while a run is out; and a ghost's
+ * place in the lane grid, a row of its slot's band after the slot's cards.
  */
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -71,10 +72,14 @@ const SLICE: OptimiseSlice = new SortedMap([], byString);
 const rows = (entries: [string, Row][]) => new SortedMap<string, Row>(entries, byString);
 /** The day's bins as their record holds them: each bin's own row, by key. */
 const recordOf = (plan: Day) => rows([...plan.bins].map(([id, bin]) => [id, bin.row as Row]));
-/** The editing a landing records through: its one `record`, which takes the step or refuses it. */
-function editing(takes = true) {
+/**
+ * The editing a landing records through: its one `record`, which takes the step or refuses it — for no bin's key — and
+ * where each bin stands once the step is recorded: under the key it had, or the one `moves` names (east-workspace#1709).
+ */
+function editing(takes = true, moves: Readonly<Record<string, string>> = {}) {
     const record = vi.fn((_changes: readonly ScheduleChange[], _origin: Origin, _label: string) => takes);
-    return { editing: { schedule: { record } } as unknown as AllocationEditing, record };
+    const schedule = { record, keyRefusal: () => undefined, under: (_kind: string, id: string) => moves[id] ?? id };
+    return { editing: { schedule } as unknown as AllocationEditing, record };
 }
 /** The bins the page holds, as a landing asks them: the day's, and any read by its key beside them. */
 const holding = (plan: Day, read: [string, Row][] = []) => (_kind: string, id: string): option<unknown> | undefined => {
@@ -89,12 +94,13 @@ const holding = (plan: Day, read: [string, Row][] = []) => (_kind: string, id: s
  * @param answered - The bins the function answers
  * @param before - What earlier runs left
  * @param more - Whether the session takes the step, the bins the function read where they are not the page's, the
- *   bins read by their keys beside the page's, and whether the day takes edits as the answer lands and what it publishes by
+ *   bins read by their keys beside the page's, whether the day takes edits as the answer lands and what it publishes by,
+ *   and the bins the step moves under another key
  * @returns What the landing answered, and the session's `record`
  */
 const land = (n: number, plan: Day, answered: [string, Row][], before: AllocationOptimised | undefined,
-    more: { takes?: boolean; read?: SortedMap<string, Row>; byKey?: [string, Row][]; open?: boolean; unit?: "day" | "week" } = {}) => {
-    const { editing: held, record } = editing(more.takes ?? true);
+    more: { takes?: boolean; read?: SortedMap<string, Row>; byKey?: [string, Row][]; open?: boolean; unit?: "day" | "week"; moves?: Readonly<Record<string, string>> } = {}) => {
+    const { editing: held, record } = editing(more.takes ?? true, more.moves);
     const request = allocationOptimiseRequest(DAY, SLICE, n);
     const landed = landAllocationOptimise({
         value: VALUE, domain: DOMAIN, types: TYPES, editing: held, held: holding(plan, more.byKey), request,
@@ -177,6 +183,20 @@ describe("the landing (R7, R8, R10, §9.5)", () => {
         const other = landedOf(land(2, plan, [["a", moved], ["r", R]], first).landed).optimised!;
         expect(other.ghosts.map(ghost => [ghost.id, ghost.op])).toEqual([["a", "from"], ["b", "del"]]);
         expect([...other.ops.keys()]).toEqual(["a"]);
+    });
+
+    test("ruling 14 of east-workspace#1709 — a bin the step moves under the key its fields build keeps what the runs left on it there: its operation, its ghost and its links, an earlier run's ghost of it giving way", () => {
+        // The first run moves `a` to Bay 2, a part of it onto the second kiln: its ghost, its operation and its links under `a`.
+        const second = row("B-2", at(1, 15), "LD-1", 30, [["K-1", 26], ["K-2", 4]]);
+        const first = landedOf(land(1, PLAN, [["a", second], ["b", B], ["r", R]], undefined).landed).optimised!;
+        expect([first.ghosts.map(ghost => ghost.id), [...first.ops.keys()], [...first.links.keys()]]).toEqual([["a"], ["a"], ["a"]]);
+        // The next moves it on to Bay 3, and the step moves it under the key its fields build there.
+        const plan = day([["a", second], ["b", B], ["r", R]]);
+        const third = row("B-3", at(3, 55), "LD-1", 30, [["K-1", 26], ["K-2", 4]]);
+        const optimised = landedOf(land(2, plan, [["a", third], ["b", B], ["r", R]], first, { moves: { a: "B-3/LD-1" } }).landed).optimised!;
+        expect([...optimised.ops].map(([id, op]) => [id, op.op, op.provenance])).toEqual([["B-3/LD-1", "chg", "Was Bay 2 01:15 on Kiln 1 · Elara run #2"]]);
+        expect(optimised.ghosts.map(ghost => [ghost.id, ghost.op, ghost.lane])).toEqual([["B-3/LD-1", "from", "B-2"]]);
+        expect([...optimised.links].map(([id, kilns]) => [id, [...kilns].sort()])).toEqual([["B-3/LD-1", ["K-1", "K-2"]]]);
     });
 
     test("R10 — a result that changes nothing records nothing and leaves what earlier runs left; a step the session refuses lands nothing", () => {

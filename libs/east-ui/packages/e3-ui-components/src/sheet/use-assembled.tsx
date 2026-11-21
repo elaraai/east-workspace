@@ -146,6 +146,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     actedRef.current = optimiseParts.acted;
     const originalVersion = editingState.original;
     const recordVersions = editingState.recordVersions;
+    const standsUnder = editingState.under;
     const projectDraft = editingState.project;
     const landAfter = optimiseParts.landAfter;
     landRef.current = (result, _request, n, read) => {
@@ -177,7 +178,9 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
             },
             // A row as the sheet names it — its first text column's text, else its key — as its history's issues name it.
             nameOf: rowName,
-            record: recordVersions, before: optimised,
+            // An answer is an edit like any other (east-workspace#1709, ruling 14): a row it moves under the key its row
+            // builds takes the run's marks there, and one a row's key refuses is said in the footer's words for it.
+            record: recordVersions, under: standsUnder, words, before: optimised,
         });
         // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
         return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter(n); });

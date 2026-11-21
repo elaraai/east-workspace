@@ -26,6 +26,12 @@
  *   over it, and Save keeps both.
  * - **A key the optimiser gave, taken by another page's row before Save**: a
  *   conflict to choose, as for any key an app's function makes.
+ * - **A key the row's fields build** (east-workspace#1709, ruling 14): over a
+ *   record whose rows' keys the app builds from them (`key`), an answer is an
+ *   edit like any other — a row whose key it changes moves under the key it
+ *   then builds, the run's mark with it, and Save writes it there; one whose key
+ *   would be another row's lands nothing, saying why in the words every refused
+ *   key is said in.
  *
  * @packageDocumentation
  */
@@ -70,6 +76,26 @@ export interface OptimiseCases<R extends EastType> {
      * Sheet.
      */
     readonly outside?: { readonly to: (row: ValueTypeOf<R>) => ValueTypeOf<R>; readonly named: string; readonly standing?: string };
+    /**
+     * The builder's page over the same record, its rows keyed by the key each builds from its fields (`key`,
+     * east-workspace#1709) — and the answers ruling 14's case lands on it. Left out, the case is not run.
+     */
+    readonly keyed?: {
+        /** Mounts the page with its optimiser, ready for a run, and answers what it rendered into. */
+        readonly mounted: () => Promise<HTMLElement>;
+        /** A row of the period in view, a change of it whose key then reads another that no row stands under, and that key. */
+        readonly move: readonly [key: string, to: (row: ValueTypeOf<R>) => ValueTypeOf<R>, moved: string];
+        /** A change of the same row whose key then reads another row's, and why the run says it lands nothing. */
+        readonly taken: readonly [to: (row: ValueTypeOf<R>) => ValueTypeOf<R>, why: string];
+        /**
+         * What the page draws a run did to a row, by its key — `chg` for a row the run changed.
+         *
+         * @param c - What the page rendered into
+         * @param key - The row's key
+         * @returns The operation drawn; `undefined` where none is, or no row stands under the key
+         */
+        readonly op: (c: HTMLElement, key: string) => string | undefined;
+    };
 }
 
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
@@ -257,5 +283,37 @@ export function optimiseCases<R extends EastType>(cases: OptimiseCases<R>): void
             await press(save(c));
             await waitFor(async () => expect(sameRow(rowOf(await h.read(record), addKey), added)).toBe(true), { timeout: 15_000 });
         });
+
+        const keyed = cases.keyed;
+        if (keyed !== undefined) {
+            const [movedKey, moveTo, movesTo] = keyed.move;
+            test("ruling 14 of east-workspace#1709 — over rows keyed by the key each builds, an answer that changes what a row's key reads moves the row under the key it then builds, as an edit does, the run's mark with it; Save writes it there", async () => {
+                const c = await keyed.mounted();
+                const before = await h.read(record);
+                const deployed = await commits();
+                answer(diff(before, edited(before, (rows) => { rows.set(movedKey, moveTo(rowOf(rows, movedKey))); })));
+                await press(eye(c));
+                await said(c, "done");
+                expect(words(banner(c, "done")!)[1]).toBe(counted(0, 1, 0));
+                await waitFor(() => expect([keyed.op(c, movesTo), keyed.op(c, movedKey)]).toEqual(["chg", undefined]));
+                await press(save(c));
+                await waitFor(async () => expect(await commits()).toEqual(["patch", ...deployed]), { timeout: 15_000 });
+                const saved = await h.read(record);
+                expect([saved.has(movedKey), sameRow(rowOf(saved, movesTo), moveTo(rowOf(before, movedKey)))]).toEqual([false, true]);
+            });
+
+            test("ruling 14 of east-workspace#1709 — an answer whose row would build another row's key lands nothing, and the run says why in the words every refused key is said in, never only that the answer could not be used", async () => {
+                const c = await keyed.mounted();
+                const before = await h.read(record);
+                const deployed = await commits();
+                const [takeTo, why] = keyed.taken;
+                answer(diff(before, edited(before, (rows) => { rows.set(movedKey, takeTo(rowOf(rows, movedKey))); })));
+                const at = period(c);
+                await press(eye(c));
+                await said(c, "fail");
+                expect(words(banner(c, "fail")!)).toEqual([optimiseMessages.fail({ period: at }), optimiseMessages.refusedDetail({ reason: why })]);
+                expect([save(c).disabled, keyed.op(c, movedKey), await commits()]).toEqual([true, undefined, deployed]);
+            });
+        }
     });
 }

@@ -30,7 +30,7 @@ import { DictType, StringType, equalFor, type EastType, type ValueTypeOf, type o
 import { AllocationOptimiseRequestType, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { landOptimisePatches, recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { landOptimisePatches, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
@@ -80,7 +80,10 @@ export interface AllocationGhost {
  * What the runs left on the Allocation's bins, until Apply (R17): each bin's
  * operation, a later run's over an earlier's on the same bin; the ghosts of
  * the bins the runs moved or removed, where they stood; the lanes the latest
- * run changed; and whether it booked an arrival or returned one.
+ * run changed; and whether it booked an arrival or returned one. A bin's
+ * operation, its links and its ghosts are kept by the key it stands under now:
+ * a bin a run's step moved under the key its fields build takes them with it
+ * (east-workspace#1709, ruling 14).
  */
 export interface AllocationOptimised {
     readonly ops: ReadonlyMap<string, AllocationBinOp>;
@@ -195,12 +198,15 @@ export interface AllocationLanding {
  * day it was asked of — where the bin stood, or where the answer puts it — is
  * refused whole, naming the bin, and so is one that changes anything of a day
  * that takes no edit, as a gesture there is (`open`); one that touches a bin
- * the page does not hold names it, to be read by its key.
+ * the page does not hold names it, to be read by its key. An answer is an edit
+ * like any other (east-workspace#1709, ruling 14): a bin whose key it changes
+ * moves under the key its fields build, with what the runs left on it; one a
+ * bin's key refuses records nothing, saying why.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the bins — unchanged by a run that changed nothing;
- *   the bins to read first; a refusal, naming the bin; `undefined` for an answer that does not fit the bins the page
- *   holds, or one the session would not take
+ *   the bins to read first; a refusal, naming the bin or the key refused; `undefined` for an answer that does not fit
+ *   the bins the page holds, or one the session would not take
  */
 export function landAllocationOptimise(args: AllocationLanding,
 ): OptimiseLanded<AllocationOptimised> | OptimiseMissing | OptimiseRefused | undefined {
@@ -224,17 +230,23 @@ export function landAllocationOptimise(args: AllocationLanding,
         // it takes no gesture.
         if (!open) return { refused: m.optimiseClosed({ bin: named(), removes: op.op === "del", unit }) };
     }
-    return recordOptimiseRun(diff, editing.schedule, label, () => {
-        // This run's operations over the earlier runs': a bin it touched again is its, and an earlier ghost of it gives way.
-        const touched = new Set([...diff.ops.values()].map(op => op.id));
-        const ops = new Map<string, AllocationBinOp>(before?.ops ?? []);
-        const links = new Map<string, ReadonlySet<string>>(before?.links ?? []);
-        const ghosts = (before?.ghosts ?? []).filter(ghost => !touched.has(ghost.id));
+    return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing.schedule), label, (under) => {
+        // This run's operations over the earlier runs', each under the key its bin stands under now: a bin it touched again
+        // is its, and an earlier ghost of it gives way.
+        const binUnder = (id: string): string => under(kind, id);
+        const touched = new Set([...diff.ops.values()].map(op => binUnder(op.id)));
+        const ops = new Map<string, AllocationBinOp>([...(before?.ops ?? [])].map(([id, op]) => [binUnder(id), op]));
+        const links = new Map<string, ReadonlySet<string>>([...(before?.links ?? [])].map(([id, kilns]) => [binUnder(id), kilns]));
+        const ghosts = (before?.ghosts ?? []).map(ghost => {
+            const id = binUnder(ghost.id);
+            return sameKey(id, ghost.id) ? ghost : { ...ghost, id };
+        }).filter(ghost => !touched.has(ghost.id));
         const lanes = new Set<string>();
         let arrivalsChanged = false;
         for (const op of diff.ops.values()) {
-            const { id } = op;
-            const was = plan.bins.get(id);
+            // What the run leaves on the bin, by the key it stands under now; what it was before the run, by the key it had.
+            const id = binUnder(op.id);
+            const was = plan.bins.get(op.id);
             if (op.op === "del") {
                 ops.delete(id);
                 links.delete(id);

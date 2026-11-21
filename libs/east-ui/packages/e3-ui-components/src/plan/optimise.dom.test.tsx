@@ -24,8 +24,9 @@
  * kind's words (#1398). What it does with any answer — one that inserts,
  * updates and deletes, one that replaces the whole Dict, one that moves a job
  * out of the window, another page's save while the call is out, a key another
- * page takes — is the builders' shared cases (`optimise-cases.test-utils.ts`),
- * over the window's jobs. A job of the window the rail narrows out, which the
+ * page takes, a job whose title builds its key (east-workspace#1709, ruling
+ * 14) — is the builders' shared cases (`optimise-cases.test-utils.ts`), over
+ * the window's jobs. A job of the window the rail narrows out, which the
  * Plan holds none of, is read by its key before an answer that changes it
  * lands (rule 8).
  */
@@ -43,6 +44,7 @@ import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
+import { printEventRef } from "../shared/schedule/event-ref.js";
 import "./index.js";
 
 /**
@@ -600,6 +602,31 @@ describe("an event kind's window that fails, on the footer's line (#1398)", () =
     });
 });
 
+/** The print works' jobs with its optimiser, each keyed by the key its title builds (`key`, east-workspace#1709). */
+const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Record.bind(events.planPrintPresses, []));
+    const jobs = $.const(Record.bind(events.planEventJobs, ["patch"]));
+    const optimise = $.const(Func.bind(opt.placeJobs));
+    return Plan({
+        axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: opt.PRINT_WORKS_NOW }),
+        optimise,
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                key: (j) => j.title,
+            }),
+        },
+        library: [Plan.library.backlog()],
+    });
+}))) };
+/** What a run left drawn on a job's bar, by the job's key. */
+const opOf = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-plan-body] [data-run=${JSON.stringify(printEventRef({ kind: "job", key }))}]`)?.getAttribute("data-op") ?? undefined;
+
 // The plan window in view, 5 Oct – 2 Nov 2026: its jobs, and one the optimiser adds.
 optimiseCases<typeof events.PrintJob>({
     builder: "the Plan", h,
@@ -616,4 +643,15 @@ optimiseCases<typeof events.PrintJob>({
     other: ["J-3002", (job) => ({ ...job, customer: "Elmway College · print room" })],
     // The week after the window.
     outside: { to: (job) => ({ ...job, start: some(new Date("2026-11-09T06:00:00Z")), end: some(new Date("2026-11-09T16:00:00Z")) }), named: "Store flyers" },
+    // Each job keyed by its title: the store flyers retitled stand under their new title; given another job's key, refused.
+    keyed: {
+        mounted: async () => {
+            const { container } = await h.mount(keyedJobs);
+            await waitFor(() => expect(container.querySelector(`[data-plan-body] [data-run=${JSON.stringify(printEventRef({ kind: "job", key: "J-3005" }))}]`)).not.toBeNull(), { timeout: 10_000 });
+            return container;
+        },
+        move: ["J-3005", (job) => ({ ...job, title: "Flyers" }), "Flyers"],
+        taken: [(job) => ({ ...job, title: "J-3002" }), 'Another print job is keyed "J-3002" already'],
+        op: opOf,
+    },
 });

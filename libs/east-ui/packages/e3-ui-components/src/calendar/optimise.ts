@@ -19,9 +19,9 @@
  * @packageDocumentation
  */
 
-import { StringType, fromEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, fromEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords, type ScheduleOptimiseRecords } from "@elaraai/e3-ui/internal";
-import { opKey, recordOptimiseRun, type OptimiseLanded, type OptimiseOp } from "../shared/func/optimise-diff.js";
+import { opKey, opKeyUnder, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseLanded, type OptimiseOp } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
@@ -40,16 +40,24 @@ export interface CalendarOptimiseResult {
 /** One operation a run left on an event, and the run that made it — its provenance's `run #n`. */
 export type CalendarOp = OptimiseOp & { readonly run: string };
 
+/** An event's key, as East compares its text. */
+const sameKey = equalFor(StringType);
+
 /**
  * What the runs left on the Calendar's events, until Apply (R17): each
  * operation by event (`opKey`), a later run's over an earlier's on the same
  * event, and where a removed or a moved event stood before its run — its
- * ghost's place.
+ * ghost's place. Each is kept under the key its event stands under now: an
+ * event a run's step moved under the key its fields build takes them with it
+ * (east-workspace#1709, ruling 14).
  */
 export interface CalendarOptimised {
-    /** Each operation, under `opKey(kind, id)`, with the run that made it. */
+    /** Each operation, under `opKey(kind, id)` of the key its event stands under now, with the run that made it. */
     readonly ops: ReadonlyMap<string, CalendarOp>;
-    /** Each changed or removed event as it stood before its run, under `opKey(kind, id)`. */
+    /**
+     * Each changed or removed event as it stood before its run — its place and its words — under the key its operation
+     * is kept under, and named by the key it stands under now: what its ghost is drawn from, beside the event now.
+     */
     readonly previous: ReadonlyMap<string, CalendarItem>;
     /** Whether the latest run moved an event into or out of the backlog: the Backlog tab's count flashes. */
     readonly backlogChanged: boolean;
@@ -113,7 +121,10 @@ export function calendarOptimiseRequest(range: CalendarRange, view: Pick<Calenda
  * event the page does not hold names it, to be read by its key
  * (`landOptimiseEvents`, shared with the Plan). A result that changes nothing
  * records nothing and leaves what earlier runs left as it is (R10); one that
- * does lays its operations over theirs.
+ * does lays its operations over theirs. An answer is an edit like any other
+ * (east-workspace#1709, ruling 14): an event whose key it changes moves under
+ * the key its fields build, with what the runs left on it; one a row's key
+ * refuses records nothing, saying why.
  *
  * @param value - The payload
  * @param types - Each kind's record type by slot
@@ -126,7 +137,8 @@ export function calendarOptimiseRequest(range: CalendarRange, view: Pick<Calenda
  * @param runText - The run's number, formatted, for the provenance
  * @param before - What earlier runs left on the events, still the session's drafts
  * @returns What the run counted, and what the runs have left on the events — unchanged by a run that changed nothing;
- *   the events to read first; a refusal, naming the event; `undefined` for an invalid result, or one the session would not take
+ *   the events to read first; a refusal, naming the event or the key refused; `undefined` for an invalid result, or one
+ *   the session would not take
  */
 export function landCalendarOptimise(value: CalendarValue, types: CalendarOptimiseTypes, editing: ScheduleEditing,
     held: (kind: string, id: string) => option<unknown> | undefined, request: CalendarOptimiseRequest,
@@ -138,16 +150,22 @@ export function landCalendarOptimise(value: CalendarValue, types: CalendarOptimi
     });
     if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
     const { diff, told, backlogChanged } = landed;
-    return recordOptimiseRun(diff, editing, label, () => {
-        // This run's operations over the earlier runs': an event it touched again is its, with where it stood before this
-        // run — a changed or a removed event's ghost's place.
-        const ops = new Map<string, CalendarOp>(before?.ops ?? []);
-        const previous = new Map<string, CalendarItem>(before?.previous ?? []);
+    return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing), label, (under) => {
+        // An event as it stood, named by the key it stands under now: what its ghost is told from the event by.
+        const named = (was: CalendarItem): CalendarItem => {
+            const key = under(was.kind, was.key);
+            return sameKey(key, was.key) ? was : { ...was, key };
+        };
+        // This run's operations over the earlier runs', each under the key its event stands under now: an event it
+        // touched again is its, with where it stood before this run — a changed or a removed event's ghost's place.
+        const ops = new Map<string, CalendarOp>([...(before?.ops ?? [])].map(([key, op]) => [opKeyUnder(key, under), op]));
+        const previous = new Map<string, CalendarItem>([...(before?.previous ?? [])].map(([key, was]) => [opKeyUnder(key, under), named(was)]));
         for (const [key, op] of diff.ops) {
-            ops.set(key, { ...op, run: runText });
-            previous.delete(key);
+            const at = opKeyUnder(key, under);
+            ops.set(at, { ...op, run: runText });
+            previous.delete(at);
             const was = told.get(key)?.was;
-            if (was !== undefined && op.op !== "add") previous.set(key, was);
+            if (was !== undefined && op.op !== "add") previous.set(at, named(was));
         }
         return { ops, previous, backlogChanged };
     });

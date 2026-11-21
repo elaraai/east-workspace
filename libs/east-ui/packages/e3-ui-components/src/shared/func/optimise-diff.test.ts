@@ -15,7 +15,10 @@
  * operations are told by place (§9.5); a run's changes are recorded as one
  * step, origin `optimise`, and one that changes nothing records nothing; and a
  * builder's landing is answered to the run its counts, what it left kept first
- * (R10).
+ * (R10). An answer is an edit like any other (east-workspace#1709, ruling 14):
+ * what the runs leave is made by where each row stands once the step is
+ * recorded, an operation's key moving with its row, and a step a row's key
+ * refuses is the recorder's refusal, in its words.
  */
 
 import { describe, expect, test } from "vitest";
@@ -24,8 +27,8 @@ import {
     type option,
 } from "@elaraai/east";
 import {
-    diffOptimisePatch, isOptimiseDiff, landOptimisePatches, mergeOptimiseDiffs, opKey, optimiseIdOf, optimiseLandedCounts, optimisePlacementOps, recordOptimiseRun,
-    type OptimiseDiff,
+    diffOptimisePatch, isOptimiseDiff, landOptimisePatches, mergeOptimiseDiffs, opKey, opKeyUnder, optimiseIdOf, optimiseLandedCounts, optimisePlacementOps,
+    recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseDiff,
 } from "./optimise-diff.js";
 
 const Row = StructType({ task: StringType, hours: IntegerType });
@@ -252,5 +255,45 @@ describe("recordOptimiseRun", () => {
         let made = 0;
         expect(recordOptimiseRun({ changes: ["j1"], counts }, history(false), "Elara run #7", () => { made++; return "marks"; })).toBeUndefined();
         expect(made).toBe(0);
+    });
+
+    test("ruling 14 of east-workspace#1709 — one a row's key refuses is the recorder's refusal, in its words; one it refuses for another reason is still no landing", () => {
+        let made = 0;
+        const keyed = { ...history(false), refusal: () => 'Another job is keyed "J-2" already' };
+        expect(recordOptimiseRun({ changes: ["j1"], counts }, keyed, "Elara run #7", () => { made++; return "marks"; }))
+            .toEqual({ refused: 'Another job is keyed "J-2" already' });
+        const otherwise = { ...history(false), refusal: () => undefined };
+        expect(recordOptimiseRun({ changes: ["j1"], counts }, otherwise, "Elara run #7", () => { made++; return "marks"; })).toBeUndefined();
+        expect(made).toBe(0);
+    });
+
+    test("ruling 14 of east-workspace#1709 — what the runs leave is made by where each row stands once the step is recorded: a row moved under the key its fields build, there; any other, where it was", () => {
+        const moving = { ...history(true), under: (kind: string, id: string) => (kind === "job" && id === "J-1" ? "J-2" : id) };
+        const left = recordOptimiseRun({ changes: ["J-1"], counts }, moving, "Elara run #7", (under) => [under("job", "J-1"), under("job", "J-3"), under("stop", "J-1")]);
+        expect(left).toEqual({ counts, optimised: ["J-2", "J-3", "J-1"] });
+        // An operation's key moves with its row, its kind kept; a recorder that says nothing of where rows stand moves none.
+        expect([opKeyUnder(opKey("job", "J-1"), moving.under), opKeyUnder(opKey("stop", "J-1"), moving.under)]).toEqual([opKey("job", "J-2"), opKey("stop", "J-1")]);
+        expect(recordOptimiseRun({ changes: ["J-1"], counts }, history(true), "Elara run #7", (under) => under("job", "J-1"))).toEqual({ counts, optimised: "J-1" });
+    });
+
+    test("ruling 14 of east-workspace#1709 — a board's shared editing records the step, says a refused key in the words every refused key is said in, and says where each row stands", () => {
+        const refusals = [
+            { kind: "job", name: "Print job", id: "J-1", why: { taken: "J-2" } },
+            { kind: "job", name: "Print job", id: "J-1", why: { named: "Flow" } },
+            { kind: "job", name: "Print job", id: "", why: { failed: new Error("no machine") } },
+        ] as const;
+        const said = refusals.map((refused) => recordOptimiseRun({ changes: [{ kind: "job", id: "J-1", remove: true as const }], counts },
+            scheduleOptimiseRecorder({ record: () => false, keyRefusal: () => refused, under: (_kind, id) => id }), "Elara run #7", () => "marks"));
+        expect(said).toEqual([
+            { refused: 'Another print job is keyed "J-2" already' },
+            { refused: "Its flows can't follow this print job to another key" },
+            { refused: "No key can be made for this print job" },
+        ]);
+        // Refused for another reason — a locked event, a rewrite that refuses — it says nothing, and the run fails as before.
+        const silent = scheduleOptimiseRecorder({ record: () => false, keyRefusal: () => undefined, under: (_kind, id) => id });
+        expect(recordOptimiseRun({ changes: [{ kind: "job", id: "J-1", remove: true as const }], counts }, silent, "Elara run #7", () => "marks")).toBeUndefined();
+        const taking = scheduleOptimiseRecorder({ record: () => true, keyRefusal: () => undefined, under: (_kind, id) => `${id}-moved` });
+        expect(recordOptimiseRun({ changes: [{ kind: "job", id: "J-1", remove: true as const }], counts }, taking, "Elara run #7", (under) => under("job", "J-1")))
+            .toEqual({ counts, optimised: "J-1-moved" });
     });
 });

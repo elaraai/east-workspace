@@ -29,9 +29,9 @@ import {
     ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords,
     type PlanPayloadType, type ScheduleOptimiseRecords,
 } from "@elaraai/e3-ui/internal";
-import { printEventRef } from "../shared/schedule/event-ref.js";
+import { parseEventRef, printEventRef } from "../shared/schedule/event-ref.js";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
@@ -61,6 +61,9 @@ export interface PlanOptimiseResult {
  * element's operation, by the element's key, a later run's over an
  * earlier's; the ghosts of what stood on each row before a run, by the row's
  * key; and whether the latest run moved an event into or out of the backlog.
+ * An element's operation and its ghosts are kept by the key its event stands
+ * under now: an event a run's step moved under the key its fields build takes
+ * them with it (east-workspace#1709, ruling 14).
  */
 export interface PlanOptimised {
     readonly ops: ReadonlyMap<string, PlanElementOp>;
@@ -222,11 +225,15 @@ export interface PlanLanding {
  * names it, to be read by its key (`landOptimiseEvents`, shared with the
  * Calendar); one that changes nothing records nothing and leaves what earlier
  * runs left as it is (R10); one that does lays its operations and ghosts over
- * theirs.
+ * theirs. An answer is an edit like any other (east-workspace#1709, ruling
+ * 14): an event whose key it changes moves under the key its fields build,
+ * with what the runs left on it — its links, following it, too; one a row's key
+ * refuses records nothing, saying why.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the events — unchanged by a run that changed nothing;
- *   the events to read first; a refusal, naming the event; `undefined` for an invalid result, or one the session would not take
+ *   the events to read first; a refusal, naming the event or the key refused; `undefined` for an invalid result, or one
+ *   the session would not take
  */
 export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimised> | OptimiseMissing | OptimiseRefused | undefined {
     const { kinds, types, editing, held, request, result, label, period, runText, rows, format, before } = args;
@@ -236,21 +243,30 @@ export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimise
     });
     if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
     const { diff, told, backlogChanged } = landed;
-    return recordOptimiseRun(diff, editing, label, () => {
-        const ops = new Map<string, PlanElementOp>(before?.ops ?? []);
-        const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
+    return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing), label, (under) => {
+        // An element's key once the step is recorded: its event's, under the key the event stands under now.
+        const elementUnder = (element: string): string => {
+            const ref = parseEventRef(element);
+            return ref.success ? printEventRef({ kind: ref.value.kind, key: under(ref.value.kind, ref.value.key) }) : element;
+        };
+        const ops = new Map<string, PlanElementOp>([...(before?.ops ?? [])].map(([element, op]) => [elementUnder(element), op]));
+        const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, list.map((ghost) => {
+            const key = elementUnder(ghost.key);
+            return key === ghost.key ? ghost : { ...ghost, key };
+        })]));
         const placed = placedOf(rows);
         const names = resourceNames(rows);
         for (const [key, op] of diff.ops) {
             const { id } = op;
-            const element = printEventRef({ kind: op.kind, key: id });
+            // What the run leaves on the element, by the key its event stands under now; where it stood, by the key it had.
+            const element = printEventRef({ kind: op.kind, key: under(op.kind, id) });
             const at = told.get(key);
             // Where the element stood: an earlier run's ghost of it gives way to this run's.
             for (const list of ghosts.values()) {
                 const index = list.findIndex((ghost) => ghost.key === element);
                 if (index >= 0) list.splice(index, 1);
             }
-            const stood = placed.get(element);
+            const stood = placed.get(printEventRef({ kind: op.kind, key: id }));
             if (op.op === "del") {
                 ops.delete(element);
                 if (stood !== undefined) (ghosts.get(stood.rowKey) ?? ghosts.set(stood.rowKey, []).get(stood.rowKey)!).push({ key: element, op: "del", run: runText, start: stood.start, end: stood.end, label: stood.label, shape: stood.shape });
