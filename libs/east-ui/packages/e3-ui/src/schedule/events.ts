@@ -96,20 +96,23 @@
  * holds its key there, and is saved with it. A new event's key is its
  * builder's to make, or the app's own rule's, `newKey`, as a Record's is — or
  * built from the event's row, `key`, the event moving under the key an edit
- * of the fields it reads builds: one of the two, or neither.
+ * of the fields it reads builds: one of the two, or neither. A builder makes
+ * a String key up and counts an Integer one on; the Roster's duties and the
+ * Allocation's bins keyed by any other type take `key` or `newKey`, and are
+ * refused where the page is built without either.
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType,
-    defaultValue, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    defaultValue, isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ExprType, type FunctionType, type NullType, type SetType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
 import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
-import { checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
+import { checkMadeKeys, checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
@@ -357,7 +360,8 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * their number, each job's `number` its key. An event a builder adds holds its key there from the first, whatever
      * its template's values give, and is saved with it: where another Save takes the key first and the builder gives
      * the event another, the field follows. An event the record holds already keeps what its field holds. The form shows
-     * the field read only, and no role writes it. The field is of the record's key type.
+     * the field read only, and no role writes it. The field is of the record's key type, and the kind's `key` never reads
+     * it.
      */
     keyField?: RecordKeyField<K, R>;
     /**
@@ -650,9 +654,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
-     * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by anything but String, a kind
-     *   with no `shift`, `group` or `resource`, two of the Roster's roles naming one field, and a `values` giving other
-     *   fields than the ones no role maps, or one of another type, naming it; and as `build` does
+     * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by neither String nor Integer and
+     *   given neither `key` nor `newKey`, a kind with no `shift`, `group` or `resource`, two of the Roster's roles naming
+     *   one field, and a `values` giving other fields than the ones no role maps, or one of another type, naming it; and as
+     *   `build` does
      */
     buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType>;
     /**
@@ -667,10 +672,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
-     * @throws {Error} For a span kind (`start` and `end`), a record keyed by anything but String, a kind with no
-     *   `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a String key of one kind, two of the
-     *   Allocation's roles naming one field, and a `values` giving other fields than the ones no role maps, or one of
-     *   another type, naming it; and as `build` does
+     * @throws {Error} For a span kind (`start` and `end`), a record keyed by neither String nor Integer and given neither
+     *   `key` nor `newKey`, a kind with no `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a
+     *   String key of one kind, two of the Allocation's roles naming one field, and a `values` giving other fields than
+     *   the ones no role maps, or one of another type, naming it; and as `build` does
      */
     buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType>;
 }
@@ -770,7 +775,8 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
  *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a `keyField` that is no field
  *   of the row of the record's key type, or that one of the kind's roles writes; a `newKey` that is no East function from a
- *   Set of the record's keys to one; a `key` that builds another type than the record's key, or one beside `newKey`; a window over another index,
+ *   Set of the record's keys to one; a `key` that builds another type than the record's key, reads the field `keyField`
+ *   names, or is given beside `newKey`; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
@@ -2053,14 +2059,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             return heldKind((once) => {
-                // A duty runs from its start to its end, keyed by String, on its slot's shift and group, rostered to someone.
+                // A duty runs from its start to its end, on its slot's shift and group, rostered to someone, under a key the
+                // Roster makes — a String one made up, an Integer one counted on — or the app's `key` or `newKey` does.
                 if (instantKind) {
                     throw new Error(`${where}: the Roster reads a duty's \`start\` and \`end\`; this kind is one instant (\`at\`) — give \`start\` and \`end\` in its place`);
                 }
                 if (optional) throw new Error(`${where}: a duty has its times — \`start\` and \`end\` are DateTime fields, not Options`);
-                if (keyType.type !== "String") {
-                    throw new Error(`${where}: the Roster's duties are keyed by String — a duty is named by its key, and this record is keyed by ${printType(keyType)}`);
-                }
+                checkMadeKeys({ form: "record", keyType }, keyBuilt !== undefined || newKey !== undefined, where, "duties", "the Roster makes one");
                 if (shiftField === undefined || groupField === undefined) {
                     throw new Error(`${where}: the Roster places a duty by its \`shift\` and its \`group\` — give both`);
                 }
@@ -2101,8 +2106,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         // Its length.
                         hours = $.const(start.durationMinutes(end).divide(60.0));
                     } else {
+                        // The app's, of the row and its key — the key's text read back at the record's key type.
                         const count = $.const(hoursOf);
-                        hours = $.const(count(row as never, key as never));
+                        const parse = $.const(keyOf);
+                        hours = $.const(count(row as never, parse(key) as never));
                     }
                     return East.value({
                         start, end, resource: ref(row), shift: fieldOf(row, shift), group: groupOptional ? fieldOf(row, group) : some(fieldOf(row, group)),
@@ -2178,13 +2185,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
             return heldKind((once) => {
-                // A bin is one instant, keyed by String, in one lane, booking an arrival, its quantity on its parts for its hold.
+                // A bin is one instant in one lane, booking an arrival, its quantity on its parts for its hold, under a key the
+                // Allocation makes — a String one made up, an Integer one counted on — or the app's `key` or `newKey` does.
                 if (!instantKind) {
                     throw new Error(`${where}: the Allocation's bins are an instant kind: give \`at\` in place of \`start\` and \`end\``);
                 }
-                if (keyType.type !== "String") {
-                    throw new Error(`${where}: the Allocation's bins are keyed by String — a bin is named by its key, and this record is keyed by ${printType(keyType)}`);
-                }
+                checkMadeKeys({ form: "record", keyType }, keyBuilt !== undefined || newKey !== undefined, where, "bins", "the Allocation makes one");
                 if (resource === undefined) throw new Error(`${where}: the Allocation books a bin into a lane, its \`resource\` — give it`);
                 if (resource.shape !== "key" || resource.optional) {
                     throw new Error(`${where}: the Allocation books each bin into one lane — \`resource\` names a String field, a key of the lanes' kind, ` +

@@ -30,7 +30,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, equalFor, fromEastTypeValue, isVariant, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent, AllocationIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
@@ -373,7 +373,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
-    const optimiseTypes = useMemo(() => allocationOptimiseTypes(domain.rowType), [domain]);
+    // Its answer's patch is read at the bins' own key type: a number key's as a number.
+    const binKeys = value.bin.kind.editing.keyType;
+    const optimiseTypes = useMemo(() => allocationOptimiseTypes(binKeys.type === "some" ? fromEastTypeValue(binKeys.value) as EastType : StringType, domain.rowType),
+        [binKeys, domain]);
     const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // Whether the day takes edits: its period's status, stored and drafted (rule 11).

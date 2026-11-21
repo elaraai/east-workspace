@@ -261,8 +261,9 @@ export interface AllocationColumn<R extends EastType> {
  */
 export interface AllocationProps<R extends EastType = EastType, P extends EastType = never> {
     /**
-     * Exactly one event kind, the bins, an instant kind keyed by String: `{ bin: Schedule.events(Record.bind(bins),
-     * { at, resource, arrival, quantity, parts, hold, kind? }) }`.
+     * Exactly one event kind, the bins, an instant kind: `{ bin: Schedule.events(Record.bind(bins), { at, resource, arrival,
+     * quantity, parts, hold, kind? }) }`. Its record may be keyed by any type: a String key the board makes up, an Integer
+     * one it counts on, and any other the kind's `key` or `newKey` makes.
      */
     events: Readonly<Record<string, ScheduleEventKind<EastType, R>>>;
     /**
@@ -523,7 +524,7 @@ export function allocationEdits(kind: ScheduleEventKind<EastType, EastType>, per
  * `drafts` each record it reads that the board edits.
  *
  * @param optimise - What the app passed as `optimise`
- * @param bins - The bins' record type, `DictType(StringType, R)`
+ * @param bins - The bins' record type, `DictType(K, R)`
  * @param edits - The records the board edits, each by its name in the deployed package ({@link allocationEdits})
  * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
  *   board edits and does not list it in `drafts`

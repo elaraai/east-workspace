@@ -35,7 +35,7 @@
  * @packageDocumentation
  */
 
-import { DictType, SortedSet, StringType, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { DictType, SortedSet, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor, type RosterOptimiseEdgesRequestType, type RosterOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
@@ -109,21 +109,22 @@ export interface RosterOptimised {
 export interface RosterOptimiseTypes {
     readonly request: EastType;
     readonly result: EastType;
-    /** The duties' record type, `Dict<String, R>`: what the answer's patch is read by. */
+    /** The duties' record type, `Dict<K, R>`: what the answer's patch is read by, its keys at the record's own key type. */
     readonly record: DictType<EastType, EastType>;
 }
 
 /**
- * The request and result types over the app's duty row type: what the bound
+ * The request and result types over the app's duty record: what the bound
  * optimiser is called with, as the tag held it to — the request with `fixed`
  * where its function takes the edges (#1553).
  *
+ * @param keyType - The duty kind's record's key type
  * @param rowType - The duty kind's row type
  * @param edges - Whether the optimiser takes the duties at the edges
  * @returns The request and result East types, and the duties' record type
  */
-export function rosterOptimiseTypes(rowType: EastType, edges: boolean): RosterOptimiseTypes {
-    const record = DictType(StringType, rowType);
+export function rosterOptimiseTypes(keyType: EastType, rowType: EastType, edges: boolean): RosterOptimiseTypes {
+    const record = DictType(keyType, rowType);
     return { request: edges ? RosterOptimiseRequestTypeFor({ edges: true }) : RosterOptimiseRequestTypeFor(), result: RosterOptimiseResultTypeFor(record), record };
 }
 

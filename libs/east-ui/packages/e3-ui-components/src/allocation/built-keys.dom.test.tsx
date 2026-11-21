@@ -11,11 +11,12 @@
  * the board saying whose key it is. And a bin the board adds — an arrival
  * booked into a free slot — under each of the other two options a kind takes:
  * keyed by the app's own rule (`newKey`), and, over bins with a code of their
- * own, holding the key its session makes in that field (`keyField`).
+ * own, holding the key its session makes in that field (`keyField`); and over
+ * bins keyed by number, with neither, one past the largest (ruling 10).
  */
 import { expect, test } from "vitest";
 import { waitFor } from "@testing-library/react";
-import { DictType, East, SetType, SortedMap, StringType, StructType, compareFor, equalFor, some, variant, type ExprType } from "@elaraai/east";
+import { DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -32,8 +33,13 @@ const codedBins = e3.record("kiln_coded_bins", DictType(StringType, CodedBin), {
     initial: new SortedMap([], compareFor(StringType)),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+/** Bins keyed by number, as the app counts them: none until a test writes some. */
+const numberedBins = e3.record("kiln_numbered_bins", DictType(IntegerType, fx.MoistureBin), {
+    initial: new SortedMap([], compareFor(IntegerType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 
-const h = e3Harness({ "allocation/allocation": ex, "allocation/allocation-bounds": fx, "allocation/key-field": { codedBins } }, { main: "data-allocation-main" });
+const h = e3Harness({ "allocation/allocation": ex, "allocation/allocation-bounds": fx, "allocation/key-field": { codedBins, numberedBins } }, { main: "data-allocation-main" });
 const sameBin = equalFor(fx.MoistureBin);
 const sameKey = equalFor(StringType);
 
@@ -41,14 +47,15 @@ const sameKey = equalFor(StringType);
 type BinKeys = { readonly key: (bin: ExprType<typeof fx.MoistureBin>) => ExprType<StringType> } | { readonly newKey: true };
 
 /**
- * The smallest board over the moisture bins, keyed as a test says.
+ * The smallest board over the moisture bins, or other bins of their row, keyed as a test says.
  *
- * @param keys - How the bins are keyed
+ * @param keys - How the bins are keyed; `undefined`, by the board
  * @param layout - The layout it opens in
+ * @param record - The bins: the moisture bins, or the bins keyed by number
  * @returns The example
  */
-const yardKeyed = (keys: BinKeys, layout: "timeline" | "table") => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const bins = $.let(Record.bind(fx.moistureBins, ["patch"]));
+const yardKeyed = (keys: BinKeys | undefined, layout: "timeline" | "table", record: typeof fx.moistureBins | typeof numberedBins = fx.moistureBins) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const bins = $.let(Record.bind(record as typeof fx.moistureBins, ["patch"]));
     const loads = $.let(Data.bind(ex.arrivals));
     const yard = $.let(Data.bind(ex.kilns));
     const bays = $.let(Data.bind(ex.yardBays));
@@ -59,7 +66,7 @@ const yardKeyed = (keys: BinKeys, layout: "timeline" | "table") => ({ fn: East.f
             name: "Bin", icon: "box",
             at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
             quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
-            ...("newKey" in keys ? { newKey: $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`N-${taken.size().add(1n)}`)) } : keys),
+            ...(keys === undefined ? {} : "newKey" in keys ? { newKey: $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`N-${taken.size().add(1n)}`)) } : keys),
         }) },
         resources: {
             bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
@@ -122,6 +129,20 @@ test("ruling 1 — holding its key in a field (`keyField`), an arrival booked in
     const [key] = [...rows.keys()];
     const bin = rows.get(key!)!;
     expect([sameKey(bin.code, key!), bin.bay]).toEqual([true, "B-1"]);
+});
+
+test("ruling 10 — over bins keyed by number, an arrival booked into a free slot is a bin one past the largest number the record holds — 8, past 3 and 7 a week before, never a key made up — and Save writes it there", async () => {
+    // Two of the yard's bins, numbered 3 and 7, a week before the day the board opens on: the day holds none.
+    const [first, second] = [...(await h.read(fx.moistureBins)).values()];
+    const weekBefore = (row: ValueTypeOf<typeof fx.MoistureBin>) => ({ ...row, at: new Date(row.at.getTime() - 7 * 86_400_000) });
+    await h.patch(numberedBins, new SortedMap([[3n, weekBefore(first!)], [7n, weekBefore(second!)]], compareFor(IntegerType)));
+    const { container: c } = await h.mount(yardKeyed(undefined, "table", numberedBins));
+    await book(c);
+    expect(tableRow(c, "bin:8")).not.toBeNull();
+    await press(save(c));
+    await waitFor(async () => expect((await h.read(numberedBins)).has(8n)).toBe(true));
+    const saved = await h.read(numberedBins);
+    expect([[...saved.keys()], saved.get(8n)!.bay, saved.get(8n)!.load]).toEqual([[3n, 7n, 8n], "B-1", some("LD-2235")]);
 });
 
 test("ruling 1 — a bin unlinked moves under the key its bay and its links then build, still selected; a second bin of the bay, which would build that key too, is refused, the board saying whose key it is; and Save writes the bin under its new key", async () => {

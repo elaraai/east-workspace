@@ -483,18 +483,19 @@ export function keyBuilderOf(keyType: EastType, rowType: StructType, where: stri
 
 /**
  * Refuses an editable kind of rows whose key is never typed — a Flowchart's
- * transitions, a Schematic's links and nets — keyed by neither String nor
- * Integer and given neither `key` nor `newKey` (#1549): a String key is made
- * up and an Integer one counted on, and any other only the app can make.
+ * transitions, a Schematic's links and nets, a Roster's duties and targets,
+ * an Allocation's bins — keyed by neither String nor Integer and given
+ * neither `key` nor `newKey` (#1549): a String key is made up and an Integer
+ * one counted on, and any other only the app can make.
  *
- * @param bound - The kind's binding
+ * @param bound - The kind's binding: how it is bound, and its record's key type
  * @param keyed - Whether the kind says how a new row is keyed: its `key`, or its `newKey`
  * @param where - The kind, as a refusal names it
  * @param noun - Its rows, as the refusal names them (`transitions`)
  * @param made - What makes a new row of the kind, as the refusal says it (`Connect makes one`)
  * @throws {Error} For an editable kind keyed by another type than String or Integer, given neither `key` nor `newKey`
  */
-export function checkMadeKeys(bound: KindBinding, keyed: boolean, where: string, noun: string, made: string): void {
+export function checkMadeKeys(bound: Pick<KindBinding, "form" | "keyType">, keyed: boolean, where: string, noun: string, made: string): void {
     const keyType = bound.keyType;
     if (bound.form !== "record" || keyed || keyType.type === "String" || keyType.type === "Integer") return;
     throw new Error(`${where}: the ${noun} are keyed by ${typeText(keyType)}, and ${made} with no key typed — give \`key\`, building one's key from its row, ` +

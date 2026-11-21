@@ -31,7 +31,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, equalFor, fromEastTypeValue, isVariant, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { RosterComponent, RosterContextType, RosterIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -395,7 +395,10 @@ function RosterFrame(props: FrameProps) {
     const landingStyles = useLandingStyles();
     // An optimiser that takes the edges (#1553): the payload says which form its function takes.
     const edgesForm = source.optimise.type === "some" && source.optimise.value.edges;
-    const optimiseTypes = useMemo(() => rosterOptimiseTypes(domain.rowType, edgesForm), [domain, edgesForm]);
+    // Its answer's patch is read at the duties' own key type: a number key's as a number.
+    const dutyKeys = source.duty.kind.editing.keyType;
+    const optimiseTypes = useMemo(() => rosterOptimiseTypes(dutyKeys.type === "some" ? fromEastTypeValue(dutyKeys.value) as EastType : StringType, domain.rowType, edgesForm),
+        [dutyKeys, domain, edgesForm]);
     // The period a run is asked of: the one the Roster shows.
     const dayView = window.view.layout === "shifts" && window.view.period === "day";
     const asked = useMemo((): RosterOptimisePeriod => {

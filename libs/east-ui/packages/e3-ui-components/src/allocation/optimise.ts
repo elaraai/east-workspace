@@ -103,19 +103,20 @@ export interface AllocationOptimised {
 export interface AllocationOptimiseTypes {
     readonly request: EastType;
     readonly result: EastType;
-    /** The bins' record type, `Dict<String, R>`: what the answer's patch is read by. */
+    /** The bins' record type, `Dict<K, R>`: what the answer's patch is read by, its keys at the record's own key type. */
     readonly record: DictType<EastType, EastType>;
 }
 
 /**
- * The request and result types over the app's bin row type: what the bound
+ * The request and result types over the app's bin record: what the bound
  * optimiser is called with, as the tag held it to.
  *
+ * @param keyType - The bin kind's record's key type
  * @param rowType - The bin kind's row type
  * @returns The request and result East types, and the bins' record type
  */
-export function allocationOptimiseTypes(rowType: EastType): AllocationOptimiseTypes {
-    const record = DictType(StringType, rowType);
+export function allocationOptimiseTypes(keyType: EastType, rowType: EastType): AllocationOptimiseTypes {
+    const record = DictType(keyType, rowType);
     return { request: AllocationOptimiseRequestType, result: AllocationOptimiseResultTypeFor(record), record };
 }
 

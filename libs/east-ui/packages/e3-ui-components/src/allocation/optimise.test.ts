@@ -19,7 +19,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import {
-    DateTimeType, DictType, FloatType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant,
+    DateTimeType, DictType, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
@@ -64,7 +64,7 @@ const A = row("B-1", at(1, 15), "LD-1", 30, [["K-1", 30]]);
 const B = row("B-2", at(2, 35), "LD-2", 12, []);
 const R = row("B-3", at(3, 55), undefined, 0, [["K-2", 0]]);
 const PLAN = day([["a", A], ["b", B], ["r", R]]);
-const TYPES = allocationOptimiseTypes(Row);
+const TYPES = allocationOptimiseTypes(StringType, Row);
 const diff = diffFor(TYPES.record);
 /** No rail: nothing narrowed. */
 const SLICE: OptimiseSlice = new SortedMap([], byString);
@@ -230,6 +230,24 @@ describe("the landing (R7, R8, R10, §9.5)", () => {
         expect(out.landed).toEqual({ refused: "Elara's answer changes LD-1, outside Tue 11 May." });
         const same = land(1, PLAN, [["a", A], ["b", B], ["r", R]], undefined, { open: false });
         expect([same.landed, same.record.mock.calls.length]).toEqual([{ counts: { added: 0, changed: 0, removed: 0 }, optimised: undefined }, 0]);
+    });
+
+    test("ruling 10 — over bins keyed by number, the answer's patch is read at the bins' own key type: a bin it changes lands on the bin the page holds under that number, and one it adds under its number's text", () => {
+        const types = allocationOptimiseTypes(IntegerType, Row);
+        const byNumber = compareFor(IntegerType);
+        const numbered = (entries: [bigint, Row][]) => new SortedMap<bigint, Row>(entries, byNumber);
+        const plan = day([["3", A], ["7", B]]);
+        const moved = row("B-3", at(3, 55), "LD-1", 30, [["K-1", 30]]);
+        const added = row("B-1", at(5, 15), "LD-3", 9, []);
+        const { editing: held, record } = editing();
+        const landed = landAllocationOptimise({
+            value: VALUE, domain: DOMAIN, types, editing: held, held: holding(plan), request: allocationOptimiseRequest(DAY, SLICE, 1),
+            result: { bins: diffFor(types.record)(numbered([[3n, A], [7n, B]]), numbered([[3n, moved], [7n, B], [12n, added]])) },
+            label: "Elara run #1", runText: "1", period: "Tue 11 May", plan, context: CONTEXT, before: undefined, open: true, unit: "day", m: allocationMessages,
+        });
+        expect(landedOf(landed).counts).toEqual({ added: 1, changed: 1, removed: 0 });
+        const [changes] = record.mock.calls[0]!;
+        expect(changes.map(change => [change.id, "created" in change ? change.created : undefined])).toEqual([["3", undefined], ["12", true]]);
     });
 
     test("R2 — the commands locked while a run is out: no gesture taken, nothing recorded, Publish off", () => {

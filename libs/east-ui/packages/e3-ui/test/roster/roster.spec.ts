@@ -14,7 +14,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, East, FloatType, StringType, StructType, printType, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, StringType, StructType, printType, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
@@ -363,22 +363,32 @@ describe("the People layout's periods, its patterns and its display props (#1406
 });
 
 describe("Roster.targets", () => {
-    const Cover = StructType({ day: Schedule.Types.Clock, team: StringType });
     const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
         const def = record as typeof ex.rosterCover;
         return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
     });
     const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
-    test("refuses a role naming a field of another type, two roles naming one field, and a record not keyed by String", () => {
+    test("refuses a role naming a field of another type, and two roles naming one field", () => {
         assert.doesNotThrow(() => targets(roles));
         assert.throws(() => targets({ ...roles, positions: "team" }), /Roster\.targets: `positions` names an Integer field, the positions to fill — "team" holds \.String/);
         assert.throws(() => targets({ ...roles, day: "nope" }), /Roster\.targets: `day` names "nope", a field the row does not have/);
         assert.throws(() => targets({ ...roles, group: "shift" }), /Roster\.targets: `group` and `shift` both name "shift" — the Roster writes each of its roles into a field of its own/);
-        const byClock = e3.record("roster_spec_cover_by_day", DictType(Schedule.Types.Clock, Cover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
-        assert.throws(() => targets(roles, byClock), /Roster\.targets: a target is keyed by a String/);
         // Read by key beside the slice's `targets` source alone.
         assert.throws(() => targets({ ...roles, entries: Data.bindPaged(ex.rosterCover) }),
             /Roster\.targets: `entries` reads one target by its key beside the Roster's slice's `targets` source/);
+    });
+
+    test("ruling 10 — the targets take a record keyed by any type: a String or an Integer key the Roster makes, any other the app's `key` or `newKey` does, and without either the page is refused, saying which to give", () => {
+        const byNumber = e3.record("roster_spec_cover_by_number", DictType(IntegerType, WarehouseCover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.doesNotThrow(() => targets(roles, byNumber), "keyed by Integer: a new target is one past the largest");
+        const byDay = e3.record("roster_spec_cover_by_day", DictType(DateTimeType, WarehouseCover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.throws(() => targets(roles, byDay), {
+            message: "Roster.targets: the targets are keyed by .DateTime, and the Roster makes one with no key typed — give `key`, building one's key from its row, " +
+                "or `newKey`, making one from the keys taken, or key them by String or Integer",
+        });
+        assert.doesNotThrow(() => targets({ ...roles, key: (row: ExprType<typeof WarehouseCover>) => row.day }, byDay), "keyed by its day, as its `key` builds it");
+        assert.doesNotThrow(() => targets({ ...roles, newKey: East.function([SetType(DateTimeType)], DateTimeType, (_$, _taken) => new Date("2028-03-06T00:00:00Z")) }, byDay),
+            "keyed by the app's own rule");
     });
 
     test("takes `needed`, the slot's hours needed of its row and its shift's nominal hours, and refuses one of another type, naming it (#1678)", () => {
