@@ -1084,6 +1084,85 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
     });
 });
 
+describe("paging driver — windows of the root's size (#1714)", () => {
+    /** `entries` entries, each a group of `rows` rows — a hall and its presses — served for whatever window is asked:
+     *  records every read by its offset and its limit. */
+    function groups(entries: number, rows = 10) {
+        const asked: { offset: number; limit: number }[] = [];
+        const value = {
+            id: "groups",
+            page: (offset: bigint, limit: bigint) => {
+                asked.push({ offset: Number(offset), limit: Number(limit) });
+                const out: PlanWireRow[] = [];
+                for (let e = Number(offset); e < Math.min(entries, Number(offset + limit)); e++) {
+                    for (let r = 0; r < rows; r++) out.push(wire(`g${String(e).padStart(3, "0")}r${String(r).padStart(3, "0")}`));
+                }
+                return served([paged(out)]);
+            },
+            total: () => some(BigInt(entries)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        return { value, asked };
+    }
+    /** The entries the reads asked for, each once, ascending. */
+    const offsets = (asked: readonly { offset: number }[]) => [...new Set(asked.map((a) => a.offset))].sort((a, b) => a - b);
+
+    test("forty entries in windows of one: the open reads the first window and its read-ahead alone, and the band stands for the rest in entries; a jump to entry 30 reads its window and the ones beside it alone", () => {
+        const { value, asked } = groups(40);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value, false, 1);
+        // Every read is one entry long: the first window and the two read ahead of it.
+        expect(asked.every((a) => a.limit === 1)).toBe(true);
+        expect(offsets(asked)).toEqual([0, 1, 2]);
+        expect(d.getSnapshot().windowEntries).toBe(1);
+        expect(residentText(d.getSnapshot())).toBe("0-3");
+        expect(rowKeys(d.getSnapshot())).toHaveLength(30);
+        // The rest stand as one band, its elements entries.
+        expect(bandText(tail(d.getSnapshot()))).toBe("3-39");
+        // A jump to entry 30 reads its window and the ring around it, and nothing between.
+        const before = asked.length;
+        d.jumpToElement(30);
+        const jumped = offsets(asked.slice(before));
+        expect(jumped).toContain(30);
+        for (const offset of jumped) expect(offset).toBeGreaterThanOrEqual(29);
+        expect(asked.slice(before).every((a) => a.limit === 1)).toBe(true);
+        const [from, to] = span(d.getSnapshot());
+        expect(from).toBeLessThanOrEqual(30);
+        expect(to).toBeGreaterThan(30);
+        expect(bandText(head(d.getSnapshot()))).toBe(`0-${from - 1}`);
+        expect(rowKeys(d.getSnapshot())).toContain("g030r000");
+    });
+
+    test("windows of another size are a new result: the windows held go, and the source is read again from its first, at the new size", () => {
+        const { value, asked } = groups(40);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value, false, 1);
+        const before = asked.length;
+        // The same source, its windows two entries long now.
+        d.setSource(value, false, 2);
+        expect(asked.slice(before).every((a) => a.limit === 2)).toBe(true);
+        expect(offsets(asked.slice(before))).toEqual([0, 2, 4]);
+        expect(d.getSnapshot().windowEntries).toBe(2);
+        expect(residentText(d.getSnapshot())).toBe("0-6");
+        expect(bandText(tail(d.getSnapshot()))).toBe("6-39");
+        // Handed the same size again, nothing is read.
+        const after = asked.length;
+        d.setSource(value, false, 2);
+        expect(asked.length).toBe(after);
+    });
+
+    test("left out, a window is 200 entries, as the root's default is", () => {
+        const { value, asked } = groups(450, 1);
+        const d = createPagingDriver({ ...measure, onChange: () => {} });
+        d.setSource(value);
+        expect(d.getSnapshot().windowEntries).toBe(PLAN_PAGE_SIZE);
+        expect(asked.every((a) => a.limit === PLAN_PAGE_SIZE)).toBe(true);
+        expect(offsets(asked)).toEqual([0, 200, 400]);
+    });
+});
+
 describe("paging driver — blocks page apart (#823)", () => {
     /** A source of `windows` windows serving TWO paged blocks per window — a
      *  span series and a heat series over the same entries, say — with

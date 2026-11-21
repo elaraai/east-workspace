@@ -149,6 +149,15 @@
  * windows start again from its first. The snapshot names the narrowing its
  * rows belong to (`narrowing`), the stand-in's the last one's.
  *
+ * # A window holds the root's count of entries (#1714)
+ *
+ * A window holds as many of the source's entries as its root says — 200
+ * unless the Plan's `paging.entries` says otherwise — handed with the source.
+ * Every window, band, origin and position the driver counts is in it, and its
+ * snapshot says it (`windowEntries`), so whatever reads those counts in the
+ * same. Windows of another size hold other entries: a new result, as a new
+ * narrowing is.
+ *
  * # A source that derives its rows another way keeps the view (#1599)
  *
  * The derived `page` wraps the series pipeline and the Plan's own rows, so a
@@ -259,6 +268,8 @@ export interface PlanPagingSnapshot {
     blocks: readonly PlanPagedBlock[];
     /** The source's element count, once known. */
     total: number | undefined;
+    /** How many of the source's elements each window holds (#1714): what this snapshot's windows, bands and origins count in. */
+    windowEntries: number;
     /** What has landed of the block the viewport is in — of its run (#876),
      *  never the demanded interval, which would claim elements are loaded
      *  that are still on the wire. The span and the count differ when a
@@ -320,7 +331,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 /** The snapshot of a driver with no source (an inline canvas). */
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
-    total: undefined, resident: undefined, complete: true, loading: false, viewLoading: false, reading: undefined, replacing: false,
+    total: undefined, windowEntries: PLAN_PAGE_SIZE, resident: undefined, complete: true, loading: false, viewLoading: false, reading: undefined, replacing: false,
     standing: false, narrowing: undefined, failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
@@ -367,8 +378,15 @@ export interface PagingDriverOptions {
 export interface PagingDriver {
     /** The current snapshot — the same object until something changes. */
     getSnapshot(): PlanPagingSnapshot;
-    /** Drive a (new) source; `undefined` idles the driver (an inline canvas). */
-    setSource(source: PlanPagedSourceValue | undefined, retainPrevious?: boolean): void;
+    /**
+     * Drive a (new) source; `undefined` idles the driver (an inline canvas).
+     *
+     * @param source - The source
+     * @param retainPrevious - Whether the rows standing stand in for a new result's until its first window lands
+     * @param windowEntries - How many of its entries a window holds (#1714): the root's; {@link PLAN_PAGE_SIZE} left out.
+     *   Another size than the windows held is a new result, as a new narrowing is
+     */
+    setSource(source: PlanPagedSourceValue | undefined, retainPrevious?: boolean, windowEntries?: number): void;
     /** Where the viewport is. Ignored while a jump is pending — the jump owns
      *  the viewport until its window settles (#812). */
     reportViewport(at: PlanViewport, scrolling: boolean): void;
@@ -615,6 +633,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // was learned (or last confirmed) under.
     let total = 0;
     let totalRevision: string | undefined;
+    // How many of the source's entries a window holds (#1714): the root's, handed with its source.
+    let windowEntries = PLAN_PAGE_SIZE;
     // The blocks' shape — from the first window to land (#823). Until then the
     // canvas is one paged block, whose demand reads that first window.
     let shape: readonly BlockShape[] | undefined;
@@ -660,7 +680,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
 
     function newLane(from?: Lane): Lane {
         return {
-            ledger: createLedger(total, PLAN_PAGE_SIZE),
+            ledger: createLedger(total, windowEntries),
             residency: from?.residency ?? NO_RESIDENCY,
             viewportWindow: from?.viewportWindow ?? 0,
             viewportAt: from?.viewportAt ?? 0,
@@ -824,7 +844,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
             // Once every demanded window reads at the new revision, the old snapshot has nothing left to stand in for — but
             // the windows a far key's standing view drew, while it stands (#1398, CL10).
-            const result = store.read(planWindowReader(src), wanted, PLAN_PAGE_SIZE, standing?.keep);
+            const result = store.read(planWindowReader(src), wanted, windowEntries, standing?.keep);
             return {
                 total: t, resident: result.resident, inFlight: result.inFlight, failed: result.failed, sourceError,
                 revision: current, dataSnapshot,
@@ -889,7 +909,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             total = out.total;
             totalRevision = out.revision;
             for (const lane of lanes.values()) {
-                lane.ledger = createLedger(total, PLAN_PAGE_SIZE);
+                lane.ledger = createLedger(total, windowEntries);
                 lane.residency = NO_RESIDENCY;
                 lane.skeletons.clear();
             }
@@ -1013,7 +1033,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             hi = w;
         }
         if (lo === undefined || hi === undefined) return undefined;
-        return { from: lo * PLAN_PAGE_SIZE, to: Math.min(known, (hi + 1) * PLAN_PAGE_SIZE) - 1 };
+        return { from: lo * windowEntries, to: Math.min(known, (hi + 1) * windowEntries) - 1 };
     }
 
     /** One paged block as the canvas draws it — its run between its bands
@@ -1028,7 +1048,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (known !== undefined) {
             // The bands follow the run, not the residency (`bandsAround`): a window still in flight, and every window
             // past it, are theirs until it lands. Each says which of its windows are loading — only those (#1082).
-            const spans = bandsAround(ledger, residency, run, PLAN_PAGE_SIZE, known);
+            const spans = bandsAround(ledger, residency, run, windowEntries, known);
             head = spans.head === undefined ? undefined
                 : { block: b, at: "head", ...spans.head, loading: loadingIn(lane, inFlight, 0, run.from - 1, known) };
             tail = spans.tail === undefined ? undefined
@@ -1039,7 +1059,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         // geometry.
         const inRun = last.failed.filter((f) => f.w >= run.from && f.w <= run.to);
         const failed: PlanWindowFailure[] = inRun.map(({ w, error }) => (
-            { block: b, w, ...failedSpan(ledger, w, known, PLAN_PAGE_SIZE, FAILED_BAND_MIN_PX), error }
+            { block: b, w, ...failedSpan(ledger, w, known, windowEntries, FAILED_BAND_MIN_PX), error }
         ));
         let resident: PlanResidentSpan | undefined;
         const mine: number[] = [];
@@ -1049,8 +1069,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             const lo = minOf(mine);
             const hi = maxOf(mine);
             let elements = 0;
-            for (const w of mine) elements += elementsIn({ pageSize: PLAN_PAGE_SIZE, total: known }, w);
-            resident = { from: lo * PLAN_PAGE_SIZE, to: Math.min(known, (hi + 1) * PLAN_PAGE_SIZE), elements };
+            for (const w of mine) elements += elementsIn({ pageSize: windowEntries, total: known }, w);
+            resident = { from: lo * windowEntries, to: Math.min(known, (hi + 1) * windowEntries), elements };
         }
         const next: PlanPagedBlock = {
             index: b,
@@ -1090,8 +1110,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             const w = pinnedWindows()[0] ?? lanes.get(focusBlock)?.viewportWindow ?? 0;
             if (!windowIn(w) && last.sourceError === undefined && last.total !== 0) {
                 const known = last.total ?? (total > 0 ? total : undefined);
-                const end = (w + 1) * PLAN_PAGE_SIZE;
-                const reading = { from: w * PLAN_PAGE_SIZE, to: (known === undefined ? end : Math.min(known, end)) - 1 };
+                const end = (w + 1) * windowEntries;
+                const reading = { from: w * windowEntries, to: (known === undefined ? end : Math.min(known, end)) - 1 };
                 if (!snapshot.standing || snapshot.rows !== rederiving.rows || !sameLoading(snapshot.reading, reading)) {
                     snapshot = { ...rederiving, seq: ++published, loading: true, viewLoading: true, reading, replacing: false, standing: true };
                     options.onChange();
@@ -1107,8 +1127,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             const s = standing;
             if (!windowIn(s.w) && last.sourceError === undefined && last.total !== 0) {
                 const known = last.total ?? (total > 0 ? total : undefined);
-                const end = (s.w + 1) * PLAN_PAGE_SIZE;
-                const reading = { from: s.w * PLAN_PAGE_SIZE, to: (known === undefined ? end : Math.min(known, end)) - 1 };
+                const end = (s.w + 1) * windowEntries;
+                const reading = { from: s.w * windowEntries, to: (known === undefined ? end : Math.min(known, end)) - 1 };
                 if (!snapshot.standing || snapshot.rows !== s.view.rows || !sameLoading(snapshot.reading, reading)) {
                     snapshot = { ...s.view, seq: ++published, loading: true, viewLoading: true, reading, replacing: false, standing: true };
                     options.onChange();
@@ -1125,7 +1145,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         // are in around the one nearest the element its viewport is centred on.
         const isIn = windowsIn();
         const inNow = (w: number) => isIn.has(w);
-        for (const lane of lanes.values()) lane.run = runAround(lane.residency, inNow, lane.viewportAt, PLAN_PAGE_SIZE);
+        for (const lane of lanes.values()) lane.run = runAround(lane.residency, inNow, lane.viewportAt, windowEntries);
         assemble(landed);
         // Between two revisions the source knows no total until the new one's
         // first window lands; the geometry stands meanwhile, so the bands and
@@ -1184,6 +1204,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             origin: assembled.origin,
             blocks: sameBlocks ? prev.blocks : blocks,
             total: known,
+            windowEntries,
             resident: sameResident(prev.resident, focus?.resident) ? prev.resident : focus?.resident,
             complete,
             loading: last.inFlight.length > 0,
@@ -1199,7 +1220,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             dataSnapshot: last.dataSnapshot,
         };
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
-            || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
+            || next.total !== prev.total || next.windowEntries !== prev.windowEntries || next.resident !== prev.resident || next.complete !== prev.complete
             || next.loading !== prev.loading || next.viewLoading !== prev.viewLoading || next.reading !== prev.reading
             || next.replacing !== prev.replacing || next.standing !== prev.standing || next.narrowing !== prev.narrowing
             || next.failures !== prev.failures || next.sourceError !== prev.sourceError
@@ -1214,8 +1235,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
      *  against a longer source) is the last window — pinned beyond it, a jump
      *  would never settle. */
     function windowOf(element: number): number {
-        const w = Math.floor(Math.max(0, element) / PLAN_PAGE_SIZE);
-        const windows = Math.ceil(total / PLAN_PAGE_SIZE);
+        const w = Math.floor(Math.max(0, element) / windowEntries);
+        const windows = Math.ceil(total / windowEntries);
         return windows > 0 ? Math.min(w, windows - 1) : w;
     }
 
@@ -1253,7 +1274,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 continue;
             }
             lane.viewportWindow = w;
-            lane.viewportAt = w * PLAN_PAGE_SIZE;
+            lane.viewportAt = w * windowEntries;
             // Pin it so no trim can drop the destination before it lands (`pinTarget`).
             lane.residency = pinTarget(lane.residency, w, rebase);
         }
@@ -1302,8 +1323,16 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
 
     return {
         getSnapshot: () => snapshot,
-        setSource(next, retainPrevious = false) {
-            if (next === source) return;
+        setSource(next, retainPrevious = false, entries = PLAN_PAGE_SIZE) {
+            const resized = entries !== windowEntries;
+            if (next === source && !resized) return;
+            // Windows of another size hold other entries (#1714): a new result, as a new narrowing is — its geometry
+            // and its windows start again from its first.
+            if (resized) {
+                windowEntries = entries;
+                startResult();
+                dropWindows();
+            }
             // The new result starts at zero; offsets from the old result
             // must never drive its requests while those rows stand in.
             if (retainPrevious && next !== undefined && source !== undefined && next.id !== source.id) startResult();
@@ -1344,7 +1373,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 const lane = o !== undefined ? lanes.get(o.block) : undefined;
                 if (o !== undefined && lane !== undefined) {
                     lane.viewportWindow = o.w;
-                    lane.viewportAt = o.w * PLAN_PAGE_SIZE;
+                    lane.viewportAt = o.w * windowEntries;
                     focusBlock = o.block;
                 }
             } else {
@@ -1355,10 +1384,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                     // the resident rows in between rendered at, a far drag rebases. Without them, the element just
                     // outside the run on that side.
                     const element = at.kind === "window"
-                        ? at.w * PLAN_PAGE_SIZE
-                        : elementInBand(lane.ledger, lane.run, at.at, at.px, PLAN_PAGE_SIZE);
+                        ? at.w * windowEntries
+                        : elementInBand(lane.ledger, lane.run, at.at, at.px, windowEntries);
                     lane.viewportAt = element;
-                    lane.viewportWindow = Math.floor(element / PLAN_PAGE_SIZE);
+                    lane.viewportWindow = Math.floor(element / windowEntries);
                 }
             }
             settle();
@@ -1389,8 +1418,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             unpinEvery();
             settle();
         },
-        entryOf: (id, at) => store.entryOf(id, at, PLAN_PAGE_SIZE),
-        landedAt: (at) => store.windows.has(Math.floor(at / PLAN_PAGE_SIZE)),
+        entryOf: (id, at) => store.entryOf(id, at, windowEntries),
+        landedAt: (at) => store.windows.has(Math.floor(at / windowEntries)),
         retry(w) {
             // A Retry asks again now (#1398, `retryWindows`): the source rearms what failed for a reason a retry can
             // fix — a read alone waits out the runtime's retry gap after the last failure, so a Retry pressed within it
@@ -1441,9 +1470,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // A band's top is where its first element's window starts — the head band's the rows' own top, the tail's
             // where the run it was drawn beside ends, a failed window's its slot (`bandsAround`, `failedSpan`) — and the
             // element `px` below it one of its own, however far a failed band's floored height reaches past its slot.
-            const at = offsetOfWindow(ledger, Math.floor(band.from / PLAN_PAGE_SIZE)) + Math.max(0, px);
+            const at = offsetOfWindow(ledger, Math.floor(band.from / windowEntries)) + Math.max(0, px);
             const element = Math.min(band.to, Math.max(band.from, elementAtOffset(ledger, at)));
-            return { element, px: at - offsetOfWindow(ledger, Math.floor(element / PLAN_PAGE_SIZE)) };
+            return { element, px: at - offsetOfWindow(ledger, Math.floor(element / windowEntries)) };
         },
         seenAt: (key) => located.get(key),
         jumping: () => pinnedWindows().length > 0,

@@ -363,6 +363,8 @@ export interface PlanEventsReaderProps {
     kinds: PlanCellsArgs["kinds"];
     /** The canvas's own rows: what a kind read by its cells reads the resources of, and a kind past the cap shades (#1541). */
     rows: PlanCellsArgs["rows"];
+    /** How many of the rows' entries each window of the root's holds (#1714). */
+    windowEntries: PlanCellsArgs["windowEntries"];
     /** The event kinds narrowed through their sources of the slice, and their parts. */
     parts: PlanCellsArgs["parts"];
     /** The canvas's links: an event end its kind's cells do not hold is read by its key. */
@@ -390,12 +392,12 @@ export interface PlanEventsReaderProps {
  * @param props - What the events are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
+export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
     const span = useSyncExternalStore(spans.subscribe, spans.get);
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
-        kinds, landings: events?.landings ?? [], rows, parts, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
+        kinds, landings: events?.landings ?? [], rows, windowEntries, parts, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
     });
     const lead = usePlanEventPlaced(events, scale, hidden, drafts, cells, kinds);
     // What the canvas holds: no events until the first read lands.

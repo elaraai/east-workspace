@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * The paged canvas's vocabulary (#577) — the page size, the failed-band floor,
+ * The paged canvas's vocabulary (#577) — the default window size, the failed-band floor,
  * the decoded source type and the viewport report — shared by the paging
  * driver, the window reader and the chrome.
  *
@@ -55,8 +55,8 @@ export function windowedArm(rows: PlanRootValue["rows"]): "paged" | "pinned" | "
     return rows.type === "pinned" || rows.type === "live" ? rows.type : "paged";
 }
 
-/** Source elements per window — the IR's, since its editing session reads an
- *  entry back from the very window the canvas paged it in (#880). */
+/** Source elements per window unless the root's `windowEntries` says otherwise (#1714) — the IR's default, as its
+ *  editing session reads an entry back from the very window the canvas paged it in (#880). */
 export { PLAN_PAGE_SIZE } from "@elaraai/e3-ui/internal";
 
 /** The shortest a failed window's band renders (#811) — its reason and its

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1385,
+    "totalEntries": 1386,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 220,
+      "e3-ui": 221,
       "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44239,7 +44239,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, EventStateType, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from \"../sheet/sheet-records.examples.js\";"
@@ -44279,7 +44279,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, EventStateType, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from \"../sheet/sheet-records.examples.js\";"
@@ -44288,6 +44288,42 @@
         "tsx"
       ],
       "source": "// The work orders Plan of planRecordIndexes in a phone-width frame — the work orders, its rows, narrowed through the same rail on the toolbar's responsive ladder, Due a field of it, and their operations read a cell at a time, their source holding the canvas's window, so the dates never narrow the orders\n// inputs: []\n/** An operation on a work order: the order it is on, by its key, the work it does, and when it runs. */\nexport const PlanOperation = StructType({ work: StringType, label: StringType, start: DateTimeType, end: DateTimeType });\n\nconst Operations = DictType(StringType, PlanOperation);\n\n/**\n * The work orders' operations, from their count: each of the first `count` orders' run of its job on the day it is\n * due, 06:00 to 14:00, keyed by its order's reference and `-run`. The same pure generator seeds the record and runs as\n * an e3 task.\n */\nconst generateOperations = East.function([IntegerType], Operations, ($, count) => {\n    const rows = $.let(new Map(), Operations);\n    const referenceOf = $.const(indexedWorkReference);\n    const jobOf = $.const(indexedWorkJob);\n    const dueOf = $.const(indexedWorkDue);\n    const i = $.let(0n);\n    $.while(i.less(count), ($2) => {\n        const work = $2.const(referenceOf(i));\n        const due = $2.const(dueOf(i));\n        $2(rows.insert(East.str`${work}-run`, { work, label: jobOf(i), start: due.addMilliseconds(21600000n), end: due.addMilliseconds(50400000n) }));\n        $2.assign(i, i.add(1n));\n    });\n    return rows;\n});\n\n/** The 50,000 work orders' operations, one an order, keyed by the operation's key: read through the indexes below, never whole. */\nexport const planOperations = e3.record(\"plan_operations\", Operations, {\n    initial: () => East.compile(generateOperations, [])(50000n),\n    indexes: (index) => ({\n        // The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it.\n        plan_operations_by_time: index.interval({ from: \"start\", to: \"end\" }),\n        // The operations by their work order and by time, each filed once at the level its length fits: a cell is fifty orders' operations over a level's run (#1433).\n        plan_operations_by_work_week: index.series({\n            key: \"work\", from: \"start\", to: \"end\", tile: \"week\",\n        }),\n        // How busy each work order is, a month at a time: what the canvas shades where the operations in view are too many to draw.\n        plan_operations_by_work_month: index.summary({\n            key: \"work\", from: \"start\", to: \"end\", tile: \"month\",\n        }),\n    }),\n    mutations: (mutation) => ({\n        // The operations' patch door: a canvas's Save commits through it, by the operation's key.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const operations = $.let(Record.bind(planOperations));\n            const operationEntries = $.let(Data.bindPaged(planOperations));\n            // The rail of planRecordIndexes: the work orders by their indexes, its rows, and the operations by cells, holding the window.\n            const slice = $.let(Slice.bindRecords(\"ex.planRecordIndexesMobile\", {\n                rows: {\n                    source: Data.bindPaged(indexedWorkOrders, { indexes: [\"by_status_due\", \"by_due\", \"by_job\", \"by_quantity\", \"by_urgent\", \"by_tag\"] }),\n                    label: \"Work orders\", icon: { prefix: \"fas\", name: \"clipboard-list\" },\n                    fields: { status: { label: \"Status\", hints: [\"Ready\", \"Scheduled\", \"Done\"] }, due: { label: \"Due\" }, job: { label: \"Job\" }, quantity: { label: \"Quantity\" }, urgent: { label: \"Urgent\" }, tags: { label: \"Tag\", hints: [\"Production\", \"Dispatch\"] } },\n                    search: [\"job\"], initial: { status: [\"Ready\"], due: { from: new Date(\"2026-10-01T00:00:00Z\"), to: new Date(\"2026-10-15T00:00:00Z\") } },\n                },\n                operation: {\n                    source: Data.bindPaged(planOperations, { indexes: [\"plan_operations_by_time\", \"plan_operations_by_work_week\", \"plan_operations_by_work_month\"] }),\n                    label: \"Operations\", fields: { start: { label: \"Dates\" } }, range: \"start\",\n                },\n            }, { presets: [{ id: \"ready\", name: \"Ready\", where: { rows: { status: [\"Ready\"] } } }, { id: \"urgent\", name: \"Urgent\", where: { rows: { urgent: [true] } } }] }));\n            return <Box width=\"100%\" maxWidth=\"390px\" height=\"760px\"><Plan id=\"planRecordIndexesMobile\" slice={{ slice }}\n                vocabulary={{ rows: { one: \"Work order\", other: \"Work orders\" } }}\n                library={[Plan.library.series()]}\n                inspector\n                axis={Plan.axis({ window: { min: new Date(\"2026-10-01T00:00:00Z\"), max: new Date(\"2026-10-15T00:00:00Z\") }, resolution: \"day\", resolutions: [\"month\", \"week\", \"day\"] })}\n                series={[Plan.series.resources(IndexedWork, { key: \"orders\", title: \"Work orders\", icon: \"clipboard-list\", label: (w) => w.reference, sub: (w) => some(w.status) })]}\n                events={{\n                    operation: Schedule.events(operations, {\n                        name: \"Operation\", icon: \"gears\", title: \"label\", start: \"start\", end: \"end\",\n                        resource: { field: \"work\", of: \"orders\" }, entries: operationEntries,\n                    }),\n                }}\n                style={{ height: \"fill\" }} />\n            </Box>;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:plan-records.examples.tsx:planGroupWindows",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/plan/plan-records.examples.tsx",
+      "suite": "",
+      "test": "Forty halls of 75 presses each on a Plan, a group each with its presses' rows beneath it, read a hall at a time: paging={{ entries: 1 }} makes a window of the rows one of their entries, so the canvas makes rows only for the halls near the view, every other hall a band of its height until the view nears it, where a window of 200 entries would make all 3,000 presses' rows as it opened",
+      "keywords": [
+        "Plan",
+        "Plan.series.group",
+        "Plan.children",
+        "Plan.series.span",
+        "groups",
+        "paging",
+        "entries",
+        "window",
+        "windows",
+        "paged",
+        "Data.bindPaged",
+        "large groups",
+        "rows near the view",
+        "bands",
+        "#1714"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, EventStateType, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from \"../sheet/sheet-records.examples.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Forty halls of 75 presses each on a Plan, a group each with its presses' rows beneath it, read a hall at a time: paging={{ entries: 1 }} makes a window of the rows one of their entries, so the canvas makes rows only for the halls near the view, every other hall a band of its height until the view nears it, where a window of 200 entries would make all 3,000 presses' rows as it opened\n// inputs: []\n/** A job on a press: what it makes, when it runs, and its state. */\nexport const PlanHallJob = StructType({ product: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });\n\n/** A press of a hall: its name, and its jobs by key. */\nexport const PlanHallPress = StructType({ label: StringType, jobs: DictType(StringType, PlanHallJob) });\n\n/** A hall: its name, and its presses by key. */\nexport const PlanHall = StructType({ name: StringType, presses: DictType(StringType, PlanHallPress) });\n\n/** The halls, by key. */\nexport const PlanHalls = DictType(StringType, PlanHall);\n\n/**\n * `halls` halls of `presses` presses each, keyed `H-101` on and each press `P-101` on within its hall, so their keys\n * hold their order: a press's two jobs a week apart in October 2026, a day and two days long, each press at its own\n * offset so no two presses' jobs line up. A function of the counts alone.\n */\nexport const generatePlanHalls = East.function([IntegerType, IntegerType], PlanHalls, ($, halls, presses) => {\n    const start = $.const(new Date(\"2026-10-05T00:00:00Z\"));\n    const products = $.const([\"cap\", \"lid\", \"tub\", \"jar\"], ArrayType(StringType));\n    const confirmed = $.const(variant(\"confirmed\", null), EventStateType);\n    return East.Array.range(0n, halls).toDict(\n        (_$2, h) => East.str`H-${h.add(101n)}`,\n        (_$2, h) => ({\n            name: East.str`Hall ${h.add(1n)}`,\n            presses: East.Array.range(0n, presses).toDict(\n                (_$3, p) => East.str`P-${p.add(101n)}`,\n                ($3, p) => {\n                    const offset = $3.const(h.multiply(7n).add(p).remainder(10n));\n                    return {\n                        label: East.str`Press ${p.add(1n)}`,\n                        jobs: East.Array.range(0n, 2n).toDict(\n                            (_$4, j) => East.str`J-${j.add(1n)}`,\n                            ($4, j) => {\n                                const begins = $4.const(start.addDays(offset.add(j.multiply(7n))));\n                                return { product: products.get(h.add(p).add(j).remainder(4n)), start: begins, end: begins.addDays(j.add(1n)), state: confirmed };\n                            },\n                        ),\n                    };\n                },\n            ),\n        }),\n    );\n});\n\n/** Forty halls of 75 presses each, 3,000 presses: read a hall at a time, never whole. */\nexport const planHalls = e3.record(\"plan_halls\", PlanHalls, {\n    initial: () => East.compile(generatePlanHalls, [])(40n, 75n),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const halls = $.let(Data.bindPaged(planHalls));\n            return <Box width=\"100%\" height=\"760px\"><Plan id=\"planGroupWindows\" data={halls}\n                // A window of the rows is one hall: the canvas makes the rows of the halls near the view alone.\n                paging={{ entries: 1 }}\n                axis={Plan.axis({ window: { min: new Date(\"2026-10-05T00:00:00Z\"), max: new Date(\"2026-10-26T00:00:00Z\") }, resolution: \"day\", resolutions: [\"week\", \"day\"] })}\n                series={[Plan.series.group(PlanHall, {\n                    key: \"halls\", title: \"Halls\", label: (hall) => hall.name,\n                    children: Plan.children(\"presses\", [Plan.series.span(PlanHallPress, {\n                        key: \"presses\", title: \"Press\", label: (press) => press.label,\n                        runs: Plan.items(\"jobs\", { from: \"start\", to: \"end\" }, (job) => ({ label: job.product, state: job.state })),\n                    })]),\n                })]}\n                style={{ height: \"fill\" }} />\n            </Box>;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:plan-windows.examples.tsx:planWindows",

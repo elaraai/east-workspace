@@ -20,9 +20,10 @@
  * link finds its row. The resources are the canvas's own rows (#1541): each
  * landing row, a resources series' or a kinds case's, by its series' key and
  * the last step of its path. Over rows read whole they are every landing row
- * of the canvas; over rows read a page at a time, each window's — 200 entries
- * to a window, as many resources as they nest — read through the root's own
- * source, with its size and the narrowing its windows belong to; then the range
+ * of the canvas; over rows read a page at a time, each window's — the root's
+ * count of entries to a window (#1714), as many resources as they nest — read
+ * through the root's own source, with its size and the narrowing its windows
+ * belong to; then the range
  * the canvas reads and its scale's buckets. And it keeps the span store the
  * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
@@ -53,7 +54,7 @@
 
 import { useMemo, useRef } from "react";
 import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
-import { PLAN_PAGE_SIZE, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources,
@@ -113,6 +114,8 @@ export interface PlanCellsArgs {
      * a page at a time, the root's source, whose windows' landing rows a kind read by its cells reads the events of.
      */
     readonly rows: PlanRootValue["rows"];
+    /** How many of the rows' entries each window of the root's holds (#1714): the windows the span names. */
+    readonly windowEntries: number;
     /** The event kinds narrowed through their sources of the slice, and the parts they read through. */
     readonly parts: readonly PlanEventPart[];
     /** The canvas's scale: its resolution and its buckets. */
@@ -230,7 +233,7 @@ function useLinkEnds(links: Links, kinds: readonly EventKind[]): PlanLinkEnds {
  * @returns What the shared reader read
  */
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
-    const { kinds, landings, rows, parts, scale, range, drafts, hidden, span, links, editing } = args;
+    const { kinds, landings, rows, windowEntries, parts, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
     const ends = useLinkEnds(links, kinds);
@@ -273,7 +276,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         const kept = new WeakMap<readonly PlanWireBlock[], ScheduleCellKey[]>();
         return {
             kinds: landings.map((landing) => landing.key),
-            window: PLAN_PAGE_SIZE,
+            window: windowEntries,
             hidden: false,
             keys: (offset, limit) => {
                 const read = source.page(offset, limit);
@@ -288,7 +291,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
             total: () => source.total(),
             narrowing: () => source.query?.(),
         };
-    }, [rows, landings]);
+    }, [rows, landings, windowEntries]);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);
