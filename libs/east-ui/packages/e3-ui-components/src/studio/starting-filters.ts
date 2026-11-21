@@ -150,7 +150,7 @@ export function useStartingFilters(options: StartingFiltersOptions): StartingFil
     /** One gesture: the filters it leaves, as one step of the canvas's history. */
     const gesture = useCallback((next: readonly StartingFilter[], origin: Origin, label: string) => {
         if (!available) return;
-        const updates = listUpdates(current(), next, FILTERS, (id) => session.entries.get(id) ?? original(id));
+        const updates = listUpdates(current(), next, FILTERS, (id) => session.entries.get(id), original);
         if (updates.length > 0 && history.record([{ key: sourceId, updates }], origin, label)) onEdit?.();
     }, [available, current, session, original, history, sourceId, onEdit]);
 

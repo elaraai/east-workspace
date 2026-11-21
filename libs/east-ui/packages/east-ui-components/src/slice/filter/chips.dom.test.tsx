@@ -16,7 +16,8 @@
  * each group's together, the group named once before its first, in the order
  * the host names the groups, each chip still the host's by its place; a group
  * folded whole goes unnamed, and `+N more` holds the filters the row folds —
- * none it shows — under their groups' names.
+ * none it shows — under their groups' names, each line's × taking out its own
+ * filter alone.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -279,6 +280,15 @@ describe("a row of chips in groups (#1673)", () => {
         expect(drawnRow()).toEqual(["Orders", "Region: SA"]);
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
         expect(more()).toEqual({ head: "2 more filters", held: ["Orders", "Units: more than 1 — said whole", "Stock", "Site: North — said whole"] });
+    });
+
+    test("+N more's × takes out the filter its line holds, alone: the row and +N more hold the rest", async () => {
+        render(<GroupedRow density="compact" foldChips={2} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        // +2 more holds the orders' second, then the stock's: its first line's × takes out the orders' second alone.
+        await press(document.querySelector<HTMLElement>("[data-slice-more-row] button[aria-label='Remove filter']")!);
+        const held = [...document.querySelectorAll("[data-slice-more-row] > span")].map((el) => el.textContent);
+        expect([drawnRow(), held]).toEqual([["Orders", "Region: SA"], ["Site: North — said whole"]]);
     });
 
     test("chips in no group: no name is drawn, in the row or in +N more, which holds the one it folds", async () => {

@@ -64,6 +64,9 @@
  *    toolbar row's alone), between the head and the rows on the rows' edge.
  *    Another picked, the rows start again over its fields. The filter is that
  *    dataset's — its chip after its name — and its visuals alone narrow.
+ *  - F12 two starting filters written in the builder, the first taken out:
+ *    the second stands — its chip, and the canvas narrowed by it alone — and
+ *    one Undo puts the first back where it stood.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -641,5 +644,46 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(returned).toHaveText("87", { timeout: 60_000 });
         await expect(builder.locator('[data-snap-grid-tile="s-reasons"] rect.visx-bar')).toHaveCount(1);
         await expect(regions).toHaveCount(3);
+    });
+
+    test("F12: two starting filters written in the builder, the first taken out: the second stands — its chip, and the canvas narrowed by it alone — and one Undo puts the first back where it stood (#1673)", async ({ page }) => {
+        // Wide enough that the band shows both chips.
+        await page.setViewportSize({ width: 1920, height: 1100 });
+        const builder = await openBuilder(page);
+        const rail = builder.locator("[data-snap-grid-head] [data-studio-starting-filters]");
+        await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
+        const regions = builder.locator('[data-snap-grid-tile="s-top"] [data-studio-list-row]');
+        const returned = builder.locator('[data-snap-grid-tile="s-returned"] [data-studio-kpi-value]');
+        await expect(regions).toHaveCount(3, { timeout: 60_000 });
+        await expect(returned).toHaveText("218", { timeout: 60_000 });
+        const chooser = page.locator("[data-studio-filter-rows] [data-chooser]");
+        /** Adds a starting filter on a dataset: a field, then one of its values. */
+        const add = async (source: string, field: string, value: string) => {
+            await railOnTop(page, rail);
+            await rail.locator("[data-slice-add=filter]").click();
+            await expect(chooser).toBeVisible();
+            await page.locator("[data-studio-filter-source]").getByRole("button", { name: source }).click();
+            await chooser.locator("[role=option]", { hasText: field }).first().click();
+            await expect(chooser.locator("[role=option]", { hasText: value }).first()).toBeVisible({ timeout: 20_000 });
+            await chooser.locator("[role=option]", { hasText: value }).first().click();
+            await expect(chooser).toHaveCount(0);
+            await page.keyboard.press("Escape");
+            await settled(page);
+        };
+        await add("Sales", "region", "North");
+        await add("Returns", "reason", "Damaged");
+        const chips = rail.locator("[data-slice-clause]");
+        await expect(chips).toHaveText(["Region: North", "Reason: Damaged"]);
+        await expect(regions).toHaveCount(1, { timeout: 60_000 });
+        await expect(returned).toHaveText("87", { timeout: 60_000 });
+        // The first out: the second stands, and the canvas is narrowed by it alone.
+        await chips.first().locator("[data-chip-remove]").click();
+        await expect(chips).toHaveText(["Reason: Damaged"]);
+        await expect(regions).toHaveCount(3, { timeout: 60_000 });
+        await expect(returned).toHaveText("87");
+        // One Undo: the first back, before the second.
+        await builder.getByRole("button", { name: "Undo" }).click();
+        await expect(chips).toHaveText(["Region: North", "Reason: Damaged"]);
+        await expect(regions).toHaveCount(1, { timeout: 60_000 });
     });
 });

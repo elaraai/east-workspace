@@ -17,7 +17,8 @@
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
  * opens the 320px save popover with the name and the description. The history
  * item's Save shows the drafts it saves until the record reads back, never the
- * query as it was before them. The frame is set to the mock's width, 1240px,
+ * query as it was before them. Two steps added and the first of them removed
+ * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
  * and every measurement is polled until it holds, on a page at rest. Its
  * builder frame (#1125 F3): on a desktop the pane is pinned, the results
  * beside it; on a phone it rests on its rail, and opened it floats over the
@@ -243,6 +244,24 @@ test.describe("Query builder (#940)", () => {
         await settled(page);
         const seen = await page.evaluate(() => (window as unknown as { stepsSeen: string[] }).stepsSeen);
         expect(seen.filter((state) => state !== drafted), `the steps went back to ${before}`).toEqual([]);
+    });
+
+    test("two steps added at the end, the first of them removed: the second stands after the query's own; one Undo puts the first back (#1673)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")));
+        const saved = await steps();
+        // Each opens on its first slot's list, which Esc puts away.
+        await builder.locator("[data-query-foot] button", { hasText: "Group and total" }).click();
+        await page.keyboard.press("Escape");
+        await builder.locator("[data-query-foot] button", { hasText: "Sort by" }).click();
+        await page.keyboard.press("Escape");
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
+        // The first of the two out: the second stands where it stood.
+        await builder.locator("[data-step-id]").nth(saved.length).getByRole("button", { name: "Remove step" }).click();
+        await expect.poll(steps).toEqual([...saved, "Sort"]);
+        // One Undo: the first back, before the second.
+        await builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").getByRole("button", { name: "Undo" }).click();
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
     });
 });
 
