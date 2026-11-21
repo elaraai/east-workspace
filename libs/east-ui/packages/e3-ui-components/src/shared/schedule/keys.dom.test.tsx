@@ -24,8 +24,9 @@
  * reads hold, or what its cells hold — beside those the session holds. And visits
  * whose kind builds each one's key from its row (`key`): a new visit stands
  * under the key its row builds, an edit of what the key reads moves it, and a
- * key another visit holds refuses the gesture, saying which. Over records
- * deployed to e3 itself.
+ * key another visit holds refuses the gesture, saying which; a moved visit is
+ * the visit it was, edited, until a new visit takes the key its move gave it.
+ * Over records deployed to e3 itself.
  */
 
 import { useMemo } from "react";
@@ -396,6 +397,25 @@ describe("the shared editing over an event kind that builds each event's key fro
         expect([editing().held("visits", "V-6"), moves(), visitDraft("V-1")?.type]).toEqual([undefined, [], "missing"]);
     });
 
+    test("ruling 1 — a move undone is gone once a new visit takes the key it gave: the visit there is new, never the one the drafts removed, moved", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-retaken" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        act(() => { editing().history.undo(); });
+        await settle();
+        // The survey removed, and a new visit whose reference builds the key its undone move gave it.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-5", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        expect([visitDraft("V-5")?.type, editing().held("visits", "V-5"), [...editing().movedFrom("visits")], visitDraft("V-1")?.type])
+            .toEqual(["value", undefined, [], "missing"]);
+    });
+
     test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {
         await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-chain" /> });
         await waitFor(() => expect(editing().available("visits")).toBe(true));
@@ -420,5 +440,25 @@ describe("the shared editing over an event kind that builds each event's key fro
         await waitFor(async () => expect((await h.read(visits)).has("V-3")).toBe(true));
         const saved = await h.read(visits);
         expect([jobEqual(saved.get("V-2")!, survey), jobEqual(saved.get("V-3")!, fitOut), saved.has("V-1")], printJobs(saved)).toEqual([true, true, false]);
+    });
+
+    test("ruling 1 — where a visit takes the key a new visit leaves in the same gesture, the new visit is new still: the survey moved there, then removed, leaves none of it under the key the new visit moved to", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-left" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-2", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        act(() => {
+            expect(editing().record([
+                { kind: "visits", id: "V-1", row: encodeJob({ ref: "V-2", title: "Survey", start: DAY, end: LATER }) },
+                { kind: "visits", id: "V-2", row: encodeJob({ ref: "V-3", title: "Fit-out", start: DAY, end: LATER }) },
+            ], "typed", "Renumber the visits")).toBe(true);
+        });
+        await settle();
+        expect([...editing().movedFrom("visits")]).toEqual([["V-2", "V-1"]]);
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-2", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        expect([[...editing().movedFrom("visits")], editing().held("visits", "V-3")]).toEqual([[], undefined]);
     });
 });

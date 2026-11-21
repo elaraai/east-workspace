@@ -1025,10 +1025,11 @@ export function useScheduleEditing<I extends Item = Item>({
     else if (lastUnder.current.moved !== moved) lastUnder.current = { carried, moved, last: moved };
     const renumbered = lastUnder.current.last;
 
-    // Each move a gesture made of a row its record holds, or of a row such a move made, as the gesture is recorded: by
-    // the part's key, then by the key the row moved to, to the key it moved from (east-workspace#1709). What its drafts
-    // are compared with is the row its record holds under the key it had ({@link ScheduleEditing.movedFrom}). A move
-    // holds while the drafts do, so an Undo and a Redo of it, which move only the drafts, need nothing kept here.
+    // Each move a gesture made of a row its record holds — or of a row such a move left where it stands — as the gesture
+    // is recorded: by the part's key, then by the key the row moved to, to the key its record holds it under
+    // (east-workspace#1709). What its drafts are compared with is the row its record holds there
+    // ({@link ScheduleEditing.movedFrom}). A move holds while the drafts do, so an Undo and a Redo of it, which move only
+    // the drafts, need nothing kept here; one that can never hold again goes (`movesNow`).
     const movesRef = useRef(new Map<string, Map<string, string>>());
     // The moves that hold, by the part's key, as last asked: the same object while they hold, at whatever version.
     const movedRef = useRef(new Map<string, { readonly version: number; readonly moves: ReadonlyMap<string, string> }>());
@@ -1098,35 +1099,40 @@ export function useScheduleEditing<I extends Item = Item>({
         const at = codecs[i]!.keyOf(id);
         return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
     };
-    /** The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}): each key a row moved to, to the key its record holds it under. */
-    const movedOf = (kind: string): ReadonlyMap<string, string> => {
-        const kept = movedRef.current.get(kind);
-        if (kept !== undefined && kept.version === version) return kept.moves;
+    /**
+     * The moves the drafts hold of a part's rows now ({@link ScheduleEditing.movedFrom}): each key a row moved to, to the
+     * key its record holds it under — a move holds while the row stands under the key it went to and none under that
+     * one. A kept move that can never hold again goes: its record holds a row under the key it went to — a Save took
+     * it — or, with no step left to undo or redo, it does not hold now.
+     */
+    const movesNow = (kind: string): Map<string, string> => {
+        const now = new Map<string, string>();
         const i = indexOf(kind);
         const links = i < 0 ? undefined : movesRef.current.get(kind);
-        const now = new Map<string, string>();
+        if (links === undefined) return now;
         // What stands under a key with the drafts in place: a row, or none — the drafts removed it; else neither is known.
         const at = (id: string): "row" | "gone" | undefined => {
             const entry = state.original(keys[i]!, id);
             return entry === undefined ? undefined : rowOf(entry) === undefined ? "gone" : "row";
         };
-        for (const [to] of links ?? []) {
-            if (at(to) !== "row" || heldRow(kind, to) !== undefined) continue;
-            // Back through each move — past a row one made, moved on in its turn — to the row its record holds, which the
-            // drafts removed. A move whose row stands again under the key it left is undone.
-            for (let step = 0, key = to; step < links!.size; step++) {
-                const from = links!.get(key);
-                if (from === undefined) break;
-                const left = at(from);
-                if (left === "row") break;
-                if (heldRow(kind, from) !== undefined) {
-                    if (left === "gone") now.set(to, from);
-                    break;
-                }
-                key = from;
-            }
+        const settled = !history.canUndo && !history.canRedo;
+        for (const [to, from] of links) {
+            if (heldRow(kind, to) !== undefined) links.delete(to);
+            else if (at(to) === "row" && at(from) === "gone") now.set(to, from);
+            else if (settled) links.delete(to);
         }
-        const same = kept !== undefined && kept.moves.size === now.size && [...now].every(([to, from]) => kept.moves.get(to) === from);
+        if (links.size === 0) movesRef.current.delete(kind);
+        return now;
+    };
+    /** The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}), as last asked: the same object while they hold. */
+    const movedOf = (kind: string): ReadonlyMap<string, string> => {
+        const kept = movedRef.current.get(kind);
+        if (kept !== undefined && kept.version === version) return kept.moves;
+        const now = movesNow(kind);
+        const same = kept !== undefined && kept.moves.size === now.size && [...now].every(([to, from]) => {
+            const was = kept.moves.get(to);
+            return was !== undefined && stringEqual(was, from);
+        });
         const moves = same ? kept.moves : now.size === 0 ? NO_MOVES : now;
         movedRef.current.set(kind, { version, moves });
         return moves;
@@ -1440,15 +1446,21 @@ export function useScheduleEditing<I extends Item = Item>({
             const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...made.touched]
                 .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))
                 .filter((part) => part.updates.length > 0);
+            // The moves that hold as the gesture is made: a row one left where it stands moves on from the key its record
+            // holds it under.
+            const holding = new Map([...made.moves.keys()].map((kind) => [kind, movesNow(kind)] as const));
             if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
-            // Each move of a row its record holds, or of a row such a move made — never a new row's, from the key made for
-            // it — kept for what the row's drafts are compared with ({@link ScheduleEditing.movedFrom}).
+            // Each move of a row its record holds, or of a row such a move left — kept, to the key its record holds it
+            // under, for what the row's drafts are compared with ({@link ScheduleEditing.movedFrom}). A new row's, from the
+            // key made for it, keeps none: from then on the key it takes holds a new row, never one moved there before.
             for (const [kind, byKey] of made.moves) {
+                const before = holding.get(kind);
                 for (const [from, to] of byKey) {
+                    const home = before?.get(from) ?? (heldRow(kind, from) === undefined ? undefined : from);
                     const links = movesRef.current.get(kind);
-                    if (links?.has(from) !== true && heldRow(kind, from) === undefined) continue;
-                    if (links === undefined) movesRef.current.set(kind, new Map([[to, from]]));
-                    else links.set(to, from);
+                    if (home === undefined) links?.delete(to);
+                    else if (links === undefined) movesRef.current.set(kind, new Map([[to, home]]));
+                    else links.set(to, home);
                 }
             }
             if (made.moves.size > 0) setMoved(made.moves);
