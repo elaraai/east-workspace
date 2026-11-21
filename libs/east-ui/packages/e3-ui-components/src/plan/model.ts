@@ -102,6 +102,11 @@ export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
  * which no printed id can end with — and names the row it repeats in
  * `duplicateOf`, so it renders as a diagnostic in place.
  *
+ * A row read again as the very object it was — a window read again whose rows
+ * its new events left alone (#1712) — is the canvas row it was keyed as, where
+ * it sits in the same block and repeats no row before it: its key is not
+ * printed again, and whatever holds the row by its object holds it still.
+ *
  * @param wire - The rows in stream order
  * @param block - The block they came from (#823)
  * @param seen - The ids keyed so far on the canvas, and how often — shared
@@ -114,18 +119,29 @@ export function toCanvasRows(
     seen: Map<RowKey, number> = new Map(),
 ): PlanRowValue[] {
     return wire.map((row): PlanRowValue => {
-        const text = rowKeyOf(row.id);
+        // A row keyed before was keyed by its id's own text.
+        const known = keyedRows.get(row);
+        const text = known?.key ?? rowKeyOf(row.id);
         const repeats = seen.get(text) ?? 0;
         seen.set(text, repeats + 1);
-        return {
+        if (known !== undefined && repeats === 0 && known.block === block) return known;
+        const keyed: PlanRowValue = {
             ...row,
             key: repeats === 0 ? text : `${text}#${repeats}`,
-            parent: row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none,
+            parent: known?.parent ?? (row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none),
             duplicateOf: repeats === 0 ? undefined : text,
             block,
         };
+        if (repeats === 0) keyedRows.set(row, keyed);
+        return keyed;
     });
 }
+
+/**
+ * Each wire row's canvas row, by the wire row and while it lives (#1712) — only a row keyed by its id's own text: a
+ * repeat's `#n` is its stream's to say.
+ */
+const keyedRows = new WeakMap<PlanWireRow, PlanRowValue>();
 
 /** Each decoded inline canvas's rows — keyed once per decoded block list. */
 const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireBlock>, readonly PlanRowValue[]>();

@@ -409,6 +409,25 @@ describe("the row stream (#822)", () => {
         expect(new Set(rows.map((r) => r.key)).size).toBe(4);
     });
 
+    test("a row read again as the object it was is the canvas row it was keyed as — in its block, repeating no row before it (#1712)", () => {
+        const a = wire("a", spanKind);
+        const b = wire("b", spanKind, { parent: "a" });
+        const first = toCanvasRows([a, b], 0);
+        // Read again, as a window whose rows its new events left alone: the same canvas rows.
+        const again = toCanvasRows([a, b], 0);
+        expect(again[0]).toBe(first[0]);
+        expect(again[1]).toBe(first[1]);
+        // A row its events joined again is a new wire row, keyed anew under the same key.
+        const joined = toCanvasRows([a, wire("b", heatKind, { parent: "a" })], 0);
+        expect(joined[0]).toBe(first[0]);
+        expect(joined[1]).not.toBe(first[1]);
+        expect([joined[1]!.key, joined[1]!.parent]).toEqual([first[1]!.key, some(first[0]!.key)]);
+        // In another block it names that block; after a row of its id, it is that row's repeat.
+        expect(toCanvasRows([a], 1)[0]!.block).toBe(1);
+        const repeated = toCanvasRows([wire("a", heatKind), a], 0);
+        expect(repeated.map((r) => [r.key, r.duplicateOf])).toEqual([[rowKey("a"), undefined], [`${rowKey("a")}#1`, rowKey("a")]]);
+    });
+
     test("rowIdOfKey inverts the key — a repeat's `#n` names the same id; other text names none", () => {
         const id = rowId("with \"quotes\" and #7", "s#2");
         const key = rowKeyOf(id);
