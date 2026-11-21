@@ -40,6 +40,7 @@ import {
     type OptionsProps,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
+import { StudioAlertsHandleType, alertsPayload, type StudioAlertsHandle } from "./alerts.js";
 import { StudioComponentType } from "./component.js";
 import { StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
 import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
@@ -61,6 +62,7 @@ import { StudioSourceType, studioSources, type StudioSourceDeclaration } from ".
  * @property id - Names the builder, when a surface holds two: its palette's drag sources
  * @property page - The page it shows; `none`, the builder holds its own open page, the project's first to begin with
  * @property onOpen - Told when its palette's Pages tab asks for another page, with its key
+ * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells; `none`, no visual shows a bell
  */
 export const StudioBuilderPayloadType = StructType({
     pages: StudioPagesHandleType,
@@ -73,6 +75,7 @@ export const StudioBuilderPayloadType = StructType({
     id: OptionType(StringType),
     page: OptionType(StudioKeyType),
     onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
+    alerts: OptionType(StudioAlertsHandleType),
 });
 
 /** Type representing the `StudioBuilder` renderer's payload. */
@@ -101,6 +104,7 @@ export const StudioBuilderComponent = EastUI.component("StudioBuilder", StudioBu
  * @property id - Names the builder, when a surface holds two: its palette's drag sources
  * @property page - The page it shows — a route's params, or the surface's own state
  * @property onOpen - Told when its palette's Pages tab asks for another page, with its key
+ * @property alerts - The alerts record, bound with its patch mutation — `Record.bind(alerts)` (#1674)
  */
 export interface StudioBuilderOptions {
     /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
@@ -137,6 +141,13 @@ export interface StudioBuilderOptions {
      * own state; one that gives none hears of the page the builder opened.
      */
     onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /**
+     * The alerts record, bound with its patch mutation — `Record.bind(alerts)`
+     * (#1674). Given, every data visual's header carries a bell, which sets
+     * and lists its alerts: a condition on the rows its page's live version
+     * draws. Omitted, no visual shows a bell.
+     */
+    alerts?: StudioAlertsHandle;
 }
 
 /**
@@ -204,6 +215,7 @@ function createBuilder(options: StudioBuilderOptions): ExprType<UIComponentType>
         id: options.id === undefined ? none : some(options.id),
         page: options.page === undefined ? none : some(options.page),
         onOpen: options.onOpen === undefined ? none : some(options.onOpen),
+        alerts: options.alerts === undefined ? none : some(alertsPayload(options.alerts)),
     });
 }
 

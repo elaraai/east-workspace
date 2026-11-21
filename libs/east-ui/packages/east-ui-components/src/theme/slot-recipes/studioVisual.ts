@@ -53,6 +53,7 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
         "state", "message", "empty", "emptyIcon", "emptyTitle", "emptyHint", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
+        "bell", "alerts", "alertRow", "alertName", "alertStatus", "alertNow", "alertNowHead", "alertNowLabel", "alertTable", "alertFoot",
     ],
     base: {
         /* A visual's tile: its eyebrow strip over its body, filling the frame, edge to edge. */
@@ -246,5 +247,35 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
            face's own whole line, on the name's baseline: a taller line stood the row a pixel over its 63. */
         listValue: { fontFamily: "mono", fontSize: "body", lineHeight: "15px", fontWeight: "500", fontVariantNumeric: "tabular-nums", color: "fg", whiteSpace: "nowrap" },
         listUnit: { fontFamily: "mono", fontSize: "label.md", lineHeight: "13px", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* A visual's bell (#1674): the menu's ghost icon button beside it — in `--neg` while one of its alerts fires. */
+        bell: { "&[data-firing]": { color: "status.neg" } },
+        /* Its popover's list of the visual's alerts: rows edge to edge, as the popover's flush body runs them. */
+        alerts: { display: "flex", flexDirection: "column", margin: "0", padding: "0", listStyle: "none" },
+        /* An alert's row: its name over where it stands, a button — 48 at least, padded 8 14, over a `--rule`. */
+        alertRow: {
+            all: "unset", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "2px", width: "100%", minHeight: "48px",
+            paddingBlock: "8px", paddingInline: "14px", cursor: "pointer",
+            borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            _hover: { background: "bg.canvas" },
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "-2px" },
+        },
+        /* Its name: 13 / 500 on a 16px line, `--ink`, cut with an ellipsis; where it stands, mono 10 on a 12px line, `--ink-4`,
+           `--neg` while it fires. */
+        alertName: { fontSize: "body", lineHeight: "16px", fontWeight: "500", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        alertStatus: { fontFamily: "mono", fontSize: "label.sm", lineHeight: "12px", color: "fg.subtle", "&[data-status='firing']": { color: "status.neg" } },
+        /* Now: its eyebrow and Run on one line, over the rows that meet the condition now, then how many — 8 apart. */
+        alertNow: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0" },
+        alertNowHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.2}", minHeight: "24px" },
+        /* Its eyebrow: as a tile's name is set, `--ink-4`. */
+        alertNowLabel: {
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: "12px", color: "fg.subtle",
+        },
+        /* Its table: 180 tall inside a `--rule`, scrolling inside it. */
+        alertTable: {
+            display: "flex", flexDirection: "column", height: "180px", minWidth: "0",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle",
+        },
+        /* Where an alert's editor draws its foot's actions: no box of its own, so they lie in the foot's own row. */
+        alertFoot: { display: "contents" },
     },
 });

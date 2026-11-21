@@ -52,6 +52,37 @@ import {
 import { StudioFilterType } from "./filter.js";
 import { StudioMigrations } from "./migrations.js";
 import { StudioFieldType, StudioSourceType, createSource } from "./source.js";
+import { StudioAlertBell } from "./alert-bell.js";
+import {
+    StudioAlertCheckType,
+    StudioAlertFiringType,
+    StudioAlertStepType,
+    StudioAlertType,
+    StudioAlertsType,
+    alertFiring,
+    saveAlerts,
+} from "./alerts.js";
+
+export {
+    StudioAlertChangesType,
+    StudioAlertCheckType,
+    StudioAlertFiringType,
+    StudioAlertStepType,
+    StudioAlertType,
+    StudioAlertsHandleType,
+    StudioAlertsPatchType,
+    StudioAlertsType,
+    alertFiring,
+    saveAlerts,
+    studioAlertOpenedKey,
+    type StudioAlertsHandle,
+} from "./alerts.js";
+export {
+    StudioAlertBell,
+    StudioAlertBellComponent,
+    StudioAlertBellPayloadType,
+    type StudioAlertBellOptions,
+} from "./alert-bell.js";
 
 export {
     StudioComponentType,
@@ -295,6 +326,12 @@ export interface StudioTypes {
     Source: typeof StudioSourceType;
     /** One field of a source ({@link StudioFieldType}). */
     Field: typeof StudioFieldType;
+    /** The alerts record's type — every alert, by its name (#1674, {@link StudioAlertsType}). */
+    Alerts: StudioAlertsType;
+    /** An alert: a condition on a visual's rows, its filters, whether it is paused and its latest firing ({@link StudioAlertType}). */
+    Alert: StudioAlertType;
+    /** An alert's latest firing: when, how many rows met it and which, and when it stopped ({@link StudioAlertFiringType}). */
+    AlertFiring: typeof StudioAlertFiringType;
 }
 
 /** The type of the {@link Studio} namespace — what a solution mounts and declares. */
@@ -313,6 +350,8 @@ export interface StudioNamespace {
     Library: typeof StudioLibrary;
     /** `<Studio.Page>` — one page with no chrome, its live or draft layout on the snap grid. */
     Page: typeof StudioPage;
+    /** `<Studio.AlertBell>` — the bell for a host's bar: how many alerts are firing, and the list of them (#1674). */
+    AlertBell: typeof StudioAlertBell;
     /** The Studio's East types. */
     Types: StudioTypes;
 }
@@ -345,15 +384,19 @@ const types: StudioTypes = {
     Filter: StudioFilterType,
     Source: StudioSourceType,
     Field: StudioFieldType,
+    Alerts: StudioAlertsType,
+    Alert: StudioAlertType,
+    AlertFiring: StudioAlertFiringType,
 };
 
 /**
  * The Studio — components developers publish as code (`Studio.component`),
  * the sources a surface lists (`Studio.source`), the pages record operators
  * build (`Studio.Types.Pages`, its seeds built with `Studio.visual`, its
- * migrations `Studio.migrations`), and the components a solution mounts: the
- * builder (`<Studio.Builder>`), the page library (`<Studio.Library>`) and one
- * page (`<Studio.Page>`).
+ * migrations `Studio.migrations`), the alerts record it may declare
+ * (`Studio.Types.Alerts`, #1674), and the components a solution mounts: the
+ * builder (`<Studio.Builder>`), the page library (`<Studio.Library>`), one
+ * page (`<Studio.Page>`) and the bell for its bar (`<Studio.AlertBell>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
@@ -363,6 +406,7 @@ export const Studio: StudioNamespace = {
     Builder: StudioBuilder,
     Library: StudioLibrary,
     Page: StudioPage,
+    AlertBell: StudioAlertBell,
     Types: types,
 };
 
@@ -387,7 +431,11 @@ export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> 
     changes: typeof StudioPages.changes;
     /** A page's status: live or draft. */
     status: typeof StudioPages.status;
-    /** The Studio's East types, and those of the change list and a page's status. */
+    /** Saves a batch of writes to alerts — a Save, a pause, a delete, a firing — one patch through the alerts record (#1674). */
+    saveAlerts: typeof saveAlerts;
+    /** What a check does to an alert's firing: it fires, it clears, or nothing (#1674). */
+    alertFiring: typeof alertFiring;
+    /** The Studio's East types, and those of the change list, a page's status and an alert's check. */
     Types: StudioTypes & {
         /** One change between two layouts of a page ({@link StudioChangeType}). */
         Change: typeof StudioChangeType;
@@ -395,6 +443,10 @@ export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> 
         CellChange: typeof StudioCellChangeType;
         /** A page's status ({@link StudioStatusType}). */
         Status: typeof StudioStatusType;
+        /** What a check of an alert found ({@link StudioAlertCheckType}). */
+        AlertCheck: typeof StudioAlertCheckType;
+        /** What a check does to an alert's firing ({@link StudioAlertStepType}). */
+        AlertStep: typeof StudioAlertStepType;
     };
 }
 
@@ -412,6 +464,7 @@ export const StudioInternal: StudioInternalNamespace = {
     Builder: StudioBuilder,
     Library: StudioLibrary,
     Page: StudioPage,
+    AlertBell: StudioAlertBell,
     save: StudioPages.save,
     saveFilters: StudioPages.saveFilters,
     publish: StudioPages.publish,
@@ -420,10 +473,14 @@ export const StudioInternal: StudioInternalNamespace = {
     saveTemplate: StudioPages.saveTemplate,
     changes: StudioPages.changes,
     status: StudioPages.status,
+    saveAlerts,
+    alertFiring,
     Types: {
         ...types,
         Change: StudioChangeType,
         CellChange: StudioCellChangeType,
         Status: StudioStatusType,
+        AlertCheck: StudioAlertCheckType,
+        AlertStep: StudioAlertStepType,
     },
 };

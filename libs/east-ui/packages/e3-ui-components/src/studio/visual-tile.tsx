@@ -5,7 +5,8 @@
 
 /**
  * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
- * — what its body says of itself (`visual/meta.tsx`) — and holds its
+ * — what its body says of itself (`visual/meta.tsx`) — and holds its bell,
+ * where its page was given alerts (#1674, `alert-popover.tsx`), and its
  * menu — Show rows, its rows as a value tree in a popover hanging from the
  * menu, and Export CSV (TIL-2), the same on a page and on the builder's
  * canvas, whose own actions — Edit, Link, Duplicate — stand on the tile's
@@ -48,6 +49,7 @@ import { printVisual, type PrintSource, type VisualAsk } from "../query/visual/p
 import { printSourceOf } from "../query/visual/source.js";
 import { useQueryWords } from "../query/words.js";
 import { messageOf } from "../shared/message.js";
+import { VisualAlerts } from "./alert-popover.js";
 import { useStudioMessages } from "./messages.js";
 import { useFollowing, usePageClicks, useTileClicks, useTileState } from "./page-clicks.js";
 import { studioEast } from "./studio-east.js";
@@ -214,6 +216,8 @@ export function StudioVisualTile({ content, names, storageKey, title, onEdit, pl
                         </Box>
                     )}
                     {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
+                    {/* Its alerts (#1674): a bell beside its menu, where the page was given an alerts record. */}
+                    {read !== undefined && <VisualAlerts visual={visual} name={name} read={read} placement={placement} />}
                     {source !== undefined && read !== undefined && (
                         <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} placement={placement} />
                     )}

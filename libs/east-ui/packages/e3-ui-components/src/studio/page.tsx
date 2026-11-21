@@ -19,17 +19,19 @@
  * heading over its paragraphs, bare. A visual is a tile that asks its
  * programs on e3 and draws its state (#1670); one whose source the surface
  * does not list says so. A reader of the page starts with its starting
- * filters, the layout's own, until they change them (#1673).
+ * filters, the layout's own, until they change them (#1673). Given an alerts
+ * record (#1674), each visual carries a bell, a published page checks its
+ * project's alerts (`alert-checks.tsx`), and a page opened for an alert draws
+ * a banner naming it (`alert-bell.tsx`).
  *
  * @packageDocumentation
  */
 
 import { memo, useCallback, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import {
-    StudioCellType, StudioComponentType, StudioContentType, StudioEntryType, StudioKeyType, StudioPageComponent, StudioPageType, StudioSourceType,
-    type StudioPagesType,
+    StudioCellType, StudioComponentType, StudioContentType, StudioKeyType, StudioPageComponent, StudioSourceType, type StudioPagesType,
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
@@ -45,9 +47,13 @@ import { faDatabase } from "@fortawesome/free-solid-svg-icons";
 
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { startingOf, type PageFilter } from "../query/visual/filters.js";
+import { AlertOpenedBanner } from "./alert-bell.js";
+import { StudioAlertChecks } from "./alert-checks.js";
+import { StudioAlertsProvider, type AlertsHandle } from "./alert-context.js";
 import { useStudioMessages } from "./messages.js";
 import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
 import { PageClicksProvider } from "./page-clicks.js";
+import { entryOf, layoutOf } from "./page-entry.js";
 import { PageFiltersProvider, usePageFiltersOf } from "./page-filters.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
@@ -64,46 +70,12 @@ type Source = ValueTypeOf<typeof StudioSourceType>;
 type Content = ValueTypeOf<typeof StudioContentType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
-/** One entry of the pages record. */
-type Entry = ValueTypeOf<typeof StudioEntryType>;
 /** A page's key. */
 type Key = ValueTypeOf<typeof StudioKeyType>;
-/** One layout of a page: its title, its placements and its starting filters. */
-type Layout = ValueTypeOf<typeof StudioPageType>;
 
 const pageEqual = equivalentFor(StudioPageComponent.schema);
-const keyEqual = equalFor(StudioKeyType);
 /** No filters: what a reader of a page with no starting filters starts with. */
 const NO_FILTERS: readonly PageFilter[] = [];
-
-/**
- * The entry the pages record holds under a page's key: found by the key's
- * value, since the record's key order is its own.
- *
- * @param pages - The pages record
- * @param key - The page's key
- * @returns The entry; `undefined` for a key the record holds none under
- */
-export function entryOf(pages: ValueTypeOf<typeof StudioPagesType>, key: Key): Entry | undefined {
-    for (const [at, found] of pages) {
-        if (keyEqual(at, key)) return found;
-    }
-    return undefined;
-}
-
-/**
- * The layout of an entry a page draws: a template's own; a page's draft, or
- * its live version.
- *
- * @param entry - The entry
- * @param version - Which of a page's layouts is drawn
- * @returns The layout; `undefined` for a live version a page has not published
- */
-function layoutOf(entry: Entry, version: "live" | "draft"): Layout | undefined {
-    if (entry.type === "template") return entry.value;
-    if (version === "draft") return entry.value.draft;
-    return entry.value.live.type === "some" ? entry.value.live.value.page : undefined;
-}
 
 /** Props of {@link StudioComponentView}. */
 interface StudioComponentViewProps {
@@ -220,6 +192,15 @@ export interface StudioLayoutProps {
      * page a click opens, which the click narrows from; none when omitted.
      */
     startsWith?: ((page: Key) => readonly PageFilter[]) | undefined;
+    /**
+     * The alerts record, bound (#1674): its visuals' bells, and the banner of an alert the page was opened for; and,
+     * where it is given what to check them by — the pages record and the project — the check of the project's alerts.
+     * Omitted, no visual shows a bell.
+     */
+    alerts?: {
+        readonly handle: AlertsHandle;
+        readonly check?: { readonly pages: ValueTypeOf<typeof StudioPagesType>; readonly project: string } | undefined;
+    } | undefined;
 }
 
 /**
@@ -234,7 +215,7 @@ export interface StudioLayoutProps {
  * @param props - The placements, the listed components, the listed sources, the page, who is told a click opens another, and what a page's reader starts with
  * @returns The grid
  */
-export function StudioLayout({ cells, components, sources, page, storageKey, onOpen, startsWith }: StudioLayoutProps) {
+export function StudioLayout({ cells, components, sources, page, storageKey, onOpen, startsWith, alerts }: StudioLayoutProps) {
     const east = studioEast();
     const filterStyles = useSlotRecipe({ key: "studioFilters" })();
     const listed = useListedByKey(components);
@@ -260,21 +241,26 @@ export function StudioLayout({ cells, components, sources, page, storageKey, onO
     const filterItems = useStudioFilterItems(filters, sources, read);
     return (
         <VisualAnswersProvider sources={sources}>
-            <PageFiltersProvider value={filters}>
-                <PageClicksProvider page={page} cells={cells} live onOpen={onOpen} startsWith={startsWith}>
-                    {/* One box, the rail over the grid: no gap of its host's layout comes between them. */}
-                    <Box css={filterStyles.page} data-studio-layout="">
-                        {filterItems.length > 0 && <Box css={filterStyles.row} data-studio-filters=""><Toolbar items={filterItems} /></Box>}
-                        <SnapGridTiles
-                            cells={tiles}
-                            content={(tile) => (
-                                <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
-                                    title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} placement={tile.key} />
-                            )}
-                        />
-                    </Box>
-                </PageClicksProvider>
-            </PageFiltersProvider>
+            <StudioAlertsProvider handle={alerts?.handle} page={page}>
+                {/* The project's alerts, checked from the page as its tiles' programs are asked (#1674): it draws nothing. */}
+                {alerts?.check !== undefined && <StudioAlertChecks handle={alerts.handle} pages={alerts.check.pages} project={alerts.check.project} sources={sources} />}
+                <PageFiltersProvider value={filters}>
+                    <PageClicksProvider page={page} cells={cells} live onOpen={onOpen} startsWith={startsWith}>
+                        {/* One box, the rail over the grid: no gap of its host's layout comes between them. */}
+                        <Box css={filterStyles.page} data-studio-layout="">
+                            {alerts !== undefined && <AlertOpenedBanner page={page} />}
+                            {filterItems.length > 0 && <Box css={filterStyles.row} data-studio-filters=""><Toolbar items={filterItems} /></Box>}
+                            <SnapGridTiles
+                                cells={tiles}
+                                content={(tile) => (
+                                    <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
+                                        title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} placement={tile.key} />
+                                )}
+                            />
+                        </Box>
+                    </PageClicksProvider>
+                </PageFiltersProvider>
+            </StudioAlertsProvider>
         </VisualAnswersProvider>
     );
 }
@@ -321,8 +307,11 @@ export const EastChakraStudioPage = memo(function EastChakraStudioPage({ value, 
                 title={m.notPublished({ page: key.page })} description={m.notPublishedHint()} />
         );
     }
+    // Given an alerts record, the published page checks its project's alerts; the draft only shows its bells.
+    const alerts = value.alerts.type === "none" ? undefined
+        : { handle: value.alerts.value, check: version === "live" ? { pages, project: key.project } : undefined };
     return <StudioLayout cells={layout.cells} components={value.components} sources={value.sources} page={key} storageKey={storageKey} onOpen={onOpen}
-        startsWith={startsWith} />;
+        startsWith={startsWith} alerts={alerts} />;
 }, (prev, next) => pageEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(StudioPageComponent, EastChakraStudioPage);
