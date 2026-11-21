@@ -11,7 +11,8 @@
  * the Flowchart's kinds build theirs (`recordSide`). A rack a gesture adds
  * holds its key in the field from the first, whatever its row was given
  * there, and is saved with it; a rack the record held already, whose field
- * never held its key, keeps what it holds through a change of its bay. And
+ * never held its key, keeps what it holds through a change of its bay, and
+ * through its removal and a Restore. And
  * jobs keyed by their reference, an event kind's (`Schedule.events`), as the
  * Calendar's, the Plan's, the Roster's and the Allocation's are: where
  * another session's Save takes a new job's key first, the job goes on under
@@ -233,6 +234,17 @@ describe("the shared editing over a record whose rows hold their own key in a fi
         const saved = await h.read(racks);
         expect([rackEqual(saved.get(id)!, { code: id, bay: 9n }), rackEqual(saved.get("R-2")!, { code: "", bay: 5n }), rackEqual(saved.get("R-1")!, { code: "R-1", bay: 1n })],
             printRacks(saved)).toEqual([true, true, true]);
+    });
+
+    test("ruling 3 of #1705 — a rack whose field never held its key, removed and written back as its record holds it — a Restore — is that rack as stored: nothing is drafted, its field never given its key", async () => {
+        await h.mount({ fn: racksSide }, { view: <Probe /> });
+        await waitFor(() => expect(editing().available("racks")).toBe(true));
+        act(() => { expect(editing().record([{ kind: "racks", id: "R-2", remove: true }], "remove", "Remove a rack")).toBe(true); });
+        await settle();
+        expect(drafted("R-2")?.type).toBe("missing");
+        act(() => { expect(editing().record([{ kind: "racks", id: "R-2", row: encodeRack({ code: "", bay: 2n }) }], "drop", "Restore a rack")).toBe(true); });
+        await settle();
+        expect([drafted("R-2"), editing().history.pending]).toEqual([undefined, 0]);
     });
 
     test("an event whose key another session's Save takes first goes on under the next its kind makes, its key field with it: both saved, each holding the key it is saved under", async () => {

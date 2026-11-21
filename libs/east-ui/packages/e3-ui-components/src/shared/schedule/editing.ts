@@ -1251,8 +1251,11 @@ export function useScheduleEditing<I extends Item = Item>({
                     row = codec.decodeRow(written.value);
                 }
                 // A row the gesture adds holds its key in its record's key field from the first: a duplicate its own, never
-                // the key of the row it copies.
-                const held = before.draft === undefined ? codec.underKey(change.id, row) : row;
+                // the key of the row it copies. A row its record holds, written back where the drafts removed it — a
+                // Restore — is left as it is: a stored row whose field never held its key keeps what it holds
+                // (east-workspace#1705, ruling 3).
+                const adds = creates || heldRow(part.key, change.id) === undefined;
+                const held = before.draft === undefined && adds ? codec.underKey(change.id, row) : row;
                 entries.set(change.id, { before, after: { draft: variant("value", held), wire: { id: change.id }, place: KEY_ORDER } });
             }
             return true;
