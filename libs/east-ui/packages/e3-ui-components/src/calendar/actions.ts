@@ -6,7 +6,7 @@
 /** One command path for desktop gestures and explicit agenda actions. */
 import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
-import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
+import type { ScheduleChange, ScheduleEditing, ScheduleKeyRefusal } from "../shared/schedule/editing.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { durationMinutes } from "../shared/schedule/due.js";
 import { fieldChange } from "../shared/schedule/records.js";
@@ -65,13 +65,39 @@ export interface CalendarPagedRows {
 const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
 
 /**
+ * What a key refused says (east-workspace#1709): the key its event's fields build, or its kind's rule gave, is another
+ * event's; or none could be made.
+ *
+ * @param refusal - The refusal, as the shared editing gives it
+ * @param name - The event kind's name
+ * @returns Its words
+ */
+function keyRefusedWords(refusal: ScheduleKeyRefusal, name: string): string {
+    const noun = lowerWord(name);
+    return "taken" in refusal.why ? `Another ${noun} is keyed "${refusal.why.taken}" already` : `No key can be made for this ${noun}`;
+}
+
+/**
  * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
  * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343) — of a paged kind, one of the
- * windows the frame holds (`paged`, #1424).
+ * windows the frame holds (`paged`, #1424). A gesture whose event's key is refused — the key its fields build is another
+ * event's, or its kind's rule makes none — records nothing, and says why (`refused`).
  */
 export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = [],
-    shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS): CalendarCommands {
+    shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS, refused: (why: string) => void = () => undefined): CalendarCommands {
     const kindOf = (item: CalendarItem) => value.events.find(kind => kind.key === item.kind);
+    /** Why the last gesture made no key, in the Calendar's words; `undefined` where it was refused for no key. */
+    const keyRefused = (): string | undefined => {
+        const refusal = editing.keyRefusal();
+        return refusal === undefined ? undefined : keyRefusedWords(refusal, value.events.find(kind => kind.key === refusal.kind)?.name ?? "event");
+    };
+    /** Records a gesture, saying why where its key refuses it. */
+    const record: ScheduleEditing["record"] = (changes, origin, label) => {
+        if (editing.record(changes, origin, label)) return true;
+        const why = keyRefused();
+        if (why !== undefined) refused(why);
+        return false;
+    };
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
         if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
@@ -125,10 +151,10 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
             const refusal = validate(source, at); if (refusal !== undefined) return refusal;
             const creating = "template" in source;
             const id = creating ? keyFor(source.kind.key, source.template.key, checkOnly) : source.item.key;
-            if (id === undefined) return "This record's key type needs an application-provided new key";
+            if (id === undefined) return keyRefused() ?? "This record's key type needs an application-provided new key";
             const gesture = creating ? variant("create", { template: source.template.key, ...at }) : variant("place", at);
             const refused = checkedWrite(source.kind, id, gesture); if (refused !== undefined) return refused;
-            if (!checkOnly && editing.record([{ kind: source.kind.key, id, gesture }], creating ? "insert" : origin,
+            if (!checkOnly && record([{ kind: source.kind.key, id, gesture }], creating ? "insert" : origin,
                 `${creating ? "Create" : "Schedule"} ${creating ? source.template.name : source.item.title}`)) select([{ kind: source.kind.key, key: id }]);
             return undefined;
         },
@@ -142,10 +168,10 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 if (refused !== undefined) return refused;
                 changes.push({ kind: item.kind, id: item.key, gesture: variant("place", at) });
             }
-            if (!checkOnly) editing.record(changes, "move", `Move ${items.length} events`);
+            if (!checkOnly) record(changes, "move", `Move ${items.length} events`);
             return undefined;
         },
-        remove(items) { if (editing.record(items.map(item => ({ kind: item.kind, id: item.key, remove: true })), "remove", `Delete ${items.length} events`)) select([]); },
+        remove(items) { if (record(items.map(item => ({ kind: item.kind, id: item.key, remove: true })), "remove", `Delete ${items.length} events`)) select([]); },
         unschedule(items, checkOnly = false) {
             for (const item of items) {
                 const kind = kindOf(item);
@@ -154,7 +180,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 const refused = checkedWrite(kind, item.key, variant("unplace", null));
                 if (refused !== undefined) return refused;
             }
-            if (!checkOnly) editing.record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
+            if (!checkOnly) record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
             return undefined;
         },
         duplicate(items) {
@@ -182,7 +208,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 }
                 refs.push({ kind: item.kind, key: id });
             }
-            if (editing.record(changes, "insert", `Duplicate ${items.length} events`)) select(refs);
+            if (record(changes, "insert", `Duplicate ${items.length} events`)) select(refs);
             return undefined;
         },
         status(items, name) {
@@ -195,19 +221,19 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
                 changes.push({ kind: kind.key, id: item.key, gesture: variant("field", { path: [path], value: encodeBeast2For(rowType.fields[path]!)(variant(name, null) as never) }) });
             }
-            editing.record(changes, "typed", `Set status of ${items.length} events`);
+            record(changes, "typed", `Set status of ${items.length} events`);
             return undefined;
         },
         field(item, path, next) {
             const kind = kindOf(item); if (kind === undefined) return;
             // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
             const change = fieldChange(kind, item.key, path, next);
-            if (change !== undefined) editing.record([change], "typed", `Edit ${item.title}`);
+            if (change !== undefined) record([change], "typed", `Edit ${item.title}`);
         },
         patch(items, fields) {
             const changes = items.flatMap(item => fields.map(field => ({ kind: item.kind, id: item.key,
                 gesture: variant("field", { path: [...field.path], value: field.value }) })));
-            editing.record(changes, "drop", `Update ${items.length} events`);
+            record(changes, "drop", `Update ${items.length} events`);
         },
     };
 }

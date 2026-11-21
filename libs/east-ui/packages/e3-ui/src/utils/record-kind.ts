@@ -411,6 +411,20 @@ export function newKeyOf(keyType: EastType, where: string, newKey: unknown): Exp
 }
 
 /**
+ * Refuses a declaration given both ways a new row's key is decided — `key`,
+ * built from the row, and `newKey`, made from the keys taken: a declaration
+ * gives one or neither, in every builder.
+ *
+ * @param where - The declaration, as the refusal names it
+ * @param config - What it was given
+ * @throws {Error} When it is given both, naming them
+ */
+export function checkOneKeyRule(where: string, config: { readonly key?: unknown; readonly newKey?: unknown }): void {
+    if (config.key === undefined || config.newKey === undefined) return;
+    throw new Error(`${where}: \`key\` and \`newKey\` each decide a new row's key — give one: \`key\` builds it from the row, \`newKey\` makes it from the keys taken`);
+}
+
+/**
  * A new row's key, built from its row by the app (#1549): what a kind's `key`
  * takes — `(move) => ({ from: move.from, to: move.to })`.
  *
@@ -836,9 +850,7 @@ export function recordSide<R extends StructType, K extends EastType>(bound: Kind
     config: RecordSide<R, K> & KindRowKeys<R, K>, omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
     const rowType = bound.rowType;
     // A new row's key is decided one way: built from the row, or made from the keys taken.
-    if (config.newKey !== undefined && config.key !== undefined) {
-        throw new Error(`${where}: \`key\` and \`newKey\` each decide a new row's key — give one: \`key\` builds it from the row, \`newKey\` makes it from the keys taken`);
-    }
+    checkOneKeyRule(where, config);
     const newKey = config.newKey === undefined ? undefined : newKeyOf(bound.keyType, where, config.newKey);
     // A record whose rows hold their own key in a field: the builder keeps a row's key there, so no role writes the
     // field, and the form shows it read only, under the label and the line its hint gives.

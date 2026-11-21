@@ -18,7 +18,10 @@
  * the next, and its field follows. And tickets whose kind gives the app's own
  * rule for a new key (`newKey`, east-workspace#1709): a new ticket takes the
  * key the rule gives, and the rule is asked again where another session's
- * Save takes it first. Over records deployed to e3 itself.
+ * Save takes it first. And visits whose kind builds each one's key from its
+ * row (`key`): a new visit stands under the key its row builds, an edit of
+ * what the key reads moves it, and a key another visit holds refuses the
+ * gesture, saying which. Over records deployed to e3 itself.
  */
 
 import { useMemo } from "react";
@@ -65,7 +68,23 @@ const tickets = e3.record("new_key_tickets", DictType(StringType, Job), {
     }),
 });
 
-const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets } }, { measure: false });
+/** The visits, keyed by their reference: one keyed as its row builds, and one an app stored under another key than its reference. */
+const visits = e3.record("built_key_visits", DictType(StringType, Job), {
+    initial: new Map([
+        ["V-1", { ref: "V-1", title: "Survey", start: DAY, end: LATER }],
+        ["legacy", { ref: "V-9", title: "Old survey", start: DAY, end: LATER }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets, visits } }, { measure: false });
+/** The visits' kind, which builds a visit's key from its row: its reference. */
+const visitsKind = East.function([], Schedule.Types.Kind, ($) => {
+    const handle = $.let(Record.bind(visits));
+    return Schedule.events(handle, { name: "Visit", icon: "location-dot", title: "title", start: "start", end: "end", key: (visit) => visit.ref }).build("visits");
+});
 /** The tickets' kind, told the app's rule for a new ticket's key: the first T-n no ticket holds. */
 const ticketsKind = East.function([], Schedule.Types.Kind, ($) => {
     const handle = $.let(Record.bind(tickets));
@@ -109,7 +128,7 @@ function Probe() {
 }
 
 /** An event kind whose new events take another key where another Save took theirs, under the shared editing: the jobs, or the tickets. */
-const REKEYS: ReadonlySet<string> = new Set(["jobs", "tickets"]);
+const REKEYS: ReadonlySet<string> = new Set(["jobs", "tickets", "visits"]);
 function EventsProbe({ kind: fn, storageKey }: { readonly kind: typeof jobsKind; readonly storageKey: string }) {
     const run = useMemo(() => fn.toIR().compile(getRegisteredPlatformImplementations()), [fn]);
     const { result } = useTrackedEvaluation(run);
@@ -214,5 +233,59 @@ describe("the shared editing over an event kind told the app's rule for a new ke
         await waitFor(async () => expect((await h.read(tickets)).has("T-3")).toBe(true));
         const saved = await h.read(tickets);
         expect([jobEqual(saved.get("T-2")!, theirs), jobEqual(saved.get("T-3")!, copy)], printFor(tickets.type)(saved)).toEqual([true, true]);
+    });
+});
+
+describe("the shared editing over an event kind that builds each event's key from its row", () => {
+    /** A visit's draft, as its session holds it: its row, `missing` for one a gesture removed, `undefined` for none. */
+    const visitDraft = (id: string) => {
+        const bytes = editing().draftsOf("visits").get(id);
+        return bytes === undefined ? undefined : decodeJobDraft(bytes);
+    };
+
+    test("ruling 1 — a visit a gesture adds stands under the key its row builds, whatever key was made for it, and Save writes it there; a second whose row builds that key is refused, saying which", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-add" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        // The key made for a new visit stands for it only until its gesture is recorded.
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        const added: ValueTypeOf<typeof Job> = { ref: "V-2", title: "Fit-out", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob(added), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        const held = visitDraft("V-2");
+        if (held?.type !== "value") throw new Error("expected the visit drafted under the key its row builds");
+        expect([jobEqual(held.value, added), visitDraft(made), editing().moved.get("visits")?.get(made)]).toEqual([true, undefined, "V-2"]);
+        // Another whose row builds V-2 too: nothing is recorded, and the editing says the key is taken.
+        const again = editing().mint("visits", "", new Set());
+        if (again === undefined) throw new Error("expected a key made for the second visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: again, row: encodeJob({ ...added, title: "Fit-out again" }), created: true }], "insert", "Add a visit")).toBe(false); });
+        expect(editing().keyRefusal()).toEqual({ kind: "visits", id: "", why: { taken: "V-2" } });
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-2")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-2")!, added), saved.size], printJobs(saved)).toEqual([true, 3]);
+    });
+
+    test("ruling 1 — an edit of what a visit's key reads moves it under the key it then builds; one building a key another visit holds is refused, saying which; a visit stored apart from its key stays through an edit of another field; and Save writes each", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-move" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const renamed: ValueTypeOf<typeof Job> = { ref: "V-5", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob(renamed) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        const moved = visitDraft("V-5");
+        if (moved?.type !== "value") throw new Error("expected the visit drafted under its new key");
+        expect([jobEqual(moved.value, renamed), visitDraft("V-1")?.type, editing().moved.get("visits")?.get("V-1")]).toEqual([true, "missing", "V-5"]);
+        // Its reference typed as the key another visit stands under: refused whole, the visit where it was.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...renamed, ref: "legacy" }) }], "typed", "Edit a visit")).toBe(false); });
+        expect([editing().keyRefusal(), visitDraft("V-5")?.type]).toEqual([{ kind: "visits", id: "V-5", why: { taken: "legacy" } }, "value"]);
+        // The visit an app stored under another key than its reference: its title edited, it stays where it is.
+        const titled: ValueTypeOf<typeof Job> = { ref: "V-9", title: "Old survey, revisited", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "legacy", row: encodeJob(titled) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([visitDraft("legacy")?.type, visitDraft("V-9")]).toEqual(["value", undefined]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-5")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-5")!, renamed), saved.has("V-1"), jobEqual(saved.get("legacy")!, titled)], printJobs(saved)).toEqual([true, false, true]);
     });
 });

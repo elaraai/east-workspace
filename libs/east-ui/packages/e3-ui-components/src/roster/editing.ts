@@ -100,7 +100,7 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
         ...(value.periods.type === "some" ? [{ key: PERIODS, name: value.periods.value.every.type === "week" ? "Weeks" : "Days",
             editing: value.periods.value.editing, entries: value.periods.value.entries }] : []),
         ...(value.targets.type === "some" ? [{ key: TARGETS, name: "Targets", editing: value.targets.value.editing, entries: value.targets.value.entries,
-            newKey: value.targets.value.newKey }] : []),
+            newKey: value.targets.value.newKey, rowKey: value.targets.value.rowKey }] : []),
     ], [value.periods, value.targets]);
     const epoch = span.from.getTime(), until = span.to.getTime();
     // eslint-disable-next-line react-hooks/exhaustive-deps

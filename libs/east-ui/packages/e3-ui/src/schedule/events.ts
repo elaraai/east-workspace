@@ -94,7 +94,9 @@
  * String key as it is, any other key as East prints it. Where its rows hold
  * their own key in a field too, `keyField` names it: an event a builder adds
  * holds its key there, and is saved with it. A new event's key is its
- * builder's to make, or the app's own rule's, `newKey`, as a Record's is.
+ * builder's to make, or the app's own rule's, `newKey`, as a Record's is — or
+ * built from the event's row, `key`, the event moving under the key an edit
+ * of the fields it reads builds: one of the two, or neither.
  *
  * @packageDocumentation
  */
@@ -107,7 +109,7 @@ import {
 import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
 import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
-import { newKeyOf } from "../utils/record-kind.js";
+import { checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
@@ -329,7 +331,7 @@ export interface ScheduleParts<R extends StructType> {
  * @typeParam F - The resource field, when the kind has one
  * @typeParam SF - The status field, when the kind has one
  */
-export interface ScheduleEventsBase<K extends EastType, R extends StructType, F extends string, SF extends string> {
+export interface ScheduleEventsBase<K extends EastType, R extends StructType, F extends string, SF extends string> extends KindRowKeys<R, K> {
     /** The kind's name: on its events, in the filter and the inspector. */
     name: string;
     /** Its Font Awesome icon. */
@@ -365,6 +367,12 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * the largest. Where another Save takes the key first, a builder that keeps both events asks it again.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
+    /**
+     * An event's key, built from its row — `(visit) => East.str\`${visit.site}-${visit.day}\``: what a builder makes a
+     * new event under, and what an event moves to as an edit changes the fields it reads — refused, naming it, when
+     * another event holds that key. Never beside `newKey`.
+     */
+    key?: KindKeyBuilder<R, K>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
@@ -681,6 +689,7 @@ interface AnyConfig {
     fields?: Readonly<Record<string, unknown>>;
     keyField?: string;
     newKey?: unknown;
+    key?: unknown;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
     locked?: (row: unknown, key: unknown) => unknown;
@@ -758,7 +767,7 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
  *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a `keyField` that is no field
  *   of the row of the record's key type, or that one of the kind's roles writes; a `newKey` that is no East function from a
- *   Set of the record's keys to one; a window over another index,
+ *   Set of the record's keys to one; a `key` that builds another type than the record's key, or one beside `newKey`; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
@@ -1094,7 +1103,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const session = scheduleRecordSession(record, keyType, rowType, entries, keyField === undefined ? undefined : { field: keyField, where });
     const { readAll, byKey, idOf, keyOf } = session;
     // A new event's key by the app's own rule, where it gives one: over the keys' text, as every builder carries it.
+    // Or built from its row, the event moving with it: one of the two, or neither.
+    checkOneKeyRule(where, config);
     const newKey = config.newKey === undefined ? undefined : newKeyOf(keyType, where, config.newKey);
+    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.key);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
     // records draws its roles in its own sections, so its form leaves out the fields they name too.
@@ -1927,6 +1939,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             editing,
             entries: entriesSeam,
             newKey: newKey === undefined ? none : some(newKey),
+            rowKey: keyBuilt === undefined ? none : some(keyBuilt),
             history: session.history,
             event: seams.event,
             // A title worked out from the row names no field, its fields being the form's; nor does a kind with no title, which the

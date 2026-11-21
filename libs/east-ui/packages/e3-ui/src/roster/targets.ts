@@ -20,9 +20,11 @@
  *   the edited row. Without it, the sum of the row's `hours`. It is the slot's
  *   `Requirement.needed`, which `Roster.coverage` reads.
  * - **New rows.** A slot with no row has no target. A target edit on such a
- *   slot inserts one, keyed by the app's own rule, `newKey`, or else by a key
- *   the Roster makes up, its unmapped fields the targets' `values` of its
- *   roles (#1526) — or, without them, their type's default.
+ *   slot inserts one, keyed as its `key` builds from its row, or by the
+ *   app's own rule, `newKey` — one of the two — or else by a key the Roster
+ *   makes up, its unmapped fields the targets' `values` of its roles (#1526)
+ *   — or, without them, their type's default. A target whose `key` reads a
+ *   field an edit changes moves under the key it then builds.
  * - **Key field.** Where a target's row holds its key in a field too,
  *   `keyField` names it: a target the Roster inserts holds the key it minted
  *   there, and is saved with it; no role writes the field.
@@ -51,7 +53,7 @@ import { scheduleRecordWindow, type ScheduleKindPart } from "../schedule/record-
 import { scheduleRecordSession } from "../schedule/session.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, typeText } from "../schedule/window.js";
-import { newKeyOf } from "../utils/record-kind.js";
+import { checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { RosterTargetEntryType, RosterTargetRolesType, RosterTargetsKindType } from "./types.js";
 
@@ -60,7 +62,7 @@ import { RosterTargetEntryType, RosterTargetRolesType, RosterTargetsKindType } f
  *
  * @typeParam R - The app's target row type
  */
-export interface RosterTargetsConfig<R extends StructType> {
+export interface RosterTargetsConfig<R extends StructType> extends KindRowKeys<R, StringType> {
     /** The DateTime field holding the slot's day, a UTC midnight. */
     day: ScheduleAtField<R>;
     /** The String field naming the slot's group, a key of the Roster's `groups`. */
@@ -94,6 +96,12 @@ export interface RosterTargetsConfig<R extends StructType> {
      * the record to hold, and every one its drafts hold — to one that is not. Without it the Roster makes one up.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<StringType>], StringType>>;
+    /**
+     * A target's key, built from its row — `(cover) => East.str\`${cover.team}/${cover.shift}/${cover.day}\``: what the
+     * Roster inserts a target under, and what a target moves to as an edit changes the fields it reads. Never beside
+     * `newKey`.
+     */
+    key?: KindKeyBuilder<R, StringType>;
     /**
      * The app's own form for one target, in place of the Roster's — an East function over the row and a writer of the
      * edited row, `(row, update) => UIComponentType`, passed through untouched (never called at build).
@@ -175,7 +183,7 @@ function targetsNeeded(rowType: EastType, hours: string, given: unknown, where: 
  *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; a `needed` that
  *   is no function of the row and a Float returning a Float; a `values` giving other fields than the ones no role maps,
  *   or one of another type, naming it; a `keyField` that is no String field of the row, or that a role names; a `newKey`
- *   that is no East function from a Set of Strings to a String; `entries`
+ *   that is no East function from a Set of Strings to a String; a `key` that builds no String, or one beside `newKey`; `entries`
  *   that is not a paged read of the record's own entries; and an
  *   `inspector` that is no East function `(row, update) => UIComponentType` over the row
  * @example
@@ -204,7 +212,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     const where = "Roster.targets";
     const c = config as unknown as {
         day: string; group: string; shift: string; positions: string; hours: string; needed?: unknown; values?: unknown; keyField?: string;
-        newKey?: unknown; inspector?: unknown; entries?: unknown;
+        newKey?: unknown; key?: unknown; inspector?: unknown; entries?: unknown;
     };
     const handleType = Expr.type(record as unknown as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
@@ -258,8 +266,10 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
         throw new Error(`${where}: \`keyField\` names "${keyField}", which \`${writes}\` writes — a target's key is kept in its key field by the Roster, and nothing else writes it`);
     }
     const session = scheduleRecordSession(record, StringType, rowType, entries, keyField === undefined ? undefined : { field: keyField, where });
-    // A new target's key by the app's own rule, where it gives one.
+    // A new target's key by the app's own rule, where it gives one — or built from its row: one of the two, or neither.
+    checkOneKeyRule(where, c);
     const newKey = c.newKey === undefined ? undefined : newKeyOf(StringType, where, c.newKey);
+    const keyBuilt = keyBuilderOf(StringType, rowType, where, "a target", c.key);
 
     return {
         [ROSTER_TARGETS]: true,
@@ -351,6 +361,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
                 editing,
                 entries: seam,
                 newKey: newKey === undefined ? none : some(newKey),
+                rowKey: keyBuilt === undefined ? none : some(keyBuilt),
                 rows,
                 read: readRoles,
                 needed: readNeeded,
