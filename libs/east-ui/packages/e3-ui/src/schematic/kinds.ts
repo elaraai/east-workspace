@@ -526,7 +526,8 @@ export interface SchematicItemsConfig<R extends StructType, X extends string, Y 
     /**
      * A new item's key, built from its row (#1549): what a drop makes one under, and what an item moves to as an edit
      * changes the fields it reads — refused when another item holds it. Omitted, with no `newKey`, a String key is made
-     * up, an Integer one is one past the largest, and any other the viewer types in the inspector.
+     * up, an Integer one is one past the largest, and any other the viewer types in the inspector. It never reads the
+     * field `keyField` names.
      */
     key?: KindKeyBuilder<R, K>;
     /**
@@ -590,7 +591,8 @@ export interface SchematicItems extends KindDeclaration<"items", typeof Schemati
  *   an accessor building the shape (D35), or without `width` and `height`; a status, a meter, a metric or a second line
  *   given both here and by its details; details keyed by another type than the kind, naming both; templates written in
  *   the code, or giving other fields than every field but `x` and `y`; a `key` building another type than the kind's
- *   key, naming both; a `newKey` that is no East function from a Set of the kind's keys to one, or one beside `key`; a
+ *   key, naming both, or reading the field `keyField` names; a `newKey` that is no East function from a Set of the kind's
+ *   keys to one, or one beside `key`; a
  *   `keyField` that is no field of the row of the kind's key type, or that a role writes; and a record that is no
  *   binding of a record of structs, a `Record.bind` without its patch door, or `entries` beside a read-only binding
  */
@@ -967,7 +969,7 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
      * A new link's key, built from its row (#1549) — `(run) => ({ from: run.from, to: run.to })`: what Connect makes one
      * under, and what a link moves to as a Retarget changes the fields it reads — refused when another link holds it.
      * Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest; an editable kind
-     * keyed by any other type needs one of the two.
+     * keyed by any other type needs one of the two. It never reads the field `keyField` names.
      */
     key?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes. */
@@ -1032,9 +1034,9 @@ function edgeShown($: { const: (value: unknown) => unknown }, edge: EdgeRoles, r
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: an end of a type no Dict is keyed by — an
  *   Option among them, a link having both its ends — or whose `of` names no item slot, or for a variant field neither
  *   one nor a slot per case; `from` and `to` naming one field; a `values` giving other fields than every field but its
- *   ends, or one of another type, naming it; a `key` building another type than the kind's key, naming both; and an
- *   editable record keyed by neither String nor Integer given neither `key` nor `newKey`, whose new links nothing would
- *   key
+ *   ends, or one of another type, naming it; a `key` building another type than the kind's key, naming both, or reading
+ *   the field `keyField` names; and an editable record keyed by neither String nor Integer given neither `key` nor
+ *   `newKey`, whose new links nothing would key
  */
 export function schematicLinks<R extends StructType, FF extends SchematicEndField<R>, TF extends SchematicEndField<R>, K extends EastType = StringType>(
     record: SchematicRecord<R, K>, config: SchematicLinksConfig<R, FF, TF, K>,
@@ -1185,7 +1187,7 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
      * A new net's key, built from its row (#1549): what Connect's Shift session makes one under, and what a net moves to
      * as an edit of its sides changes the fields it reads — refused when another net holds it. Omitted, with no
      * `newKey`, a String key is made up and an Integer one is one past the largest; an editable kind keyed by any other
-     * type needs one of the two.
+     * type needs one of the two. It never reads the field `keyField` names.
      */
     key?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes. */
@@ -1213,8 +1215,8 @@ export interface SchematicNets extends KindDeclaration<"nets", typeof SchematicN
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: a side of neither a Set nor an Array of a
  *   type a Dict may be keyed by, whose `of` names no item slot; both sides naming one field; a `values` giving other
  *   fields than every field but its sides, or one of another type, naming it; a `key` building another type than the
- *   kind's key, naming both; and an editable record keyed by neither String nor Integer given neither `key` nor
- *   `newKey`, whose new nets nothing would key
+ *   kind's key, naming both, or reading the field `keyField` names; and an editable record keyed by neither String nor
+ *   Integer given neither `key` nor `newKey`, whose new nets nothing would key
  */
 export function schematicNets<R extends StructType, SRC extends SchematicMembersField<R>, DST extends SchematicMembersField<R>, K extends EastType = StringType>(
     record: SchematicRecord<R, K>, config: SchematicNetsConfig<R, SRC, DST, K>,

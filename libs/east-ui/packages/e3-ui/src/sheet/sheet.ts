@@ -434,7 +434,7 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
  * @returns An East expression of {@link SheetPayloadType}
- * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; a `keyField` on a sheet handed no record, beside `entry`, that is no field of the record's entries of its key's type, or that a column writes; a `key` on a sheet handed no record, beside `entry` or `newKey`, or that builds no key of the record's key type; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` on a sheet handed no record, or that is not `Func.bind` of a function from `OptimiseRequest()` (`OptimiseRequest({ entry: K })` over one entry's rows) to `OptimiseResult(D)` over the rows the Save reaches (#1409, east-workspace#1622); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, the rows of its `rows` source beside `data`, `entry` or `window`, `onApply` or `onUpdate` beside them, which `record` replaces, and a `record` whose entries the `rows` source does not page; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
+ * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; a `keyField` on a sheet handed no record, beside `entry`, that is no field of the record's entries of its key's type, or that a column writes; a `key` on a sheet handed no record, beside `entry` or `newKey`, that builds no key of the record's key type, or that reads the field `keyField` names; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` on a sheet handed no record, or that is not `Func.bind` of a function from `OptimiseRequest()` (`OptimiseRequest({ entry: K })` over one entry's rows) to `OptimiseResult(D)` over the rows the Save reaches (#1409, east-workspace#1622); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, the rows of its `rows` source beside `data`, `entry` or `window`, `onApply` or `onUpdate` beside them, which `record` replaces, and a `record` whose entries the `rows` source does not page; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
@@ -755,7 +755,8 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
          * keyed by staff id, each member's `staff` their key. A group the sheet adds shows its key there at once, and is
          * saved with it: where another Save takes the key first and the sheet gives the group another, the field follows.
          * A column over the field shows it and takes no edit, and `newGroup` need not give it. A group the record
-         * holds already keeps what its field holds. The field is of the record's key type.
+         * holds already keeps what its field holds. The field is of the record's key type, and `key` reads another: one
+         * keyed by a field a person types takes `key` alone.
          */
         keyField?: RecordKeyField<K, P>;
         /**
@@ -763,7 +764,7 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
          * A group the sheet adds goes under the key it builds at once, a field still empty read as empty, and a group
          * moves under another key as an edit changes what its key reads — in the step of the edit, which Undo takes
          * back with it. A key another group stands under refuses the edit, and the sheet says so. It builds a key of
-         * the record's key type. Never beside `newKey`.
+         * the record's key type, and never reads the field `keyField` names. Never beside `newKey`.
          */
         key?: KindKeyBuilder<P, K>;
         group: SheetGroupValue<P, F>;
@@ -792,7 +793,8 @@ export function SheetTag<K extends EastType, R extends StructType>(
          * keyed by staff id, each member's `staff` their key. A row the sheet adds shows its key there at once, and is
          * saved with it: where another Save takes the key first and the sheet gives the row another, the field follows.
          * A column over the field shows it and takes no edit, and `newRow` need not give it. A row the record
-         * holds already keeps what its field holds. The field is of the record's key type.
+         * holds already keeps what its field holds. The field is of the record's key type, and `key` reads another: one
+         * keyed by a field a person types takes `key` alone.
          */
         keyField?: RecordKeyField<K, R>;
         /**
@@ -800,7 +802,7 @@ export function SheetTag<K extends EastType, R extends StructType>(
          * sheet adds goes under the key it builds at once, a cell still empty read as empty, and a row moves under
          * another key as an edit changes what its key reads — in the step of the edit, which Undo takes back with it.
          * A key another row stands under refuses the edit, and the sheet says so. It builds a key of the record's key
-         * type. Never beside `newKey`.
+         * type, and never reads the field `keyField` names. Never beside `newKey`.
          */
         key?: KindKeyBuilder<R, K>;
         columns: SheetColumnSpec<R>;

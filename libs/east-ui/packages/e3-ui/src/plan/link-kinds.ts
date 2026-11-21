@@ -218,7 +218,7 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
     /**
      * A new link's key, built from its row — `(feed) => ({ from: feed.from, to: feed.to })`: what a Connect makes one
      * under. Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest; an editable
-     * kind keyed by any other type needs one of the two.
+     * kind keyed by any other type needs one of the two. It never reads the field `keyField` names.
      */
     key?: KindKeyBuilder<R, K>;
 }
@@ -300,7 +300,8 @@ export function isPlanLinks(value: unknown): value is PlanLinks {
  *   paged binding, or a `Record.bind` without its patch door; no `icon`; an end that is no `{ field, of }`, names a
  *   field the row lacks or one of a type no Dict is keyed by, an Option, or an `of` that names no kind for a case; both
  *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `key` that builds
- *   another type than the record's key; a `newKey` that is no East function from a Set of the record's keys to one, or
+ *   another type than the record's key, or reads the field `keyField` names; a `newKey` that is no East function from
+ *   a Set of the record's keys to one, or
  *   one beside `key`; an editable record keyed by neither String nor Integer, given neither; and a `keyField` that is no
  *   field of the row of the record's key type, or that an end names
  *

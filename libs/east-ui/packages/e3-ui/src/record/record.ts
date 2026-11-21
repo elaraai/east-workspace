@@ -230,7 +230,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `key` on a Record handed no record, beside `newKey`, or that builds no key of its key's type; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `key` on a Record handed no record, beside `newKey`, that builds no key of its key's type, or that reads the field `keyField` names; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
@@ -341,15 +341,16 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
          * keyed by staff id, each member's `staff` their key. A row Add drafts shows its key there at once, and is
          * saved with it: where another Save takes the key first and the Record gives the row another, the field
          * follows. A column over the field shows it and takes no edit, and `newRow` need not give it. A row the
-         * record holds already keeps what its field holds. The field is of the record's key type.
+         * record holds already keeps what its field holds. The field is of the record's key type, and `key` reads
+         * another: one keyed by a field a person types takes `key` alone.
          */
         keyField?: RecordKeyField<K, R>;
         /**
          * A row's key, built from the row: `(rack) => rack.code` keys each rack by the code a person types. A row Add
          * drafts goes under the key it builds at once, a cell still empty read as empty, and a row moves under another
          * key as an edit changes what its key reads — in the step of the edit, which Undo takes back with it. A key
-         * another row stands under refuses the edit, and the Record says so. It builds a key of the record's key type.
-         * Never beside `newKey`.
+         * another row stands under refuses the edit, and the Record says so. It builds a key of the record's key type,
+         * and never reads the field `keyField` names. Never beside `newKey`.
          */
         key?: KindKeyBuilder<R, K>;
         slice?: RecordSlicesChromeOptions;
