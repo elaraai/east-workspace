@@ -14,11 +14,12 @@
 
 import { ArrayType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { toValueFormat } from "@elaraai/east-ui/internal";
-import type { Studio, StudioSourceType } from "@elaraai/e3-ui/internal";
+import type { Studio, StudioSourceType, StudioVisualType } from "@elaraai/e3-ui/internal";
 import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { createInMemoryQueryCall } from "../in-memory-call.js";
 import { queryRoot } from "../one-shot.js";
+import { printAlert, type AlertField } from "./alert.js";
 import { askProgram, type VisualAnswer } from "./ask.js";
 import { printStateOf } from "./filters.js";
 import { printVisual, visualValues, type PrintState, type VisualAsk, type VisualPage } from "./print.js";
@@ -85,6 +86,30 @@ export interface Answered {
 }
 
 /**
+ * A placement's visual.
+ *
+ * @param content - What the placement holds
+ * @returns Its visual
+ * @throws {Error} When it holds no visual
+ */
+export function visualOf(content: ReturnType<typeof Studio.visual.of>): ValueTypeOf<typeof StudioVisualType> {
+    if (content.type !== "visual") throw new Error("not a visual");
+    return content.value;
+}
+
+/**
+ * A program over the orders, asked in memory as e3 asks it, at the quarter's minute.
+ *
+ * @param program - The program
+ * @returns Its answer
+ */
+export async function asked(program: string): Promise<VisualAnswer> {
+    const kept = await askProgram(program, ORDERS_ROOT, SEAMS, { now: QUARTER_NOW }, new AbortController().signal);
+    if (kept === undefined) throw new Error("abandoned");
+    return kept.value;
+}
+
+/**
  * A visual over the orders, asked: each program it prints, asked in memory as
  * e3 asks it.
  *
@@ -94,13 +119,26 @@ export interface Answered {
  * @returns Its asks, their answers, and its values
  */
 export async function answered(content: ReturnType<typeof Studio.visual.of>, state: PrintState = QUARTER, page?: VisualPage): Promise<Answered> {
-    if (content.type !== "visual") throw new Error("not a visual");
-    const printed = printVisual(content.value, ORDERS_SOURCE, state, page);
+    const visual = visualOf(content);
+    const printed = printVisual(visual, ORDERS_SOURCE, state, page);
     if (printed.kind !== "asks") throw new Error(`printed ${printed.kind}`);
-    const answers = await Promise.all(printed.asks.map(async ask => {
-        const kept = await askProgram(ask.program, ORDERS_ROOT, SEAMS, {}, new AbortController().signal);
-        if (kept === undefined) throw new Error("abandoned");
-        return kept.value;
-    }));
-    return { asks: printed.asks, answers, values: visualValues(content.value.view) };
+    const answers = await Promise.all(printed.asks.map((ask) => asked(ask.program)));
+    return { asks: printed.asks, answers, values: visualValues(visual.view) };
+}
+
+/**
+ * An alert on a visual over the orders, asked (#1674): its check's program,
+ * asked in memory as e3 asks it, at the quarter's minute.
+ *
+ * @param content - The visual, as a placement holds it
+ * @param where - The alert's condition over one of the visual's rows
+ * @param state - The alert's filters; the quarter's unless given
+ * @returns The program, its answer, and the fields of the rows it checks
+ */
+export async function alertAnswered(content: ReturnType<typeof Studio.visual.of>, where: JqNode, state: PrintState = QUARTER): Promise<{
+    readonly program: string; readonly answer: VisualAnswer; readonly fields: readonly AlertField[]; readonly readsNow: boolean;
+}> {
+    const printed = printAlert(visualOf(content), ORDERS_SOURCE, state, where);
+    if (printed.kind !== "ask") throw new Error(`printed ${printed.kind}`);
+    return { program: printed.ask.program, answer: await asked(printed.ask.program), fields: printed.fields, readsNow: printed.ask.readsNow };
 }

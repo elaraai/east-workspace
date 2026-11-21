@@ -384,4 +384,40 @@ export const studioMessages: StudioMessages = {
     phonePage: () => "Page",
     phoneChanges: () => "Changes",
     phoneWireCaption: ({ device, px }) => `${device} · ${px} px · the layout, each tile by name`,
+    alertsOf: ({ name }) => `Alerts · ${name}`,
+    alertsFiring: ({ n, count }) => (n === 1 ? "1 alert firing" : `${count} alerts firing`),
+    newAlert: () => "New alert",
+    alertNameFor: ({ name }) => `${name} alert`,
+    alertName: () => "Alert name",
+    alertNameMissing: () => "Give the alert a name to save it.",
+    alertNameTaken: ({ name }) => `Another alert is named ${name}.`,
+    alertCondition: () => "Fires while a row",
+    alertUnfinished: () => "Finish the condition to save the alert.",
+    alertNow: () => "Now",
+    alertRun: () => "Run",
+    alertNowCount: ({ n, count, total, of }) => `${count} of ${of} ${total === 1 ? "row" : "rows"} ${n === 1 ? "meets" : "meet"} it now`,
+    alertNowNone: ({ total, of }) => (total === 0 ? "The visual has no rows now" : total === 1 ? "Its one row does not meet it now" : `None of its ${of} rows meets it now`),
+    alertNowWaits: () => "Finish the condition, then Run.",
+    alertPaused: () => "Paused — not checked",
+    alertSave: () => "Save",
+    alertDelete: () => "Delete",
+    alertDeleteConfirm: ({ name }) => `Delete ${name}?`,
+    alertKeep: () => "Keep",
+    alertTooMany: ({ count, limit }) => `This visual has ${count} rows: an alert watches at most ${limit}. Narrow it, or keep fewer groups.`,
+    alertConflict: ({ name, why }) => `${name}: ${why}`,
+    alertCannot: () => "Fill this visual's wells to set an alert on it.",
+    alertStatus: ({ status, at }) => {
+        switch (status) {
+            case "firing": return at === undefined ? "Firing" : `Firing since ${at}`;
+            case "cleared": return at === undefined ? "Cleared" : `Cleared ${at}`;
+            case "paused": return "Paused";
+            case "watching": return "Watching";
+            case "removed": return "Visual removed";
+        }
+    },
+    alertBell: () => "Alerts",
+    alertNoneFiring: () => "No alert is firing.",
+    alertWhere: ({ page, at }) => `${page} · fired ${at}`,
+    alertBanner: ({ name, at }) => `${name} fired at ${at}`,
+    alertBannerRows: ({ n, count }) => (n === 1 ? "1 row met it" : `${count} rows met it`),
 };

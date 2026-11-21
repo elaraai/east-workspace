@@ -36,6 +36,7 @@ import {
     type OptionsProps,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
+import { StudioAlertsHandleType, alertsPayload, type StudioAlertsHandle } from "./alerts.js";
 import { StudioComponentType } from "./component.js";
 import { StudioKeyType, StudioPagesType } from "./pages.js";
 import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
@@ -70,6 +71,7 @@ export type StudioVersionLiteral = "live" | "draft";
  * @property page - The page's key
  * @property version - Which of its layouts to draw
  * @property onOpen - Told the key of the page a click on one of its visuals opens; `none`, such a click opens nothing
+ * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells, and what the page checks; `none`, no visual shows a bell
  */
 export const StudioPagePayloadType = StructType({
     pages: StudioPagesType,
@@ -78,6 +80,7 @@ export const StudioPagePayloadType = StructType({
     page: StudioKeyType,
     version: StudioVersionType,
     onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
+    alerts: OptionType(StudioAlertsHandleType),
 });
 
 /** Type representing the `StudioPage` renderer's payload. */
@@ -102,6 +105,7 @@ export const StudioPageComponent = EastUI.component("StudioPage", StudioPagePayl
  * @property page - The page's key
  * @property version - `"live"` (the default) or `"draft"`
  * @property onOpen - Told the key of the page a click on one of its visuals opens
+ * @property alerts - The alerts record, bound with its patch mutation — `Record.bind(alerts)` (#1674)
  */
 export interface StudioPageOptions {
     /** The pages record's value — `Data.bind(pages).read()`, or a bound record's `read()`. */
@@ -123,6 +127,13 @@ export interface StudioPageOptions {
      * opens nothing.
      */
     onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /**
+     * The alerts record, bound with its patch mutation — `Record.bind(alerts)`
+     * (#1674). Given, every data visual's header carries a bell, which sets
+     * and lists its alerts, and the page checks its project's alerts on e3.
+     * Omitted, no visual shows a bell.
+     */
+    alerts?: StudioAlertsHandle;
 }
 
 /**
@@ -149,6 +160,14 @@ export interface StudioPageOptions {
  * clicked group, which a visual that follows it narrows to; it adds the group
  * to the page's filters; or it opens another page narrowed to the group,
  * telling `onOpen` that page's key.
+ *
+ * Given `alerts` (#1674), each data visual's header carries a bell — marked
+ * while one of its alerts fires — whose popover sets an alert: a condition on
+ * the visual's rows, with the rows over the line now, pause and delete. A text
+ * block has none. The page checks its project's alerts that are not paused —
+ * as it opens, and when a dataset a visual reads changes — each one call on
+ * e3 made as a tile's is, and writes each alert's latest firing. Opened from
+ * `<Studio.AlertBell>`, it draws a banner naming the alert and when it fired.
  *
  * @param options - The record's value, the listed components, the page and
  *   its version ({@link StudioPageOptions})
@@ -181,6 +200,7 @@ function createPage(options: StudioPageOptions): ExprType<UIComponentType> {
         page: options.page,
         version: typeof version === "string" ? variant(version, null) : version,
         onOpen: options.onOpen === undefined ? none : some(options.onOpen),
+        alerts: options.alerts === undefined ? none : some(alertsPayload(options.alerts)),
     });
 }
 

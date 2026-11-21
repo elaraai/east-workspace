@@ -643,6 +643,65 @@ export interface StudioMessages {
     phoneChanges: () => string;
     /** Under Tablet or Desktop — `Desktop · 1,440 px · the layout, each tile by name`. */
     phoneWireCaption: (p: { device: string; px: string }) => string;
+    /** A visual's bell — its accessible name, and its alerts' popover's head (#1674): `Alerts · Revenue by region`. */
+    alertsOf: (p: { name: string }) => string;
+    /** A visual's bell while one of its alerts fires: what its mark says. */
+    alertsFiring: (p: { n: number; count: string }) => string;
+    /** The popover's way to set another alert on the visual. */
+    newAlert: () => string;
+    /** The name a new alert is offered — `Revenue by region alert`. */
+    alertNameFor: (p: { name: string }) => string;
+    /** An alert's name field. */
+    alertName: () => string;
+    /** Under it, while it is empty. */
+    alertNameMissing: () => string;
+    /** Under it, while another alert holds the name. */
+    alertNameTaken: (p: { name: string }) => string;
+    /** Over the condition rows: what they decide. */
+    alertCondition: () => string;
+    /** Under the condition while it is unfinished. */
+    alertUnfinished: () => string;
+    /** The visual's rows that meet the condition now — the block's eyebrow. */
+    alertNow: () => string;
+    /** Runs Now again with the condition as it stands. */
+    alertRun: () => string;
+    /**
+     * Under Now's table — `2 of 4 rows meet it now`: the verb follows how many meet it (`n`), the noun how many rows the
+     * visual has (`total`); `count` and `of` are the two formatted.
+     */
+    alertNowCount: (p: { n: number; count: string; total: number; of: string }) => string;
+    /** Now with no row meeting the condition — `None of its 4 rows meets it now`; `of` is `total` formatted. */
+    alertNowNone: (p: { total: number; of: string }) => string;
+    /** Now with a condition to finish first. */
+    alertNowWaits: () => string;
+    /** An alert's pause: whether it is left unchecked. */
+    alertPaused: () => string;
+    /** The popover's commit. */
+    alertSave: () => string;
+    /** The popover's delete, which confirms in the popover. */
+    alertDelete: () => string;
+    /** Its confirmation — `Delete Region over 100?`. */
+    alertDeleteConfirm: (p: { name: string }) => string;
+    /** Keeps the alert, putting the confirmation away. */
+    alertKeep: () => string;
+    /** A Save refused for a visual of more rows than an alert watches (ALR-6) — both counts are formatted. */
+    alertTooMany: (p: { count: string; limit: string }) => string;
+    /** A Save another write overtook — `Region over 100 changed since you opened it — last changed by ana`; `why` is the record's words. */
+    alertConflict: (p: { name: string; why: string }) => string;
+    /** A visual its alert cannot be set on: a well to fill, a field its source lacks. */
+    alertCannot: () => string;
+    /** Where an alert stands, as a list says it — `Firing since 14:00`, `Paused`, `Watching`, `Visual removed`. */
+    alertStatus: (p: { status: "firing" | "paused" | "watching" | "removed" | "cleared"; at?: string | undefined }) => string;
+    /** The bar's bell — its accessible name, and its list's head. */
+    alertBell: () => string;
+    /** The bar's list with no alert firing. */
+    alertNoneFiring: () => string;
+    /** One firing alert's line in the bar's list: its page, and when it fired — `Overview · fired 14:00`. */
+    alertWhere: (p: { page: string; at: string }) => string;
+    /** The banner over a page opened for an alert — `Region over 100 fired at 14:00`. */
+    alertBanner: (p: { name: string; at: string }) => string;
+    /** Under it: what met the condition — `2 rows met it`. */
+    alertBannerRows: (p: { n: number; count: string }) => string;
 }
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);

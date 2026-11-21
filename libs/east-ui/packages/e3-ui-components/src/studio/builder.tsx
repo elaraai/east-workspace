@@ -109,7 +109,9 @@ import { StudioConfigure } from "./configure.js";
 import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
-import { StudioLayout, StudioPlacement, entryOf, useListedByKey } from "./page.js";
+import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
+import { entryOf } from "./page-entry.js";
+import { StudioAlertsProvider } from "./alert-context.js";
 import { clickFields } from "../query/visual/links.js";
 import { useLinking } from "./linking.js";
 import { PageClicksProvider } from "./page-clicks.js";
@@ -751,11 +753,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 title={m.noPageOpen()} description={m.noPageOpenHint({ project, page: open.page })} />
         );
     }
+    // The alerts record, given (#1674): the canvas's visuals and the preview's carry a bell; the published page checks them.
+    const alerts = value.alerts.type === "some" ? value.alerts.value : undefined;
     return (
         <Box ref={widthRef} css={styles.root} data-studio-builder="">
             {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
                 beside it asks through the same answers, so what the canvas has answered it draws at once. */}
             <VisualAnswersProvider sources={sources}>
+                <StudioAlertsProvider handle={alerts} page={open}>
                 {/* The canvas is the page as designed: its starting filters narrow it, as every reader starts — no reader's
                     filter does (ruled 19 November 2026) — and a click edits: a visual's own click does not run, and one that
                     follows another reads what the preview's reader selected (#1673). */}
@@ -790,7 +795,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 {previewing && preview !== undefined && (
                     <StudioPublishPreview value={preview} tab={previewTab} onTab={setPreviewTab}
                         page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother}
-                            startsWith={previewStartsWith} />}
+                            startsWith={previewStartsWith} alerts={alerts === undefined ? undefined : { handle: alerts }} />}
                         phone={!phone ? undefined : {
                             width,
                             tiles: cells.map((cell) => ({
@@ -799,6 +804,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                             })),
                         }} />
                 )}
+                </StudioAlertsProvider>
             </VisualAnswersProvider>
         </Box>
     );

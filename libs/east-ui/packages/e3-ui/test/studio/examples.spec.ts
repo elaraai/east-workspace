@@ -4,12 +4,14 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import * as alerts from "./alerts.examples.js";
 import * as component from "./component.examples.js";
 import * as page from "./page.examples.js";
 import * as studio from "./studio.examples.js";
 
-describeEast("Studio examples (#991–#1000, #1669, #1671, #1672)", (test) => {
+describeEast("Studio examples (#991–#1000, #1669, #1671, #1672, #1674)", (test) => {
     Assert.examples(test, {
+        studioAlertsPage: alerts.studioAlertsPage,
         studioComponent: component.studioComponent,
         studioPage: page.studioPage,
         studioBuilder: studio.studioBuilder,

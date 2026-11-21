@@ -16,6 +16,7 @@
 import { East, type TypeOf, type ValueTypeOf } from "@elaraai/east";
 import {
     Studio,
+    alertFiring,
     canvasTiles,
     componentFrames,
     componentNames,
@@ -37,6 +38,7 @@ import {
     placedPill,
     publishRefusal,
     publishSummary,
+    saveAlerts,
     saveCells,
     saveFilters,
     sourceName,
@@ -121,6 +123,10 @@ export interface StudioEast {
     switchedView: Compiled<typeof switchedView>;
     /** The source a dropped visual reads: the page's most used. */
     mostUsedSource: Compiled<typeof mostUsedSource>;
+    /** A batch of writes to alerts — a Save, a pause, a delete, a firing — one patch through the alerts record's patch write (#1674). */
+    saveAlerts: Compiled<typeof saveAlerts>;
+    /** What a check does to an alert's firing: it fires, it clears, or nothing (#1674). */
+    alertFiring: Compiled<typeof alertFiring>;
 }
 
 /** Compiles every function the renderers call. */
@@ -194,6 +200,10 @@ function compileStudio(): StudioEast {
         switchedView: East.compile(switchedView, []),
         /** The source a dropped visual reads: the page's most used. */
         mostUsedSource: East.compile(mostUsedSource, []),
+        /** A batch of writes to alerts, one patch through the alerts record's patch write (#1674). */
+        saveAlerts: East.compileAsync(saveAlerts, []),
+        /** What a check does to an alert's firing (#1674). */
+        alertFiring: East.compile(alertFiring, []),
     };
 }
 

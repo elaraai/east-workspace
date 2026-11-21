@@ -108,10 +108,16 @@ export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { ui } from './ui.js';
 
-// The Studio (#787): components as code, the pages record operators build, and
-// the components a solution mounts — the builder, the page library, one page.
+// The Studio (#787): components as code, the pages record operators build, the
+// alerts record a solution may declare (#1674), and the components a solution
+// mounts — the builder, the page library, one page, the bell for its bar.
 export {
     Studio,
+    StudioAlertFiringType,
+    StudioAlertType,
+    StudioAlertsType,
+    type StudioAlertsHandle,
+    type StudioAlertBellOptions,
     StudioComponentType,
     StudioFrameType,
     StudioCellType,

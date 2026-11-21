@@ -18,6 +18,7 @@ import './decision/journal.js';           // → implementUIComponent(DecisionJo
 import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
+import './studio/alert-bell.js';          // → implementUIComponent(StudioAlertBellComponent, EastChakraStudioAlertBell)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 import './calendar/index.js';
@@ -64,10 +65,11 @@ export {
 } from './decision/handle-runtime.js';
 
 // Studio renderers — each registers itself against its extension on import: the builder,
-// the page library and one page — and the Studio's words.
+// the page library, one page and the bell for a host's bar (#1674) — and the Studio's words.
 export { EastChakraStudioBuilder, type EastChakraStudioBuilderProps } from './studio/builder.js';
 export { EastChakraStudioLibrary, type EastChakraStudioLibraryProps } from './studio/library.js';
 export { EastChakraStudioPage, type EastChakraStudioPageProps } from './studio/page.js';
+export { EastChakraStudioAlertBell, type EastChakraStudioAlertBellProps } from './studio/alert-bell.js';
 export {
     useStudioMessages,
     StudioMessagesProvider,

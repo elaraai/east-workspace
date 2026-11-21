@@ -181,8 +181,14 @@ export function selectOf(filters: readonly PageFilter[], source: string): JqNode
 
 // ─── A filter, as the query builder reads it ─────────────────────────────────
 
-/** A source's rows, as the query builder's conditions test them. */
-function rowsShape(source: PrintSource): Shape {
+/**
+ * A source's rows, as the query builder's conditions test them, and its
+ * steps name what they make of them.
+ *
+ * @param source - The source, as the printer reads it
+ * @returns The shape of its rows
+ */
+export function rowsShape(source: PrintSource): Shape {
     return shapeOf(ArrayType(source.row), "one", { noun: singular(source.key) });
 }
 
