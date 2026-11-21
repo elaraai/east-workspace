@@ -204,18 +204,18 @@ export const Pagination: PaginationNamespace = {
          */
         Style: PaginationStyleType,
         /**
-         * East VariantType for the Pagination size preset.
+         * East VariantType for the Pagination size preset: the design system's three.
          *
-         * @property sm - Small (28px tall triggers)
-         * @property md - Medium (36px tall triggers — default)
-         * @property lg - Large (44px tall triggers)
+         * @property sm - Small: 24px tall (default)
+         * @property md - Medium: 32px tall
+         * @property lg - Large: 40px tall
          */
         Size: PaginationSizeType,
         /**
          * East VariantType for the Pagination visual variant.
          *
-         * @property outline - Outlined button treatment
-         * @property subtle - Subtle-background treatment (default)
+         * @property outline - Each button on the paper with an edge (default)
+         * @property subtle - No edge and no paper, but on hover and the current page
          */
         Variant: PaginationVariantType,
     },

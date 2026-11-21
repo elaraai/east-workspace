@@ -6,13 +6,11 @@
 import { memo, useMemo, useCallback, useRef } from "react";
 import {
     Box,
-    IconButton,
     Pagination as ChakraPagination,
-    useRecipe,
     useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight, faEllipsis } from "@fortawesome/free-solid-svg-icons";
+import { faAngleLeft, faAngleRight, faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Pagination } from "@elaraai/east-ui/internal";
 import { useContainerBelow } from "../../contracts/adaptive.js";
@@ -27,9 +25,6 @@ export interface EastChakraPaginationProps {
     value: PaginationValue;
     storageKey: string;
 }
-
-/** The icon button's size a run of left-out pages is drawn at, for each size a pagination declares: a square of its height. */
-const RUN_SIZE = { sm: "2xs", md: "md", lg: "lg" } as const;
 
 /**
  * Renders an East UI Pagination value using Chakra v3's `Pagination`
@@ -46,15 +41,15 @@ const RUN_SIZE = { sm: "2xs", md: "md", lg: "lg" } as const;
  * `onPageChange(newPage)` via `queueMicrotask` to avoid double-firing
  * under React StrictMode.
  *
- * A run of pages the strip leaves out is Chakra's icon button, as Chakra
- * draws it, holding Font Awesome's ellipsis (#1263) at the size Chakra's icon
- * took there (the `iconButtonMark` recipe).
- *
- * The size the pagination declares is the design system's — 24, 32 or 40
- * tall at `sm`, `md` and `lg` — its page chips, its triggers and its runs of
- * pages left out each that height (the `pagination` recipe's `size`, and the
- * icon button's square of it). One that declares none draws the recipe's
- * base look.
+ * Every pagination is the design system's (`parts-pagination`): its page
+ * buttons and its previous and next triggers — buttons too, each Font
+ * Awesome's angle — at the size it declares, 24, 32 or 40 tall at `sm`, `md`
+ * and `lg`, `sm` where it declares none, drawn `outline` or `subtle`,
+ * `outline` where it declares none (the `pagination` recipe's `size` and
+ * `variant`). A run of pages the strip leaves out is a gap marked by Font
+ * Awesome's ellipsis (#1263), a mark, not a button. Its `siblings` are the
+ * pages either side of the current one, its `boundaries` the pages at either
+ * end; one of each where it declares none.
  *
  * Below 360px of room the page strip is a `page / total` readout (#351). The
  * room is the root's width, which the `pagination` recipe makes as wide as
@@ -68,7 +63,9 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     const activeBackground = style ? getSomeorUndefined(style.activeBackground) : undefined;
     const activeColor = style ? getSomeorUndefined(style.activeColor) : undefined;
     const siblings = style ? getSomeorUndefined(style.siblings) : undefined;
+    const boundaries = style ? getSomeorUndefined(style.boundaries) : undefined;
     const size = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const variant = style ? getSomeorUndefined(style.variant)?.type : undefined;
 
     const onPageChangeFn = value.onPageChange;
 
@@ -80,10 +77,9 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
         queueMicrotask(() => onPageChangeFn(BigInt(details.page - 1)));
     }, [onPageChangeFn]);
 
+    // The recipe's defaults stand where it declares none: `sm`, `outline`.
     const recipe = useSlotRecipe({ key: "pagination" });
-    const styles = recipe(size === undefined ? {} : { size });
-    const runSize = size === undefined ? undefined : RUN_SIZE[size];
-    const ellipsisMark = useRecipe({ key: "iconButtonMark" })({ size: runSize ?? "md" });
+    const styles = recipe({ ...(size === undefined ? {} : { size }), ...(variant === undefined ? {} : { variant }) });
 
     // Compact containers (#351): the page-number strip collapses to a
     // "page / total" readout between prev/next. The width read is the
@@ -119,18 +115,21 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     return (
         <ChakraPagination.Root
             ref={rootRef}
-            // The recipe's size for every part the Root's context styles — its chips and its runs of pages left out too.
-            size={size}
+            // Every part is drawn in the styles read above, at the pagination's size and variant, its own colours over
+            // them: the Root hands its parts none, as styles it handed down would stand over a part's own.
+            unstyled
+            css={styles.root}
             count={count}
             pageSize={pageSize}
             page={irPage + 1}
             siblingCount={siblings !== undefined ? Number(siblings) : undefined}
+            boundaryCount={boundaries !== undefined ? Number(boundaries) : undefined}
             onPageChange={handleChange}
         >
             <Box css={styles.bar}>
                 <ChakraPagination.PrevTrigger asChild>
                     <Box as="button" aria-label="Previous page" css={{ ...styles.prevTrigger, ...triggerOverride }}>
-                        <FontAwesomeIcon icon={faChevronLeft} />
+                        <FontAwesomeIcon icon={faAngleLeft} />
                     </Box>
                 </ChakraPagination.PrevTrigger>
 
@@ -143,13 +142,14 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
                         render={(page) => (
                             <Box as="button" aria-label={`Page ${page.value}`} css={itemCss}>{page.value}</Box>
                         )}
-                        ellipsis={<IconButton as="span" size={runSize} css={ellipsisMark}><FontAwesomeIcon icon={faEllipsis} /></IconButton>}
+                        // Chakra's gap takes this element as its own: a span, its mark inside it.
+                        ellipsis={<Box as="span" css={styles.ellipsis}><FontAwesomeIcon icon={faEllipsis} /></Box>}
                     />
                 )}
 
                 <ChakraPagination.NextTrigger asChild>
                     <Box as="button" aria-label="Next page" css={{ ...styles.nextTrigger, ...triggerOverride }}>
-                        <FontAwesomeIcon icon={faChevronRight} />
+                        <FontAwesomeIcon icon={faAngleRight} />
                     </Box>
                 </ChakraPagination.NextTrigger>
             </Box>
