@@ -385,6 +385,16 @@ and saves nothing. A draft that no longer fits its record ends the call
   the entry's panel shows the refusal over its form, the field ringed, an
   Issues tab lists it, and the history's warning button selects the entry.
   Save's menu holds Autosave, off unless `autosave` (a Boolean) begins it on.
+- **A new row's key is decided the same way on every builder**, on what adds
+  the row: the `<Sheet>` / `<Record>` tag, `Schedule.events`, `Roster.targets`,
+  `Plan.links`, a Flowchart's or a Schematic's kind. `newKey` is the app's rule,
+  an East function from the keys taken to a new one. `key: (row) => …` builds it
+  from the row: a row an edit changes the key of moves under it, and a key
+  another row holds is refused on the page. Give one, never both. `keyField`
+  names a field of the row that holds its key, which the builder writes and no
+  role may. With none, a String key is made up and an Integer's is one past the
+  largest (`e3-ui:record.examples.tsx:recordConflicts`, `recordStaffIds`,
+  `e3-ui:flowchart.examples.tsx:flowchartBakery`).
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,
