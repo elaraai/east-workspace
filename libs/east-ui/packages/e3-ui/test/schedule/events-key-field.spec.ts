@@ -10,7 +10,8 @@
  * Allocation share (`Schedule.events`). Its session names the field as its
  * entries' identity field, which the renderer's session keeps a new event's
  * key in; its Save writes a new job's key into it and leaves a stored job's
- * alone; its form shows the field read only; and what it refuses.
+ * alone; its form shows the field read only, or leaves it out where the app's
+ * own hint hides it; and what it refuses.
  *
  * e3-ui's specs read and write no e3: the record is a handle made by hand
  * (`record-handles.ts`), its draft door answering the patch as a draft.
@@ -81,6 +82,12 @@ describe("an event kind told its record's key field", () => {
         const keyed = jobsKind({ keyField: "ref", fields: { ref: Schedule.field.text({ label: "Job no." }) } })();
         assert.deepEqual([editorOf(keyed, "ref"), editorOf(keyed, "crew")], ["Job no.: readonly", "Crew: number"]);
         assert.equal(editorOf(jobsKind({})(), "ref"), "Ref: text");
+    });
+
+    test("a key field the app's own hint hides stays out of the form, and the session keeps a new event's key in it all the same", () => {
+        const hidden = jobsKind({ keyField: "ref", fields: { ref: Schedule.field.hidden() } })();
+        assert.deepEqual(hidden.fields.map((one) => one.path[0]).filter((name) => name !== undefined && equalFor(StringType)(name, "ref")), []);
+        assert.ok(equalFor(OptionType(StringType))(hidden.editing.idField, some("ref")));
     });
 
     test("refuses a field of another type than the key, and one a role of the kind writes, naming the role", () => {

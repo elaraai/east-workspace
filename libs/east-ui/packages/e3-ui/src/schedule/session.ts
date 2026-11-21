@@ -51,16 +51,19 @@ export const SCHEDULE_PATCH_DOOR = "patch";
 /**
  * A form's hints with the record's key field shown read only: the builder
  * keeps a row's key in that field, so no person edits it — under the label
- * and the line its own hint gives, where it has one.
+ * and the line its own hint gives, where it has one. A key field the app's
+ * own hint hides stays hidden: no person edits it there either.
  *
  * @param hints - The form's hints, by field
  * @param keyField - The field the record's rows hold their key in; `undefined` for a record whose rows hold none
- * @returns The hints, the key field's read only
+ * @returns The hints, the key field's read only, or hidden as the app has it
  */
 export function keyFieldHints(hints: Readonly<globalThis.Record<string, unknown>>, keyField: string | undefined): Readonly<globalThis.Record<string, unknown>> {
     if (keyField === undefined) return hints;
     const own = hints[keyField];
-    const said = typeof own === "object" && own !== null && FIELD_HINT in own ? own as { readonly label?: string; readonly help?: string } : undefined;
+    const said = typeof own === "object" && own !== null && FIELD_HINT in own
+        ? own as { readonly [FIELD_HINT]: string; readonly label?: string; readonly help?: string } : undefined;
+    if (said?.[FIELD_HINT] === "hidden") return hints;
     return { ...hints, [keyField]: Fields.readonly({ ...(said?.label !== undefined && { label: said.label }), ...(said?.help !== undefined && { help: said.help }) }) };
 }
 
