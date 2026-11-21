@@ -393,8 +393,8 @@ and saves nothing. A draft that no longer fits its record ends the call
   another row holds is refused on the page. Give one, never both. `keyField`
   names a field of the row that holds its key, which the builder writes and no
   role may. With none, a String key is made up and an Integer's is one past the
-  largest (`e3-ui:record.examples.tsx:recordConflicts`, `recordStaffIds`,
-  `e3-ui:flowchart.examples.tsx:flowchartBakery`).
+  largest (`e3-ui:record.examples.tsx:recordConflicts`, `recordBuiltKeys`,
+  `recordStaffIds`, `e3-ui:calendar.examples.tsx:calendarBuiltKeys`).
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,

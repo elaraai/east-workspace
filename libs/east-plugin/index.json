@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1387,
+    "totalEntries": 1389,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 222,
+      "e3-ui": 224,
       "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -42569,6 +42569,44 @@
       "source": "// Your edits meeting someone else's save, in one window — move or resize a job, then press Someone else saves, which saves another person's change to the same jobs (every job an hour later), so yours conflict, its dates one card to choose; a customer or hours you change in the panel combines with theirs\n// inputs: []\n/** The resources of a small metal fabrication shop. */\nexport const CalendarMachine = StructType({ name: StringType, area: StringType });\n\n/** A job's lifecycle. */\nexport const CalendarJobState = VariantType({ planned: NullType, active: NullType, done: NullType });\n\n/** A job may wait in the backlog; its own record holds its unscheduled rows. */\nexport const CalendarJob = StructType({ title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), machine: OptionType(StringType),\n    status: CalendarJobState, hours: FloatType, customer: StringType, due: OptionType(DateTimeType) });\n\nexport const calendarMachines = e3.record(\"calendar_machines\", DictType(StringType, CalendarMachine), {\n    initial: new Map([\n        [\"press1\", { name: \"Press 1\", area: \"Press shop\" }], [\"press2\", { name: \"Press 2\", area: \"Press shop\" }],\n        [\"lathe1\", { name: \"Lathe 1\", area: \"Machine shop\" }], [\"lathe2\", { name: \"Lathe 2\", area: \"Machine shop\" }],\n    ]),\n    indexes: (index) => ({\n        calendar_machines_by_area: index.on([\"area\"]),\n    }),\n    mutations: (mutation) => ({\n        // The shop edits its machines and job templates elsewhere, each through its patch door; the Calendar reads them live.\n        patch: mutation.patch(),\n    }),\n});\n\n/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */\nexport const calendarConflictJobs = e3.record(\"calendar_conflict_jobs\", DictType(StringType, CalendarJob), {\n    initial: new Map([\n        [\"job1\", { title: \"Mounting brackets\", start: some(new Date(\"2026-10-01T06:00:00Z\")), end: some(new Date(\"2026-10-01T10:00:00Z\")), machine: some(\"press1\"), status: variant(\"active\", null), hours: 4.0, customer: \"Alder Works\", due: none }],\n        [\"job2\", { title: \"Pump housings\", start: some(new Date(\"2026-10-01T08:00:00Z\")), end: some(new Date(\"2026-10-01T13:00:00Z\")), machine: some(\"lathe1\"), status: variant(\"planned\", null), hours: 5.0, customer: \"Birch Engineering\", due: none }],\n        [\"job3\", { title: \"Mounting plates\", start: some(new Date(\"2026-10-01T11:00:00Z\")), end: some(new Date(\"2026-10-01T12:30:00Z\")), machine: some(\"press2\"), status: variant(\"planned\", null), hours: 1.5, customer: \"Cedar Fabrication\", due: none }],\n        [\"job4\", { title: \"Bearing collars\", start: some(new Date(\"2026-10-01T09:00:00Z\")), end: some(new Date(\"2026-10-01T12:00:00Z\")), machine: some(\"lathe2\"), status: variant(\"planned\", null), hours: 3.0, customer: \"Alder Works\", due: none }],\n    ]),\n    mutations: (mutation) => ({\n        // The jobs' patch door — every Save commits through it.\n        patch: mutation.patch(),\n        // Someone else's save: every job an hour later, its length and its other fields as they were.\n        elsewhere: mutation.reduce(East.function([DictType(StringType, CalendarJob)], DictType(StringType, CalendarJob), (_$, jobs) =>\n            jobs.map((_$2, job) => ({\n                title: job.title,\n                start: job.start.match({\n                    some: (_$3, at) => East.value(some(at.addHours(1n)), OptionType(DateTimeType)),\n                    none: (_$3) => East.value(none, OptionType(DateTimeType)),\n                }),\n                end: job.end.match({\n                    some: (_$3, at) => East.value(some(at.addHours(1n)), OptionType(DateTimeType)),\n                    none: (_$3) => East.value(none, OptionType(DateTimeType)),\n                }),\n                machine: job.machine, status: job.status, hours: job.hours, customer: job.customer, due: job.due,\n            })))),\n    }),\n});\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const machines = $.let(Record.bind(calendarMachines, []));\n        const jobs = $.let(Record.bind(calendarConflictJobs, [\"patch\"]));\n        const others = $.let(Record.bind(calendarConflictJobs, [\"elsewhere\"]));\n        const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));\n        return <VStack gap=\"3\" align=\"stretch\">\n            <HStack gap=\"3\">\n                <Button variant=\"outline\" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>\n                <Text color=\"fg.muted\">Their change: every job an hour later</Text>\n            </HStack>\n            <Box height=\"680px\"><Calendar id=\"conflicts\" inspector view={{ period: \"week\", date: new Date(\"2026-10-01T00:00:00Z\") }} now={new Date(\"2026-10-01T10:15:00Z\")}\n                resources={{ machines: Calendar.resources(machines.read(), { name: \"Machines\", icon: \"gears\", label: row => row.name }) }}\n                events={{ job: Calendar.events(jobs, { name: \"Production\", icon: \"industry\", title: \"title\", start: \"start\", end: \"end\", resource: { field: \"machine\", of: \"machines\" } }) }} />\n            </Box>\n        </VStack>;\n    }}</Reactive>)"
     },
     {
+      "id": "e3-ui:calendar.examples.tsx:calendarBuiltKeys",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/calendar/calendar.examples.tsx",
+      "suite": "",
+      "test": "Events keyed by the key their row builds: machine reservations keyed by their machine and their start, with `key` on the event kind — a function of the row, held to the record's key type. A reservation moved to another start or another machine moves under the key it then builds, and one that would build a key another reservation holds is refused, the Calendar naming the key — so no machine is reserved twice for one start. A copy stands under the key its own row builds. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key.",
+      "keywords": [
+        "Calendar",
+        "Calendar.events",
+        "Schedule.events",
+        "key",
+        "built key",
+        "key from the row",
+        "row key",
+        "composite key",
+        "natural key",
+        "East.str",
+        "double booking",
+        "key taken",
+        "refused",
+        "move",
+        "Duplicate",
+        "newKey",
+        "keyField",
+        "Record.bind"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Events keyed by the key their row builds: machine reservations keyed by their machine and their start, with `key` on the event kind — a function of the row, held to the record's key type. A reservation moved to another start or another machine moves under the key it then builds, and one that would build a key another reservation holds is refused, the Calendar naming the key — so no machine is reserved twice for one start. A copy stands under the key its own row builds. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key.\n// inputs: []\n/** The resources of a small metal fabrication shop. */\nexport const CalendarMachine = StructType({ name: StringType, area: StringType });\n\nexport const calendarMachines = e3.record(\"calendar_machines\", DictType(StringType, CalendarMachine), {\n    initial: new Map([\n        [\"press1\", { name: \"Press 1\", area: \"Press shop\" }], [\"press2\", { name: \"Press 2\", area: \"Press shop\" }],\n        [\"lathe1\", { name: \"Lathe 1\", area: \"Machine shop\" }], [\"lathe2\", { name: \"Lathe 2\", area: \"Machine shop\" }],\n    ]),\n    indexes: (index) => ({\n        calendar_machines_by_area: index.on([\"area\"]),\n    }),\n    mutations: (mutation) => ({\n        // The shop edits its machines and job templates elsewhere, each through its patch door; the Calendar reads them live.\n        patch: mutation.patch(),\n    }),\n});\n\n/** A machine's reservation: the machine and the start its key is built from, what it is for, and when it ends. */\nexport const CalendarReservation = StructType({ machine: StringType, title: StringType, start: DateTimeType, end: DateTimeType });\n\n/** The reservations the built-keys example edits, each keyed as its machine and its start build it, in a record of their own. */\nexport const calendarReservations = e3.record(\"calendar_reservations\", DictType(StringType, CalendarReservation), {\n    initial: new Map([\n        [\"press1@2026-10-01T07:00:00.000\", { machine: \"press1\", title: \"Tool trial\", start: new Date(\"2026-10-01T07:00:00Z\"), end: new Date(\"2026-10-01T09:00:00Z\") }],\n        [\"press1@2026-10-01T11:00:00.000\", { machine: \"press1\", title: \"Operator training\", start: new Date(\"2026-10-01T11:00:00Z\"), end: new Date(\"2026-10-01T12:30:00Z\") }],\n        [\"lathe1@2026-10-01T07:00:00.000\", { machine: \"lathe1\", title: \"First-article run\", start: new Date(\"2026-10-01T07:00:00Z\"), end: new Date(\"2026-10-01T10:00:00Z\") }],\n    ]),\n    mutations: (mutation) => ({\n        // The reservations' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const machines = $.let(Record.bind(calendarMachines, []));\n        const reservations = $.let(Record.bind(calendarReservations));\n        return <Box height=\"640px\"><Calendar id=\"builtKeys\" inspector view={{ layout: \"resources\", period: \"day\", date: new Date(\"2026-10-01T00:00:00Z\") }} now={new Date(\"2026-10-01T10:15:00Z\")}\n            resources={{ machines: Calendar.resources(machines.read(), { name: \"Machines\", icon: \"gears\", label: row => row.name }) }}\n            events={{ reservation: Calendar.events(reservations, { name: \"Reservation\", icon: \"calendar\", title: \"title\", start: \"start\", end: \"end\", resource: { field: \"machine\", of: \"machines\" },\n                // A reservation's key, built from its row: its machine and its start.\n                key: row => East.str`${row.machine}@${row.start}`,\n            }) }} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
       "id": "e3-ui:optimise.examples.tsx:calendarOptimise",
       "skill": "e3-ui",
       "package": "e3-ui",
@@ -45985,6 +46023,41 @@
         "tsx"
       ],
       "source": "// A record whose rows hold their own key in a field: the staff list keyed by staff id, each member's `id` their key too. `keyField` names the field, so a member Add drafts shows the id the Record keyed them by at once and is saved with it — and takes the next id with their key where someone else's save took theirs first. `newRow` gives a new member their team and says nothing of their id, and the id's column is read only\n// inputs: []\n/** A member of staff: their staff id, which their row is keyed by too, their name and their team. */\nexport const StaffMember = StructType({ id: StringType, name: StringType, team: StringType });\n\nexport const recordStaff = e3.record(\"record_staff\", DictType(StringType, StaffMember), {\n    initial: new Map([\n        [\"S-001\", { id: \"S-001\", name: \"A. Morgan\", team: \"Inbound\" }],\n        [\"S-002\", { id: \"S-002\", name: \"B. Ellis\", team: \"Outbound\" }],\n    ]),\n    mutations: (mutation) => ({\n        // The staff list's patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const staff = $.let(Record.bind(recordStaff));\n            // A new member's key in the list's own scheme: given every key taken, the first S-00N none of them is.\n            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {\n                const n = $.let(taken.size().add(1n));\n                $.while(taken.has(East.str`S-00${n}`), ($2) => {\n                    $2.assign(n, n.add(1n));\n                });\n                return East.str`S-00${n}`;\n            }));\n            // A new member as they join: in Inbound, their name left to type — and their id the Record's to keep.\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StaffMember), (_$) => Record.patch(StaffMember, { team: \"Inbound\" })));\n            return (\n                <Box height=\"360px\">\n                    <Record\n                        record={staff}\n                        // The field each member's key is held in too: the Record keeps it for every member it adds.\n                        keyField=\"id\"\n                        title=\"Staff\"\n                        noun={{ singular: \"member\", plural: \"members\" }}\n                        columns={{\n                            name: Record.column.title(StaffMember, { header: \"Name\", width: \"176px\" }),\n                            id:   Record.column.text(StaffMember, { header: \"Staff id\", width: \"112px\" }),\n                            team: Record.column.text(StaffMember, { header: \"Team\", width: \"136px\" }),\n                        }}\n                        newKey={newKey}\n                        newRow={newRow}\n                        name=\"recordStaffIds\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBuiltKeys",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `key` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key",
+      "keywords": [
+        "Record",
+        "key",
+        "built key",
+        "key from the row",
+        "row key",
+        "composite key",
+        "natural key",
+        "East.str",
+        "newRow",
+        "Record.patch",
+        "Add",
+        "duplicate key",
+        "key taken",
+        "refused"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `key` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key\n// inputs: []\n/** A stock location: what it holds, and the aisle and the bin its key is built from. */\nexport const StockLocation = StructType({ item: StringType, aisle: StringType, bin: IntegerType });\n\nexport const recordLocations = e3.record(\"record_locations\", DictType(StringType, StockLocation), {\n    initial: new Map([\n        [\"A-1\", { item: \"Pallet wrap\", aisle: \"A\", bin: 1n }],\n        [\"A-2\", { item: \"Strapping\", aisle: \"A\", bin: 2n }],\n        [\"B-1\", { item: \"Corner boards\", aisle: \"B\", bin: 1n }],\n    ]),\n    mutations: (mutation) => ({\n        // The locations' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const locations = $.let(Record.bind(recordLocations));\n            // A new location as it is added: in aisle C, its bin and what it holds left to type.\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockLocation), (_$) => Record.patch(StockLocation, { aisle: \"C\" })));\n            return (\n                <Box height=\"360px\">\n                    <Record\n                        record={locations}\n                        // A location's key, built from its row: its aisle and its bin.\n                        key={(location) => East.str`${location.aisle}-${location.bin}`}\n                        title=\"Stock locations\"\n                        noun={{ singular: \"location\", plural: \"locations\" }}\n                        columns={{\n                            item:  Record.column.title(StockLocation, { header: \"Holds\", width: \"200px\" }),\n                            aisle: Record.column.text(StockLocation, { header: \"Aisle\", width: \"96px\" }),\n                            bin:   Record.column.integer(StockLocation, { header: \"Bin\", width: \"96px\" }),\n                        }}\n                        newRow={newRow}\n                        name=\"recordBuiltKeys\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",

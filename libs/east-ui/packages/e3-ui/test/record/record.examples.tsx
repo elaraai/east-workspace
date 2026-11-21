@@ -12,7 +12,8 @@
  * binding, the Record. Two page the Sheet's 50,000 work orders
  * (`sheet/sheet-records.examples.tsx`) through their indexes, one meets
  * someone else's save — a change, a removal and an addition — in one window,
- * and the last keeps each row's key in the field that holds it.
+ * one keeps each row's key in the field that holds it, and the last keys each
+ * row by the key its row builds.
  */
 
 import {
@@ -1388,6 +1389,55 @@ export const recordStaffIds = example({
                         newKey={newKey}
                         newRow={newRow}
                         name="recordStaffIds"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 15 — rows keyed by the key their row builds
+// ============================================================================
+
+/** A stock location: what it holds, and the aisle and the bin its key is built from. */
+export const StockLocation = StructType({ item: StringType, aisle: StringType, bin: IntegerType });
+export const recordLocations = e3.record("record_locations", DictType(StringType, StockLocation), {
+    initial: new Map([
+        ["A-1", { item: "Pallet wrap", aisle: "A", bin: 1n }],
+        ["A-2", { item: "Strapping", aisle: "A", bin: 2n }],
+        ["B-1", { item: "Corner boards", aisle: "B", bin: 1n }],
+    ]),
+    mutations: (mutation) => ({
+        // The locations' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordBuiltKeys = example({
+    keywords: ["Record", "key", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "newRow", "Record.patch", "Add", "duplicate key", "key taken", "refused"],
+    description: "A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `key` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const locations = $.let(Record.bind(recordLocations));
+            // A new location as it is added: in aisle C, its bin and what it holds left to type.
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockLocation), (_$) => Record.patch(StockLocation, { aisle: "C" })));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={locations}
+                        // A location's key, built from its row: its aisle and its bin.
+                        key={(location) => East.str`${location.aisle}-${location.bin}`}
+                        title="Stock locations"
+                        noun={{ singular: "location", plural: "locations" }}
+                        columns={{
+                            item:  Record.column.title(StockLocation, { header: "Holds", width: "200px" }),
+                            aisle: Record.column.text(StockLocation, { header: "Aisle", width: "96px" }),
+                            bin:   Record.column.integer(StockLocation, { header: "Bin", width: "96px" }),
+                        }}
+                        newRow={newRow}
+                        name="recordBuiltKeys"
                     />
                 </Box>
             );
