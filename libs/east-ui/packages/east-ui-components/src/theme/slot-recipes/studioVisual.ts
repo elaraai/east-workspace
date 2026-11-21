@@ -45,13 +45,19 @@ const HEAD_ROOM = 34;
 const KPI_AT_20 = "@container (max-width: 143.98px)";
 const KPI_AT_16 = "@container (max-width: 110.98px)";
 
+/**
+ * Under this width a tile's foot stands its note and its pager on a line each (#1692): under 360px a pager draws its
+ * readout (#1268), and its room beside a note would hold neither whole.
+ */
+const FOOT_STACKED = "@container (max-width: 359.98px)";
+
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
         "tile", "head", "name", "end", "meta", "follow", "body", "root", "caption", "note", "table", "foot",
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
-        "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
+        "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValues", "listPair", "listValue", "listUnit", "listBar", "listBarFill",
         "state", "message", "empty", "emptyIcon", "emptyTitle", "emptyHint", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
         "bell", "alerts", "alertRow", "alertName", "alertStatus", "alertNow", "alertNowHead", "alertNowLabel", "alertTable", "alertFoot",
     ],
@@ -95,18 +101,25 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A line over a chart's plot that says what its axes are, where a legend would sit: mono 10.5 / 500 `--ink-4` on
            the legend's 13px line, 12 over the plot with the body's gap. */
         caption: { fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}" },
-        /* What it holds of how many — `Showing 500 of 1,240 groups`: mono 10 `--ink-4`, on a whole 12px line. */
-        note: { fontFamily: "mono", fontSize: "label.sm", fontVariantNumeric: "tabular-nums", lineHeight: "12px", color: "fg.subtle", flexShrink: "0" },
+        /* What it holds of how many — `Showing 500 of 1,240 groups`: mono 10 `--ink-4`, on a whole 12px line; one line, ended in
+           an ellipsis where its tile is too narrow for it, its whole on hover (#1692). */
+        note: {
+            fontFamily: "mono", fontSize: "label.sm", fontVariantNumeric: "tabular-nums", lineHeight: "12px", color: "fg.subtle", flexShrink: "0",
+            minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        },
         /* A table, taking the room its foot leaves; a wide one scrolls inside it (TBL-5). */
         table: { flex: "1", minWidth: "0", minHeight: "0", display: "flex", flexDirection: "column" },
         /* Under a table: where its page stands, and its pages — the Frame's footer band, 37 with its `--rule`, on the
            strip's paper, padded 0 20. Its 24px pager and its 12px line are each centred in the even 36 under the rule, on
            one line: the pager's room the rest of the line — the room it reads to draw its strip or its readout (#1268) —
-           and its strip at the room's end, as the room's justification places it. */
+           and its strip at the room's end, as the room's justification places it. In a foot under 360px the note and the
+           pager each take a line, 4 apart, the pager's room the whole line (#1692). */
         foot: {
-            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "center", justifyContent: "flex-end", columnGap: "{spacing.3}", flexShrink: "0",
-            minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
+            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "center", justifyContent: "flex-end", columnGap: "{spacing.3}", rowGap: "{spacing.1}",
+            flexShrink: "0", minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+            containerType: "inline-size",
+            [FOOT_STACKED]: { "& > *": { gridColumn: "1 / -1" } },
         },
         /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well.
            Its width is what its number's size answers (#1692). */
@@ -222,7 +235,10 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
            the 32px pair of an Inter name stood half a pixel off, and so did every pair in the last row, which has no rule. */
         listRow: {
             display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: "6px", flexShrink: "0", minHeight: "48px", boxSizing: "border-box",
-            paddingInline: "{spacing.5}", paddingTop: "16px", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            /* 8 under its words where they run past one line — its values under its name (#1692): a row of one line stands its
+               48 still. */
+            paddingInline: "{spacing.5}", paddingTop: "16px", paddingBottom: "{spacing.2}",
+            borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             "&[data-caption]": { paddingTop: "8px" },
             "&:last-of-type": { borderBottomWidth: "0" },
             "&[data-bar]": { paddingBlock: "10px" },
@@ -234,9 +250,18 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             },
             "&[data-selected], &[data-selected]:hover": { background: "bg.subtle" },
         },
-        /* Its line: its name and caption, then its values with their units, 12 apart. */
-        listLine: { display: "flex", alignItems: "baseline", gap: "{spacing.3}", minWidth: "0" },
-        listText: { display: "flex", flexDirection: "column", gap: "1px", flex: "1", minWidth: "0" },
+        /* Its line: its name and caption, then its values with their units, 12 apart. Where the row has no room for its words
+           beside its values, the values take a line of their own under them, 4 apart (#1692): the words keep their whole
+           width before they are cut — the row's whole, past which they end in an ellipsis. */
+        listLine: { display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "{spacing.3}", rowGap: "{spacing.1}", minWidth: "0" },
+        listText: { display: "flex", flexDirection: "column", gap: "1px", flex: "1 0 auto", minWidth: "0", maxWidth: "100%" },
+        /* Its values, at the line's end, or the end of a line of their own: each with its unit, and where the line has no room
+           for them all, on as many lines as they need, never a value apart from its unit. */
+        listValues: {
+            display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "flex-end", columnGap: "{spacing.3}", rowGap: "{spacing.1}",
+            marginInlineStart: "auto", minWidth: "0", maxWidth: "100%",
+        },
+        listPair: { display: "flex", alignItems: "baseline", gap: "{spacing.3}", flexShrink: "0", whiteSpace: "nowrap" },
         /* Its name: 13 / 500 on a 16px line, `--ink`; its caption 12.5 on a 15px line, `--ink-4`; each cut with an ellipsis. */
         listName: { fontSize: "body", lineHeight: "16px", fontWeight: "500", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         listCaption: { fontSize: "12.5px", lineHeight: "15px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },

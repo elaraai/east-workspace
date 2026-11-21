@@ -30,7 +30,9 @@ import { faFilter } from "@fortawesome/free-solid-svg-icons";
 import { none, printJq, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import type { StudioCellType, StudioSourceType } from "@elaraai/e3-ui/internal";
 import { useFormatters, type ToolbarItem } from "@elaraai/east-ui-components";
-import { SliceChoiceGroup, SliceFilterChips, useSliceDensity, useSliceRailItems, type SliceFilterChip, type SliceRailModel } from "@elaraai/east-ui-components/internal";
+import {
+    SliceChoiceGroup, SliceFilterChips, useSliceDensity, useSliceRailItems, useSlotStyles, type SliceFilterChip, type SliceRailModel,
+} from "@elaraai/east-ui-components/internal";
 import { useVisualRoot } from "../query/visual/answers.js";
 import { filterChip, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource } from "../query/visual/print.js";
@@ -39,7 +41,6 @@ import { useQueryWords } from "../query/words.js";
 import { FilterConditions } from "./filter-editor.js";
 import { useStudioMessages } from "./messages.js";
 import type { PageFilters } from "./page-filters.js";
-import { VisualNote } from "./visual/notes.js";
 
 /** A listed source, decoded. */
 type Source = ValueTypeOf<typeof StudioSourceType>;
@@ -137,6 +138,7 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
     const m = useStudioMessages();
     const words = useQueryWords();
     const density = useSliceDensity();
+    const edit = useSlotStyles("sliceEdit");
     const chips = page.filters.map((filter, i): SliceFilterChip => {
         const on = sources.find((held) => held.source.key === filter.source);
         // Short on the chip — `Region: NSW +1` — and whole on its hover (#1673); its dataset named before its group.
@@ -150,7 +152,7 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
             editLabel: m.filterOf({ source: name }),
             large: true,
             editor: (): ReactNode => (on === undefined
-                ? <VisualNote>{m.filterSourceGone({ source: filter.source })}</VisualNote>
+                ? <Box as="span" css={edit.hint} data-studio-filter-gone="">{m.filterSourceGone({ source: filter.source })}</Box>
                 : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read}
                     onChange={(where) => page.change(i, { ...filter, where })} />),
         };
