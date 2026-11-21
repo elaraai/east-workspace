@@ -355,8 +355,12 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         expect((await slot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         await slot.click(); await settled(page);
         const picker = frame.locator("[data-query-view-picker]");
-        const [p, f] = [(await picker.boundingBox())!, (await frame.boundingBox())!];
-        expect([Math.round(p.width), Math.round(p.height)]).toEqual([Math.round(f.width), Math.round(f.height)]);
+        await expect(picker).toBeVisible();
+        // Read in one go from the frame, which stands: the view is drawn afresh as its slot's summary arrives (its key the
+        // editor's generation), and a handle taken to it a moment before would read the one it replaced.
+        const [p, f] = await frame.evaluate((root) => [root.querySelector("[data-query-view-picker]")!.getBoundingClientRect(), root.getBoundingClientRect()]
+            .map((box) => [Math.round(box.width), Math.round(box.height)]));
+        expect(p).toEqual(f);
         expect(await picker.locator("[role=option]").evaluateAll((rows) => rows.every((r) => r.getBoundingClientRect().height >= 44))).toBe(true);
         await nothingFloats(page);
         // Esc closes the picker, and the Query view stays under it.

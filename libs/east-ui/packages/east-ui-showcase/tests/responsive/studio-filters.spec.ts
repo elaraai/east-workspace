@@ -223,11 +223,14 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         /**
          * Whether the picker stands whole in the popover's body, on top, tall enough for its offers, with no edge of its
          * own — the popover's is the one frame — and the rows' block, and the popover with it, ending where it ends.
+         * Read in one go from the rows, which stand: the picker in them is drawn afresh as its list's summary arrives
+         * (its key the editor's generation), and a handle taken to it a moment before would read the one it replaced.
          */
-        const whole = () => chooser.evaluate((el) => {
+        const whole = () => rows.evaluate((rowsEl) => {
+            const el = rowsEl.querySelector("[data-chooser]")!;
             const box = el.getBoundingClientRect();
-            const block = document.querySelector("[data-studio-filter-rows]")!.getBoundingClientRect();
-            const body = el.closest("[data-scope='popover'][data-part='content']")!.getBoundingClientRect();
+            const block = rowsEl.getBoundingClientRect();
+            const body = rowsEl.closest("[data-scope='popover'][data-part='content']")!.getBoundingClientRect();
             const hit = document.elementFromPoint(box.left + box.width / 2, box.bottom - 8);
             const look = getComputedStyle(el);
             return {
