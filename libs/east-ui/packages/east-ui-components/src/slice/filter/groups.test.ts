@@ -6,11 +6,13 @@
  * (`groups.ts`, #1673): each group's chips together, the groups in the order
  * the host names them and then by their first chip, a group's chips in the
  * host's order, each named group's first chip marked; chips in no group drawn
- * as given, never named.
+ * as given, never named. And what `+N more` holds: the chips after those the
+ * row shows, in its order, each named group marked again before the first of
+ * them.
  */
 
 import { describe, test, expect } from "vitest";
-import { chipOrder } from "./groups.js";
+import { chipOrder, foldedOrder } from "./groups.js";
 
 describe("chipOrder (#1673)", () => {
     test("chips in no group: drawn as the host gives them, no group named", () => {
@@ -41,5 +43,27 @@ describe("chipOrder (#1673)", () => {
 
     test("chips in no group among named ones: one group of their own, after the named groups, never named", () => {
         expect(chipOrder([undefined, "orders", undefined], ["orders"])).toEqual({ order: [1, 0, 2], starts: [true, false, false] });
+    });
+});
+
+describe("foldedOrder (#1673)", () => {
+    /** Filters on two datasets, interleaved: the row draws the orders' two, then the stock's. */
+    const groups = ["orders", "stock", "orders"];
+    const drawn = chipOrder(groups, ["orders", "stock"]);
+
+    test("holds the chips after those the row shows, in the order it draws them: none where it shows every one, every one where it shows none", () => {
+        expect(drawn.order).toEqual([0, 2, 1]);
+        expect(foldedOrder(drawn, groups, 3)).toEqual({ order: [], starts: [] });
+        expect(foldedOrder(drawn, groups, 0)).toEqual(drawn);
+    });
+
+    test("a group it holds whole is named before its first; one split between the row and it is named again before the first it holds", () => {
+        expect(foldedOrder(drawn, groups, 2)).toEqual({ order: [1], starts: [true] });
+        expect(foldedOrder(drawn, groups, 1)).toEqual({ order: [2, 1], starts: [true, true] });
+    });
+
+    test("chips in no group: never named", () => {
+        const none = [undefined, undefined, undefined];
+        expect(foldedOrder(chipOrder(none), none, 1)).toEqual({ order: [1, 2], starts: [false, false] });
     });
 });
