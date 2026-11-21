@@ -14,12 +14,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { StringType, StructType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, givenKeys, randomKeys, useCoarsePointer, useSlicesReactivity, useDataStable, type KnownKeys } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, randomKeys, useCoarsePointer, useSlicesReactivity, useDataStable, type KnownKeys } from "@elaraai/east-ui-components";
 import { useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { recordSliceChoicesOf, type RecordSliceBindType, type RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, cellWritable, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
 import { keyOrderOf } from "./key-order.js";
 import { narrowingOf, sheetViewsEqual } from "./view-state.js";
+import { givenKeys } from "../shared/given-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { todayUtc } from "./parse/date.js";
 import { SheetRefused } from "./creation.js";

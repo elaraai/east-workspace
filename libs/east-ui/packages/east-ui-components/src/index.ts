@@ -628,7 +628,6 @@ export {
     historyKeyOf,
     EntryRefType,
     drawnFromKeys,
-    givenKeys,
     madeFromKeys,
     nextIntegerKeys,
     onceKeys,

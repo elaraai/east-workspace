@@ -22,7 +22,7 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
-    EntryRefType, drawnFromKeys, fieldBreaches, givenKeys, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
+    EntryRefType, drawnFromKeys, fieldBreaches, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
     useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryKeys, type EntryVersion, type LandedEntry, type Origin,
@@ -30,6 +30,7 @@ import {
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
+import { givenKeys } from "../given-keys.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
 
