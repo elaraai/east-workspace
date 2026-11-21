@@ -259,7 +259,11 @@ describe("the shared editing over an event kind that builds each event's key fro
         const again = editing().mint("visits", "", new Set());
         if (again === undefined) throw new Error("expected a key made for the second visit");
         act(() => { expect(editing().record([{ kind: "visits", id: again, row: encodeJob({ ...added, title: "Fit-out again" }), created: true }], "insert", "Add a visit")).toBe(false); });
-        expect(editing().keyRefusal()).toEqual({ kind: "visits", id: "", why: { taken: "V-2" } });
+        expect(editing().keyRefusal()).toEqual({ kind: "visits", name: "Visit", id: "", why: { taken: "V-2" } });
+        // Asked before it is made, a gesture says the same and records nothing.
+        const asked = [{ kind: "visits", id: again, row: encodeJob({ ...added, title: "Fit-out again" }), created: true as const }];
+        expect([editing().keyRefusalOf(asked)?.why, editing().keyRefusalOf([{ ...asked[0]!, row: encodeJob({ ...added, ref: "V-3" }) }]), visitDraft(again), visitDraft("V-3")])
+            .toEqual([{ taken: "V-2" }, undefined, undefined, undefined]);
         await act(async () => { await editing().history.apply(); });
         await waitFor(async () => expect((await h.read(visits)).has("V-2")).toBe(true));
         const saved = await h.read(visits);
@@ -277,7 +281,7 @@ describe("the shared editing over an event kind that builds each event's key fro
         expect([jobEqual(moved.value, renamed), visitDraft("V-1")?.type, editing().renumbered.get("visits")?.get("V-1")]).toEqual([true, "missing", "V-5"]);
         // Its reference typed as the key another visit stands under: refused whole, the visit where it was.
         act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...renamed, ref: "legacy" }) }], "typed", "Edit a visit")).toBe(false); });
-        expect([editing().keyRefusal(), visitDraft("V-5")?.type]).toEqual([{ kind: "visits", id: "V-5", why: { taken: "legacy" } }, "value"]);
+        expect([editing().keyRefusal(), visitDraft("V-5")?.type]).toEqual([{ kind: "visits", name: "Visit", id: "V-5", why: { taken: "legacy" } }, "value"]);
         // The visit an app stored under another key than its reference: its title edited, it stays where it is.
         const titled: ValueTypeOf<typeof Job> = { ref: "V-9", title: "Old survey, revisited", start: DAY, end: LATER };
         act(() => { expect(editing().record([{ kind: "visits", id: "legacy", row: encodeJob(titled) }], "typed", "Edit a visit")).toBe(true); });

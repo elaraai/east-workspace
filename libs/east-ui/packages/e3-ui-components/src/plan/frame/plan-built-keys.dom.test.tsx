@@ -10,8 +10,10 @@
  * its row its form edits. A customer typed in the inspector moves the job
  * under the key it then builds, still selected, and takes the flows that name
  * it with it — each written to name its new key, in the same step — and Save
- * writes the job and its flows so. Flows bound read only cannot follow: the
- * edit is refused, the job where it was.
+ * writes the job and its flows so. An edit its key refuses says why under its
+ * field: the key it would build is another job's, or — the flows bound read
+ * only — its flows cannot follow it. Duplicate is off for a job standing
+ * under the key its row builds, whose copy would build that key too.
  */
 
 import { describe, test, expect } from "vitest";
@@ -34,6 +36,10 @@ const pane = (c: HTMLElement) => slot(c, "end")!;
 const inspected = (c: HTMLElement) => pane(c).querySelector("[data-inspector-title]")?.textContent ?? null;
 /** The customer's box in the selected event's form. */
 const customerBox = (c: HTMLElement) => within(pane(c).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='customer']")!).getByRole("textbox");
+/** What the customer's field reads: its label, and under it why it refused an edit. */
+const customerField = (c: HTMLElement) => pane(c).querySelector("[data-inspector-fields='form'] [data-field='customer']")!.textContent;
+/** Whether Duplicate is off for the selected event. */
+const duplicateOff = (c: HTMLElement) => pane(c).querySelector<HTMLButtonElement>('[data-inspector-action="duplicate"]')!.disabled;
 /** How many changes wait on Save, as the footer says it. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
 /** Presses one of the history's buttons, by its name, and lets what it starts settle. */
@@ -60,10 +66,14 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         fireEvent.click(job(c, "J-2001")!);
         await settle();
         expect(inspected(c)).toBe("Catalogue covers");
+        // Stored under another key than its customer builds, its copy would stand under one of its own: Duplicate is on.
+        expect(duplicateOff(c)).toBe(false);
         await typeCustomer(c, "Quay Books");
         // Under the key its customer builds, its bar where it was, the inspector on it still.
         expect([job(c, "J-2001"), job(c, "Quay Books") !== null, inspected(c)]).toEqual([null, true, "Catalogue covers"]);
         expect([job(c, "Quay Books")!.getAttribute("aria-pressed"), customerBox(c).getAttribute("value")]).toEqual(["true", "Quay Books"]);
+        // Its copy would build the key it now stands under: Duplicate is off.
+        expect(duplicateOff(c)).toBe(true);
         // One step: Undo puts the job back under J-2001, and nothing is left to save.
         await press(c, editingMessages.undo());
         expect([job(c, "J-2001") !== null, job(c, "Quay Books"), pending(c)]).toEqual([true, null, "0 pending"]);
@@ -77,7 +87,7 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         expect(sameFlow(flows.get("plates")!, { from: variant("plate", "P-01"), to: variant("job", "Quay Books"), sheets: none })).toBe(true);
     });
 
-    test("ruling 1 — a customer that builds a key another job stands under is refused, the job where it was; and where the flows are read only, a job a flow names stays under its key", async () => {
+    test("ruling 1 — a customer that builds a key another job stands under is refused, the job where it was, its field saying whose key it is; and where the flows are read only, a job a flow names stays under its key, its field saying its flows can't follow", async () => {
         const first = await h.mount(flowsPlan(keyedByCustomer));
         await settle();
         fireEvent.click(job(first.container, "J-2001")!);
@@ -85,6 +95,7 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         // Shop posters stand under J-2002.
         await typeCustomer(first.container, "J-2002");
         expect([job(first.container, "J-2001") !== null, inspected(first.container), pending(first.container)]).toEqual([true, "Catalogue covers", "0 pending"]);
+        expect(customerField(first.container)).toContain('Another print job is keyed "J-2002" already');
         first.unmount();
         const { container: c } = await h.mount(flowsPlan({ ...keyedByCustomer, readOnly: true }), { storageKey: "plan-read-only-flows" });
         await settle();
@@ -92,5 +103,6 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         await settle();
         await typeCustomer(c, "Quay Books");
         expect([job(c, "J-2001") !== null, job(c, "Quay Books"), inspected(c), pending(c)]).toEqual([true, null, "Catalogue covers", "0 pending"]);
+        expect(customerField(c)).toContain("Its flows can't follow this print job to another key");
     });
 });

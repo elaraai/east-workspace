@@ -6,11 +6,11 @@
 /** One command path for desktop gestures and explicit agenda actions. */
 import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
-import type { ScheduleChange, ScheduleEditing, ScheduleKeyRefusal } from "../shared/schedule/editing.js";
+import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { durationMinutes } from "../shared/schedule/due.js";
 import { fieldChange } from "../shared/schedule/records.js";
-import { lowerWord } from "../shared/schedule/words.js";
+import { keyRefusedText, lowerWord } from "../shared/schedule/words.js";
 import {
     QUARTER, resourceKey, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
 } from "./model.js";
@@ -65,32 +65,22 @@ export interface CalendarPagedRows {
 const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
 
 /**
- * What a key refused says (east-workspace#1709): the key its event's fields build, or its kind's rule gave, is another
- * event's; or none could be made.
- *
- * @param refusal - The refusal, as the shared editing gives it
- * @param name - The event kind's name
- * @returns Its words
- */
-function keyRefusedWords(refusal: ScheduleKeyRefusal, name: string): string {
-    const noun = lowerWord(name);
-    if ("taken" in refusal.why) return `Another ${noun} is keyed "${refusal.why.taken}" already`;
-    return "named" in refusal.why ? `${refusal.why.named} names this ${noun} by its key, and cannot follow it` : `No key can be made for this ${noun}`;
-}
-
-/**
  * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
  * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343) — of a paged kind, one of the
  * windows the frame holds (`paged`, #1424). A gesture whose event's key is refused — the key its fields build is another
- * event's, or its kind's rule makes none — records nothing, and says why (`refused`).
+ * event's, or its kind's rule makes none — records nothing, and says why (`refused`); asked of a gesture not made yet
+ * (`checkOnly`), a command answers with those words, as it does with any other refusal.
  */
 export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = [],
     shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS, refused: (why: string) => void = () => undefined): CalendarCommands {
     const kindOf = (item: CalendarItem) => value.events.find(kind => kind.key === item.kind);
-    /** Why the last gesture made no key, in the Calendar's words; `undefined` where it was refused for no key. */
-    const keyRefused = (): string | undefined => {
-        const refusal = editing.keyRefusal();
-        return refusal === undefined ? undefined : keyRefusedWords(refusal, value.events.find(kind => kind.key === refusal.kind)?.name ?? "event");
+    /**
+     * Why a gesture's keys refuse it, in the shared words: the gesture just made, or — given its changes — one not made
+     * yet. `undefined` where its keys stand.
+     */
+    const keyRefused = (asked?: readonly ScheduleChange[]): string | undefined => {
+        const refusal = asked === undefined ? editing.keyRefusal() : editing.keyRefusalOf(asked);
+        return refusal === undefined ? undefined : keyRefusedText(refusal.name, refusal.why);
     };
     /** Records a gesture, saying why where its key refuses it. */
     const record: ScheduleEditing["record"] = (changes, origin, label) => {
@@ -155,7 +145,9 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
             if (id === undefined) return keyRefused() ?? "This record's key type needs an application-provided new key";
             const gesture = creating ? variant("create", { template: source.template.key, ...at }) : variant("place", at);
             const refused = checkedWrite(source.kind, id, gesture); if (refused !== undefined) return refused;
-            if (!checkOnly && record([{ kind: source.kind.key, id, gesture }], creating ? "insert" : origin,
+            const changes: ScheduleChange[] = [{ kind: source.kind.key, id, gesture }];
+            if (checkOnly) return keyRefused(changes);
+            if (record(changes, creating ? "insert" : origin,
                 `${creating ? "Create" : "Schedule"} ${creating ? source.template.name : source.item.title}`)) select([{ kind: source.kind.key, key: id }]);
             return undefined;
         },
@@ -169,7 +161,8 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 if (refused !== undefined) return refused;
                 changes.push({ kind: item.kind, id: item.key, gesture: variant("place", at) });
             }
-            if (!checkOnly) record(changes, "move", `Move ${items.length} events`);
+            if (checkOnly) return keyRefused(changes);
+            record(changes, "move", `Move ${items.length} events`);
             return undefined;
         },
         remove(items) { if (record(items.map(item => ({ kind: item.kind, id: item.key, remove: true })), "remove", `Delete ${items.length} events`)) select([]); },
@@ -181,7 +174,9 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 const refused = checkedWrite(kind, item.key, variant("unplace", null));
                 if (refused !== undefined) return refused;
             }
-            if (!checkOnly) record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
+            const changes = items.map((item): ScheduleChange => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) }));
+            if (checkOnly) return keyRefused(changes);
+            record(changes, "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
             return undefined;
         },
         duplicate(items) {

@@ -251,6 +251,8 @@ export type ScheduleRenumbered = ReadonlyMap<string, ReadonlyMap<string, string>
 export interface ScheduleKeyRefusal {
     /** The kind's slot, or the record's key. */
     readonly kind: string;
+    /** Its name, as its builder's words say it. */
+    readonly name: string;
     /** The row the gesture changed, by its key's text; empty for a row it would have added. */
     readonly id: string;
     /**
@@ -473,6 +475,14 @@ export interface ScheduleEditing<I extends Item = Item> {
      * @returns The refusal; `undefined` where the last of them made its key, or was refused for another reason
      */
     keyRefusal(): ScheduleKeyRefusal | undefined;
+    /**
+     * Why a gesture would add or move no row for its key (east-workspace#1709), asked before it is made — nothing is
+     * recorded: what a builder's ghost says where a drag rests.
+     *
+     * @param changes - Each event or row the gesture would change, as {@link ScheduleEditing.record} takes them
+     * @returns The refusal; `undefined` where the gesture's keys stand, whatever else may refuse it
+     */
+    keyRefusalOf(changes: readonly ScheduleChange[]): ScheduleKeyRefusal | undefined;
 }
 
 /** What {@link useScheduleEditing} reads. */
@@ -758,7 +768,7 @@ export function useScheduleEditing<I extends Item = Item>({
         const windowed = kind.entries.type === "some";
         const rule: EntryKeys | undefined = kind.rowKey.type === "some" ? randomKeys() : kind.newKey.type === "some" ? givenKeys(kind.newKey.value, (why) => {
             if ("failed" in why) console.error(`[Schedule] ${kind.name}'s newKey failed: nothing was added:`, why.failed);
-            keyRefusedRef.current = { kind: kind.key, id: "", why };
+            keyRefusedRef.current = { kind: kind.key, name: kind.name, id: "", why };
         })
             : codecs[i]!.keys === "string" ? (windowed ? drawnFromKeys(randomKeys()) : madeFromKeys(randomKeys()))
             : codecs[i]!.keys !== "integer" ? undefined
@@ -1031,6 +1041,199 @@ export function useScheduleEditing<I extends Item = Item>({
         const got = event.event(id, alone, at.from, at.to, heldRowOf(cellRows?.current, kind, id));
         return got.type === "some" ? got.value : undefined;
     };
+    /**
+     * What a gesture changes, each row under the key it then stands under, with nothing recorded: each kind's events
+     * and each record's rows, as it found them and as it leaves them, and the rows it moves under another key.
+     * `undefined` where a change, or a row's key, refuses the whole gesture — a key's refusal said ({@link keyRefusedRef}).
+     */
+    const gestureOf = (changes: readonly ScheduleChange[]): { readonly touched: ReadonlyMap<string, ReadonlyMap<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>;
+        readonly moves: ReadonlyMap<string, ReadonlyMap<string, string>> } | undefined => {
+        const touched = new Map<string, Map<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>();
+        /**
+         * Whether an event's kind holds it where it is (#1541, U9): the kind's own `locked`, over the row the
+         * gesture finds of it — in hand already, so no event is read for it. Never for a kind with no rule, a
+         * record a builder writes whole, or an event the gesture finds no row of.
+         */
+        const lockedAt = (part: EditedPart<I>, codec: KindCodecs, id: string, found: EntryVersion<ScheduleEntryRef>): boolean => {
+            const lock = part.kind?.locked;
+            if (lock === undefined || lock.type !== "some") return false;
+            const row = rowOf(found);
+            if (row === undefined) return false;
+            try {
+                return lock.value([{ id, entry: codec.encodeRow(row) }])[0] === true;
+            } catch (err) {
+                console.error(`[Schedule] ${part.name}'s lock of ${id} failed; it is taken as not locked:`, err);
+                return false;
+            }
+        };
+        /** Takes a batch of changes into what the gesture touches; `false` where one refuses the whole gesture. */
+        const apply = (batch: readonly ScheduleChange[]): boolean => {
+            for (const change of batch) {
+                const i = indexOf(change.kind);
+                if (i < 0) return false;
+                const part = parts[i]!;
+                const key = keys[i]!;
+                const codec = codecs[i]!;
+                if (!state.available(key)) return false;
+                let entries = touched.get(key);
+                if (entries === undefined) { entries = new Map(); touched.set(key, entries); }
+                const at = entries.get(change.id);
+                // What it began from: the step's own, the session's, the row its maker read itself, else the builder's read.
+                const read = "was" in change && change.was !== undefined
+                    ? { draft: variant("value", codec.decodeRow(change.was)), wire: undefined, place: KEY_ORDER } : undefined;
+                const before = at?.before ?? state.original(key, change.id) ?? read ?? originalOf(part, change);
+                // An entry read a window at a time whose read is in flight: the gesture waits for none of it.
+                if (before === undefined) return false;
+                // A new row is begun from none. Under a key a row stands under — its session's own, one its last Save
+                // landed, its record's as last read — it would begin from that row and be saved over it: nothing of the
+                // gesture is recorded. Its session makes no such key (`EditSession.mint`); this holds whoever made it.
+                const creates = ("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true);
+                if (creates && at === undefined && before.draft !== undefined) return false;
+                // An event its kind's own rule holds where it is takes no change and is not removed (#1541, U9), whoever
+                // asks — a drag, the keyboard, an inspector, a bulk edit, an optimiser's answer — in every builder:
+                // nothing of the gesture is recorded. Asked once of each event, as the gesture finds it.
+                if (!creates && at === undefined && lockedAt(part, codec, change.id, before)) return false;
+                const now = at?.after ?? before;
+                let row: unknown;
+                if ("remove" in change) {
+                    entries.set(change.id, { before, after: DELETED });
+                    continue;
+                } else if ("row" in change) {
+                    row = codec.decodeRow(change.row);
+                } else if ("rewrite" in change) {
+                    // The row as the gesture finds it, rewritten whole; where it finds none, the row the change makes in
+                    // its place, made only then. One it finds none of and is given none for, or a rewrite that refuses,
+                    // records nothing of the gesture.
+                    const current = rowOf(now);
+                    if (current === undefined) {
+                        const made = change.absent?.();
+                        if (made === undefined) return false;
+                        row = codec.decodeRow(made);
+                    } else {
+                        let rewritten: Uint8Array | undefined;
+                        try {
+                            rewritten = change.rewrite(codec.encodeRow(current));
+                        } catch (err) {
+                            console.error(`[Schedule] ${part.name}'s rewrite of ${change.id} failed:`, err);
+                            return false;
+                        }
+                        if (rewritten === undefined) return false;
+                        row = codec.decodeRow(rewritten);
+                    }
+                } else {
+                    // The kind's own write of the gesture into the entry as it stands; a create writes none. A record's
+                    // row is given whole: it has no gestures of its own.
+                    const kind = part.kind;
+                    if (kind === undefined) {
+                        console.error(`[Schedule] ${part.name} takes its rows whole: a gesture writes none of them`);
+                        continue;
+                    }
+                    const current = rowOf(now);
+                    if (current === undefined && change.gesture.type !== "create") continue;
+                    let written: ReturnType<ScheduleEditingKind<I>["write"]>[number] | undefined;
+                    try {
+                        written = kind.write([{ id: change.id, entry: current === undefined ? NO_ENTRY : codec.encodeRow(current), gesture: change.gesture }])[0];
+                    } catch (err) {
+                        console.error(`[Schedule] ${kind.name}'s write of a gesture failed:`, err);
+                        continue;
+                    }
+                    // A gesture the kind refuses leaves the entry as it was.
+                    if (written === undefined || written.type !== "some") continue;
+                    row = codec.decodeRow(written.value);
+                }
+                // A row the gesture adds holds its key in its record's key field from the first: a duplicate its own, never
+                // the key of the row it copies.
+                const held = before.draft === undefined ? codec.underKey(change.id, row) : row;
+                entries.set(change.id, { before, after: { draft: variant("value", held), wire: { id: change.id }, place: KEY_ORDER } });
+            }
+            return true;
+        };
+        if (!apply(changes)) return undefined;
+        // A part that builds its keys from its rows (`key`): each row the gesture makes stands under the key its row
+        // builds, and each it changes moves under the key its row then builds — where what its key reads changed, to
+        // another than the one it stands under: a row an app stored apart from its key, edited back to build it,
+        // stays (#1581). A key another row stands under, or one that fails as it is built, refuses the whole gesture.
+        const settle = (): { readonly all: Map<string, Map<string, string>>; readonly held: Map<string, Map<string, string>> } | undefined => {
+            const now = new Map<string, Map<string, string>>();
+            // Those of them its record held: what the rows naming one by its key follow.
+            const held = new Map<string, Map<string, string>>();
+            for (const [key, entries] of touched) {
+                const i = keys.indexOf(key);
+                const part = parts[i]!;
+                const codec = codecs[i]!;
+                if (part.rowKey.type !== "some") continue;
+                const build = part.rowKey.value;
+                const going: { from: string; to: string; row: unknown; before: EntryVersion<ScheduleEntryRef> }[] = [];
+                for (const [id, { before, after }] of entries) {
+                    const row = rowOf(after);
+                    if (row === undefined) continue;
+                    let to: string;
+                    try {
+                        to = build(codec.encodeRow(row));
+                        const was = rowOf(before);
+                        if (stringEqual(to, id) || (was !== undefined && stringEqual(build(codec.encodeRow(was)), to))) continue;
+                    } catch (err) {
+                        console.error(`[Schedule] ${part.name}'s key could not be built from a row:`, err);
+                        keyRefusedRef.current = { kind: part.key, name: part.name, id: before.draft === undefined ? "" : id, why: { failed: err } };
+                        return undefined;
+                    }
+                    going.push({ from: id, to, row, before });
+                }
+                if (going.length === 0) continue;
+                const leaving = new Set(going.map((move) => move.from));
+                const arriving = new Set<string>();
+                const byKey = new Map<string, string>();
+                const heldByKey = new Map<string, string>();
+                for (const { from, to, row, before } of going) {
+                    // Whether a row stands under the key: one the gesture leaves there, the session's own, what its last
+                    // Save left, its record's as last read — or one its builder shows, of a record read a window at a time.
+                    const there = entries.get(to);
+                    const stood = there?.before ?? state.original(key, to);
+                    const cell = heldRowOf(cellRows?.current, part.key, to);
+                    const shown = part.entries.type === "some"
+                        && (standing?.current?.[part.key]?.(to) !== undefined || (cell.type === "some" && cell.value.type === "some"));
+                    const stands = arriving.has(to) || (there !== undefined ? rowOf(there.after) !== undefined && !leaving.has(to)
+                        : stood !== undefined ? rowOf(stood) !== undefined : shown);
+                    if (stands) {
+                        keyRefusedRef.current = { kind: part.key, name: part.name, id: before.draft === undefined ? "" : from, why: { taken: to } };
+                        return undefined;
+                    }
+                    arriving.add(to);
+                    byKey.set(from, to);
+                    // A row the gesture made stood under its made-up key for the gesture alone; one the record holds leaves it.
+                    if (before.draft === undefined) {
+                        entries.delete(from);
+                    } else {
+                        entries.set(from, { before, after: DELETED });
+                        heldByKey.set(from, to);
+                    }
+                    entries.set(to, { before: stood ?? ABSENT, after: { draft: variant("value", codec.underKey(to, row)), wire: { id: to }, place: KEY_ORDER } });
+                }
+                now.set(part.key, byKey);
+                if (heldByKey.size > 0) held.set(part.key, heldByKey);
+            }
+            return { all: now, held };
+        };
+        // The rows that name a moved row by its key follow it, where the builder says how (`following`) — a Plan's
+        // links, an event they join moved — in the same step; and a row that follows may move in its turn, its own key
+        // built from the keys it names. Rows whose names cannot follow refuse the whole gesture.
+        const moves = new Map<string, Map<string, string>>();
+        for (let round = 0; ; round++) {
+            const now = settle();
+            if (now === undefined) return undefined;
+            if (now.all.size === 0) break;
+            for (const [kind, byKey] of now.all) moves.set(kind, new Map([...(moves.get(kind) ?? []), ...byKey]));
+            const follow = now.held.size === 0 ? undefined : followingRef.current?.(now.held);
+            if (follow === undefined) break;
+            if ("refused" in follow) {
+                keyRefusedRef.current = { kind: follow.kind, name: parts[indexOf(follow.kind)]?.name ?? follow.kind, id: follow.id, why: { named: follow.refused } };
+                return undefined;
+            }
+            if (follow.changes.length === 0) break;
+            if (round >= FOLLOW_ROUNDS || !apply(follow.changes)) return undefined;
+        }
+        return { touched, moves };
+    };
     const api = {
         shown(kind: string, ids: Iterable<string>): void {
             const i = indexOf(kind);
@@ -1127,198 +1330,26 @@ export function useScheduleEditing<I extends Item = Item>({
         keyRefusal(): ScheduleKeyRefusal | undefined {
             return keyRefusedRef.current;
         },
+        keyRefusalOf(changes: readonly ScheduleChange[]): ScheduleKeyRefusal | undefined {
+            // Only a part that builds its keys from its rows has a gesture's rows refused for their keys: asked of any
+            // other, a drag's every rest reads and writes nothing more.
+            if (!parts.some((part) => part.rowKey.type === "some")) return undefined;
+            const said = keyRefusedRef.current;
+            keyRefusedRef.current = undefined;
+            gestureOf(changes);
+            const why = keyRefusedRef.current;
+            keyRefusedRef.current = said;
+            return why;
+        },
         record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean {
             keyRefusedRef.current = undefined;
-            // Each kind's events and each record's rows the gesture changes: as it found them, and as it leaves them.
-            const touched = new Map<string, Map<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>();
-            /**
-             * Whether an event's kind holds it where it is (#1541, U9): the kind's own `locked`, over the row the
-             * gesture finds of it — in hand already, so no event is read for it. Never for a kind with no rule, a
-             * record a builder writes whole, or an event the gesture finds no row of.
-             */
-            const lockedAt = (part: EditedPart<I>, codec: KindCodecs, id: string, found: EntryVersion<ScheduleEntryRef>): boolean => {
-                const lock = part.kind?.locked;
-                if (lock === undefined || lock.type !== "some") return false;
-                const row = rowOf(found);
-                if (row === undefined) return false;
-                try {
-                    return lock.value([{ id, entry: codec.encodeRow(row) }])[0] === true;
-                } catch (err) {
-                    console.error(`[Schedule] ${part.name}'s lock of ${id} failed; it is taken as not locked:`, err);
-                    return false;
-                }
-            };
-            /** Takes a batch of changes into what the gesture touches; `false` where one refuses the whole gesture. */
-            const apply = (batch: readonly ScheduleChange[]): boolean => {
-                for (const change of batch) {
-                    const i = indexOf(change.kind);
-                    if (i < 0) return false;
-                    const part = parts[i]!;
-                    const key = keys[i]!;
-                    const codec = codecs[i]!;
-                    if (!state.available(key)) return false;
-                    let entries = touched.get(key);
-                    if (entries === undefined) { entries = new Map(); touched.set(key, entries); }
-                    const at = entries.get(change.id);
-                    // What it began from: the step's own, the session's, the row its maker read itself, else the builder's read.
-                    const read = "was" in change && change.was !== undefined
-                        ? { draft: variant("value", codec.decodeRow(change.was)), wire: undefined, place: KEY_ORDER } : undefined;
-                    const before = at?.before ?? state.original(key, change.id) ?? read ?? originalOf(part, change);
-                    // An entry read a window at a time whose read is in flight: the gesture waits for none of it.
-                    if (before === undefined) return false;
-                    // A new row is begun from none. Under a key a row stands under — its session's own, one its last Save
-                    // landed, its record's as last read — it would begin from that row and be saved over it: nothing of the
-                    // gesture is recorded. Its session makes no such key (`EditSession.mint`); this holds whoever made it.
-                    const creates = ("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true);
-                    if (creates && at === undefined && before.draft !== undefined) return false;
-                    // An event its kind's own rule holds where it is takes no change and is not removed (#1541, U9), whoever
-                    // asks — a drag, the keyboard, an inspector, a bulk edit, an optimiser's answer — in every builder:
-                    // nothing of the gesture is recorded. Asked once of each event, as the gesture finds it.
-                    if (!creates && at === undefined && lockedAt(part, codec, change.id, before)) return false;
-                    const now = at?.after ?? before;
-                    let row: unknown;
-                    if ("remove" in change) {
-                        entries.set(change.id, { before, after: DELETED });
-                        continue;
-                    } else if ("row" in change) {
-                        row = codec.decodeRow(change.row);
-                    } else if ("rewrite" in change) {
-                        // The row as the gesture finds it, rewritten whole; where it finds none, the row the change makes in
-                        // its place, made only then. One it finds none of and is given none for, or a rewrite that refuses,
-                        // records nothing of the gesture.
-                        const current = rowOf(now);
-                        if (current === undefined) {
-                            const made = change.absent?.();
-                            if (made === undefined) return false;
-                            row = codec.decodeRow(made);
-                        } else {
-                            let rewritten: Uint8Array | undefined;
-                            try {
-                                rewritten = change.rewrite(codec.encodeRow(current));
-                            } catch (err) {
-                                console.error(`[Schedule] ${part.name}'s rewrite of ${change.id} failed:`, err);
-                                return false;
-                            }
-                            if (rewritten === undefined) return false;
-                            row = codec.decodeRow(rewritten);
-                        }
-                    } else {
-                        // The kind's own write of the gesture into the entry as it stands; a create writes none. A record's
-                        // row is given whole: it has no gestures of its own.
-                        const kind = part.kind;
-                        if (kind === undefined) {
-                            console.error(`[Schedule] ${part.name} takes its rows whole: a gesture writes none of them`);
-                            continue;
-                        }
-                        const current = rowOf(now);
-                        if (current === undefined && change.gesture.type !== "create") continue;
-                        let written: ReturnType<ScheduleEditingKind<I>["write"]>[number] | undefined;
-                        try {
-                            written = kind.write([{ id: change.id, entry: current === undefined ? NO_ENTRY : codec.encodeRow(current), gesture: change.gesture }])[0];
-                        } catch (err) {
-                            console.error(`[Schedule] ${kind.name}'s write of a gesture failed:`, err);
-                            continue;
-                        }
-                        // A gesture the kind refuses leaves the entry as it was.
-                        if (written === undefined || written.type !== "some") continue;
-                        row = codec.decodeRow(written.value);
-                    }
-                    // A row the gesture adds holds its key in its record's key field from the first: a duplicate its own, never
-                    // the key of the row it copies.
-                    const held = before.draft === undefined ? codec.underKey(change.id, row) : row;
-                    entries.set(change.id, { before, after: { draft: variant("value", held), wire: { id: change.id }, place: KEY_ORDER } });
-                }
-                return true;
-            };
-            if (!apply(changes)) return false;
-            // A part that builds its keys from its rows (`key`): each row the gesture makes stands under the key its row
-            // builds, and each it changes moves under the key its row then builds — where what its key reads changed, to
-            // another than the one it stands under: a row an app stored apart from its key, edited back to build it,
-            // stays (#1581). A key another row stands under, or one that fails as it is built, refuses the whole gesture.
-            const settle = (): { readonly all: Map<string, Map<string, string>>; readonly held: Map<string, Map<string, string>> } | undefined => {
-                const now = new Map<string, Map<string, string>>();
-                // Those of them its record held: what the rows naming one by its key follow.
-                const held = new Map<string, Map<string, string>>();
-                for (const [key, entries] of touched) {
-                    const i = keys.indexOf(key);
-                    const part = parts[i]!;
-                    const codec = codecs[i]!;
-                    if (part.rowKey.type !== "some") continue;
-                    const build = part.rowKey.value;
-                    const going: { from: string; to: string; row: unknown; before: EntryVersion<ScheduleEntryRef> }[] = [];
-                    for (const [id, { before, after }] of entries) {
-                        const row = rowOf(after);
-                        if (row === undefined) continue;
-                        let to: string;
-                        try {
-                            to = build(codec.encodeRow(row));
-                            const was = rowOf(before);
-                            if (stringEqual(to, id) || (was !== undefined && stringEqual(build(codec.encodeRow(was)), to))) continue;
-                        } catch (err) {
-                            console.error(`[Schedule] ${part.name}'s key could not be built from a row:`, err);
-                            keyRefusedRef.current = { kind: part.key, id: before.draft === undefined ? "" : id, why: { failed: err } };
-                            return undefined;
-                        }
-                        going.push({ from: id, to, row, before });
-                    }
-                    if (going.length === 0) continue;
-                    const leaving = new Set(going.map((move) => move.from));
-                    const arriving = new Set<string>();
-                    const byKey = new Map<string, string>();
-                    const heldByKey = new Map<string, string>();
-                    for (const { from, to, row, before } of going) {
-                        // Whether a row stands under the key: one the gesture leaves there, the session's own, what its last
-                        // Save left, its record's as last read — or one its builder shows, of a record read a window at a time.
-                        const there = entries.get(to);
-                        const stood = there?.before ?? state.original(key, to);
-                        const cell = heldRowOf(cellRows?.current, part.key, to);
-                        const shown = part.entries.type === "some"
-                            && (standing?.current?.[part.key]?.(to) !== undefined || (cell.type === "some" && cell.value.type === "some"));
-                        const stands = arriving.has(to) || (there !== undefined ? rowOf(there.after) !== undefined && !leaving.has(to)
-                            : stood !== undefined ? rowOf(stood) !== undefined : shown);
-                        if (stands) {
-                            keyRefusedRef.current = { kind: part.key, id: before.draft === undefined ? "" : from, why: { taken: to } };
-                            return undefined;
-                        }
-                        arriving.add(to);
-                        byKey.set(from, to);
-                        // A row the gesture made stood under its made-up key for the gesture alone; one the record holds leaves it.
-                        if (before.draft === undefined) {
-                            entries.delete(from);
-                        } else {
-                            entries.set(from, { before, after: DELETED });
-                            heldByKey.set(from, to);
-                        }
-                        entries.set(to, { before: stood ?? ABSENT, after: { draft: variant("value", codec.underKey(to, row)), wire: { id: to }, place: KEY_ORDER } });
-                    }
-                    now.set(part.key, byKey);
-                    if (heldByKey.size > 0) held.set(part.key, heldByKey);
-                }
-                return { all: now, held };
-            };
-            // The rows that name a moved row by its key follow it, where the builder says how (`following`) — a Plan's
-            // links, an event they join moved — in the same step; and a row that follows may move in its turn, its own key
-            // built from the keys it names. Rows whose names cannot follow refuse the whole gesture.
-            const moves = new Map<string, Map<string, string>>();
-            for (let round = 0; ; round++) {
-                const now = settle();
-                if (now === undefined) return false;
-                if (now.all.size === 0) break;
-                for (const [kind, byKey] of now.all) moves.set(kind, new Map([...(moves.get(kind) ?? []), ...byKey]));
-                const follow = now.held.size === 0 ? undefined : followingRef.current?.(now.held);
-                if (follow === undefined) break;
-                if ("refused" in follow) {
-                    keyRefusedRef.current = { kind: follow.kind, id: follow.id, why: { named: follow.refused } };
-                    return false;
-                }
-                if (follow.changes.length === 0) break;
-                if (round >= FOLLOW_ROUNDS || !apply(follow.changes)) return false;
-            }
-            const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...touched]
+            const made = gestureOf(changes);
+            if (made === undefined) return false;
+            const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...made.touched]
                 .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))
                 .filter((part) => part.updates.length > 0);
             if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
-            if (moves.size > 0) setMoved(moves);
+            if (made.moves.size > 0) setMoved(made.moves);
             return true;
         },
     };
@@ -1339,10 +1370,11 @@ export function useScheduleEditing<I extends Item = Item>({
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
     const record = useCallback((changes: readonly ScheduleChange[], origin: Origin, label: string) => latest.current.record(changes, origin, label), []);
     const keyRefusal = useCallback(() => latest.current.keyRefusal(), []);
+    const keyRefusalOf = useCallback((changes: readonly ScheduleChange[]) => latest.current.keyRefusalOf(changes), []);
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
-        shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal,
+        shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf,
     }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey,
-        mint, record, keyRefusal]);
+        mint, record, keyRefusal, keyRefusalOf]);
 }
