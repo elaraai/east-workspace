@@ -11,13 +11,20 @@
  * @packageDocumentation
  */
 
-import { SortedMap, StringType, StructType, checkJq, compareFor, none, some, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, SortedMap, StringType, StructType, checkJq, compareFor, none, some, type EastType, type ValueTypeOf } from "@elaraai/east";
 import type { DatasetDef, TaskDef } from "@elaraai/e3";
 import { assertRootField } from "../bind/sources.js";
 import type { SavedQueriesType, SavedQueryType } from "./types.js";
 
 /** The most characters a saved query's description holds, as the builder's Save… popover takes it. */
 const DESCRIPTION_MAX = 140;
+
+/**
+ * The root field a query reads the minute it is asked by (#1670): `.now`, a
+ * DateTime, the last field of the builder's root (e3-ui-components'
+ * `NOW_FIELD` and `queryRoot`) — unless a data source has the name.
+ */
+const NOW_FIELD = "now";
 
 /**
  * A query a solution saves, as it writes one.
@@ -48,9 +55,11 @@ export interface SavedQueryInput {
  *   takes, whose path and type it reads. A query opens where each data source
  *   it reads is bound by the same name, at the same path.
  * - **Each query is checked** against the whole root, a struct of the data
- *   sources in the order given, as the builder checks a query it saves: one
- *   that does not check fails the build, with the checker's words. Its root
- *   is the data sources it reads, in that order.
+ *   sources in the order given and then `now`, the minute a query is asked
+ *   (#1670) — unless a data source is named `now` — as the builder checks a
+ *   query it saves: one that does not check fails the build, with the
+ *   checker's words. Its root is the data sources it reads, in that order;
+ *   `.now` is no data source, and is not among them.
  * - **A saved query keeps its program** as written, and no types: they are
  *   what checking it against its data sources gives.
  *
@@ -89,7 +98,9 @@ export function savedQueriesValue(
         assertRootField("Query.value", name);
         return { name, dataset: def.kind === "task" ? def.output : def };
     });
-    const root = StructType(datasets.map(({ name, dataset }): readonly [string, EastType] => [name, dataset.type]));
+    // The builder's root: the data sources, then the minute a query is asked as `.now`, unless one is named so.
+    const clock: (readonly [string, EastType])[] = datasets.some(({ name }) => name === NOW_FIELD) ? [] : [[NOW_FIELD, DateTimeType]];
+    const root = StructType([...datasets.map(({ name, dataset }): readonly [string, EastType] => [name, dataset.type]), ...clock]);
     const saved = new SortedMap<string, ValueTypeOf<typeof SavedQueryType>>([], compareFor(StringType));
     for (const query of queries) {
         if (saved.has(query.name)) {

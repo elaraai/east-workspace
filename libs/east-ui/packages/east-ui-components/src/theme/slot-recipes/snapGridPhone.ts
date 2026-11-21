@@ -8,6 +8,8 @@
  *
  *   - scroll, head, title (ST8): the page on `--paper-2`, the project's eyebrow
  *     and the page's name scrolling with it, padded 16 16 8;
+ *   - pageHead (#1673): what the host draws over the grid, under the page's
+ *     head, padded as the rows are;
  *   - row, rowHead (ST9): the rows 16 apart, each under its eyebrow, its tiles
  *     12 apart;
  *   - caption, meter (ST10): 24 over a tile's frame: its name, twelve cells 4 × 8
@@ -42,7 +44,7 @@ const CONTROL = {
 
 export const snapGridPhoneSlotRecipe = defineSlotRecipe({
     className: "elara-snap-grid-phone",
-    slots: ["root", "scroll", "head", "eyebrow", "title", "rows", "row", "rowHead", "tiles", "caption", "captionName", "captionSpan", "captionConflict", "conflictDot", "meter", "cell", "tile", "frame",
+    slots: ["root", "scroll", "head", "eyebrow", "title", "pageHead", "rows", "row", "rowHead", "tiles", "caption", "captionName", "captionSpan", "captionConflict", "conflictDot", "meter", "cell", "tile", "frame",
         "add", "empty", "emptyGlyph", "emptyTitle", "emptyList",
         "bar", "barHead", "barTitle", "barClose", "barMove", "barControls", "stepper", "stepperButton", "stepperValue", "barRemove", "barLine",
         "outline", "outlineRow", "outlineName", "outlineIcon", "slot",
@@ -54,6 +56,7 @@ export const snapGridPhoneSlotRecipe = defineSlotRecipe({
         head: { display: "flex", flexDirection: "column", gap: "4px", paddingTop: "16px", paddingX: "16px", paddingBottom: "8px" },
         eyebrow: { ...EYEBROW, color: "fg.subtle" },
         title: { fontFamily: "heading", fontSize: "18px", fontWeight: "700", lineHeight: "1.3", letterSpacing: "-0.01em", color: "fg" },
+        pageHead: { minWidth: "0", paddingX: "16px", paddingTop: "8px" },
         rows: { display: "flex", flexDirection: "column", gap: "16px", paddingX: "16px", paddingTop: "8px", paddingBottom: "16px" },
         row: { display: "flex", flexDirection: "column", gap: "8px" },
         rowHead: { ...EYEBROW, color: "fg.subtle", minHeight: "24px", display: "flex", alignItems: "center" },

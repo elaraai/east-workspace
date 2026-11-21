@@ -37,6 +37,7 @@ import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { ROOT, keys, savedQuery, type Saved } from "./fixture.test-utils.js";
 import { act, isRun, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
+import { slotActions } from "./slots.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -95,34 +96,16 @@ function partsOf(row: HTMLElement): string[] {
 const rowsOf = (card: HTMLElement) => [...card.querySelectorAll<HTMLElement>("[data-query-line=row]")].map(partsOf);
 /** The shape lines' words, in order. */
 const shapesOf = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-query-shape-text]")].map((el) => el.textContent);
-/** The open autocomplete. */
-const popover = () => document.querySelector<HTMLElement>("[data-query-autocomplete]");
-/** Its offers' labels, in order. */
-const offers = () => [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.querySelector("[data-label]")!.textContent);
-/** Its active offer's label. */
-const activeOffer = () => popover()!.querySelector<HTMLElement>("[role=option][aria-selected=true] [data-label]")?.textContent;
+/** The open slot's picker, its offers' labels, and a slot opened and an offer picked as a pointer does. */
+const { popover, offers, openSlot, pick } = slotActions(act, settle);
+/** Its highlighted offer's label. */
+const activeOffer = () => popover()!.querySelector<HTMLElement>("[role=option][data-highlighted] [data-option-label]")?.textContent;
 /** Its label. */
-const popoverLabel = () => popover()!.querySelector("label")!.textContent;
-/** Its filter field. */
+const popoverLabel = () => popover()!.querySelector("[data-chooser-label]")!.textContent;
+/** Its search. */
 const filterOf = () => within(popover()!).getByRole("combobox");
 
-/** Opens a slot by the words it shows, in a card. */
-async function openSlot(card: HTMLElement, text: string) {
-    const slot = [...card.querySelectorAll<HTMLElement>("[aria-haspopup=listbox]")].find((el) => el.querySelector("span")!.textContent === text);
-    if (slot === undefined) throw new Error(`no slot “${text}”`);
-    await act(async () => { fireEvent.click(slot); });
-    await settle();
-}
-
-/** Picks an offer of the open autocomplete by its label, as a click does. */
-async function pick(label: string) {
-    const option = [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.querySelector("[data-label]")!.textContent === label);
-    if (option === undefined) throw new Error(`no offer “${label}”: ${offers().join(", ")}`);
-    await act(async () => { fireEvent.click(option); });
-    await settle();
-}
-
-/** Presses a key in the autocomplete's filter. */
+/** Presses a key in the picker's search. */
 async function key(name: string, init: Record<string, unknown> = {}) {
     await act(async () => { fireEvent.keyDown(filterOf(), { key: name, ...init }); });
     await settle();
@@ -447,7 +430,9 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.click(viewButton("Visual")); });
         await settle();
         expect(cardsOf(container).map(titleOf)).toEqual(["jq step"]);
-        expect(container.querySelector("[data-query-tab=query] [role=status]")!.textContent).toBe("1 part of the jq doesn't match a visual step, so it stays as jq.");
+        // Under the notice the query arrived with, which its host opened (#1668).
+        expect([...container.querySelectorAll("[data-query-tab=query] [role=status]")].map((notice) => notice.textContent))
+            .toEqual(["Opened “Big orders”.", "1 part of the jq doesn't match a visual step, so it stays as jq."]);
         // Each jq typed and left is one gesture: undone, the jq that did not parse is back, in the jq view; undone again, the steps.
         await press("Undo");
         expect([container.querySelector("[data-query-tab=query]")!.getAttribute("data-mode"), jqField().value])

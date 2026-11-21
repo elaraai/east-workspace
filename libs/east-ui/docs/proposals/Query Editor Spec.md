@@ -63,34 +63,44 @@ export const queries = e3.record("queries", Query.Types.Saved, Query.value({ ord
 
 ```tsx
 // The builder, for operators: it queries the data sources it is handed, and saves through the record.
+// The surface holds the open query — a new one on orders to begin with — and changes it when the builder asks.
 export const builder = ui("query_builder", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const orders    = $.let(Data.bindPaged(d.orders));   // large: paged, never downloaded whole
         const customers = $.let(Data.bind(d.customers));
         const bom       = $.let(Data.bind(d.bom));
         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
-        return <Query.Builder queries={saved} datasets={{ orders, customers, bom }} />;
+        const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.on("orders")));
+        const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+        return <Query.Builder queries={saved} datasets={{ orders, customers, bom }} query={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 
-// The query library: every saved query, and where new ones start.
+// The query library: every saved query, and where new ones start. It marks the open query, and tells the
+// surface which is asked for next — here the State the builder reads; across routes, a navigation.
 export const library = ui("query_library", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const orders    = $.let(Data.bindPaged(d.orders));
         const customers = $.let(Data.bind(d.customers));
         const bom       = $.let(Data.bind(d.bom));
         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
-        return <Query.Library queries={saved} datasets={{ orders, customers, bom }} />;
+        const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.on("orders")));
+        const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+        return <Query.Library queries={saved} datasets={{ orders, customers, bom }} query={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 ```
 
 `datasets` names the root: a query over this page reads `.orders`, `.customers` and `.bom`, and nothing else.
-`id`, on both, names the builder when one surface holds two, and the library that opens queries in it.
-`onOpen`, on the library, is told the name of each query it opens, so the host can show the builder.
+`id`, on both, names the builder when one surface holds two, and the library whose cards it takes and
+whose recent runs it shares. The open query is the host's (#1668): a `Query.Types.Open` — a saved query by
+its name (`Query.open.saved(name)`, or the name alone), or the new query on a data source
+(`Query.open.on(source)`) — given to both as `query`; `onOpen` is told each query asked for, so the host
+can change it, or navigate to its builder. The query library always has an `onOpen`: it opens nothing
+itself. A builder given no `query` holds its own, and needs none.
 
-The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.value` and
-`Query.Types`.
+The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.value`,
+`Query.open` and `Query.Types`.
 
 ---
 
@@ -136,8 +146,8 @@ The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library
 
 | Component | Carrier | Payload |
 |---|---|---|
-| `<Query.Builder>` | `QueryBuilder` | `queries` — the bound record's `read`, `history` and `commit.patch`; `datasets` — each bound source's name, descriptor and type; `id` |
-| `<Query.Library>` | `QueryLibrary` | `queries`; `datasets`; `id`; `onOpen` |
+| `<Query.Builder>` | `QueryBuilder` | `queries` — the bound record's `read`, `history` and `commit.patch`; `datasets` — each bound source's name, descriptor and type; `query`, `onOpen` and `id` as options |
+| `<Query.Library>` | `QueryLibrary` | `queries`; `datasets`; `onOpen`; `query` and `id` as options |
 
 Each follows Studio's shape (`e3-ui/src/studio/builder.ts`): a payload type, the carrier
 `EastUI.component("QueryBuilder", payload, { optional: true })`, an options interface, a `create…` that
@@ -208,11 +218,13 @@ e3-api-client's `oneShotExecute`, and a run's plan (#941: `planQuery` and `split
   `@elaraai/e3-ui-components/query` (`src/query/calls.ts`): the root, the one-shot call and its reading, the
   plan and its split call, and the calls in memory. The package's main entry needs a DOM as it loads, for its
   renderers; this one loads no React and no renderer.
-- **The open query** is the UI store's, under the builder's key (`queryKeys(id).query`), as Studio's open
-  page is (`builderKeys(id).page`). The Library tab, `<Query.Library>` and a drop write it; the builder reads
-  it. It begins as a new query on the first bound data source. Beside it, under the same key, is the notice
-  it arrived with — "Opened “Big orders” from the query library." — which the builder shows when that query
-  opens, whichever surface opened it.
+- **The open query** is the host's (#1668), as Studio's open page is: the builder shows the `query` it is
+  given, and tells the host in `onOpen` when its Library tab, its Datasets tab, a drop or a save under a new
+  name asks for another; `<Query.Library>` tells the host in `onOpen` and opens nothing itself. A builder
+  given no `query` holds its own, kept in the browser under its storage key, and begins as a new query on
+  the first bound data source. A query the builder's own tabs asked for arrives with their notice —
+  "Opened “Big orders” from the library." — and one its host opens with the builder's own: "Opened “Big
+  orders”.", or "Started a new query on customers.". Nothing is shared through a store entry named by `id`.
 - **The query library** keeps its filter, search, order and layout as its own; its body is one
   `Library` gallery whose media are wireframes of each query (§5).
 
@@ -731,11 +743,11 @@ Studio's page library with queries where pages are:
   - **Open in builder →**, its action.
   A saved query's card drags onto the builder that shares the library's id (§4.13); a recent run's does not,
   since the builder opens a dropped query by its name.
-- **Open in builder →** writes the builder's open query, shared by `id`, with its notice — "Opened “{name}”
-  from the query library.", which the builder shows — and tells the host (`onOpen`) the query's name, as
-  Studio's does. **+ New query on {dataset}** writes a new query on it, with "Started a new query on
-  {dataset}.", and tells the host its name, "Untitled {dataset} query". A recent run of a saved query opens
-  the saved query; one never saved, a new query begun as it. A query whose root is not bound here carries
+- **Open in builder →** tells the host (`onOpen`) the query asked for, as Studio's does, and writes nothing
+  itself: the host shows it in its builder, which says "Opened “{name}”.". **+ New query on {dataset}** tells
+  the host a new query on it, which arrives with "Started a new query on {dataset}.". A recent run of a saved
+  query asks for the saved query; one never saved, a new query begun as it. The card of the query the host
+  says is open (`query`) is placed. A query whose root is not bound here carries
   the reason, trailing, in the warning tone, has no action, and its click says why in a notice over the
   gallery instead of opening (§4.10).
 - **Empty** (the `emptyState` recipe): "No queries match “{text}”" — Check the spelling · Clear the filter to

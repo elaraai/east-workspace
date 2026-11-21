@@ -602,7 +602,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         if (active instanceof HTMLElement && typedInto(active)) active.blur();
         history.act(action);
     }, [history]);
-    const historyItem = edits ? historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue, where, conflictValue, onAction }) : undefined;
+    const historyItem = edits ? historyToolbarItem({ session: history, words, editing: false, onIssue, where, conflictValue, onAction }) : undefined;
 
     // ── The toolbar ─────────────────────────────────────────────────────
     const toolbarRef = useRef<HTMLDivElement>(null);

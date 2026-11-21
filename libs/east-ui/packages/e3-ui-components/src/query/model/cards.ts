@@ -20,10 +20,12 @@ import { SOURCE_COUNT } from "../steps/count.js";
 import { fieldByRef, fieldsOf, type StepField } from "../steps/fields.js";
 import { itemShape, scalarFieldsOf } from "../steps/print.js";
 import { singular, unwrapRecursive, type Shape } from "../steps/shape.js";
-import { isComplete, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
+import { isComplete, lastUnit, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./refs.js";
+import { problemWords } from "./problem-words.js";
+import { orderKind, stepWords } from "./step-words.js";
 import {
-    STEP_ICON, countWords, fieldLabels, human, isIdName, orderKind, plainKind, plural, problemWords, refLabel, rowsWords, shapeWords, stepWords, valueWords,
+    STEP_ICON, countWords, fieldLabels, human, isIdName, plainKind, plural, refLabel, rowsWords, shapeWords, valueWords,
     type QueryWords,
 } from "./words.js";
 
@@ -194,7 +196,7 @@ function testParts(ctx: CardContext, condition: TestCondition, shape: Shape): Ca
     const parts: CardPart[] = [slot(ctx, { kind: "field", condId: id }, ref === undefined ? undefined : refLabel(shape, ref), errorAt(ctx, { condId: id, slot: "field" }))];
     if (ref === undefined) return parts;
     const kind = cmp.type === "some" ? cmp.value.type : undefined;
-    parts.push(slot(ctx, { kind: "cmp", condId: id }, kind === undefined ? undefined : m.comparison({ cmp: kind }), errorAt(ctx, { condId: id, slot: "cmp" })));
+    parts.push(slot(ctx, { kind: "cmp", condId: id }, kind === undefined ? undefined : m.comparisonSlot({ cmp: kind }), errorAt(ctx, { condId: id, slot: "cmp" })));
     if (kind === undefined) return parts;
     if (kind === "anyWhere") {
         if (inner.type === "none") {
@@ -207,6 +209,11 @@ function testParts(ctx: CardContext, condition: TestCondition, shape: Shape): Ca
     if (needsValue(kind)) {
         const text = value.type === "some" ? valueWords(value.value, ctx.words) : undefined;
         parts.push(slot(ctx, { kind: "value", condId: id }, text, errorAt(ctx, { condId: id, slot: "value" }), monoField(f)));
+        // An "is in the last" count's unit after it: `7 days` (#1670).
+        if (lastUnit(kind) !== undefined) {
+            const n = value.type === "some" && value.value.type === "number" ? value.value.value : undefined;
+            parts.push(word(m.lastUnit({ cmp: kind, n: n ?? 2 })));
+        }
     }
     return parts;
 }
@@ -286,8 +293,18 @@ function stepLines(ctx: CardContext): { head: CardPart[]; lines: CardLine[] } {
         }
         case "group": {
             const by = step.value.by;
-            const byText = by.type === "none" ? undefined : by.value.type === "all" ? m.allRowsTogether() : refLabel(before, by.value.value);
-            const lines: CardLine[] = [{ kind: "row", parts: [word(m.by()), slot(ctx, { kind: "by" }, byText, errorAt(ctx, { slot: "by" }))], problems: problemsWhere(ctx, d => d.slot === "by") }];
+            const byText = by.type === "none" ? undefined : by.value.type === "all" ? m.allRowsTogether() : by.value.type === "field" ? refLabel(before, by.value.value) : undefined;
+            // Several fields (#1670): each its own slot and ×, joined by and.
+            const byParts: CardPart[] = by.type === "some" && by.value.type === "fields"
+                ? by.value.value.flatMap((ref, i) => [
+                    ...(i === 0 ? [] : [word(m.joiner({ match: "all" }))]),
+                    slot(ctx, { kind: "by", id: ref }, refLabel(before, ref), errorAt(ctx, { slot: "by", id: ref })),
+                    remove(ctx, "by-field", ref, `${m.remove()} ${refLabel(before, ref)}`),
+                ])
+                : [slot(ctx, { kind: "by" }, byText, errorAt(ctx, { slot: "by" }))];
+            // Another field to group by, once it groups by one.
+            const addBy: CardPart[] = by.type === "some" && by.value.type !== "all" ? [add(ctx, m.addField(), { kind: "open", slot: { kind: "by-add", stepId: step.value.id } })] : [];
+            const lines: CardLine[] = [{ kind: "row", parts: [word(m.by()), ...byParts, ...addBy], problems: problemsWhere(ctx, d => d.slot === "by") }];
             step.value.aggs.forEach((a, k) => {
                 const fn = a.fn.type;
                 lines.push({
@@ -296,6 +313,8 @@ function stepLines(ctx: CardContext): { head: CardPart[]; lines: CardLine[] } {
                         word(m.thenTotal({ first: k === 0 })),
                         slot(ctx, { kind: "agg-fn", id: a.id }, m.total({ fn }), false),
                         ...(fn === "count" ? [] : [slot(ctx, { kind: "agg-field", id: a.id }, label(a.field), errorAt(ctx, { slot: "agg-field", id: a.id }))]),
+                        // A ratio's field it is per (#1670).
+                        ...(a.fn.type === "ratio" ? [word(m.per()), slot(ctx, { kind: "agg-per", id: a.id }, label(a.fn.value), errorAt(ctx, { slot: "agg-per", id: a.id }))] : []),
                         word(m.as()),
                         input(ctx, { kind: "agg-as", id: a.id }, a.as, "name", false, false),
                         remove(ctx, "total", a.id),

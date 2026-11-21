@@ -6,9 +6,10 @@
  *
  * A query's calls answered in memory (#940, #941), as a host with no server
  * makes them. A one-shot call: what a run reads and the hash it
- * pins it at; an argument naming nothing, refused as e3 refuses an unassigned
- * dataset; the size limit; and a runtime error, failed as a runner fails it,
- * placed in the jq. A split call: the dataset cut into pieces, each reported
+ * pins it at; a value argument, the minute a query reads as `.now` (#1670); an
+ * argument naming nothing, refused as e3 refuses an unassigned dataset; the
+ * size limit; and a runtime error, failed as a runner fails it, placed in the
+ * jq. A split call: the dataset cut into pieces, each reported
  * done, then the merge or the fold, answering as the one-shot call does; an
  * argument naming nothing; a piece's runtime error placed in the jq; the size
  * limit; a dict with no merge refusing a key emitted twice; and a call
@@ -26,9 +27,10 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    IntegerType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, sha256Hex, some, toEastTypeValue, variant,
+    DateTimeType, IntegerType, StructType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, sha256Hex, some, toEastTypeValue, variant,
 } from "@elaraai/east";
 import { SplitCallPlanType, type SplitCallPlan, type SplitCallProgress } from "@elaraai/e3-types";
+import { utcAt } from "../plan/plan.test-utils.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult } from "./one-shot.js";
 import { planQuery, type QueryPlan, type SourceWeight } from "./plan.js";
@@ -61,6 +63,26 @@ describe("createInMemoryQueryCall (#940)", () => {
         expect([answer.outcome.type, answer.inputs]).toEqual(["invalid", []]);
         if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
         expect(result.outcome.value.map(d => [d.code, d.message])).toEqual([["no_value", "no_value: orders has no value yet."]]);
+    });
+
+    test("a value argument is given as its bytes say — the minute a query reads as .now — and only the datasets read are named (#1670)", async () => {
+        const now = utcAt("2026-06-28T09:00:00.000");
+        const prepared = prepareQuery("{now: .now, orders: (.orders | length)}", ROOT, { now });
+        if ("result" in prepared) throw new Error("the query does not check");
+        expect(prepared.prepared.request.args.map(a => a.type)).toEqual(["value", "dataset"]);
+        const answer = await createInMemoryQueryCall([{ path: ORDERS, type: OrdersType, value: orders, hash: "4f2a1c8d" }])(prepared.prepared.request);
+        expect(answer.inputs.map(i => i.hash)).toEqual(["4f2a1c8d"]);
+        const result = queryResultOf(prepared.prepared, answer);
+        if (result.outcome.type !== "ok") throw new Error(`expected an answer, got ${result.outcome.type}`);
+        const Answered = StructType({ now: DateTimeType, orders: IntegerType });
+        const value = decodeBeast2For(Answered)(result.outcome.value.result);
+        expect(equalFor(DateTimeType)(value.now, now)).toBe(true);
+        expect(value.orders).toBe(40n);
+        // A dataset naming nothing here is numbered among every argument, as e3 numbers it: the orders are argument 1.
+        const missing = await createInMemoryQueryCall([])(prepared.prepared.request);
+        expect(missing.outcome.type === "invalid" ? missing.outcome.value.diagnostics.map(d => d.message.split(":")[0]) : []).toEqual(["Dataset argument 1 is not assigned (ref type"]);
+        const refused = queryResultOf(prepared.prepared, missing);
+        expect(refused.outcome.type === "error" ? refused.outcome.value.map(d => d.message) : []).toEqual(["no_value: orders has no value yet."]);
     });
 
     test("an answer over the call's most bytes is too large", async () => {
@@ -209,7 +231,8 @@ describe("createInMemorySplitCall (#941)", () => {
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
         const first = await call(p.first, QUIET);
         const joined = await call(p.join(first.output!), QUIET);
-        const [got, want] = [valueOf(queryResultOf(p.reading, p.answer(first.result, joined.result))), valueOf(await oneShot(program))];
+        const { result: answer, reading } = p.answer(first.result, joined.result);
+        const [got, want] = [valueOf(queryResultOf(reading, answer)), valueOf(await oneShot(program))];
         expect(equalFor(want.type)(got.value as never, want.value as never)).toBe(true);
         // Another stand-in assembled nothing: the hash names nothing it holds.
         const elsewhere = await createInMemorySplitCall(DATASETS, { pieces: 3 })(p.join(first.output!), QUIET);

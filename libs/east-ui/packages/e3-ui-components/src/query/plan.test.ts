@@ -35,8 +35,10 @@ import {
 } from "@elaraai/east";
 import { PIECE_SIZES, TreePathType, pieceSizesFor, type SplitCallRequest, type TreePath } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
+import { utcAt } from "../plan/plan.test-utils.js";
 import { createInMemoryQueryCall, createInMemorySplitCall } from "./in-memory-call.js";
-import { planBadge, planWords, queryWords } from "./model/words.js";
+import { planBadge, planWords } from "./model/plan-words.js";
+import { queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult, type QueryRootEntry } from "./one-shot.js";
 import {
     PLAN_COSTS, draftPlan, planQuery, splitCallRequest, weighPlan, type PlanExplanation, type PlanOptions, type QueryPlan, type SourceWeight,
@@ -734,6 +736,63 @@ describe("every split, run in memory over 1, 3 and 7 pieces, answers as its one-
     }
 });
 
+// ─── #1670's steps and .now: each splits, and answers as its one call ────────
+
+describe("#1670's steps and .now: each splits over the pieces, and answers as its one-shot call does", () => {
+    /** The minute both calls are given: two days after the fixture's last shipment. */
+    const NOW = utcAt("2026-06-28T09:00:00.000");
+    /** Each step as the query steps print it (`test/query/steps.spec.ts`), and all three together. */
+    const STEPS: readonly (readonly [name: string, program: string])[] = [
+        ["a date in the last 30 days", ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"day\"))))"],
+        ["several group fields", ".orders\n| group_by({customer_id, status: .status.type})\n| map({customer_id: .[0].customer_id, status: .[0].status.type, n: length, total: map(.total) | add})"],
+        ["a ratio total", ".orders\n| group_by(.customer_id)\n| map({customer_id: .[0].customer_id, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})"],
+        ["all three", [
+            ".now as $now",
+            ".orders",
+            "map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-12; \"week\"))))",
+            "group_by({customer_id, status: .status.type})",
+            "map({customer_id: .[0].customer_id, status: .[0].status.type, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})",
+        ].join("\n| ")],
+    ];
+    const oneShot = createInMemoryQueryCall(IN_MEMORY);
+    for (const [name, program] of STEPS) {
+        test(name, async () => {
+            const prepared = prepareQuery(program, ROOT, { now: NOW });
+            if (!("prepared" in prepared)) throw new Error(`${program} does not check`);
+            const want = decoded(queryResultOf(prepared.prepared, await oneShot(prepared.prepared.request)));
+            expect((want.value as unknown[]).length, "the answer holds rows").toBeGreaterThan(0);
+            const planned = planQuery(program, ROOT, HEAVY, { now: NOW });
+            if ("result" in planned || planned.plan.kind !== "split") throw new Error(`${name} does not split`);
+            const { request, reading } = planned.plan;
+            for (const pieces of [1, 3, 7]) {
+                const result = queryResultOf(reading, (await createInMemorySplitCall(IN_MEMORY, { pieces })(request, QUIET)).result);
+                const got = decoded(result);
+                expect(isTypeEqual(got.type, want.type), `${pieces} pieces: the type`).toBe(true);
+                expect(close(want.type, got.value, want.value), `${pieces} pieces: the value`).toBe(true);
+                // The datasets it read, and not the minute.
+                expect(result.inputs.map(i => i.name), `${pieces} pieces: what it read`).toEqual(["orders"]);
+            }
+        });
+    }
+
+    test("the minute reaches every piece as a value, partitioned by none: what the one call is given", () => {
+        const program = STEPS[0]![1];
+        const planned = planQuery(program, ROOT, HEAVY, { now: NOW });
+        const prepared = prepareQuery(program, ROOT, { now: NOW });
+        if ("result" in planned || planned.plan.kind !== "split" || !("prepared" in prepared)) throw new Error("expected a split and a one-shot call");
+        const [clock] = prepared.prepared.request.args;
+        expect(planned.plan.request.args).toEqual([
+            { arg: clock, partition: none },
+            { arg: variant("dataset", pathOf("orders")), partition: some({ by: [] }) },
+        ]);
+        expect(planned.plan.reading.args).toEqual([null, "orders"]);
+        expect(planned.plan.reading.entries.map(e => e.name)).toEqual(["orders"]);
+        // The minute is no data source: no piece reads it whole, and the explanation says none does.
+        expect(planned.plan.explanation.path.kind === "split" ? planned.plan.explanation.path.broadcast : undefined).toEqual([]);
+        expect(explained(planned.plan.explanation)).not.toMatch(/reads now whole/);
+    });
+});
+
 // ─── Joins: cut at the same keys, or re-keyed (#942) ─────────────────────────
 
 /** The stock held of each SKU and each SKU's price: two dicts keyed alike, as the east split spec's. */
@@ -842,8 +901,6 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
         ]);
         expect([join.output.type, join.limits]).toEqual(["set", some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none })]);
         for (const ir of [p.first.bodyIr, join.bodyIr, ...(join.then.type === "some" ? [join.then.value] : [])]) expect(platformCalls(ir)).toEqual([]);
-        // What the run reads: the orders, which the re-key call reads, then the customers.
-        expect(p.reading.entries.map(e => e.name)).toEqual(["orders", "customers"]);
     });
 
     test("a time limit the options name reaches both calls of a re-keyed join, as a split call's (#1131)", () => {
@@ -875,10 +932,12 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
                 // Its answer too large for one byte, its output kept by its hash.
                 expect([first.result.outcome.type, first.output?.length], `${pieces} pieces: the re-key call`).toEqual(["too_large", 64]);
                 const joined = await call(p.join(first.output!), QUIET);
-                const result = queryResultOf(p.reading, p.answer(first.result, joined.result));
+                const { result: answer, reading } = p.answer(first.result, joined.result);
+                const result = queryResultOf(reading, answer);
                 const got = decoded(result);
                 expect(isTypeEqual(got.type, want.type), `${pieces} pieces: the type`).toBe(true);
                 expect(close(want.type, got.value, want.value), `${pieces} pieces: the value`).toBe(true);
+                // What it read: the orders, which the re-key call reads, then the customers.
                 expect(result.inputs.map(i => i.name), `${pieces} pieces: what it read`).toEqual(["orders", "customers"]);
             }
         });
@@ -888,8 +947,25 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
         const p = rekeyOf(REKEYED[1]!);
         const first = await createInMemorySplitCall(IN_MEMORY.filter(d => !equalFor(TreePathType)(d.path, pathOf("orders"))), { pieces: 3 })(p.first, QUIET);
         expect([first.result.outcome.type, first.output]).toEqual(["invalid", null]);
-        const result = queryResultOf(p.reading, p.answer(first.result, undefined));
+        const { result: answer, reading } = p.answer(first.result, undefined);
+        const result = queryResultOf(reading, answer);
         if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
         expect(result.outcome.value.map(d => d.message)).toEqual(["no_value: orders has no value yet."]);
+    });
+
+    test("a join call refused names its own argument's data source, as the join call numbers them — the minute's value among them, the binds either way round (#1670)", async () => {
+        const shipped = `.orders | map(select(.status.type == "shipped") | select(.status.value.date <= $now) | $c[.customer_id].region) | unique`;
+        for (const program of [`.now as $now | .customers as $c | ${shipped}`, `.customers as $c | .now as $now | ${shipped}`]) {
+            const p = rekeyOf(program);
+            // The customers unassigned: the re-key call, which reads the orders alone, answers, and the join call is refused.
+            const call = createInMemorySplitCall(IN_MEMORY.filter(d => !equalFor(TreePathType)(d.path, pathOf("customers"))), { pieces: 3 });
+            const first = await call(p.first, QUIET);
+            const joined = await call(p.join(first.output!), QUIET);
+            expect(joined.result.outcome.type, program).toBe("invalid");
+            const { result: answer, reading } = p.answer(first.result, joined.result);
+            const result = queryResultOf(reading, answer);
+            if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
+            expect(result.outcome.value.map(d => d.message), program).toEqual(["no_value: customers has no value yet."]);
+        }
     });
 });

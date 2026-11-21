@@ -8,7 +8,9 @@
  * timeline's date navigator's do with each day its view crosses — it draws with
  * its styles made once for the theme and its size, never its recipe's slots
  * worked out again. And Esc closes it from the moment it opens, a layer open
- * over it keeping its own.
+ * over it keeping its own — and a control in its body that takes Esc itself
+ * and says so (`data-escape-layer`, a Chooser laid in it: #1673) keeping its
+ * own too, the popover staying.
  */
 
 import { useState } from "react";
@@ -54,6 +56,27 @@ function Opening({ onClose }: { onClose: () => void }) {
             <div data-testid="body">Autosave</div>
         </SliceEditPopover>
     </ChakraProvider>;
+}
+
+/**
+ * A popover whose body lays a picker in it, as a filter's condition rows do: its search takes Esc itself, closing the
+ * list alone, and says so (`data-escape-layer`).
+ */
+function PickerInside({ onClose, onPicker }: { onClose: () => void; onPicker: () => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <SliceEditPopover open={open} onOpenChange={(next) => { if (!next) onClose(); setOpen(next); }} label="Add filter" trigger={<button type="button">Choose</button>}>
+            <button type="button">Field</button>
+            <div data-escape-layer="">
+                <input aria-label="Find" onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPicker();
+                }} />
+            </div>
+        </SliceEditPopover>
+    );
 }
 
 /** The popover's positioner observes sizes; jsdom has no ResizeObserver. */
@@ -114,6 +137,27 @@ describe("Esc from the moment the edit popover opens", () => {
         }
         await escape();
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test("is a control's own that takes it itself and says so, laid in its body — before and after its own dismissal listens — and the popover's again from elsewhere in it", async () => {
+        const onClose = vi.fn();
+        const onPicker = vi.fn();
+        render(<ChakraProvider value={system}>
+            <PickerInside onClose={onClose} onPicker={onPicker} />
+        </ChakraProvider>);
+        const trigger = screen.getByRole("button", { name: "Choose" });
+        trigger.focus();
+        await act(async () => { fireEvent.click(trigger); await Promise.resolve(); });
+        const find = screen.getByRole("textbox", { name: "Find" });
+        for (const frames of [0, 4]) {
+            for (let frame = 0; frame < frames; frame++) await act(async () => { vi.advanceTimersToNextFrame(); await Promise.resolve(); });
+            find.focus();
+            await escape();
+            expect([onPicker.mock.calls.length, onClose.mock.calls.length, trigger.getAttribute("aria-expanded")], `${frames} frames on`).toEqual([frames === 0 ? 1 : 2, 0, "true"]);
+        }
+        screen.getByRole("button", { name: "Field" }).focus();
+        await escape();
+        expect([onClose.mock.calls.length, trigger.getAttribute("aria-expanded")]).toEqual([1, "false"]);
     });
 
     test("heard once its own dismissal listens too, still closes it once", async () => {

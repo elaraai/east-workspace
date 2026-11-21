@@ -7,7 +7,8 @@
  * `EastChakraStudioBuilder` — the renderer of the `StudioBuilder` extension
  * declared in `@elaraai/e3-ui` (#1000): the builder, built in the browser from
  * its interface — the pages record bound with its patch, the listed
- * components, the project, and the publish preview's words.
+ * components and sources, the project, the page it shows and who to tell of
+ * another, and the publish preview's words.
  *
  * - **The canvas** is the snap grid's editing canvas over the open page's
  *   placements: every gesture a draft of the page's editing session, Apply one
@@ -17,20 +18,46 @@
  *   of room (#1229), once the canvas's own items have folded, folds Save as
  *   template, Preview and Publish into one ⋯ chip, whose menu holds the three
  *   — Save as template… opening its popover from the chip — then the status.
- * - **The palette** ({@link useStudioPalette}) is the pane before it, **the
- *   inspector** ({@link StudioInspector}) the body of the pane after it; the
- *   inspector's edits are requests the canvas takes as one gesture each. Both
- *   are pane descriptions the canvas's builder frame draws (#1125), `auto`:
- *   pinned beside the canvas on a desktop, over it on a narrow screen.
+ * - **The palette** ({@link useStudioPalette}) is the pane before it: a
+ *   visual dropped from it is placed at its kind's span, empty, over the
+ *   source the page's visuals read most (#1672, BLD-2); a text block at the
+ *   full width. **The inspector** is the pane after it, two tabs: Configure
+ *   ({@link StudioConfigure}), what the selected placement holds, edited — the
+ *   tab a visual or a text block opens on as it is selected, and the one the
+ *   canvas's Edit and a visual's Edit visual open (EDT-1) — and Layout
+ *   ({@link StudioInspector}). The inspector's edits are requests the canvas
+ *   takes as one gesture each; a visual's menu's Duplicate is the canvas's
+ *   copy. Both panes are pane descriptions the canvas's builder frame draws
+ *   (#1125), `auto`: pinned beside the canvas on a desktop, over it on a
+ *   narrow screen.
+ * - **The page's starting filters** ({@link useStartingFilters}, #1673) —
+ *   what every reader of the page starts with — stand on a rail of their own
+ *   over the canvas's grid, captioned, in the band the canvas draws there; the
+ *   canvas narrows by them. They are the page's draft's, edited in a session of
+ *   their own under the canvas's one history, kept per page: each edit of them
+ *   and of the placements is one step of it, which Undo and Redo walk in the
+ *   order they were made, and Save sends each its own patch (`saveFilters`,
+ *   `saveCells`).
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
- *   place while it shows. The canvas stays mounted, so its drafts stay its own,
- *   and it applies them when the preview asks before it publishes.
+ *   place while it shows: Preview opens it on the page, its rail's change
+ *   list shut, and Publish on what changed, the list shown over the rail's
+ *   row. The canvas stays mounted, so its drafts stay its own,
+ *   and it applies them when the preview asks before it publishes. The preview
+ *   is the page as its readers see it — the rail of their filters over its
+ *   grid, its clicks running — the reader's filters this browser holds of it,
+ *   as the published page narrows by them, else its starting filters as
+ *   drafted; an edit of the starting filters forgets the reader's, so the
+ *   preview starts on them. The canvas is the page as designed, which no
+ *   reader's filter narrows, and the builder's toolbar holds no filter rail
+ *   (ruled 19 November 2026).
  *
  * What each part shows is e3-ui's East, compiled once ({@link studioEast}).
- * The page open in the builder is the UI store's, by the builder's id, which
- * the page library writes when it opens a page; the selection, the drafts
- * the canvas draws and the preview's state are the builder's own. The builder
- * fills its host and draws no border around itself.
+ * The page open in the builder is its host's when it gives one — the builder
+ * shows it, and tells the host when its palette's Pages tab asks for another
+ * — else the builder's own, kept under its storage key ({@link useOpen},
+ * #1668); the selection, the drafts the canvas draws and the preview's state
+ * are the builder's own. The builder fills its host and draws no border
+ * around itself.
  *
  * In a phone's frame (`Studio Mobile Spec.md`) the canvas is its phone form, which
  * the snap grid draws by itself; the builder gives it the page's head, Add a
@@ -44,13 +71,13 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button as ChakraButton, HStack as ChakraHStack, Menu as ChakraMenu, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
+import { faDiagramNext, faEllipsis, faLink } from "@fortawesome/free-solid-svg-icons";
 import {
-    ArrayType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    ArrayType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, EditingDraftFieldType, SnapGrid } from "@elaraai/east-ui/internal";
 import {
-    StudioBuilderComponent, StudioCellType, StudioComponentType, StudioEntryType, StudioKeyType, builderKeys,
+    Studio, StudioBuilderComponent, StudioCellType, StudioContentType, StudioEntryType, StudioKeyType, builderKeys, studioEditors,
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
@@ -59,23 +86,39 @@ import {
     NARROW_FRAME,
     SNAP_GRID_HOST_RANK,
     SnapGridEditor,
+    Toolbar,
     implementUIComponent,
     useContainerWidth,
     useFormatters,
+    useKeptHistory,
     useTrackedEvaluation,
     type BuilderFrameDock,
     type SnapGridEditorCell,
     type SnapGridEditorEditing,
     type SnapGridEditorValue,
+    type SnapGridEntryRef,
+    type SnapGridJoined,
     type SnapGridPlacing,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
+import { VisualAnswersProvider } from "../query/visual/answers.js";
+import { startingOf, type PageFilter, type StartingFilter } from "../query/visual/filters.js";
+import { openCodec, useOpen } from "../shared/open.js";
+import { StudioConfigure } from "./configure.js";
+import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
-import { useOpenPage, type StudioKey } from "./open-page.js";
-import { StudioLayout, StudioPlacement } from "./page.js";
-import { useStudioPalette } from "./palette.js";
+import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
+import { entryOf } from "./page-entry.js";
+import { StudioAlertsProvider } from "./alert-context.js";
+import { clickFields } from "../query/visual/links.js";
+import { useLinking } from "./linking.js";
+import { PageClicksProvider } from "./page-clicks.js";
+import { PageFiltersProvider, forgetPageFilters } from "./page-filters.js";
+import { useStartingFilters, type StartingFilterLabels, type StartingFiltersBatch } from "./starting-filters.js";
+import { visualName } from "./visual/values.js";
+import { useStudioPalette, visualCards, type PlacedCard } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
 import { StudioPublishPreview } from "./publish.js";
 import { StudioSaveTemplate } from "./save-template.js";
@@ -85,10 +128,14 @@ type Styles = Record<string, SystemStyleObject>;
 
 /** The renderer's payload, decoded. */
 type StudioBuilderValue = ValueTypeOf<typeof StudioBuilderComponent.schema>;
-/** A listed component. */
-type Component = ValueTypeOf<typeof StudioComponentType>;
+/** A page's key. */
+type StudioKey = ValueTypeOf<typeof StudioKeyType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
+/** What a placement holds. */
+type Content = ValueTypeOf<typeof StudioContentType>;
+/** A visual. */
+type Visual = Extract<Content, { type: "visual" }>["value"];
 /** One entry of the pages record. */
 type Entry = ValueTypeOf<typeof StudioEntryType>;
 /** The canvas's selection, and a change asked of it. */
@@ -102,12 +149,21 @@ const CellsType = ArrayType(StudioCellType);
 const encodeCells = encodeBeast2For(CellsType);
 const decodeCells = decodeBeast2For(CellsType);
 const encodeCell = encodeBeast2For(StudioCellType);
+const encodeContent = encodeBeast2For(StudioContentType);
+
+/** A visual's content written whole: one gesture the canvas takes on its placement. */
+function visualRequest(key: string, visual: Visual): Request {
+    return { key, change: variant("field", { name: "content", value: encodeContent(variant("visual", visual)) }) };
+}
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(StudioCellType));
 /** The canvas's entries — a page's placements — and their drafts, as its editing session types them. */
 const CELL_TYPE = toEastTypeValue(StudioCellType);
 const CELL_DRAFT_TYPE = toEastTypeValue(EditingDraftFieldType(StudioCellType));
 const keyEqual = equalFor(StudioKeyType);
+const stringEqual = equalFor(StringType);
 const printKey = printFor(StudioKeyType);
+/** How the builder's own open page is kept, and one page told from another. */
+const OPEN_PAGE = openCodec(StudioKeyType);
 const NOTHING_SELECTED: UiState = { selected: none, request: none };
 
 /**
@@ -137,12 +193,17 @@ export interface EastChakraStudioBuilderProps {
  */
 export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ value, storageKey }: EastChakraStudioBuilderProps) {
     const styles = useSlotRecipe({ key: "studioBuilder" })() as Styles;
+    const filterStyles = useSlotRecipe({ key: "studioFilters" })() as Styles;
     const statusRecipe = useSlotRecipe({ key: "status" });
     const m = useStudioMessages();
     const words = useFormatters();
     const east = studioEast();
-    const { pages: handle, components, project } = value;
+    const { pages: handle, components, sources, project } = value;
     const id = value.id.type === "some" ? value.id.value : undefined;
+    // Each listed source's name, by its key: what a visual's source is called.
+    const sourceNames = useMemo(() => east.sourceNames(sources), [east, sources]);
+    // Each listed component's name, by its key: what a placement of it is called in words.
+    const componentNames = useMemo(() => east.componentNames(components), [east, components]);
     const keys = useMemo(() => builderKeys(id), [id]);
 
     // The record, read where the builder renders, and again when it moves.
@@ -150,26 +211,23 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const { result } = useTrackedEvaluation(read);
     const pages = result.ok ? result.value : undefined;
 
-    // The page open in the builder — the project's first until one is opened.
+    // The page open in the builder: its host's, else its own — the project's first until one is opened.
     const first = useMemo((): StudioKey => {
         if (pages !== undefined) {
             for (const [key, entry] of pages) {
-                if (key.project === project && entry.type === "page") return key;
+                if (stringEqual(key.project, project) && entry.type === "page") return key;
             }
         }
         return { project, page: "" };
     }, [pages, project]);
-    const [open, writeOpen] = useOpenPage(keys.page, first);
+    // The page it kept from before stands while the record holds it in this project.
+    const stands = useCallback((kept: StudioKey) => pages !== undefined && stringEqual(kept.project, project) && pages.has(kept), [pages, project]);
+    const [open, openAnother] = useOpen({
+        codec: OPEN_PAGE, storageKey: `${storageKey}.page`, given: value.page, first, stands,
+        onOpen: value.onOpen.type === "some" ? value.onOpen.value : undefined,
+    });
     const openName = printKey(open);
-    let entry: Entry | undefined;
-    if (pages !== undefined) {
-        for (const [key, found] of pages) {
-            if (keyEqual(key, open)) {
-                entry = found;
-                break;
-            }
-        }
-    }
+    const entry: Entry | undefined = pages === undefined ? undefined : entryOf(pages, open);
 
     // The selection, the Apply the preview asks of the canvas, the placements
     // the canvas draws, and whether the preview shows — the builder's own.
@@ -177,22 +235,29 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [applying, setApplying] = useState<ApplyState>(variant("idle", null));
     const [drafted, setDrafted] = useState<{ page: string; cells: readonly Cell[] } | undefined>(undefined);
     const [previewing, setPreviewing] = useState(false);
-    // A phone's frame: the builder's own width, its open preview tab, what is being placed, and its panes' views.
+    // A phone's frame: the builder's own width, what is being placed, and its panes' views.
     const widthRef = useRef<HTMLDivElement | null>(null);
     const width = useContainerWidth(widthRef);
     const phone = width > 0 && width <= NARROW_FRAME;
+    // What the preview shows with the page — the page alone, or what changed — as Preview or Publish opened it.
     const [previewTab, setPreviewTab] = useState<"page" | "changes">("page");
     const [placing, setPlacing] = useState<SnapGridPlacing | undefined>(undefined);
     const [collapsed, setCollapsed] = useState({ start: false, end: false });
+    // The inspector's open tab: Configure, what the placement holds, or Layout (#1672).
+    const [inspectorTab, setInspectorTab] = useState<"configure" | "layout">("configure");
     // Save as template's popover, opened from the ⋯ chip's menu (#1229).
     const [naming, setNaming] = useState(false);
-    // A page opened from anywhere — the palette, the page library — opens with nothing selected.
+    // A page opened from anywhere — the palette, the host — opens with nothing selected, nothing being placed, and in a
+    // phone's frame its palette's view closed. A page asked for moves nothing until it opens: a host that holds the page
+    // may open it later, or not at all.
     const shown = useRef(openName);
     useEffect(() => {
         if (shown.current === openName) return;
         shown.current = openName;
         setUi(NOTHING_SELECTED);
-    }, [openName]);
+        setPlacing(undefined);
+        if (phone) setCollapsed((was) => (was.start ? was : { ...was, start: true }));
+    }, [openName, phone]);
 
     // The open page's placements as saved, and as the canvas draws them (its
     // drafts in place).
@@ -200,14 +265,107 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
     const title = entry === undefined ? "" : entry.type === "page" ? entry.value.draft.title : entry.value.title;
 
+    // ── The page's starting filters (#1673) ─────────────────────────────
+    // What every reader of the page starts with, as its draft saved them, and as the builder draws them: one history over
+    // them and the canvas's placements, kept per page — each edit of either one step of it, and Save each one's own patch.
+    const savedFilters = useMemo((): readonly StartingFilter[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.filters : entry.value.filters), [entry]);
+    const history = useKeptHistory<SnapGridEntryRef>(`${storageKey}.history.${openName}`);
+    const startingLabels = useMemo((): StartingFilterLabels => ({
+        add: m.addStartingFilter(), change: m.changeStartingFilter(), remove: m.removeStartingFilter(), clear: m.clearStartingFilters(),
+    }), [m]);
+    // Their Apply: the batch, one patch on the open page's filters alone through the record's patch write.
+    const applyFilters = useCallback((batch: StartingFiltersBatch) => east.saveFilters(handle, open, batch), [east, handle, open]);
+    // An edit of what every reader starts with starts this browser's reading of the page afresh: the reader's filters it
+    // holds of the page — what the Preview, as the published page, narrows by — are forgotten, so the Preview shows them.
+    const readersAfresh = useCallback(() => forgetPageFilters(open), [open]);
+    const starting = useStartingFilters({
+        page: openName, saved: savedFilters, apply: applyFilters, history, storageKey, labels: startingLabels, onEdit: readersAfresh,
+    });
+    const joined = useMemo((): SnapGridJoined => ({
+        history, sessions: [{ key: starting.key, session: starting.session, name: m.startingFilters() }],
+    }), [history, starting.key, starting.session, m]);
+    // Their rail over the canvas's grid, captioned, over the sources the page's visuals read; none for a page whose visuals
+    // read no source the surface can filter.
+    const readSources = useMemo(() => sourcesRead(cells), [cells]);
+    const startingItems = useStudioFilterItems(starting.filters, sources, readSources, m.startingFilters());
+    const startingRail = startingItems.length === 0 ? undefined : (
+        <Box css={filterStyles.starting} data-studio-starting-filters="">
+            <Box as="span" css={filterStyles.caption} title={m.startingFiltersHint()} data-studio-starting-caption="">{m.startingFilters()}</Box>
+            <Box css={filterStyles.bar}><Toolbar items={startingItems} /></Box>
+        </Box>
+    );
+    // The preview, on its tab: the page as this browser's reader of it sees it.
+    const showPreview = useCallback((tab: "page" | "changes") => {
+        setPreviewTab(tab);
+        setPreviewing(true);
+    }, []);
+    // What a reader of a page starts with in the preview: the open page's starting filters as drafted, another's as saved.
+    const previewStartsWith = useCallback((page: StudioKey): readonly PageFilter[] => {
+        if (keyEqual(page, open)) return startingOf(starting.drafted);
+        const found = pages === undefined ? undefined : entryOf(pages, page);
+        return found === undefined ? [] : startingOf(found.type === "page" ? found.value.draft.filters : found.value.filters);
+    }, [open, starting.drafted, pages]);
+    // The placements the canvas draws, as a dropped visual reads them for its source.
+    const cellsRef = useRef(cells);
+    cellsRef.current = cells;
+    // The palette's visuals: each kind's, while a source is listed for them to read, and the text block (BLD-1).
+    const listedComponents = useMemo(() => components.filter((c) => !c.deprecated), [components]);
+    const visuals = useMemo(() => visualCards(studioEditors, sources.length, listedComponents, m.textCard()), [sources.length, listedComponents, m]);
+
     // ── The canvas ────────────────────────────────────────────────────────
     const tiles = useMemo(() => east.canvasTiles(components), [east, components]);
-    // Each tile's component, for the tile's content — kept as the canvas's
-    // cells are drawn, so a dropped card's tile finds its component at once.
-    const componentOf = useRef(new Map<string, string>());
+    // The tile of what a placement holds: e3-ui's East — none for a component the surface does not list.
+    const tileOf = useCallback((content: Content) => {
+        const tile = east.contentTile(content, tiles, sourceNames);
+        return tile.type === "some" ? tile.value : undefined;
+    }, [east, tiles, sourceNames]);
+    // The open page's placements, each named as its tile is: what the Configure tab's Follows block picks a leader from (#1673).
+    const configurePlacements = useMemo(() => cells.map((cell) => {
+        // A visual's name is its tile's eyebrow's: its own title, else one made from its wells (TIL-1).
+        const visual = cell.content.type === "visual" ? cell.content.value : undefined;
+        const source = visual === undefined ? undefined : sources.find((listed) => stringEqual(listed.key, visual.source));
+        const made = visual === undefined || source === undefined ? undefined : visualName(visual.view, source, m);
+        return {
+            cell,
+            name: cell.title.type === "some" ? cell.title.value : made ?? tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
+        };
+    }), [cells, sources, tileOf, east, sourceNames, componentNames, m]);
+    // Linking on the canvas (LNK-6, LNK-7): a link's edits are requests on its placements, one gesture each — the
+    // leader's first, where linking switched its click, then the follower's, which stays selected.
+    const asked = useRef<Request[]>([]);
+    /** Asks the canvas for changes, a gesture each, in order: the first now, each next as the one before is taken. */
+    const ask = useCallback((requests: readonly Request[]) => {
+        const [first, ...rest] = requests;
+        if (first === undefined) return;
+        asked.current = rest;
+        setUi({ selected: some(first.key), request: some(first) });
+    }, []);
+    const onLinked = useCallback((edits: readonly { readonly key: string; readonly visual: Visual }[]) => {
+        ask(edits.map(({ key, visual }) => visualRequest(key, visual)));
+    }, [ask]);
+    const linking = useLinking({ placements: configurePlacements, sources, onLinked });
+    // Add a linked visual (LNK-8): a new column chart in a new row after its leader's, on the leader's source, already
+    // following it on the first field its clicks tell — the leader's click switched to select first, where it was not.
+    const addLinked = useCallback((leaderKey: string) => {
+        const cell = cells.find((held) => held.key === leaderKey);
+        const leader = cell !== undefined && cell.content.type === "visual" ? cell.content.value : undefined;
+        const from = leader === undefined ? undefined : clickFields(leader.view)[0];
+        const chart = visuals.find((card) => card.kind !== undefined && stringEqual(card.kind.type, "column"));
+        if (leader === undefined || from === undefined || chart === undefined || chart.kind === undefined) return;
+        const content = Studio.visual.of(leader.source, east.emptyView(chart.kind), { follow: { leader: leaderKey, from, to: from, empty: variant("all", null) } });
+        // Its key and its row are the canvas's to set: a fresh key from this one, in the new row.
+        const entry = encodeCell({ key: "linked", row: "", span: chart.span, height: none, align: variant("top", null), title: none, content });
+        ask([
+            ...(leader.click.type === "select" ? [] : [visualRequest(leaderKey, { ...leader, click: variant("select", null) })]),
+            { key: leaderKey, change: variant("add", entry) },
+        ]);
+    }, [cells, visuals, east, ask]);
+    // Each tile's placement — kept as the canvas's cells are drawn, so a
+    // dropped card's tile finds what it holds, and its title, at once.
+    const placedOf = useRef(new Map<string, Cell>());
     const cellView = useCallback((cell: Cell): SnapGridEditorCell => {
-        componentOf.current.set(cell.key, cell.component);
-        const tile = tiles.get(cell.component);
+        placedOf.current.set(cell.key, cell);
+        const tile = tileOf(cell.content);
         return {
             key: cell.key,
             row: cell.row,
@@ -215,15 +373,15 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             height: cell.height,
             minHeight: none,
             align: cell.align,
-            // A frameless component renders bare; one the surface does not
-            // list is its placeholder, in a tile.
+            // A frameless component and a text block render bare; a component
+            // the surface does not list is its placeholder, in a tile.
             frame: tile === undefined ? true : tile.frame,
             label: cell.title.type === "some" ? cell.title : tile === undefined ? none : some(tile.name),
             icon: tile === undefined ? none : some(tile.icon),
             // What its code reads, never its key; a component the surface does not list is known by its key alone.
-            meta: tile === undefined ? some(cell.component) : tile.meta.length === 0 ? none : some(tile.meta),
+            meta: tile !== undefined ? (tile.meta.length === 0 ? none : some(tile.meta)) : cell.content.type === "component" ? some(cell.content.value) : none,
         };
-    }, [tiles]);
+    }, [tileOf]);
     const snapshot = useMemo(() => encodeCells([...saved]), [saved]);
     const editing = useMemo((): SnapGridEditorEditing => ({
         sourceId: `studio.page:${openName}`,
@@ -244,20 +402,20 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         toDraft: none,
         fields: { key: "key", row: "row", span: "span", height: some("height"), align: some("align") },
         derive: (bytes: Uint8Array) => decodeCells(bytes).map(cellView),
-        // A component dropped from the palette: a placement at its span; the
-        // canvas fits the span to the row.
+        // A card dropped from the palette: a component's placement at its span; a visual's at its kind's, empty, over the
+        // source the page's visuals read most (BLD-2); a text block's at the full width. The canvas fits the span to the row.
         create: some((card: { library: string; key: string }, at: { key: string; row: string }) => {
-            const component = components.find((c) => c.key === card.key);
-            if (component === undefined) throw new Error(`No component "${card.key}" is listed`);
-            return encodeCell({
-                key: at.key,
-                row: at.row,
-                span: component.span,
-                height: none,
-                align: variant("top", null),
-                title: none,
-                component: component.key,
+            const placement = (span: bigint, content: Content) => encodeCell({
+                key: at.key, row: at.row, span, height: none, align: variant("top", null), title: none, content,
             });
+            const component = components.find((c) => c.key === card.key);
+            if (component !== undefined) return placement(component.span, variant("component", component.key));
+            const visual = visuals.find((v) => v.key === card.key);
+            if (visual === undefined) throw new Error(`No component "${card.key}" is listed`);
+            if (visual.kind === undefined) return placement(visual.span, Studio.visual.text(m.newText()));
+            const source = east.mostUsedSource([...cellsRef.current], sources);
+            if (source.type === "none") throw new Error("No source is listed for a visual to read");
+            return placement(visual.span, Studio.visual.of(source.value, east.emptyView(visual.kind)));
         }),
         ready: none,
         // The rows the canvas draws, for the palette's counts, the inspector and the preview.
@@ -265,12 +423,23 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             setDrafted({ page: openName, cells: decodeCells(bytes) });
             return null;
         }),
-    }), [openName, snapshot, saved, east, handle, open, cellView, components]);
+    }), [openName, snapshot, saved, east, handle, open, cellView, components, visuals, sources, m]);
     const uiBind = useMemo(() => ({
         read: () => ui,
-        write: (next: UiState) => { setUi(next); return null; },
+        write: (next: UiState) => {
+            // While a leader is picked, a tile's click is the pick's, never the canvas's selection — and neither Esc,
+            // which leaves the mode, nor a click on the canvas itself lets the visual being linked go.
+            if (linking.active && next.request.type === "none") {
+                if (next.selected.type === "some") linking.pick(next.selected.value);
+                return null;
+            }
+            // A gesture taken: the next a link asked for, if one waits.
+            const waiting = next.request.type === "none" ? asked.current.shift() : undefined;
+            setUi(waiting === undefined ? next : { selected: some(waiting.key), request: some(waiting) });
+            return null;
+        },
         has: () => true,
-    }), [ui]);
+    }), [ui, linking]);
     const applyBind = useMemo(() => ({
         read: () => applying,
         write: (next: ApplyState) => { setApplying(next); return null; },
@@ -294,32 +463,58 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         widths: [
             { label: m.device({ device: "desktop" }), icon: some("desktop"), width: "1440px" },
             { label: m.device({ device: "tablet" }), icon: some("tablet-screen-button"), width: "1024px" },
+            // A phone's: the canvas lays the page out as a phone shows it, stacked.
+            { label: m.device({ device: "mobile" }), icon: some("mobile-screen"), width: "390px" },
         ],
         toolbar: { start: [], end: [] },
         panes: { start: none, end: none },
         surface: some(variant("shell", null)),
     }), [saved, cellView, editing, uiBind, applyBind, keys.components, m]);
 
-    // Each tile's content: its component's own UI, or its placeholder.
-    const listedByKey = useMemo(() => {
-        const byKey = new Map<string, Component[]>();
-        for (const component of components) {
-            const same = byKey.get(component.key);
-            if (same === undefined) byKey.set(component.key, [component]);
-            else same.push(component);
-        }
-        return byKey;
-    }, [components]);
+    // A placement opened for editing — the canvas's Edit, a visual's Edit visual: selected, its Configure tab shown (EDT-1).
+    const editPlacement = useCallback((key: string) => {
+        setUi({ selected: some(key), request: none });
+        setInspectorTab("configure");
+        setCollapsed((was) => (was.end ? { ...was, end: false } : was));
+    }, []);
+    // A visual's Link: it is selected, and the canvas picks the visual it should follow (LNK-6).
+    const startLinking = linking.start;
+    const linkPlacement = useCallback((key: string) => {
+        setUi({ selected: some(key), request: none });
+        startLinking(key);
+    }, [startLinking]);
+    // What the builder does to a selected visual stands on its tile's frame beside Edit, Duplicate and Remove — never in the
+    // menu its tile has on a page too (#1673): Link on the canvas, and Add a linked visual where its clicks tell a field,
+    // the one thing a follower can follow.
+    const tileActions = useCallback((key: string) => {
+        const placed = placedOf.current.get(key);
+        if (placed === undefined || placed.content.type !== "visual") return [];
+        const followable = clickFields(placed.content.value.view).length > 0;
+        return [
+            { key: "link", label: m.linkOnCanvas(), icon: faLink, onClick: () => linkPlacement(key) },
+            ...(followable ? [{ key: "add-linked", label: m.addLinked(), icon: faDiagramNext, onClick: () => addLinked(key) }] : []),
+        ];
+    }, [m, linkPlacement, addLinked]);
+
+    // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
+    const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
-        const component = componentOf.current.get(cell.key) ?? "";
-        return <StudioPlacement component={component} listed={listedByKey.get(component) ?? []} storageKey={`${storageKey}.canvas.${cell.key}`} />;
-    }, [listedByKey, storageKey]);
+        const placed = placedOf.current.get(cell.key);
+        if (placed === undefined) return null;
+        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it — and a field its
+        // source lacks is picked again in its Configure tab.
+        return (
+            <StudioPlacement content={placed.content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`}
+                title={placed.title.type === "some" ? placed.title.value : undefined} placement={cell.key} pick={linking.stateOf(cell.key)}
+                onEdit={() => editPlacement(cell.key)} />
+        );
+    }, [listedByKey, sourceNames, storageKey, editPlacement, linking]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
         : entry.type === "template" ? { label: m.statusTemplate(), tone: "neutral" as const, ring: false }
             : entry.value.live.type === "none" ? { label: m.statusDraft(), tone: "neutral" as const, ring: true }
-                : east.changes(entry.value.live.value.page, entry.value.draft).length === 0
+                : east.changes(entry.value.live.value.page, entry.value.draft, sourceNames, componentNames).length === 0
                     ? { label: m.statusLive(), tone: "success" as const, ring: false }
                     : { label: m.statusLiveEdited(), tone: "warning" as const, ring: false };
     const statusStyles = status === undefined ? undefined : statusRecipe({ status: status.tone, size: "md", ring: status.ring }) as Styles;
@@ -350,7 +545,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         <StudioSaveTemplate value={saveTemplate} open={naming} onOpenChange={setNaming} anchor={
             <ChipMenu label={m.more()} icon={faEllipsis} data="data-studio-more" onSelect={(picked) => {
                 if (picked === "save-template") setNaming(true);
-                else if (picked === "preview" || picked === "publish") setPreviewing(true);
+                else if (picked === "preview" || picked === "publish") showPreview(picked === "publish" ? "changes" : "page");
             }}>
                 <ChakraMenu.Item value="save-template" disabled={!saveTemplate.enabled}
                     {...(saveTemplate.enabled ? {} : { title: m.templateOpen() })}>{m.saveAsTemplateItem()}</ChakraMenu.Item>
@@ -359,12 +554,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </ChipMenu>
         } />
     );
+    // No filter rail in the toolbar: a reader's filters are the Preview's, over the page, and the page's starting filters
+    // stand on their own rail over the canvas's grid (ruled 19 November 2026).
     const toolbar = phone ? {
         end: [{
             key: "studio.phone", forms: [null], phone: {
                 grow: true,
                 form: <StudioPhoneBar status={status} saveTemplate={saveTemplate} project={open.project}
-                    onPreview={() => { setPreviewTab("page"); setPreviewing(true); }} onPublish={() => { setPreviewTab("changes"); setPreviewing(true); }} />,
+                    onPreview={() => showPreview("page")} onPublish={() => showPreview("changes")} />,
             },
         } satisfies ToolbarItem],
     } : {
@@ -389,58 +586,75 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
             {
                 key: "preview", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" size="sm" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-preview="" onClick={() => showPreview("page")}>{m.preview()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             {
                 key: "publish", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" size="sm" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-open-publish="" onClick={() => showPreview("changes")}>{m.publish()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             { key: "more", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE, held: naming, forms: [null, more] } satisfies ToolbarItem,
         ],
     };
 
     // ── The palette, before the canvas ───────────────────────────────────
-    const listed = useMemo(() => components.filter((c) => !c.deprecated), [components]);
+    const listed = listedComponents;
     const cards = useMemo(() => east.paletteCards(listed, [...cells], phone ? none : ui.selected), [east, listed, cells, ui.selected, phone]);
     const projectPages = useMemo(() => (pages === undefined ? [] : east.palettePages(pages, project)), [east, pages, project]);
     // A card's click selects its component's first placement on the page.
     const selectFirst = useCallback((component: string) => {
-        const placement = cells.find((c) => c.component === component);
+        const placement = cells.find((c) => c.content.type === "component" && c.content.value === component);
         if (placement !== undefined) setUi({ selected: some(placement.key), request: none });
     }, [cells]);
-    // A page's click opens it, with nothing selected.
+    // A page's click asks for it: the builder's own opens, a host's is the host's to change. What follows a page opening —
+    // nothing selected, the phone's view closed — follows once it has, above; the page already open has nothing to wait
+    // for, so a phone's tap on it closes the view at once.
     const openPage = useCallback((page: string) => {
-        writeOpen({ project, page });
-        setUi(NOTHING_SELECTED);
-        setPlacing(undefined);
-        setCollapsed((was) => (phone ? { ...was, start: true } : was));
-    }, [writeOpen, project, phone]);
+        if (keyEqual(open, { project, page })) {
+            if (phone) setCollapsed((was) => (was.start ? was : { ...was, start: true }));
+            return;
+        }
+        openAnother({ project, page });
+    }, [openAnother, open, project, phone]);
     // A card's tap on a phone: the view closes and placing starts (ST22).
-    const onPage = useMemo(() => new Set(cells.map((c) => c.component)), [cells]);
+    const onPage = useMemo(() => new Set(cells.flatMap((c) => (c.content.type === "component" ? [c.content.value] : []))), [cells]);
     const palettePhone = useMemo(() => (!phone ? undefined : {
         onPage,
-        onPlace: (component: Component) => {
+        onPlace: (card: PlacedCard) => {
             setUi(NOTHING_SELECTED);
-            setPlacing({ kind: "add", card: { library: keys.components, key: component.key }, label: component.name, span: Number(component.span) });
+            setPlacing({ kind: "add", card: { library: keys.components, key: card.key }, label: card.label, span: card.span });
             setCollapsed((was) => ({ ...was, start: true }));
         },
     }), [phone, onPage, keys.components]);
     const paletteIds = useMemo(() => ({ components: keys.components, pages: keys.pages }), [keys.components, keys.pages]);
     const palette = useStudioPalette({
-        components: listed, cards, pages: projectPages, open: open.project === project ? open.page : "", ids: paletteIds,
+        visuals, components: listed, cards, pages: projectPages, open: stringEqual(open.project, project) ? open.page : "", ids: paletteIds,
         onSelect: selectFirst, onOpen: openPage, storageKey, phone: palettePhone,
     });
 
     // ── The inspector, after it ──────────────────────────────────────────
-    const selection = useMemo(() => east.inspectorSelection(components, [...cells], ui.selected),
-        [east, components, cells, ui.selected]);
-    // A layout edit is a request on the selection: the canvas takes it as one gesture.
+    const selection = useMemo(() => east.inspectorSelection(components, sourceNames, [...cells], ui.selected),
+        [east, components, sourceNames, cells, ui.selected]);
+    // An edit — of the layout, or of what it holds — is a request on the selection: the canvas takes it as one gesture.
     const onRequest = useCallback((request: Request) => {
         setUi({ selected: some(request.key), request: some(request) });
         return null;
     }, []);
-    const inspector = useMemo(() => ({ selection, onRequest }), [selection, onRequest]);
+    const inspector = useMemo(() => ({ selection, sources, editors: [...studioEditors], onRequest }), [selection, sources, onRequest]);
     const selected = selection.type === "some" ? selection.value : undefined;
+    // A visual or a text block selected anew opens the Configure tab (EDT-1); a component leaves the tab as it was.
+    const shownSelection = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const key = selected?.key;
+        if (key === shownSelection.current) return;
+        shownSelection.current = key;
+        if (selected !== undefined && selected.cell.content.type !== "component") setInspectorTab("configure");
+    }, [selected]);
+    // What the selected placement holds as the page is saved — what the Configure tab tints its changes against — and the
+    // project's pages, which a click may open.
+    const savedContent = useMemo(() => saved.find((c) => c.key === selected?.key)?.content, [saved, selected?.key]);
+    const configurePages = useMemo(() => projectPages.map((page) => ({ key: { project, page: page.page }, title: page.title })), [projectPages, project]);
+    // A visual's wells, and the Fields list they take fields from: their own drags, apart from the canvas's.
+    const wellsDnd = useMemo(() => ({ wells: `${keys.components}.wells`, fields: `${keys.components}.fields` }), [keys.components]);
     // Where the selected placement stands, for a phone's inspector (ST24).
     const inspectorPhone = useMemo(() => {
         if (!phone) return undefined;
@@ -461,24 +675,37 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             },
         };
     }, [phone, cells, saved, selected?.key]);
-    // One body, 300px wide; its rail names the selected placement, in the brand while there is one.
-    const inspectorBody = <StudioInspector value={inspector} phone={inspectorPhone} />;
+    // Two tabs, 320px wide as the spec's builder draws it — Configure and Layout (#1672); its rail names the selected placement, in the brand
+    // while there is one.
+    const inspectorTabs = [
+        {
+            key: "configure", label: m.configure(),
+            body: <StudioConfigure value={inspector} saved={savedContent} pages={configurePages} placements={configurePlacements} dnd={wellsDnd}
+                phone={inspectorPhone} onLink={linkPlacement} />,
+        },
+        { key: "layout", label: m.layout(), body: <StudioInspector value={inspector} phone={inspectorPhone} /> },
+    ];
+    const onInspectorTab = useCallback((key: string) => setInspectorTab(key === "layout" ? "layout" : "configure"), []);
     const inspectorPane = useMemo((): BuilderFrameDock => (inspectorPhone !== undefined ? {
         label: m.inspector(),
         icon: "sliders",
         // The strip's meta: its row, while something is selected (ST21).
         ...(selected === undefined ? {} : { detail: m.phoneRowMeta({ row: words.number(Number(selected.layout.row)) }) }),
-        tabs: [{ key: "details", label: m.phoneDetails(), body: inspectorBody }],
+        tabs: inspectorTabs,
+        tab: inspectorTab,
+        onTabChange: onInspectorTab,
     } : {
         label: m.inspector(),
         icon: "sliders",
         badge: selected === undefined ? "" : m.spanBadge({ span: words.number(Number(selected.layout.span)) }),
         active: selected !== undefined,
         detail: selected === undefined ? m.nothingSelected() : selected.name,
-        size: "300px",
-        body: inspectorBody,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the body is made again with what it reads.
-    }), [m, words, selected, inspector, inspectorPhone]);
+        size: "320px",
+        tabs: inspectorTabs,
+        tab: inspectorTab,
+        onTabChange: onInspectorTab,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the tabs' bodies are made again with what they read.
+    }), [m, words, selected, inspector, inspectorPhone, inspectorTab, savedContent, configurePages, wellsDnd, storageKey, onInspectorTab]);
     // The panes' collapse is the builder's, so a card's tap can close its view; every width's goes through here.
     const panePaletteCollapse = (next: boolean) => {
         setCollapsed((was) => (was.start === next ? was : { ...was, start: next }));
@@ -490,9 +717,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     };
 
     // ── The publish preview, in the canvas's place ───────────────────────
+    // The layout that publishes, its drafts in place, against the page as saved — its placements and its starting filters.
     const summary = useMemo(() => (entry === undefined ? undefined
-        : east.publishSummary(components, entry.type === "page" ? entry.value.live : none, { title, cells: [...cells] }, [...saved], entry.type === "template")),
-    [east, components, entry, title, cells, saved]);
+        : east.publishSummary(components, sourceNames, entry.type === "page" ? entry.value.live : none,
+            { title, cells: [...cells], filters: [...starting.drafted] }, { title, cells: [...saved], filters: [...savedFilters] }, entry.type === "template")),
+    [east, components, sourceNames, entry, title, cells, saved, starting.drafted, savedFilters]);
     const preview = useMemo(() => (summary === undefined ? undefined : {
         project: open.project,
         title,
@@ -524,35 +753,59 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 title={m.noPageOpen()} description={m.noPageOpenHint({ project, page: open.page })} />
         );
     }
+    // The alerts record, given (#1674): the canvas's visuals and the preview's carry a bell; the published page checks them.
+    const alerts = value.alerts.type === "some" ? value.alerts.value : undefined;
     return (
         <Box ref={widthRef} css={styles.root} data-studio-builder="">
-            <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
-                <SnapGridEditor
-                    value={canvas}
-                    storageKey={`${storageKey}.canvas`}
-                    toolbar={toolbar}
-                    renderContent={renderContent}
-                    panes={{
-                        start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
-                        end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },
-                    }}
-                    phone={{
-                        eyebrow: open.project, title, placing, onPlacing: setPlacing,
-                        onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
-                    }}
-                />
-            </Box>
-            {previewing && preview !== undefined && (
-                <StudioPublishPreview value={preview}
-                    page={<StudioLayout cells={cells} components={components} storageKey={`${storageKey}.preview`} />}
-                    phone={!phone ? undefined : {
-                        tab: previewTab, onTab: setPreviewTab, width,
-                        tiles: cells.map((cell) => ({
-                            key: cell.key, row: cell.row, span: Number(cell.span),
-                            name: cell.title.type === "some" ? cell.title.value : tiles.get(cell.component)?.name ?? cell.component,
-                        })),
-                    }} />
-            )}
+            {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
+                beside it asks through the same answers, so what the canvas has answered it draws at once. */}
+            <VisualAnswersProvider sources={sources}>
+                <StudioAlertsProvider handle={alerts} page={open}>
+                {/* The canvas is the page as designed: its starting filters narrow it, as every reader starts — no reader's
+                    filter does (ruled 19 November 2026) — and a click edits: a visual's own click does not run, and one that
+                    follows another reads what the preview's reader selected (#1673). */}
+                <PageFiltersProvider value={starting.filters}>
+                <PageClicksProvider page={open} cells={cells} live={false}>
+                <Box css={styles.canvas} hidden={previewing} data-studio-canvas="" data-linking={linking.active ? "" : undefined}>
+                    <SnapGridEditor
+                        value={canvas}
+                        storageKey={`${storageKey}.canvas`}
+                        toolbar={toolbar}
+                        joined={joined}
+                        head={startingRail}
+                        banners={linking.surface}
+                        tileActions={tileActions}
+                        renderContent={renderContent}
+                        onEdit={editPlacement}
+                        panes={{
+                            start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
+                            end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },
+                        }}
+                        phone={{
+                            eyebrow: open.project, title, placing, onPlacing: setPlacing,
+                            onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
+                        }}
+                    />
+                </Box>
+                </PageClicksProvider>
+                </PageFiltersProvider>
+                {/* The preview runs the page as its readers see it (BLD-4): its clicks select, filter and open — a page
+                    a click opens is the builder's to show, as its Pages tab opens one — each page starting on its
+                    starting filters. */}
+                {previewing && preview !== undefined && (
+                    <StudioPublishPreview value={preview} tab={previewTab} onTab={setPreviewTab}
+                        page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother}
+                            startsWith={previewStartsWith} alerts={alerts === undefined ? undefined : { handle: alerts }} />}
+                        phone={!phone ? undefined : {
+                            width,
+                            tiles: cells.map((cell) => ({
+                                key: cell.key, row: cell.row, span: Number(cell.span),
+                                name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
+                            })),
+                        }} />
+                )}
+                </StudioAlertsProvider>
+            </VisualAnswersProvider>
         </Box>
     );
 });

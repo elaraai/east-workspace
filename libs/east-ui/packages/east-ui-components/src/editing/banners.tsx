@@ -4,10 +4,10 @@
  */
 
 /**
- * The editing session's banners (#1184) — what the history bar says under its
- * buttons, for a host that leaves that line to its banners: a builder's
- * frame, whose toolbar keeps one row (`historyToolbarItem({ showError: false
- * })`). In the order a builder lists them: changes that conflict with newer
+ * The editing session's banners (#1184) — everything the session has to say
+ * beyond its history bar's buttons, on the shared Banner (`BannerView`, its
+ * band form): every host that draws the bar draws these, under its toolbar,
+ * and the bar repeats none of it. In the order a builder lists them: changes that conflict with newer
  * ones, whose Choose opens the history bar's conflicts; an Apply's conflicts, naming each
  * issue's place; an Apply the source refused, with its reasons; a write with
  * no answer, with Retry; an Apply whose result could not be read back, with

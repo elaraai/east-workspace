@@ -56,20 +56,22 @@ export const studioPage = example({
                 draft: {
                     title: "Overview",
                     cells: [
-                        { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                        { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-                        { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars" },
+                        { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                        { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                        { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "breakdown_bars") },
                     ],
+                    filters: [],
                 },
                 live: some({
                     version: 1n,
                     page: {
                         title: "Overview",
                         cells: [
-                            { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-                            { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: some("Revenue by region"), component: "breakdown_bars" },
+                            { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                            { key: "c-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: some("Revenue by region"), content: variant("component", "breakdown_bars") },
                         ],
+                        filters: [],
                     },
                 }),
             })],

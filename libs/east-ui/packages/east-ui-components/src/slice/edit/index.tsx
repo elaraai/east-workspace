@@ -9,13 +9,13 @@ import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from
 import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
-import { frameBounds } from "../../overlays/popover/frame-bounds.js";
+import { frameBounds, ownHeight, roomAround, sideThatFits, type PopoverSide } from "../../overlays/popover/frame-bounds.js";
 import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
-import { layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { escapeTakenWithin, layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -119,6 +119,29 @@ function Rehang({ from }: { from: unknown }) {
 }
 
 /**
+ * Chooses the side an open popover opens on once its content is there, and lets it go as it shuts (#1701). Its content
+ * is there by the frame after it opens — the draws its opening asks for, a field's list opened as it mounts, done by
+ * then — where Zag places it too: chosen, it is placed again at once, on the side it holds.
+ */
+function HoldSide({ choose, release }: { choose: () => boolean; release: () => void }) {
+    const popover = usePopoverContext();
+    const { open } = popover;
+    const place = useRef(popover.reposition);
+    place.current = popover.reposition;
+    useLayoutEffect(() => {
+        if (!open) {
+            release();
+            return undefined;
+        }
+        const frame = requestAnimationFrame(() => {
+            if (choose()) place.current();
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, choose, release]);
+    return null;
+}
+
+/**
  * The single overlay shape every compact `Slice.*` affordance opens to edit.
  * Anchored to its trigger, fixed width, body scrolls internally (`maxH 50vh`);
  * head + foot stay pinned. Floats over content — opening it never resizes the
@@ -136,14 +159,18 @@ function Rehang({ from }: { from: unknown }) {
  * the frame's sides while it fits between them (#1393): it slides along its
  * trigger's edge rather than hang past the frame's side, as it slides inside
  * the page anywhere else, and in a frame narrower than it — a phone's — inside
- * the page. Down the page it keeps to the page, flipping above its trigger
- * where there is no room below ({@link frameBounds}).
+ * the page. Down the page it opens under its trigger, or over it where its own
+ * height does not fit under it and there is more room over it: the side is
+ * chosen once its content is there and held while it is open, so an edit that
+ * grows or shrinks it moves it to neither side (#1701, {@link frameBounds}).
  *
  * Esc closes it from the moment it opens. Its own dismissal begins to listen a
  * frame after it opens, so an Esc pressed in that frame — a press that follows
  * the one that opened it at once — was heard by nothing, and the popover
  * stayed. It is heard here first and taken, and a layer open over it, a field's
- * list or a popover of its own, keeps its own.
+ * list or a popover of its own, keeps its own — as does a control in its body
+ * that takes Esc itself and says so (`data-escape-layer`: a Chooser laid in
+ * it, #1673), which closes while the popover stays.
  *
  * In a phone's frame (560px or narrower), a popover its toolbar opens is a
  * view over the whole builder instead, in the frame's overlay slot, as the
@@ -169,22 +196,35 @@ export function SliceEditPopover({
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const hangRef = useRef(hangFrom);
+    hangRef.current = hangFrom;
+    // The side it opens on (#1701): chosen once its content is there ({@link HoldSide}) — by its own height and the room
+    // under and over what it hangs from — and held while it is open, so an edit that grows or shrinks it moves it to
+    // neither side; let go as it shuts. One that hangs from a rect of its host's keeps to the page's. Whether it chose.
+    const sideRef = useRef<PopoverSide | undefined>(undefined);
+    const choose = useCallback((): boolean => {
+        const content = contentRef.current;
+        const origin = anchored ? anchorRef.current : triggerRef.current;
+        if (sideRef.current !== undefined || hangRef.current !== undefined || content === null || origin === null || content.offsetHeight === 0) return false;
+        sideRef.current = sideThatFits(ownHeight(content), roomAround(origin, POPOVER_GUTTER));
+        return true;
+    }, [anchored]);
+    const release = useCallback(() => { sideRef.current = undefined; }, []);
     // The box its bounds read, and its host's ref given it too.
     const setContent = useCallback((el: HTMLDivElement | null) => {
         contentRef.current = el;
         if (typeof hostContent === "function") hostContent(el);
         else if (hostContent !== null && hostContent !== undefined) hostContent.current = el;
     }, [hostContent]);
-    // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
-    // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one. Its
-    // bounds are made as it is placed: Zag copies the positioning it is given as the popover draws, which would keep what
-    // the bounds read then — the page's, the first time it opens, its content not there yet.
-    const hangRef = useRef(hangFrom);
-    hangRef.current = hangFrom;
+    // Below its trigger — or above it, on the side it holds — kept across the page to the builder's frame it opens in —
+    // its trigger's or its anchor's — while it fits there, read at every placement; below the rect it hangs from in their
+    // place, where it is given one. Its bounds are made as it is placed: Zag copies the positioning it is given as the
+    // popover draws, which would keep what the bounds read then — the page's, the first time it opens, its content not
+    // there yet.
     const positioning = useMemo(() => ({
         placement: "bottom" as const,
         gutter: POPOVER_GUTTER,
-        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current, () => sideRef.current),
         getAnchorRect: () => hangRef.current?.() ?? null,
     }), [anchored]);
     const regionId = useId();
@@ -212,6 +252,7 @@ export function SliceEditPopover({
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
             if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
             if (layerOpenOver(contentRef.current, anchored ? anchorRef.current : triggerRef.current)) return;
+            if (escapeTakenWithin(event, contentRef.current)) return;
             event.preventDefault();
             close.current(false);
         };
@@ -285,11 +326,14 @@ export function SliceEditPopover({
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
             {...(keepOnFocusOut && { onFocusOutside: (e: { preventDefault: () => void }) => { e.preventDefault(); } })}
+            // Its own dismissal leaves an Esc a control in its body takes itself to that control.
+            onEscapeKeyDown={(e) => { if (escapeTakenWithin(e, contentRef.current)) e.preventDefault(); }}
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
                 : <ChakraPopover.Trigger ref={triggerRef} asChild>{trigger}</ChakraPopover.Trigger>}
             <Rehang from={hangFrom} />
+            <HoldSide choose={choose} release={release} />
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content ref={setContent} css={styles.content} data-still={still ? "" : undefined}>
@@ -435,7 +479,7 @@ function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flu
     useEffect(() => {
         if (!open) return undefined;
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
-            if (event.key !== "Escape" || layerOpen()) return;
+            if (event.key !== "Escape" || layerOpen() || escapeTakenWithin(event, viewRef.current)) return;
             event.preventDefault();
             event.stopPropagation();
             close.current(false);

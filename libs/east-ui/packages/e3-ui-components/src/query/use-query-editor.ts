@@ -33,14 +33,16 @@ import { checkJq, describeJqType, none, some, type CheckJqResult } from "@elaraa
 import type { Origin } from "@elaraai/east-ui-components";
 import { cardsFor, sourceCard, type Card, type SourceCard } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
+import { parseErrorWords } from "./model/problem-words.js";
+import { applyAction, applyInput, applyRemove, applySlot } from "./model/slot-edits.js";
 import {
-    activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
+    activeItem, currentItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
-import { summaryAt, summaryNeeded, type SummaryCache } from "./model/summaries.js";
-import { fieldLabels, parseErrorWords, shapeWords, type QueryWords } from "./model/words.js";
+import { summaryAt, summaryHashes, summaryNeeded, type SummaryCache } from "./model/summaries.js";
+import { fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
-import { slotKey } from "./parts.js";
+import { slotElement, slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";
 import type { CardActions } from "./step-card.js";
 import type { QueryCheckLine, QueryGivesLine } from "./status-line.js";
@@ -77,18 +79,19 @@ export interface SlotPopover {
     readonly slot: OpenSlot;
     /** Changes when the offers' source does — a summary arriving — so the list opens afresh on its current value. */
     readonly generation: string;
-    /** Its label, filter placeholder, footer, empty words and keys. */
+    /** Its label, filter placeholder, footer and empty words. */
     readonly label: string;
     readonly placeholder: string;
     readonly hint: string;
     readonly empty: string;
-    readonly keys: string;
     /** The offers for the text typed. */
     readonly items: readonly SlotItem[];
     /** The text typed. */
     readonly text: string;
     /** The offer active as it opens. */
     readonly initialActive: number;
+    /** The offer that sets what the slot holds now — the one a phone's list checks: its index, or `-1`. */
+    readonly current: number;
     /** Told each change of the text. */
     readonly onText: (text: string) => void;
     /** Told the offer picked. */
@@ -196,15 +199,6 @@ function givesLine(shape: Shape, words: QueryWords): QueryGivesLine | undefined 
         hover: m.typeHover({ type: describeJqType(shape.type, { maxDepth: 2 }), multiplicity: shape.multiplicity ?? "" }),
         fields: m.givesFields({ fields: shape.kind === "rows" ? fieldLabels(shape) : [] }),
     };
-}
-
-/** The element in the builder that carries a slot's key. */
-function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | undefined {
-    if (bounds === null) return undefined;
-    for (const el of bounds.querySelectorAll<HTMLElement>("[data-slot-key]")) {
-        if (el.getAttribute("data-slot-key") === key) return el;
-    }
-    return undefined;
 }
 
 /**
@@ -455,15 +449,17 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     useEffect(() => { if (gone) setOpen(undefined); }, [gone]);
     const request = useMemo(() => (openRef === undefined || openStep < 0 || !summaryNeeded(openRef.kind) || isJq ? undefined
         : summaryAt(query, openStep, root.type)), [openRef, openStep, query, root, isJq]);
-    const { cache, hashes } = summaries;
+    // Rows narrowed by "is in the last" are the minute's (#1670): a slot opened in a later minute fetches them again.
+    const asked = useMemo(() => (request === undefined ? summaries.hashes : summaryHashes(request, summaries.hashes)), [request, summaries.hashes]);
+    const { cache } = summaries;
     const [arrived, setArrived] = useState(0);
     useEffect(() => {
-        if (request === undefined || cache.get(request, hashes) !== undefined) return;
+        if (request === undefined || cache.get(request, asked) !== undefined) return;
         let live = true;
-        void cache.ensure(request, hashes).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
+        void cache.ensure(request, asked).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
         return () => { live = false; };
-    }, [request, cache, hashes]);
-    const summary = request === undefined ? undefined : cache.get(request, hashes);
+    }, [request, cache, asked]);
+    const summary = request === undefined ? undefined : cache.get(request, asked);
     const items = useMemo(() => (openRef === undefined || gone ? []
         : slotItems(query, root.type, openRef, text, { words, ...(summary === undefined ? {} : { summary }), saved })),
     // `arrived` moves when a summary lands in the cache.
@@ -473,6 +469,8 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     // It opens on the slot's current value: the offers as they were when they arrived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openRef, summary === undefined, query]);
+    // The offer that sets what the slot holds now, in the offers shown.
+    const holding = useMemo(() => (openRef === undefined ? -1 : currentItem(items, query, root.type, openRef)), [openRef, items, query, root]);
 
     const onPick = useCallback((item: SlotItem) => {
         if (open === undefined) return;
@@ -498,14 +496,14 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         placeholder: slotPlaceholder(open.ref, words),
         hint: slotHint(open.ref, words),
         empty: slotEmpty(open.ref, words),
-        keys: m.slotKeys(),
         items,
         text,
         initialActive,
+        current: holding,
         onText: setText,
         onPick,
         onClose,
-    }), [open, gone, summary, words, m, items, text, initialActive, onPick, onClose]);
+    }), [open, gone, summary, words, items, text, initialActive, holding, onPick, onClose]);
 
     return {
         header, query, checked, source, cards, quick,

@@ -9,13 +9,13 @@
  * placeholders; the inspector's section heads, its fields and its controls'
  * names, its footer, and what it says with nothing selected; the page
  * library's toolbar, pane, section heads and cards; the popovers that name a
- * new page or a template; the publish preview's bar, its aside and its
- * footer; and what a page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
+ * new page or a template; the publish preview's bar and its rail; and what a
+ * page says when it has nothing to draw. What the AUTHOR wrote — a component's name, key, reads and
  * description, a placement's title, a project's, a page's and an
  * environment's names, the audience and the rollout — is data, and never
  * passes through it.
  *
- * English is the default. A host overrides any subset for a subtree with
+ * English is the default (`messages-en.ts`). A host overrides any subset for a subtree with
  * {@link StudioMessagesProvider}; numbers format in the locale react-aria's
  * `I18nProvider` above the app sets (the browser's otherwise).
  *
@@ -23,6 +23,7 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
+import { studioMessages } from "./messages-en.js";
 
 /**
  * The Studio's message table.
@@ -76,6 +77,382 @@ export interface StudioMessages {
     twoComponents: (p: { key: string }) => string;
     /** Under it. */
     twoComponentsHint: () => string;
+    /** A visual whose source the surface does not list — its heading. */
+    noSource: (p: { key: string }) => string;
+    /** Under it. */
+    noSourceHint: () => string;
+    /** A visual with a well it needs empty (#1670) — its heading. */
+    wellsEmpty: () => string;
+    /** A well it needs, in the checklist under it, by its label — `A number in Values`; `value` when a value fills it (#1672). */
+    wellNeeded: (p: { label: string; value: boolean }) => string;
+    /** What that checklist has done: its source is chosen. */
+    sourcePicked: () => string;
+    /** A visual reading a field its source does not have — the words before the field's name: `Orders has no field`. */
+    noField: (p: { source: string }) => string;
+    /** Under it, the link that opens the visual's fields. */
+    pickAnotherField: () => string;
+    /** A tile's meta while its answer is awaited. */
+    metaLoading: () => string;
+    /** A tile's meta while a field it reads is missing. */
+    metaNeedsField: () => string;
+    /** A tile's meta: what it groups by — `by week`. */
+    metaBy: (p: { by: string }) => string;
+    /** A tile's meta: what it holds of how many — `7 of 46`; both are formatted. */
+    metaShown: (p: { shown: string; of: string }) => string;
+    /** A visual with a value over another period, over a source with no date range to move the page's window along — its heading. */
+    noRange: (p: { source: string }) => string;
+    /** Under it. */
+    noRangeHint: () => string;
+    /** A visual with a value over another period, on a page with no date window — its heading. */
+    needsWindow: (p: { source: string }) => string;
+    /** Under it. */
+    needsWindowHint: () => string;
+    /** The page's filters — the rail's name, and its folded chip's. */
+    filters: () => string;
+    /**
+     * The page's starting filters (#1673): what every reader of it starts with — the caption of their rail over the
+     * builder's canvas, its folded chip's word, their session's name in its banners, and their row in the publish
+     * preview's change list.
+     */
+    startingFilters: () => string;
+    /** On the caption's hover: what they are. */
+    startingFiltersHint: () => string;
+    /** A starting filter added, as its step is named in the history. */
+    addStartingFilter: () => string;
+    /** A starting filter changed, as its step is named in the history. */
+    changeStartingFilter: () => string;
+    /** A starting filter removed, as its step is named in the history. */
+    removeStartingFilter: () => string;
+    /** Every starting filter removed, as its step is named in the history. */
+    clearStartingFilters: () => string;
+    /** How many filters narrow the page, as the rail's folded chip says it. */
+    filtersSet: (p: { n: number; count: string }) => string;
+    /** A filter's editor's head: the source it is on. */
+    filterOf: (p: { source: string }) => string;
+    /** A new filter's editor's head, where the page's visuals read one source: the source it will be on. */
+    addFilterOf: (p: { source: string }) => string;
+    /** The source a new filter is on — the chooser's label. */
+    filterSource: () => string;
+    /** A filter on a source the page no longer lists, in its editor. */
+    filterSourceGone: (p: { source: string }) => string;
+    /** The Configure tab's Filter field: a visual's own filter, the condition its rows pass before the page's filters (ruled 19 November 2026). */
+    ownFilter: () => string;
+    /** Under it: what it narrows, and when. */
+    ownFilterHint: () => string;
+    /** Takes a visual's own filter off. */
+    removeFilter: () => string;
+    /** A follower's tag on the builder's canvas: the visual it follows (LNK-4). */
+    followsLeader: (p: { leader: string }) => string;
+    /** A leader's tag on the builder's canvas: how many visuals follow it; `count` is formatted. */
+    leads: (p: { count: string }) => string;
+    /** A follower's tag with nothing selected on its leader (LNK-5). */
+    followNothing: () => string;
+    /** A follower's tag when its leader is no longer on the page (LNK-5). */
+    followRemoved: () => string;
+    /** What a follower's tag names for assistive technology: the visual it follows, and what is selected. */
+    followsName: (p: { leader: string; selected: string }) => string;
+    /** A follower that asks for a pick, with nothing selected: its title, naming the leader's field and the leader (LNK-5). */
+    followPrompt: (p: { field: string; leader: string }) => string;
+    /** Under it: what the follower then shows, named by what it draws — `This chart shows the machine you select.` */
+    followPromptHint: (p: { field: string; view: "kpi" | "chart" | "table" | "list" }) => string;
+    /** The Configure tab's Follows field: the visual a visual follows (LNK-3). */
+    follows: () => string;
+    /** Its choice for following none. */
+    followsNothing: () => string;
+    /** Its chooser's head: the visuals a visual may follow. */
+    followsLeaders: () => string;
+    /** Its chooser's search, while empty. */
+    followsFind: () => string;
+    /** Under the field while it follows none: what following does. */
+    followsHint: () => string;
+    /** A leader its chooser refuses: following it would make a cycle (LNK-3). */
+    followsCycle: () => string;
+    /** A leader, as its chooser's line says it: what it draws, and its source. */
+    followsLine: (p: { view: string; source: string }) => string;
+    /** The match's field: the leader's field against this visual's. */
+    match: () => string;
+    /** The leader's field's picker's name. */
+    matchFrom: (p: { leader: string }) => string;
+    /** This visual's field's picker's name. */
+    matchTo: () => string;
+    /** Under the match: the two fields, each with its source — `Assets' Machine against Telemetry's Machine id.` */
+    matchHint: (p: { leaderSource: string; from: string; source: string; to: string }) => string;
+    /** What a follower shows with nothing selected: the field's name, and its two choices (LNK-5). */
+    followEmpty: () => string;
+    followAll: () => string;
+    followAsk: () => string;
+    /** Takes the link off. */
+    stopFollowing: () => string;
+    /** A leader's action on its tile's frame: a new chart on the next row, on its source, already following it (LNK-8). */
+    addLinked: () => string;
+    /** Starts linking on the canvas: a visual's action on its tile's frame, and the Follows block's button (LNK-6). */
+    linkOnCanvas: () => string;
+    /** The banner while a leader is picked: what to do, naming the visual being linked. */
+    linkPick: (p: { follower: string }) => string;
+    /** Under it: which visuals can be picked, and how to leave. */
+    linkPickHint: () => string;
+    /** A click on a visual that follows the one being linked: why it is refused (LNK-3). */
+    linkCycle: (p: { leader: string }) => string;
+    /** A click on a placement whose clicks tell no field: why it cannot lead. */
+    linkNothing: (p: { leader: string }) => string;
+    /** The link's popover's head (LNK-7). */
+    linkFollow: (p: { leader: string }) => string;
+    /** Over its fields: the leader's field, which one of this visual's matches. */
+    linkMatch: (p: { leader: string; from: string }) => string;
+    /** Under them, where the two read different sources: how the match was made. */
+    linkByName: (p: { follower: string; source: string; leader: string; leaderSource: string }) => string;
+    /** Under them, where the leader's click was not select: what linking switches. */
+    linkSwitches: (p: { leader: string; click: "filter" | "open" | "none" | "select" }) => string;
+    /** Its button. */
+    link: () => string;
+    /** A follower that asks for a pick whose leader is no longer on the page: its title. */
+    followGone: () => string;
+    /** Under it. */
+    followGoneHint: () => string;
+    /** A visual that read no rows — where its value would be. */
+    noData: () => string;
+    /**
+     * Under it, why (#1673): what emptied it — its own filter, the page's filters on its source and what it follows,
+     * each in words — after its source's rows, named mid-sentence: `No orders for region is NSW · units is less than 0`;
+     * with none, that its source has no rows: `Orders has no rows`.
+     */
+    noDataReason: (p: { rows: string; source: string; causes: readonly string[] }) => string;
+    /** A visual whose source could not be read — the banner's title. */
+    sourceError: (p: { source: string }) => string;
+    /** The banner's action, which asks the visual's programs again. */
+    retry: () => string;
+    /** A visual's answer, before it is drawn — `12 groups from 340 rows`. */
+    answerGroups: (p: { n: number; groups: string; nr: number; rows: string }) => string;
+    /** A visual whose query stopped before it answered: out of time, too large, or needing a platform function. */
+    answerStopped: () => string;
+    /**
+     * A visual's value with no label of its own, named by what it measures (#1671): a count by its source's name
+     * (`Orders`), a field's sum by the field's label, `Average margin`, `Lowest units`, `Highest units`, `Different
+     * customers`, `Revenue per unit`. `of` is a count's source's name or its field's label, `ofs` the label in the
+     * plural, `per` a ratio's second field's label in the singular — each in the case it takes mid-sentence.
+     */
+    valueName: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio"; of: string; ofs: string; per: string }) => string;
+    /**
+     * What a KPI's change is against, with what it was — `vs year ago 10.76`, `vs previous period 49`; a compare over the
+     * same period by its name, mid-sentence — `vs average revenue 70`.
+     */
+    changeAgainst: (p: { period: "current" | "previous" | "year_ago"; name: string; value: string }) => string;
+    /** A KPI's trend's bucket, after what its change is against — `by month`; `unit` is {@link StudioMessages.bucketWord}'s. */
+    trendBy: (p: { unit: string }) => string;
+    /** After what a KPI's change is against, when less is better. */
+    lowerBetter: () => string;
+    /** A ratio's unit, beside its number — `AUD/unit`: what it is of, per one of what it is per, mid-sentence and in the singular. */
+    unitPer: (p: { unit: string; per: string }) => string;
+    /** How far a KPI stands from its goal — `0.66M to go`, `300 over`. */
+    goalGap: (p: { gap: string; over: boolean }) => string;
+    /** How far a KPI is to its goal, beside its progress — `85% of goal 4.50M`. */
+    goalShare: (p: { share: string; goal: string }) => string;
+    /** A KPI's goal with no share to say of it — `Goal 0`. */
+    goalOf: (p: { goal: string }) => string;
+    /** A chart's goal line's label, inside the plot over the line — `goal 450k`. */
+    goalLabel: (p: { goal: string }) => string;
+    /** The rest of a group past its first N, with how many it holds — `Other 41`; `n` is formatted. */
+    otherCount: (p: { n: string }) => string;
+    /** A combo's series read against its right axis, as the legend names it — `Revenue per unit · right`. */
+    rightAxis: (p: { name: string }) => string;
+    /** What a scatter's axes are, over its plot — `x units · y revenue per unit, AUD/unit`; each name mid-sentence, a unit where its value has one. */
+    scatterCaption: (p: { x: string; xUnit?: string | undefined; y: string; yUnit?: string | undefined }) => string;
+    /** Under a pie's legend, what its values are — `AUD · share of 3.84M`; with no unit, `share of 1,284`. */
+    pieNote: (p: { unit?: string | undefined; total: string }) => string;
+    /** Under a donut's total, what it is — `units · total`. */
+    pieCaption: (p: { unit: string }) => string;
+    /** A quarter on an axis whose buckets are all of one year — `Q3`. */
+    quarterShort: (p: { quarter: number }) => string;
+    /** A visual's name made from its wells (TIL-1) — `Revenue by month`; `value` is its value's name, `by` what it groups by, mid-sentence. */
+    visualName: (p: { value: string; by: string }) => string;
+    /** A summary's two groups, in its name — `region and category`. */
+    groupsBoth: (p: { first: string; second: string }) => string;
+    /** A pivot's row group and column group, in its name — `region · month`. */
+    groupsCross: (p: { rows: string; columns: string }) => string;
+    /** A combo's first column and first line, in its name — `Units and revenue per unit`; `second` is mid-sentence. */
+    valuesBoth: (p: { first: string; second: string }) => string;
+    /** What a scatter's points or a list's rows stand for, as its name — `Customers`; `items` is the field's label in the plural, mid-sentence. */
+    itemsName: (p: { items: string }) => string;
+    /** A date bucket's unit, mid-sentence — `month`. */
+    bucketWord: (p: { unit: "hour" | "day" | "week" | "month" | "quarter" | "year" }) => string;
+    /** The tile menu's chip — its accessible name (TIL-2). */
+    visualMenu: () => string;
+    /** The tile menu's item that shows the visual's rows in the drawer. */
+    showRows: () => string;
+    /** The tile menu's item, and the drawer's action, that downloads the rows as CSV. */
+    exportCsv: () => string;
+    /** The inspector's tab that edits what the selected placement holds (#1672). */
+    configure: () => string;
+    /** The palette's grouping by who configures a card: the operator, or its developer (#1672). */
+    configuredBy: () => string;
+    /** The palette's group of visuals, which the operator configures. */
+    paletteVisuals: () => string;
+    /** The palette's group of components, built by developers. */
+    paletteDevelopers: () => string;
+    /** A visual card's category, under the palette's Category grouping. */
+    visualsCategory: () => string;
+    /** The palette's text block card. */
+    textCard: () => string;
+    /** A text block's heading field, in its Configure tab. */
+    textHeading: () => string;
+    /** A text block's body field. */
+    textBody: () => string;
+    /** What a text block dropped from the palette says until it is written. */
+    newText: () => string;
+    /** A visual's source part, and its picker's name. */
+    source: () => string;
+    /** The source picker's search. */
+    findSource: () => string;
+    /** The source picker's one section. */
+    sourcesListed: () => string;
+    /** A visual's kind segments' name. */
+    kind: () => string;
+    /** A visual's options part. */
+    options: () => string;
+    /** A visual's On click part. */
+    onClick: () => string;
+    /** What a click on a visual does, as its segment says it. */
+    clickName: (p: { click: "select" | "filter" | "open" | "none" }) => string;
+    /** The page an Open a page click opens — its picker's name. */
+    pageToOpen: () => string;
+    /** The page picker's search. */
+    findPage: () => string;
+    /** An option set to a value its kind does not take. */
+    cannotSet: (p: { label: string }) => string;
+    /** A visual's wells' part — its name, for the keyboard. */
+    wells: () => string;
+    /** An empty single well's slot, and a list well's add slot — `Add a value`; `value` when a value fills it (EDT-3). */
+    addToWell: (p: { value: boolean }) => string;
+    /** The field chooser's search, and the Fields list's. */
+    findField: () => string;
+    /** The groups fields are listed in: what a visual groups by, and numbers — `Dimensions`, `Numbers`. */
+    fieldGroup: (p: { numbers: boolean }) => string;
+    /** The Fields list's grouping. */
+    fieldKind: () => string;
+    /** The Fields part's eyebrow. */
+    fields: () => string;
+    /** One field, and any other count — the Fields list's noun. */
+    fieldNoun: () => { singular: string; plural: string };
+    /** A field a well holds, as the Fields list marks it (EDT-3). */
+    fieldInUse: () => string;
+    /** The Fields part's label — `Orders fields`. */
+    fieldsOf: (p: { source: string }) => string;
+    /** Under the Fields list, what to do with one. */
+    dragFields: () => string;
+    /** The Fields list with none its search leaves. */
+    noFieldFound: () => string;
+    /** Under the view's segments. */
+    viewHint: () => string;
+    /** Under a chart's kinds, what the chosen one is for — `Column · categories or periods side by side`; a kind it has no words for, its name alone. */
+    kindHint: (p: { label: string; kind: string }) => string;
+    /** A well's empty place while a field it takes is dragged over it — `Drop Region on Split by`. */
+    dropOn: (p: { field: string; well: string }) => string;
+    /** A click that opens a page, as its select says it — `Open Region detail`. */
+    openPage: (p: { page: string }) => string;
+    /** Under the On click select while a click opens a page. */
+    clickOpens: () => string;
+    /** A group pill's first N, after its name — `top 2 + Other`. */
+    pillTop: (p: { top: string }) => string;
+    /** A pill's name and what it is set to, which open its menu — `Edit Revenue`. */
+    editPill: (p: { label: string }) => string;
+    /** A pill's remove — `Remove Revenue from Values`. */
+    removeFromWell: (p: { label: string; well: string }) => string;
+    /** A list well's pill's grip — `Move Revenue`; ⌥↑ and ⌥↓ move it too. */
+    movePill: (p: { label: string }) => string;
+    /** A pill's field, which opens the field chooser to change it — `Change Revenue`. */
+    changeField: (p: { label: string }) => string;
+    /** Under a well, a pill whose field its source does not have (MOD-5). */
+    wellMissing: (p: { source: string; field: string }) => string;
+    /** Under a well a list is held to one pill by, while the list holds more (CHT-2) — `Split by takes the first value only`. */
+    wellTakesFirst: (p: { well: string }) => string;
+    /** The drag's caption over a well that takes the field — `Add Region to X axis`. */
+    dropInto: (p: { field: string; well: string }) => string;
+    /** Over a well that does not — `Trend cannot take Region`. */
+    dropRefused: (p: { field: string; well: string }) => string;
+    /** Over a list well that is full — `Values takes no more`. */
+    wellFull: (p: { well: string }) => string;
+    /** A value pill's aggregate, as its chip and its menu name it (EDT-6) — `Sum`; a ratio's by what it is per — `Per unit`. */
+    aggregate: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio"; per: string }) => string;
+    /** The value pill menu's aggregates' name. */
+    aggregates: () => string;
+    /** The value pill menu's choice of a ratio, which asks for the field it is per. */
+    perAnother: () => string;
+    /** The ratio's field chooser's head. */
+    perField: () => string;
+    /** A value's period — the value pill menu's segments. */
+    period: () => string;
+    /** A period, as its segment says it. */
+    periodName: (p: { period: "current" | "previous" | "year_ago" }) => string;
+    /** A value's goal. */
+    goal: () => string;
+    /** Which way a value is better. */
+    better: () => string;
+    /** A way it is better, as its segment says it. */
+    betterName: (p: { better: "higher" | "lower" }) => string;
+    /** A value's own label, in place of its name. */
+    valueLabel: () => string;
+    /** How a value's numbers are shown — the value pill menu's select. */
+    format: () => string;
+    /** A format, as its segment says it — each short enough for four to stand side by side: as its field's, or one of its own. */
+    formatName: (p: { format: "auto" | "number" | "percent" | "currency" }) => string;
+    /** What Auto is, under the format's segments. */
+    formatHelp: () => string;
+    /** A currency format's code. */
+    currencyCode: () => string;
+    /** Why a currency's code is refused: it is three letters. */
+    currencyCodeNeeded: () => string;
+    /** The axis a combo's value is drawn against — the value pill menu's segments. */
+    axis: () => string;
+    /** A side, as its segment says it. */
+    axisSide: (p: { right: boolean }) => string;
+    /** A value pill's goal, after its name — `goal 450k`. */
+    pillGoal: (p: { goal: string }) => string;
+    /** A value pill's period other than the page's, after its name — `year ago`. */
+    pillPeriod: (p: { period: "previous" | "year_ago" }) => string;
+    /** A group's bucket — the group pill popover's segments (EDT-7). */
+    bucket: () => string;
+    /** A bucket, as its segment and a group pill's chip say it — `Month`. */
+    bucketName: (p: { unit: "auto" | "hour" | "day" | "week" | "month" | "quarter" | "year" }) => string;
+    /** A group's order. */
+    order: () => string;
+    /** An order, as its segment and a group pill's chip say it — `Time order` for a date's own. */
+    orderName: (p: { sort: "natural" | "high" | "low" | "label"; date: boolean }) => string;
+    /** How many groups a visual keeps, the rest folding into Other. */
+    keepFirst: () => string;
+    /** Under it, what its empty box keeps. */
+    keepFirstHelp: () => string;
+    /** The rest of a group past its first N, folded. */
+    other: () => string;
+    /** A quarter, as a chart's axis or a table's row names its bucket — `Q3 2026`. */
+    quarterOf: (p: { quarter: number; year: string }) => string;
+    /** A visual that shows some of its groups — `Showing 500 of 1,240 groups`. */
+    groupsShown: (p: { shown: string; of: string; n: number }) => string;
+    /** A page of a records table — `Showing 1–50 of 1,284`. */
+    rowsShown: (p: { first: string; last: string; of: string }) => string;
+    /** A records column's header with its field's unit — `Revenue AUD`. */
+    columnUnit: (p: { label: string; unit: string }) => string;
+    /** The Show rows popover's head: whose rows they are — `Rows · Revenue by region`. */
+    rowsOf: (p: { name: string }) => string;
+    /** At its foot, how many rows there are — `1,284 rows`. */
+    rowsCount: (p: { n: number; count: string }) => string;
+    /** An export that could not be made — its banner's title. */
+    exportFailed: () => string;
+    /** The banner's action, which puts it away. */
+    dismiss: () => string;
+    /** A summary's total row's label. */
+    totalRow: () => string;
+    /** A cell, a point or a value with none to show. */
+    noValue: () => string;
+    /** What made a total, before it in a summary's total row (TBL-2) — `sum`, `average`, `ratio`. */
+    measureWord: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio" }) => string;
+    /** A cell on the wrong side of its value's goal, as its mark names it (TBL-3) — `below goal`; `above goal` where less is better. */
+    goalMissed: (p: { over: boolean }) => string;
+    /** A summary's label column's header, its groups — `Region · category`; `second` is mid-sentence. */
+    labelHeader: (p: { first: string; second?: string | undefined }) => string;
+    /** A pivot's heat legend's top step — `≥ 1,200`. */
+    heatTop: (p: { from: string }) => string;
+    /** A pivot's heat legend's step — `400–800`. */
+    heatStep: (p: { from: string; to: string }) => string;
     /** A page whose live version is asked for before it is published — its heading. */
     notPublished: (p: { page: string }) => string;
     /** Under it. */
@@ -94,6 +471,12 @@ export interface StudioMessages {
     newPageFromTemplate: () => string;
     /** The inspector's selection block — its eyebrow. */
     selectedComponent: () => string;
+    /** Its eyebrow while a visual is selected. */
+    selectedVisual: () => string;
+    /** Its eyebrow while a text block is selected. */
+    selectedText: () => string;
+    /** The eyebrow over a visual's view. */
+    view: () => string;
     /** The Data block's eyebrow. */
     data: () => string;
     /** A component whose code reads no dataset. */
@@ -202,33 +585,33 @@ export interface StudioMessages {
     env: () => string;
     /** Back to the builder. */
     exit: () => string;
-    /** The aside's head while there is something to publish. */
+    /** Where the page stands, on the preview's rail, while there is something to publish. */
     readyToPublish: () => string;
-    /** The aside's head while the page is live as it stands. */
+    /** Where the page stands while it is live as it stands. */
     upToDate: () => string;
-    /** The aside's head while a template is open. */
+    /** Where it stands while a template is open. */
     templateNotPublished: () => string;
     /** A version — `v4`. */
     version: (p: { version: string }) => string;
-    /** After the live version in the aside's head — `v4 live`. */
+    /** After the live version, under where the page stands — `v4 live`. */
     liveVersion: () => string;
-    /** After a template's name in the aside's head. */
+    /** After a template's name, under where it stands. */
     templateKind: () => string;
-    /** The change list's head — `3 changes since v3`. */
+    /** How many changes — the rail's toggle of the change list, the list's name — `3 changes since v3`. */
     changesSince: (p: { n: number; count: string; version: string }) => string;
-    /** The change list's head on a first publish — `3 changes · first version`. */
+    /** How many changes on a first publish — `3 changes · first version`. */
     changesFirst: (p: { n: number; count: string }) => string;
-    /** The change list's head while nothing changed — `No changes since v4`. */
+    /** How many changes while nothing changed — `No changes since v4`. */
     noChangesSince: (p: { version: string }) => string;
-    /** A change's verb, before the placement's name — `Added`, `Resized`. */
-    changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" }) => string;
+    /** A change's verb, before the placement's name — `Added`, `Resized` — or the page's starting filters' — `Changed`. */
+    changeVerb: (p: { change: "filters" | "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" | "configured" }) => string;
     /** The Audience row's label. */
     audience: () => string;
     /** The Rollout row's label. */
     rollout: () => string;
-    /** The footer's Apply. */
+    /** The rail's Apply. */
     saveAsDraft: () => string;
-    /** The footer's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
+    /** The rail's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
     publishTo: (p: { version?: string | undefined; env?: string | undefined }) => string;
     /** A phone's Components tab: what to do. */
     phoneComponentsIntro: () => string;
@@ -260,136 +643,66 @@ export interface StudioMessages {
     phoneChanges: () => string;
     /** Under Tablet or Desktop — `Desktop · 1,440 px · the layout, each tile by name`. */
     phoneWireCaption: (p: { device: string; px: string }) => string;
+    /** A visual's bell — its accessible name, and its alerts' popover's head (#1674): `Alerts · Revenue by region`. */
+    alertsOf: (p: { name: string }) => string;
+    /** A visual's bell while one of its alerts fires: what its mark says. */
+    alertsFiring: (p: { n: number; count: string }) => string;
+    /** The popover's way to set another alert on the visual. */
+    newAlert: () => string;
+    /** The name a new alert is offered — `Revenue by region alert`. */
+    alertNameFor: (p: { name: string }) => string;
+    /** An alert's name field. */
+    alertName: () => string;
+    /** Under it, while it is empty. */
+    alertNameMissing: () => string;
+    /** Under it, while another alert holds the name. */
+    alertNameTaken: (p: { name: string }) => string;
+    /** Over the condition rows: what they decide. */
+    alertCondition: () => string;
+    /** Under the condition while it is unfinished. */
+    alertUnfinished: () => string;
+    /** The visual's rows that meet the condition now — the block's eyebrow. */
+    alertNow: () => string;
+    /** Runs Now again with the condition as it stands. */
+    alertRun: () => string;
+    /**
+     * Under Now's table — `2 of 4 rows meet it now`: the verb follows how many meet it (`n`), the noun how many rows the
+     * visual has (`total`); `count` and `of` are the two formatted.
+     */
+    alertNowCount: (p: { n: number; count: string; total: number; of: string }) => string;
+    /** Now with no row meeting the condition — `None of its 4 rows meets it now`; `of` is `total` formatted. */
+    alertNowNone: (p: { total: number; of: string }) => string;
+    /** Now with a condition to finish first. */
+    alertNowWaits: () => string;
+    /** An alert's pause: whether it is left unchecked. */
+    alertPaused: () => string;
+    /** The popover's commit. */
+    alertSave: () => string;
+    /** The popover's delete, which confirms in the popover. */
+    alertDelete: () => string;
+    /** Its confirmation — `Delete Region over 100?`. */
+    alertDeleteConfirm: (p: { name: string }) => string;
+    /** Keeps the alert, putting the confirmation away. */
+    alertKeep: () => string;
+    /** A Save refused for a visual of more rows than an alert watches (ALR-6) — both counts are formatted. */
+    alertTooMany: (p: { count: string; limit: string }) => string;
+    /** A Save another write overtook — `Region over 100 changed since you opened it — last changed by ana`; `why` is the record's words. */
+    alertConflict: (p: { name: string; why: string }) => string;
+    /** A visual its alert cannot be set on: a well to fill, a field its source lacks. */
+    alertCannot: () => string;
+    /** Where an alert stands, as a list says it — `Firing since 14:00`, `Paused`, `Watching`, `Visual removed`. */
+    alertStatus: (p: { status: "firing" | "paused" | "watching" | "removed" | "cleared"; at?: string | undefined }) => string;
+    /** The bar's bell — its accessible name, and its list's head. */
+    alertBell: () => string;
+    /** The bar's list with no alert firing. */
+    alertNoneFiring: () => string;
+    /** One firing alert's line in the bar's list: its page, and when it fired — `Overview · fired 14:00`. */
+    alertWhere: (p: { page: string; at: string }) => string;
+    /** The banner over a page opened for an alert — `Region over 100 fired at 14:00`. */
+    alertBanner: (p: { name: string; at: string }) => string;
+    /** Under it: what met the condition — `2 rows met it`. */
+    alertBannerRows: (p: { n: number; count: string }) => string;
 }
-
-/** The Studio's English messages — the default table. */
-export const studioMessages: StudioMessages = {
-    statusDraft: () => "Draft",
-    statusLive: () => "Live",
-    statusLiveEdited: () => "Live · edited",
-    statusTemplate: () => "Template",
-    publish: () => "Publish",
-    more: () => "More",
-    saveAsTemplateItem: () => "Save as template…",
-    noPageOpen: () => "No page open",
-    noPageOpenHint: ({ project, page }) =>
-        `${project} has no page ${page}. Open a page from the palette's Pages tab, or start one from the page library.`,
-    components: () => "Components",
-    componentNoun: () => ({ singular: "component", plural: "components" }),
-    pageNoun: () => ({ singular: "page", plural: "pages" }),
-    logicFixed: () => "Logic fixed by the developer",
-    category: () => "Category",
-    tags: () => "Tags",
-    collections: () => "Collections",
-    inspector: () => "Inspector",
-    spanBadge: ({ span }) => `${span}/12`,
-    noComponent: ({ key }) => `No component "${key}"`,
-    noComponentHint: () => "This surface lists no component with this key.",
-    twoComponents: ({ key }) => `Two components share the key "${key}"`,
-    twoComponentsHint: () => "A surface lists each component once.",
-    notPublished: ({ page }) => `${page} is not published yet`,
-    notPublishedHint: () => "Publish it to show it here.",
-    noPage: ({ page }) => `No page ${page}`,
-    noPageHint: ({ project }) => `The project ${project} has no page by this name.`,
-    blankSummary: () => "12-col · empty",
-    placements: ({ n, count }) => `${count} ${n === 1 ? "component" : "components"}`,
-    openInBuilder: () => "Open in builder →",
-    newPageFromTemplate: () => "New page from template",
-    selectedComponent: () => "Selected component",
-    data: () => "Data",
-    readsNothing: () => "reads no data",
-    configuration: () => "Configuration",
-    fixedByDeveloper: () => "fixed by developer",
-    noDescription: () => "No description",
-    layout: () => "Layout",
-    columnSpan: () => "Column span",
-    spanOf: ({ span }) => `${span} / 12`,
-    decreaseSpan: () => "Decrease span",
-    increaseSpan: () => "Increase span",
-    row: () => "Row",
-    height: () => "Height",
-    auto: () => "Auto",
-    px: ({ px }) => `${px} px`,
-    align: () => "Align",
-    alignTop: () => "Top",
-    alignCenter: () => "Center",
-    alignStretch: () => "Stretch",
-    published: () => "Published component · logic immutable",
-    nothingSelected: () => "Nothing selected",
-    nothingSelectedHint: () => "Click a component on the grid to see what it reads and its layout.",
-    searchLibrary: ({ pages, templates, np, nt }) =>
-        `Search ${pages} ${np === 1 ? "page" : "pages"} and ${templates} ${nt === 1 ? "template" : "templates"}…`,
-    searchLabel: () => "Search pages and templates",
-    clearSearch: () => "Clear search",
-    sortByName: () => "Sort · Name",
-    nameAz: () => "Name A–Z",
-    nameZa: () => "Name Z–A",
-    newPageIn: ({ project }) => `New page in ${project}`,
-    newPage: () => "New page",
-    projects: () => "Projects",
-    pages: () => "Pages",
-    live: () => "Live",
-    draft: () => "Draft",
-    templates: () => "Templates",
-    cloneToStart: () => "clone to start a page",
-    pagesIn: ({ shown, total, project, narrowed }) => (narrowed ? `${shown} of ${total} in ${project}` : `${total} in ${project}`),
-    pageName: () => "Page name",
-    pageNameMissing: () => "Give the page a name to create it.",
-    template: () => "Template",
-    blankGrid: () => "Blank grid",
-    createPage: () => "Create page",
-    cancel: () => "Cancel",
-    nameTaken: ({ name }) => `${name} is already a page or a template here.`,
-    saveAsTemplate: () => "Save as template",
-    templateName: () => "Template name",
-    templateNameMissing: () => "Give the template a name to save it.",
-    saveTemplate: () => "Save template",
-    templateNameFor: ({ page }) => `${page} template`,
-    templateOpen: () => "A template is open — open a page to save it as a template",
-    preview: () => "Preview",
-    devices: () => "Device",
-    device: ({ device }) => (device === "desktop" ? "Desktop" : device === "tablet" ? "Tablet" : "Mobile"),
-    env: () => "Env",
-    exit: () => "Exit",
-    readyToPublish: () => "Ready to publish",
-    upToDate: () => "Up to date",
-    templateNotPublished: () => "Templates are not published",
-    version: ({ version }) => `v${version}`,
-    liveVersion: () => "live",
-    templateKind: () => "template",
-    changesSince: ({ n, count, version }) => `${count} ${n === 1 ? "change" : "changes"} since ${version}`,
-    changesFirst: ({ n, count }) => `${count} ${n === 1 ? "change" : "changes"} · first version`,
-    noChangesSince: ({ version }) => `No changes since ${version}`,
-    changeVerb: ({ change }) => {
-        switch (change) {
-            case "added": return "Added";
-            case "removed": return "Removed";
-            case "moved": return "Moved";
-            case "resized": case "height": return "Resized";
-            case "aligned": return "Aligned";
-            case "retitled": return "Retitled";
-        }
-    },
-    audience: () => "Audience",
-    rollout: () => "Rollout",
-    saveAsDraft: () => "Save as draft",
-    publishTo: ({ version, env }) => (version === undefined ? "Publish" : env === undefined ? `Publish ${version}` : `Publish ${version} to ${env}`),
-    phoneComponentsIntro: () => "Tap a component, then tap where it goes on the page. On desktop you drag it onto the grid.",
-    phonePagesIntro: () => "Tap a page to open it in the builder.",
-    phoneOnPage: () => "on page",
-    phoneDetails: () => "Details",
-    phoneRowMeta: ({ row }) => `row ${row}`,
-    phoneWhere: ({ row, first, last }) => `row ${row} · columns ${first}–${last}`,
-    phoneRowOf: ({ row, rows }) => `${row} of ${rows}`,
-    phoneMove: () => "Move",
-    phoneNothingFirst: () => "Tap a tile on the page to see what it reads and its layout.",
-    phoneNothingThen: () => "Open Components to add one.",
-    phoneTemplateHelp: ({ project, page }) => `Joins ${project}'s templates. ${page} stays as it is.`,
-    phoneBack: () => "Back to the builder",
-    phonePage: () => "Page",
-    phoneChanges: () => "Changes",
-    phoneWireCaption: ({ device, px }) => `${device} · ${px} px · the layout, each tile by name`,
-};
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);
 

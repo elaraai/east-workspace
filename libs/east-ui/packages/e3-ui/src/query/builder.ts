@@ -8,16 +8,19 @@
  * query's steps, or its jq, in a pane beside its results, under one toolbar.
  *
  * The builder is an interface — the saved queries record bound with its
- * patch, the data sources it may read, and its name — which the
- * `QueryBuilder` renderer draws. Its only data sources are the bindings it is
- * handed: a query over the page reads exactly those, by the page's names.
- * `<Query.Library>` opens queries in it, shared by `id`.
+ * patch, the data sources it may read, the query it shows, and its name —
+ * which the `QueryBuilder` renderer draws. Its only data sources are the
+ * bindings it is handed: a query over the page reads exactly those, by the
+ * page's names. Its host says which query it shows (`query`) and is told when
+ * its own tabs ask for another (`onOpen`): nothing opens a query in it
+ * through a store entry shared by `id` (#1668).
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType,
+    FunctionType,
     OptionType,
     StringType,
     NullType,
@@ -37,28 +40,26 @@ import {
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
 import { viewsProp, type ViewsProp } from "../utils/views.js";
+import { QueryOpenType, openOf } from "./open.js";
 import { QueriesHandleType, type QueriesHandle } from "./queries.js";
 
 // ============================================================================
-// The builder's shared keys
+// The builder's keys
 // ============================================================================
 
 /**
- * The names a query builder shares, by its `id`: the UI store key of the
- * query open in it — which the query library writes when it opens a query —
- * the key of this viewer's recent runs, and the drag-source id of the query
- * library's cards.
+ * The names a query builder and a query library share, by their `id`: the
+ * browser key of this viewer's recent runs, and the drag-source id of the
+ * query library's cards, which the builder takes.
  *
  * @remarks
- * A builder and a query library with the same `id` open one query together,
- * as Studio's builder and page library open one page (`builderKeys`).
+ * The query open in a builder is not among them: its host gives it as `query`
+ * and hears of another in `onOpen` (#1668).
  *
  * @param id - The builder's name, when a surface holds more than one; omitted, the one builder
- * @returns The keys and the id
+ * @returns The key and the id
  */
 export function queryKeys(id: string | undefined): {
-    /** The open query's UI store key. */
-    query: string;
     /** This viewer's recent runs' storage key. */
     recent: string;
     /** The query library's drag-source id — what the builder takes cards from. */
@@ -66,7 +67,6 @@ export function queryKeys(id: string | undefined): {
 } {
     const suffix = id === undefined ? "" : `.${id}`;
     return {
-        query: `query.builder${suffix}.query`,
         recent: `query.builder${suffix}.recent`,
         library: `query.library${suffix}`,
     };
@@ -93,15 +93,17 @@ export type QueryResultViewType = typeof QueryResultViewType;
  *
  * @property queries - The saved queries record, bound with its patch — what the builder reads, and saves through
  * @property datasets - The data sources a query may read, by the names it reads them
- * @property query - The saved query the builder opens first, by name; none, a new query on the first data source
- * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
+ * @property query - The query it shows; `none`, the builder holds its own open query, a new one on the first data source to begin with
+ * @property onOpen - Told when its own tabs open or start another query, with that query
+ * @property id - Names the builder, when a surface holds two — and the query library whose cards it takes and whose recent runs it shares
  * @property views - The query's views the builder offers; empty, both
  * @property resultViews - The result's views the builder offers; empty, both
  */
 export const QueryBuilderPayloadType = StructType({
     queries: QueriesHandleType,
     datasets: ArrayType(DataSourceType),
-    query: OptionType(StringType),
+    query: OptionType(QueryOpenType),
+    onOpen: OptionType(FunctionType([QueryOpenType], NullType)),
     id: OptionType(StringType),
     views: ArrayType(QueryViewType),
     resultViews: ArrayType(QueryResultViewType),
@@ -125,8 +127,9 @@ export const QueryBuilderComponent = EastUI.component("QueryBuilder", QueryBuild
  *
  * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries)`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
- * @property query - The saved query the builder opens first, by name
- * @property id - Names the builder, when a surface holds two — and the query library that opens queries in it
+ * @property query - The query it shows: a saved query's name, or a `Query.Types.Open`
+ * @property onOpen - Told when its own tabs open or start another query, with that query
+ * @property id - Names the builder, when a surface holds two — and the query library whose cards it takes and whose recent runs it shares
  * @property views - The query's views this builder offers
  * @property resultViews - The result's views this builder offers
  */
@@ -140,13 +143,24 @@ export interface QueryBuilderOptions {
      */
     datasets: Readonly<Record<string, BoundSource>>;
     /**
-     * The saved query the builder opens first, by name — and runs, as opening a
-     * saved query does. Omitted, the builder opens a new query on the first data
-     * source. A query opened later, from the query library or the builder's
-     * own tabs, takes its place.
+     * The query it shows: a route's params, or the surface's own state. A
+     * name is a saved query (`Query.open.saved(name)`), which the builder
+     * runs as it opens; a `Query.Types.Open` may be a new query on a data
+     * source too (`Query.open.on(source)`). Given, the builder shows this
+     * query until its host changes it, so `onOpen` is given with it. Omitted,
+     * the builder holds its own open query — a new one on the first data
+     * source to begin with — and its own tabs open another in it.
      */
-    query?: SubtypeExprOrValue<StringType>;
-    /** Names the builder — needed only when one surface holds two builders, and then given to the query library that opens queries in it. */
+    query?: SubtypeExprOrValue<StringType | QueryOpenType>;
+    /**
+     * Told when the builder's own tabs open or start another query — a data
+     * source of its Datasets tab, a query of its Library tab, a query library's
+     * card dropped on it, a new query once it is saved — with that query. A
+     * host that gives `query` changes it here, to navigate or to write its own
+     * state; one that gives none hears of the query the builder opened.
+     */
+    onOpen?: SubtypeExprOrValue<FunctionType<[QueryOpenType], NullType>>;
+    /** Names the builder — needed only when one surface holds two builders, and then given to the query library whose cards it takes and whose recent runs it shares. */
     id?: string;
     /**
      * The query's views this builder offers: literal tags (`["visual"]`), `Query.Types.View` values, or an
@@ -180,36 +194,45 @@ export interface QueryBuilderOptions {
  *   query saves only once it checks.
  *
  * The builder fills its parent's height and draws no border around itself.
- * It opens `query`, a saved query, when one is named, else a new query on the
- * first data source. The query open in it is shared by `id` with a
- * `<Query.Library>`, which opens queries in it.
+ * It shows `query` when one is given, else a new query on the first data
+ * source. Its host says which query it shows and is told when its own tabs
+ * ask for another, so a `<Query.Library>` opens a query in it through the
+ * host: the library's `onOpen` and the builder's `query` are the host's to
+ * join, on one surface or across routes.
  *
- * @param options - The bound record, the data sources, the query it opens first and the builder's name ({@link QueryBuilderOptions})
+ * @param options - The bound record, the data sources, the query it shows, who to tell and the builder's name ({@link QueryBuilderOptions})
  * @returns An East expression of type `UIComponentType`
- * @throws {Error} When `datasets` is empty, or a name is not a jq identifier
+ * @throws {Error} When `datasets` is empty, or a name is not a jq identifier; or when `query` is given without `onOpen`: its own tabs could open nothing
  *
  * @example
  * ```tsx
- * import { East } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { East, NullType } from "@elaraai/east";
+ * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Query, Record, ui } from "@elaraai/e3-ui";
  *
  * // The builder, for operators: it queries the data sources it is handed, and saves through the record.
+ * // The surface holds the open query, which a query library beside it shares.
  * export const builder = ui("query_builder", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const orders    = $.let(Data.bindPaged(d.orders));
  *         const customers = $.let(Data.bind(d.customers));
  *         const saved     = $.let(Record.bind(d.queries));
- *         return <Query.Builder queries={saved} datasets={{ orders, customers }} query="Top shipped orders, 2026" />;
+ *         const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.saved("Top shipped orders, 2026")));
+ *         const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+ *         return <Query.Builder queries={saved} datasets={{ orders, customers }} query={open.read()} onOpen={go} />;
  *     }}</Reactive>
  * )));
  * ```
  */
 function createBuilder(options: QueryBuilderOptions): ExprType<UIComponentType> {
+    if (options.query !== undefined && options.onOpen === undefined) {
+        throw new Error("Query.Builder: `query` is given, so its host holds the open query — give `onOpen` too, which is told the query its Datasets and Library tabs ask for; or omit `query`, and the builder holds its own");
+    }
     return QueryBuilderComponent.Root({
         queries: { read: options.queries.read, history: options.queries.history, commit: { patch: options.queries.commit.patch } },
         datasets: dataSources("Query.Builder", options.datasets),
-        query: options.query === undefined ? none : some(options.query),
+        query: options.query === undefined ? none : some(openOf(options.query)),
+        onOpen: options.onOpen === undefined ? none : some(options.onOpen),
         id: options.id === undefined ? none : some(options.id),
         views: viewsProp("Query.Builder", QueryViewType, options.views) as never,
         resultViews: viewsProp("Query.Builder", QueryResultViewType, options.resultViews) as never,

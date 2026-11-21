@@ -19,15 +19,17 @@
  */
 
 import { checkJq, parseJq, printJq, type CheckJqResult, type EastType, type JqNode } from "@elaraai/east";
+import { NOW_FIELD } from "../one-shot.js";
 import { fieldByRef, fieldsOfRecord, itemRecordOf, pathOfUnknown, type StepField } from "./fields.js";
 import {
-    IDENTITY, arrayNode, at, binary, bind, booleanLiteral, call, chain, chainedPath, fieldNode, floatLiteral, index,
+    IDENTITY, arrayNode, at, binary, bind, booleanLiteral, call, chain, chainedPath, fieldNode, floatLiteral, ifElse, index,
     integerLiteral, isVariableName, iterate, negate, nullLiteral, numberLiteral, objectNode, pathNode, pipe, pipeAll,
     pipedPath, sliceTo, stringLiteral, updateNode, valueLiteral, variable,
 } from "./jq.js";
 import { UNKNOWN, shapeOf, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
-    isComplete, isConditionComplete, type Condition, type StepInput, type Step, type StepOf, type StepQuery, type TestCondition,
+    groupFields, isComplete, isConditionComplete, lastUnit,
+    type Aggregate, type Condition, type StepInput, type Step, type StepOf, type StepQuery, type TestCondition,
 } from "./values.js";
 
 /** A printed step's range of text. */
@@ -56,14 +58,15 @@ export interface ConditionRange {
 
 /**
  * A step's slot: what a check's diagnostic is placed on, besides a
- * condition. `dataset`, `key` and `fields` are a Look up's; `by` and
- * `agg-field` (a total's field, with the total's id) a Group and total's;
- * `pick-field` (with the field shown's id) a Show only fields'; `n` a Keep
- * the first's; `field` the field of a Sort, a Fill, an Open each list or a
+ * condition. `dataset`, `key` and `fields` are a Look up's; `by` (with a
+ * field's ref, when it groups by several), `agg-field` (a total's field, with
+ * the total's id) and `agg-per` (the field a ratio is per) a Group and
+ * total's; `pick-field` (with the field shown's id) a Show only fields'; `n` a
+ * Keep the first's; `field` the field of a Sort, a Fill, an Open each list or a
  * Take part of a date; `value` a Fill's; `via` a List every part's; `range`
  * and `fixed` (with the input's name) a Try the model's.
  */
-export type StepSlot = "dataset" | "key" | "fields" | "by" | "agg-field" | "pick-field" | "n" | "field" | "value" | "via" | "range" | "fixed";
+export type StepSlot = "dataset" | "key" | "fields" | "by" | "agg-field" | "agg-per" | "pick-field" | "n" | "field" | "value" | "via" | "range" | "fixed";
 
 /** A printed slot's range of text. */
 export interface SlotRange {
@@ -137,6 +140,46 @@ export interface StepLayout {
 
 /** What separates two segments of the pipeline layout. */
 export const SEP = "\n| ";
+
+/**
+ * A prologue's segment: a root field bound as a variable of its name, which
+ * the program after it reads — `.orders as $orders` for a Look up,
+ * `.now as $now` for the minute the query is asked (#1670).
+ *
+ * @param name - the root field
+ * @returns the segment's text
+ */
+export function bindSegment(name: string): string {
+    return `${printJq(pathNode([name])).text} as $${name}`;
+}
+
+/**
+ * Whether a condition, as it prints, reads `$now`: an "is in the last"
+ * test, or a group or an inner condition holding one — finished, as printing
+ * leaves out the rest.
+ *
+ * @param condition - the condition
+ * @returns whether it reads the minute the query is asked
+ */
+function readsNow(condition: Condition): boolean {
+    if (!isConditionComplete(condition)) return false;
+    if (condition.type === "group") return condition.value.conds.some(readsNow);
+    const cmp = condition.value.cmp;
+    if (cmp.type === "some" && lastUnit(cmp.value.type) !== undefined) return true;
+    return condition.value.inner.type === "some" && readsNow(condition.value.inner.value);
+}
+
+/**
+ * Whether a query reads the minute it is asked (#1670): a finished Keep rows
+ * where step with an "is in the last" condition, whose program binds
+ * `.now as $now` first.
+ *
+ * @param query - the query
+ * @returns whether its program reads `.now`
+ */
+export function queryReadsNow(query: StepQuery): boolean {
+    return query.steps.some(s => s.type === "filter" && isComplete(s) && s.value.conds.some(readsNow));
+}
 
 /** jq's operator for each comparison that is one. */
 const OPERATOR: Readonly<Record<string, string>> = { eq: "==", ne: "!=", ge: ">=", le: "<=", gt: ">", lt: "<" };
@@ -280,6 +323,11 @@ function buildTest(condition: TestCondition, shape: Shape): BuiltCondition {
         }
         case "onOrAfter": case "before":
             return { node: binary(p, kind === "onOrAfter" ? ">=" : "<", literal()), parts: [{ condId: id, path: "", field: "binary.left", value: "binary.right" }] };
+        case "inLastHours": case "inLastDays": case "inLastWeeks": {
+            // On or after `$now`, which the program binds first, moved back by the count: `p >= ($now | datetime_add(-7; "day"))`.
+            const since = pipe(variable(NOW_FIELD), call("datetime_add", [negate(literal()), stringLiteral(lastUnit(kind)!)]));
+            return { node: binary(p, ">=", since), parts: [{ condId: id, path: "", field: "binary.left", value: "binary.right.pipe.right.call.args[0].negate" }] };
+        }
         case "anyWhere": {
             // A finished any where has its inner condition.
             const built = inner.type === "some" ? buildCondition(inner.value, itemShape(fieldByRef(shape, ref))) : { node: booleanLiteral(true), parts: [] };
@@ -335,16 +383,38 @@ function buildFilter(step: StepOf<"filter">, shape: Shape): BuiltSegment {
 }
 
 /** The node of one total, over the rows of a group. */
-function aggregateNode(shape: Shape, fn: string, ref: string | undefined): JqNode {
-    if (fn === "count") return call("length");
-    const values = call("map", [pathNode(pathFor(shape, ref ?? ""))]);
-    switch (fn) {
-        case "sum": return pipe(values, call("add"));
-        case "mean": return pipe(values, binary(call("add"), "/", call("length")));
-        case "min": return pipe(values, call("min"));
-        case "max": return pipe(values, call("max"));
-        default: return pipe(values, pipe(call("unique"), call("length")));
+function aggregateNode(shape: Shape, agg: Aggregate): JqNode {
+    const fn = agg.fn;
+    if (fn.type === "count") return call("length");
+    const values = (ref: string | undefined): JqNode => call("map", [pathNode(pathFor(shape, ref ?? ""))]);
+    const of = values(agg.field.type === "some" ? agg.field.value : undefined);
+    switch (fn.type) {
+        case "sum": return pipe(of, call("add"));
+        case "mean": return pipe(of, binary(call("add"), "/", call("length")));
+        case "min": return pipe(of, call("min"));
+        case "max": return pipe(of, call("max"));
+        case "distinct": return pipe(of, pipe(call("unique"), call("length")));
+        // A ratio: its field added up over the field it is per, added up (#1670) — nothing where that adds up to nothing,
+        // which no number divides by.
+        case "ratio": {
+            const per = pipe(values(fn.value.type === "some" ? fn.value.value : undefined), call("add"));
+            return ifElse(binary(per, "==", integerLiteral(0n)), nullLiteral(), binary(pipe(of, call("add")), "/", per));
+        }
     }
+}
+
+/**
+ * A total's slots in its entry of an object at a path: its field, and the field a ratio is per — where its sum is
+ * tested and where it divides, so a problem with either is the slot's.
+ */
+function totalSlots(agg: Aggregate, path: string): PartPaths[] {
+    return [
+        slotAt("agg-field", path, agg.id),
+        ...(agg.fn.type === "ratio" ? [
+            slotAt("agg-per", at(path, "if.branches[0].condition.binary.left"), agg.id),
+            slotAt("agg-per", at(path, "if.otherwise.some.binary.right"), agg.id),
+        ] : []),
+    ];
 }
 
 /** The name a step gives a field made from another: the field's own, or the step's name for it. */
@@ -392,17 +462,32 @@ function buildStep(step: Step, shape: Shape): BuiltSegment[] {
         }
         case "group": {
             const { by, aggs } = step.value;
-            const totals = aggs.map(a => ({ key: a.as, value: aggregateNode(shape, a.fn.type, a.field.type === "some" ? a.field.value : undefined) }));
+            const totals = aggs.map(a => ({ key: a.as, value: aggregateNode(shape, a) }));
             if (by.type === "none" || by.value.type === "all") {
-                return [segment(objectNode(totals), aggs.map((a, i) => slotAt("agg-field", `object[${i}].value.some`, a.id)))];
+                return [segment(objectNode(totals), aggs.flatMap((a, i) => totalSlots(a, `object[${i}].value.some`)))];
             }
-            const byPath = pathFor(shape, by.value.value);
-            const first = pathNode(byPath, index(IDENTITY, integerLiteral(0n)));
+            const fieldsBy = groupFields(by);
+            if (by.value.type === "field") {
+                const byPath = pathFor(shape, by.value.value);
+                const first = pathNode(byPath, index(IDENTITY, integerLiteral(0n)));
+                return [
+                    segment(call("group_by", [pathNode(byPath)]), [slotAt("by", "call.args[0]")]),
+                    segment(call("map", [objectNode([{ key: nameFor(shape, by.value.value), value: first }, ...totals])]), [
+                        slotAt("by", "call.args[0].object[0].value.some"),
+                        ...aggs.flatMap((a, i) => totalSlots(a, `call.args[0].object[${i + 1}].value.some`)),
+                    ]),
+                ];
+            }
+            // Several fields (#1670): `group_by({region, category})`, each key read from the group's first row. A field the rows
+            // have, read at its own name, prints bare; any other with its read, a node the checker can place a problem on.
+            const keys = fieldsBy.map(ref => ({ ref, key: nameFor(shape, ref), path: pathFor(shape, ref), known: fieldByRef(shape, ref) !== undefined }));
+            const plain = (k: typeof keys[number]): boolean => k.known && k.path.length === 1 && k.path[0] === k.key;
             return [
-                segment(call("group_by", [pathNode(byPath)]), [slotAt("by", "call.args[0]")]),
-                segment(call("map", [objectNode([{ key: nameFor(shape, by.value.value), value: first }, ...totals])]), [
-                    slotAt("by", "call.args[0].object[0].value.some"),
-                    ...aggs.map((a, i) => slotAt("agg-field", `call.args[0].object[${i + 1}].value.some`, a.id)),
+                segment(call("group_by", [objectNode(keys.map(k => (plain(k) ? { key: k.key } : { key: k.key, value: pathNode(k.path) })))]),
+                    keys.flatMap((k, i) => (plain(k) ? [] : [slotAt("by", `call.args[0].object[${i}].value.some`, k.ref)]))),
+                segment(call("map", [objectNode([...keys.map(k => ({ key: k.key, value: pathNode(k.path, index(IDENTITY, integerLiteral(0n))) })), ...totals])]), [
+                    ...keys.map((k, i) => slotAt("by", `call.args[0].object[${i}].value.some`, k.ref)),
+                    ...aggs.flatMap((a, i) => totalSlots(a, `call.args[0].object[${i + keys.length}].value.some`)),
                 ]),
             ];
         }
@@ -534,12 +619,12 @@ export function knownAfter(step: Step, before: Shape): { narrowed: ReadonlyMap<s
             }
             return { ...kept, narrowed };
         }
-        case "group":
-            return {
-                narrowed: new Map(),
-                limit: undefined,
-                noun: step.value.by.type === "some" && step.value.by.value.type === "field" ? nameFor(before, step.value.by.value.value) : "total",
-            };
+        case "group": {
+            // One row a group: called after its field, a group of several fields' values, or the totals of all rows.
+            const by = step.value.by;
+            const noun = by.type === "none" || by.value.type === "all" ? "total" : by.value.type === "field" ? nameFor(before, by.value.value) : "group";
+            return { narrowed: new Map(), limit: undefined, noun };
+        }
         case "drill":
             return { narrowed: new Map(), limit: undefined, noun: singular(nameFor(before, step.value.field.type === "some" ? step.value.field.value : "item")) };
         case "tabulate":
@@ -588,8 +673,9 @@ export function layOutSteps(query: StepQuery, root: EastType): StepLayout {
         if (!lookups.includes(dataset)) lookups.push(dataset);
     }
 
-    // The prologue binds each looked-up dataset; the source follows.
-    const segments: LaidOutSegment[] = lookups.map(ds => ({ stepId: undefined, text: `${printJq(pathNode([ds])).text} as $${ds}`, last: false }));
+    // The prologue binds the minute the query is asked, when a condition reads it (#1670), and each looked-up dataset; the source follows.
+    const binds = [...(queryReadsNow(query) ? [NOW_FIELD] : []), ...lookups];
+    const segments: LaidOutSegment[] = binds.map(name => ({ stepId: undefined, text: bindSegment(name), last: false }));
     const sourceText = printJq(pathNode([query.source])).text;
     segments.push({ stepId: undefined, text: sourceText, last: true });
     const offsetOf = (list: readonly { text: string }[]): number => list.reduce((n, s) => n + s.text.length + SEP.length, 0);
@@ -689,9 +775,11 @@ export function layOutSteps(query: StepQuery, root: EastType): StepLayout {
  * @returns the program's text, the program, and the ranges
  *
  * @remarks
- * The program starts with `.ds as $ds` for each dataset a finished Look up
- * reads, then the data source; each finished step follows on its own line.
- * Unfinished steps are left out. A jq step's text is printed as written.
+ * The program starts with `.now as $now` when a finished "is in the last"
+ * condition reads the minute the query is asked (#1670), and `.ds as $ds` for
+ * each dataset a finished Look up reads, then the data source; each finished
+ * step follows on its own line. Unfinished steps are left out. A jq step's
+ * text is printed as written.
  */
 export function printSteps(query: StepQuery, root: EastType): PrintedSteps {
     return layOutSteps(query, root).printed;

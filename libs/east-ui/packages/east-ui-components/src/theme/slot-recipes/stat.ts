@@ -28,8 +28,10 @@ export const statSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "{spacing.1}",
         },
+        // An empty label draws nothing: a Stat under a frame whose name says what it is (a Studio KPI's tile).
         label: {
             textStyle: "caption.eyebrow",
+            _empty: { display: "none" },
         },
         // Chakra's own stat sets its tracking and proportional figures outright, and a text style's own
         // yield to those: they are the large number's again here.

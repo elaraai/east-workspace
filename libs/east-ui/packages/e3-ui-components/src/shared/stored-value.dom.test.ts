@@ -7,15 +7,16 @@
  * @vitest-environment jsdom
  *
  * A viewer's value in the UI store (`useStoredValue`): nothing until one is
- * written, an East value under its key once it is, and one write followed by
- * every reader of the key and by none of another's.
+ * written, an East value under its key once it is, one write followed by
+ * every reader of the key and by none of another's, and nothing again once it
+ * is forgotten (`forgetStoredValue`).
  */
 
 import { beforeEach, describe, expect, test } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { BooleanType, OptionType, StringType, StructType, decodeBeast2For, equalFor, none, some } from "@elaraai/east";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
-import { storedCodec, useStoredValue } from "./stored-value.js";
+import { forgetStoredValue, storedCodec, useStoredValue } from "./stored-value.js";
 
 const HeldType = StructType({ on: BooleanType, link: OptionType(StringType) });
 const held = storedCodec(HeldType);
@@ -51,5 +52,15 @@ describe("useStoredValue", () => {
         first.unmount();
         const again = renderHook(() => useStoredValue(held, "plan.works.connect"));
         expect(sameOption(read(again.result.current[0]), some({ on: false, link: some("feed") }))).toBe(true);
+    });
+
+    test("a value forgotten is nothing again to every reader of its key, and another key's stands", () => {
+        const reader = renderHook(() => useStoredValue(held, "plan.works.connect"));
+        const other = renderHook(() => useStoredValue(held, "plan.press.connect"));
+        act(() => { reader.result.current[1]({ on: true, link: none }); other.result.current[1]({ on: false, link: none }); });
+        act(() => { forgetStoredValue("plan.works.connect"); });
+        expect(sameOption(read(reader.result.current[0]), none)).toBe(true);
+        expect(StateRuntime.getStore().read("plan.works.connect")).toBeUndefined();
+        expect(sameOption(read(other.result.current[0]), some({ on: false, link: none }))).toBe(true);
     });
 });

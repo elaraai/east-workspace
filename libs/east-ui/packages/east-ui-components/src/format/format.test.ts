@@ -17,7 +17,7 @@ import { DateTimeType, East, FloatType, equalFor, printFor, type ExprType } from
 import { Chart, Format } from "@elaraai/east-ui";
 import { formatters, formatPattern, parsePattern, tickFormatOf, type TickFormatOpt, type ValueFormat } from "./index.js";
 import { formatTick } from "../typography/numeric/format-tick.js";
-import { tickFormatter } from "../charts/spec/index.js";
+import { tickFormatter } from "../charts/spec/tick-format.js";
 
 type Tick = Exclude<TickFormatOpt, undefined>;
 
@@ -254,6 +254,56 @@ describe("the edges", () => {
         expect(en.tick(2.5)).toBe("2.5");
         expect(en.tick(-0)).toBe("0");
         expect(formatters("de-DE").tick(2.5)).toBe("2,5");
+    });
+
+    test("a short number is plain under ten thousand, and three significant digits of its magnitude from there, the thousand's sign small", () => {
+        const en = formatters("en-US");
+        expect([1284, 1000, 11.42, 9999.994].map((n) => en.short(n))).toEqual(["1,284", "1,000", "11.42", "9,999.99"]);
+        expect([10_000, 12_345, 250_000, 612_000, 3_840_000, 4_500_000, 2_100_000_000].map((n) => en.short(n))).toEqual(["10.0k", "12.3k", "250k", "612k", "3.84M", "4.50M", "2.10B"]);
+        // A number that rounds into the next magnitude prints there.
+        expect(en.short(999_950)).toBe("1.00M");
+        expect(en.short(-612_000)).toBe("-612k");
+        // A zero is 0 at any scale, a negative zero too.
+        expect([en.short(0), en.short(-0), en.short(0, 500_000)]).toEqual(["0", "0", "0"]);
+        expect(en.short(Number.NaN)).toBe("NaN");
+    });
+
+    test("a short number read beside another takes that one's magnitude and decimals", () => {
+        const en = formatters("en-US");
+        // A gap beside its goal; a slice beside its total.
+        expect(en.short(660_000, 4_500_000)).toBe("0.66M");
+        expect(en.short(86_000, 612_000)).toBe("86k");
+        expect(en.short(-660_000, 4_500_000)).toBe("-0.66M");
+        // Beside a number under ten thousand, as it is.
+        expect(en.short(10.76, 11.42)).toBe("10.76");
+        expect(en.short(120, 1284)).toBe("120");
+        // Past the other's magnitude it keeps the scale, with no digit groups: it is short already.
+        expect(en.short(1_210_000, 612_000)).toBe("1210k");
+    });
+
+    test("a trimmed short number leaves off the zeros that end its decimals, as an axis's ticks read", () => {
+        const en = formatters("en-US");
+        expect([0, 25_000, 50_000].map((n) => en.short(n, 50_000, true))).toEqual(["0", "25k", "50k"]);
+        expect([1_250_000, 2_500_000].map((n) => en.short(n, 2_500_000, true))).toEqual(["1.25M", "2.5M"]);
+        expect([60_000, 90_000, 120_000].map((n) => en.short(n, 120_000, true))).toEqual(["60k", "90k", "120k"]);
+        // Untrimmed, a value keeps its three significant digits.
+        expect([en.short(25_000), en.short(2_500_000)]).toEqual(["25.0k", "2.50M"]);
+        expect(formatters("de-DE").short(2_500_000, 2_500_000, true)).toBe("2,5\u00a0Mio.");
+    });
+
+    test("a short number is the locale's: its separators, its words for a magnitude and its own magnitudes", () => {
+        const de = formatters("de-DE");
+        expect(de.short(3_840_000)).toBe("3,84\u00a0Mio.");
+        expect(de.short(660_000, 4_500_000)).toBe("0,66\u00a0Mio.");
+        // German has no short word for a thousand: the number, grouped.
+        expect(de.short(612_000)).toBe("612.000");
+        expect(de.short(1284.5)).toBe("1.284,5");
+        // Japanese counts in ten thousands.
+        const ja = formatters("ja-JP");
+        expect(ja.short(3_840_000)).toBe("384万");
+        expect(ja.short(660_000, 4_500_000)).toBe("66万");
+        // French writes its thousand small already.
+        expect(formatters("fr-FR").short(612_000)).toBe("612\u00a0k");
     });
 
     test("showSign signs everything but zero, through any spec, and a spec's own sign display wins", () => {

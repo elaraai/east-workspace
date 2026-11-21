@@ -292,6 +292,19 @@ const FIELD_KIND_BY_TYPE_TAG: Record<string, "string" | "integer" | "float" | "d
 };
 
 /**
+ * A row field's kind, by its East type: `string`, `integer`, `float`,
+ * `datetime` or `boolean` for a primitive, and `undefined` for any other — an
+ * Option, a Struct, a Variant, an Array — which a slice searches as text and
+ * never filters. The one table a field's kind is read from.
+ *
+ * @param type - The field's East type
+ * @returns Its kind, or `undefined` for a type that is no primitive
+ */
+export function sliceFieldKind(type: EastType): "string" | "integer" | "float" | "datetime" | "boolean" | undefined {
+    return FIELD_KIND_BY_TYPE_TAG[(type as { type: string }).type];
+}
+
+/**
  * Display-format shorthand for a `Slice.config` field (#190) — the same
  * vocabulary as `Chart.format.*` ({@link ValueFormatType}): a string literal
  * for the flag-only formats, an object for the parameterised ones.
@@ -418,7 +431,7 @@ function createSliceConfig<
         if (!fieldType) {
             throw new Error(`Slice.config: field "${fieldId}" not declared on rowType`);
         }
-        const kind = FIELD_KIND_BY_TYPE_TAG[(fieldType as { type: string }).type];
+        const kind = sliceFieldKind(fieldType);
         const format = fieldConfig.format !== undefined ? some(toValueFormat(fieldConfig.format)) : none;
         const project = fieldConfig.text;
         if (project !== undefined || kind === undefined) {

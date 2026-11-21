@@ -35,21 +35,43 @@
  * into one View chip as the widths hide — its menu holding Zoom out, the zoom
  * and Zoom in, then the widths as a choice of one — and last of the canvas's
  * own steps the value's start items go; a host's own items fold from
- * {@link SNAP_GRID_HOST_RANK}, and the history item last.
+ * `SNAP_GRID_HOST_RANK`, and the history item last.
  *
  * A pane beside the canvas asks it for a change through the bound `ui`
- * (#996): a request for a tile's span, row, height or alignment is taken as
- * one gesture, by the rules the handles and drags keep, and written back
- * `none`. A screen asks it for an Apply through the bound `apply` (#998): the
+ * (#996): a request for a tile's span, row, height or alignment — a field of
+ * its entry, a copy of it, or an entry to add after it (#1672, #1673) — is
+ * taken as one gesture, by the rules the handles and drags keep, and written
+ * back `none`. A screen asks it for an Apply through the bound `apply` (#998): the
  * canvas applies its drafts as its history item does, and answers under the
  * id asked once they land or cannot. The history shortcuts work anywhere in
  * the frame, the panes too.
+ *
+ * A host's own sessions edited beside the tiles — a page's starting filters
+ * (#1673) — join the canvas's under one history ({@link SnapGridJoined}): the
+ * canvas's gestures and the host's are its steps, in the order they were made,
+ * and the history item, its keys and a screen's Apply act on it; each session
+ * keeps its banners, named. What edits them the host draws over the grid
+ * (`head`), a band between the selection bar and the grid, outside the
+ * canvas's zoom and keys. What the host says over the canvas — a mode it is
+ * in, linking two tiles say — stands in the frame's banners slot after its
+ * sessions' (`banners`), as every builder's banners do.
  *
  * In a frame of 560 px or narrower the canvas draws its phone form by itself
  * ({@link SnapGridPhoneCanvas}, `Studio Mobile Spec.md`): one column of tiles,
  * pick then place, the same session and gestures. Its toolbar is then the host's
  * items and the history; a host adds the page's head and Add a component through
- * `phone`.
+ * `phone`, and its band over the grid stands under the page's head.
+ *
+ * At a design width under a phone's 480 px — a host's Mobile — the canvas lays
+ * the page out as a phone shows it, as the page itself does there: every tile
+ * the full width, in reading order, its height given way to what it holds, and
+ * no column ruler. A tile is selected and edited there — its pane, its bar,
+ * up and down through the column — but its span and its place are the wider
+ * layout's, which a phone only stacks: nothing drags or resizes, and a card
+ * lands only between rows, a row of its own.
+ *
+ * Its parts are drawn apart: a tile (`./editor-tile.tsx`), the drop cells
+ * (`./editor-cells.tsx`) and the toolbar (`./editor-toolbar.tsx`).
  *
  * @packageDocumentation
  */
@@ -57,12 +79,12 @@
 import {
     Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent,
-    type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
+    type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
-import { Box, chakra, Menu as ChakraMenu, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, useSlotRecipe, VisuallyHidden } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faCaretDown, faCheck, faEye, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { fas, faCheck } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -71,7 +93,6 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
-import { ChipMenu } from "../../toolbar/chip-menu.js";
 import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { NARROW_FRAME } from "../builder-frame/place.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
@@ -80,70 +101,39 @@ import { SnapGridPhoneIssues } from "./phone-issues.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import { SessionBanners } from "../../editing/banners.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
+import type { EditHistory } from "../../editing/history.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
 import type { EditIssue, EditSession } from "../../editing/session.js";
 import { sessionErrorText } from "../../editing/messages.js";
-import {
-    useDragLayerOptional, useDragTarget, useDropCell, useDragEventChip,
-    type DragEventValue, type DragPayload, type DropCellOptions, type DropVeto,
-} from "../../dnd/drag-layer";
+import { useDragLayerOptional, useDragTarget, type DragEventValue, type DropVeto } from "../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { followPointer } from "../../pointer/follow-pointer.js";
-import { useSnapGridEditing, type SnapGridDraftMark } from "./use-snap-grid-editing.js";
+import { useSnapGridEditing, type SnapGridJoined } from "./use-snap-grid-editing.js";
 import { useSnapGridWords, type SnapGridWords } from "./messages.js";
 import {
-    MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
-    type SnapGridBox, type SnapGridDrop, type SnapGridRowModel, type SnapGridTile,
+    MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, SNAP_GRID_STACKED_BELOW, heightAt, heldSpan, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
+    type SnapGridDrop,
 } from "./model.js";
 import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
+import { contentHeight } from "./natural.js";
+import { SnapGridGapCell, SnapGridRowCell, boxOf, clientGap, tilesIn, type Hover, type Resting, type SnapGridStyles } from "./editor-cells.js";
+import { SnapGridTileBox, type ResizeKind, type ResizePreview, type SnapGridTileAction } from "./editor-tile.js";
+import { useCanvasToolbar, type ViewState } from "./editor-toolbar.js";
 
 // A tile's and a design width's icons are Font Awesome names from the data;
 // register the free-solid set so they resolve by name (idempotent).
 library.add(fas);
 
-type Styles = Record<string, SystemStyleObject>;
-
-/** The design width and zoom a host holds — the bound `view`'s value. */
-type ViewState = ValueTypeOf<typeof SnapGrid.Types.ViewState>;
-
 /** An Apply a host asks for, and the canvas's answer — the bound `apply`'s value. */
 type ApplyState = ValueTypeOf<typeof SnapGrid.Types.ApplyState>;
 
-/** Which edge a resize handle drags. */
-type ResizeKind = "span" | "height" | "both";
-
-/** The zoom's range and step. */
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 1.5;
-const ZOOM_STEP = 0.1;
-
-/**
- * The fold order of the canvas's own toolbar items (#995, #1229), lowest
- * first: the grid chip, then the width readout, then the saved time, then the
- * widths to their icons; then the zoom into the View chip with the widths
- * hidden into its menu, one bundle; then the value's start items. A host's own
- * items fold after them, from {@link SNAP_GRID_HOST_RANK}, and the history
- * item after all, at its own rank.
- */
-const RANK_GRID = 10;
-const RANK_READOUT = 20;
-const RANK_SAVED = 30;
-const RANK_WIDTHS = 40;
-const RANK_VIEW = 50;
-const RANK_START = 60;
-
-/** The first rank a host's own toolbar items fold at — after every step of the canvas's own, before the history item's. */
-export const SNAP_GRID_HOST_RANK = 70;
-
-/** The zoom's fold into the View chip and the widths' into its menu: one bundle, applied together. */
-const VIEW_BUNDLE = "snap-grid.view";
-
 /**
  * Why the drafts cannot land, in the canvas's words: the first issue the
- * session holds, else its error, else its status line — the stale source's,
- * or the canvas's own when nothing else says.
+ * session — or the history over it and its host's — holds, else its error,
+ * else its status line: the stale source's, or the canvas's own when nothing
+ * else says.
  */
-function refusalOf<W>(session: EditSession<W>, words: SnapGridWords): string {
+function refusalOf<W>(session: EditSession<W> | EditHistory<W>, words: SnapGridWords): string {
     const readiness = session.readiness;
     const issues = readiness.type === "ready" ? session.issues : readiness.value;
     if (issues.length > 0) return issues[0]!.message;
@@ -159,284 +149,6 @@ function pxOf(width: string | undefined): number | undefined {
     const px = width === undefined ? undefined : /^(\d+(?:\.\d+)?)px$/.exec(width);
     return px ? Number(px[1]) : undefined;
 }
-
-/** A resize while the pointer holds its handle — what the tile draws until it lets go. */
-interface ResizePreview {
-    /** The tile's key. */
-    key: string;
-    /** The row it sits in. */
-    row: string;
-    /** The span it would take. */
-    span?: number | undefined;
-    /** The height it would take — `null` its content's own. */
-    height?: number | null | undefined;
-    /** Another tile's bottom edge it snapped to, in px from the row's top. */
-    guide?: number | undefined;
-}
-
-/** Where a drag last rested over a row — the drop a row coordinate names, read back at the drop. */
-interface Resting {
-    /** The coordinate's row key. */
-    row: string;
-    /** The coordinate's slot — the pointed column. */
-    slot: string;
-    /** Where it lands. */
-    drop: SnapGridDrop;
-}
-
-/** Marks what a drag resting over a cell would do — drawn by CSS, set without a render. */
-type Hover = (el: HTMLElement | null, drop: SnapGridDrop, payload: DragPayload) => void;
-
-/** The tiles of a row element — its direct tile children, in order. */
-function tilesIn(row: Element): HTMLElement[] {
-    return [...row.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el.hasAttribute("data-snap-grid-tile"));
-}
-
-/** A box, as the model reads one. */
-function boxOf(el: Element): SnapGridBox {
-    const r = el.getBoundingClientRect();
-    return { left: r.left, top: r.top, width: r.width, height: r.height };
-}
-
-/** A row's gap between columns in client px — its CSS gap through the canvas's zoom. */
-function clientGap(row: HTMLElement, box: SnapGridBox): number {
-    const scale = row.offsetWidth > 0 ? box.width / row.offsetWidth : 1;
-    return (Number.parseFloat(getComputedStyle(row).columnGap) || 0) * scale;
-}
-
-/** A brand line with the "+" badge on it. */
-function InsertLine({ css, styles, attr }: { css: SystemStyleObject | undefined; styles: Styles; attr: "insert" | "gap" }) {
-    return (
-        <Box css={css} aria-hidden {...(attr === "insert" ? { "data-snap-grid-insert-line": "" } : { "data-snap-grid-gap-line": "" })}>
-            <Box as="span" css={styles.rule} />
-            <Box as="span" css={styles.badge}><FontAwesomeIcon icon={faPlus} /></Box>
-            <Box as="span" css={styles.rule} />
-        </Box>
-    );
-}
-
-// ============================================================================
-// Tile
-// ============================================================================
-
-interface TileProps {
-    tile: SnapGridTile;
-    cell: SnapGridEditorCell;
-    surface: string;
-    /** Its first column — the drag grammar's `from.slot`. */
-    start: number;
-    /** Its row's number, from 1. */
-    rowNumber: number;
-    styles: Styles;
-    words: SnapGridWords;
-    storageKey: string;
-    selected: boolean;
-    /** The canvas's one tab stop. */
-    tabStop: boolean;
-    mark: SnapGridDraftMark | undefined;
-    /** It holds a conflict not yet chosen: it wears the warn ring. */
-    conflict: boolean;
-    /** It moves: the session takes a gesture. */
-    movable: boolean;
-    /** Its height is edited. */
-    heights: boolean;
-    preview: ResizePreview | undefined;
-    onSelect: (key: string) => void;
-    onResizeStart: (e: ReactPointerEvent, key: string, kind: ResizeKind) => void;
-    onRemove: (key: string) => void;
-    register: (key: string, el: HTMLElement | null) => void;
-    /** Draws the tile's content, when the host does — else its East content. */
-    renderContent: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
-}
-
-const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
-    const { tile, cell, styles, words, register } = p;
-    const m = words.m;
-    const key = tile.key;
-    const from = useMemo(() => ({ surface: p.surface, row: tile.row, slot: String(p.start), event: key }), [p.surface, tile.row, p.start, key]);
-    const ghost = useMemo(() => <Box css={styles.ghost}>{tile.label}</Box>, [styles.ghost, tile.label]);
-    const drag = useDragEventChip(from, ghost, !p.movable, tile.label);
-    const dragRef = drag?.ref;
-    const ref = useCallback((el: HTMLElement | null) => {
-        dragRef?.(el);
-        register(key, el);
-    }, [dragRef, register, key]);
-    const span = p.preview?.span ?? tile.span;
-    const height = p.preview !== undefined && p.preview.height !== undefined ? p.preview.height : tile.height;
-    const style = { "--snap-grid-span": String(span) } as CSSProperties;
-    const frameStyle: CSSProperties | undefined = height === null || height === undefined ? undefined : { height: `${height}px` };
-    const { onResizeStart, onRemove, onSelect } = p;
-    return (
-        <Box
-            {...drag}
-            ref={ref}
-            css={styles.tile}
-            style={style}
-            role={drag?.role ?? "button"}
-            tabIndex={p.tabStop ? 0 : -1}
-            aria-label={m.tileName({ label: tile.label, span: words.number(span), row: words.number(p.rowNumber) })}
-            data-snap-grid-tile={key}
-            data-align={cell.align.type}
-            data-selected={p.selected ? "" : undefined}
-            data-pending={p.mark === "pending" ? "" : undefined}
-            data-conflict={p.conflict ? "" : undefined}
-            data-incomplete={p.mark === "incomplete" ? "" : undefined}
-            data-invalid={p.mark === "invalid" ? "" : undefined}
-            data-draggable={drag !== undefined ? "" : undefined}
-            onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onSelect(key); }}
-        >
-            <Box css={styles.frame} style={frameStyle} data-frame={cell.frame ? "" : undefined}>
-                {p.renderContent !== undefined ? p.renderContent(cell)
-                    : cell.content !== undefined ? <EastChakraComponent value={cell.content} storageKey={`${p.storageKey}.${cell.key}`} />
-                        : null}
-            </Box>
-            {p.selected && (
-                <>
-                    <Box as="span" css={styles.handle} data-handle="top-left" aria-hidden />
-                    <Box as="span" css={styles.handle} data-handle="top-right" aria-hidden />
-                    <Box as="span" css={styles.handle} data-handle="bottom-left" aria-hidden />
-                    {p.heights && (
-                        <Box as="span" css={styles.handle} data-handle="both" title={m.bothHandle()} aria-hidden
-                            onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "both")} />
-                    )}
-                    <Box as="span" css={styles.handle} data-handle="span" title={m.spanHandle()} aria-hidden
-                        onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "span")} />
-                    {p.heights && (
-                        <Box as="span" css={styles.handle} data-handle="height" title={m.heightHandle()} aria-hidden
-                            onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "height")} />
-                    )}
-                    <chakra.button type="button" css={styles.remove} aria-label={m.remove()} title={m.remove()} data-snap-grid-remove=""
-                        onPointerDown={(e: ReactPointerEvent) => e.stopPropagation()}
-                        onKeyDown={(e: ReactKeyboardEvent) => e.stopPropagation()}
-                        onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onRemove(key); }}>
-                        <FontAwesomeIcon icon={faTrashCan} />
-                    </chakra.button>
-                </>
-            )}
-            <InsertLine css={styles.insertBefore} styles={styles} attr="insert" />
-            <InsertLine css={styles.insertAfter} styles={styles} attr="insert" />
-        </Box>
-    );
-});
-
-// ============================================================================
-// Row, gap and end zone — the drop cells
-// ============================================================================
-
-interface RowProps {
-    row: SnapGridRowModel;
-    index: number;
-    surface: string;
-    veto: DropVeto;
-    styles: Styles;
-    words: SnapGridWords;
-    resting: MutableRefObject<Resting | undefined>;
-    hover: Hover;
-    /** A height drag's snapped edge in this row, in px from its top. */
-    guide: number | undefined;
-    children: ReactNode;
-}
-
-/** A row: a continuous cell naming, where a drag rests, a place beside a tile or a new row above or below. */
-const SnapGridRowCell = memo(function SnapGridRowCell(p: RowProps) {
-    const { row, index, surface, resting, words, hover } = p;
-    const el = useRef<HTMLElement | null>(null);
-    const coord = useMemo(() => ({ surface, row: row.key, slot: "1" }), [surface, row.key]);
-    const resolve = useCallback((x: number, y: number) => {
-        const node = el.current;
-        if (node === null) return coord;
-        const box = boxOf(node);
-        const drop = dropAt(index, box, tilesIn(node).map(boxOf), x, y);
-        if (drop.kind === "gap") return { surface, row: "", slot: String(drop.at) };
-        const gap = clientGap(node, box);
-        const column = (box.width - (SNAP_GRID_COLUMNS - 1) * gap) / SNAP_GRID_COLUMNS;
-        const pointed = Math.min(SNAP_GRID_COLUMNS, Math.max(1, Math.floor((x - box.left) / (column + gap)) + 1));
-        const at = { surface, row: row.key, slot: String(pointed) };
-        resting.current = { row: at.row, slot: at.slot, drop };
-        return at;
-    }, [coord, surface, row.key, index, resting]);
-    const options = useMemo<DropCellOptions>(() => ({
-        // A keyboard drag rests before each tile and after the last.
-        stops: () => {
-            const node = el.current;
-            if (node === null) return [];
-            return joinStops(tilesIn(node).map(boxOf), clientGap(node, boxOf(node)));
-        },
-        name: (at) => {
-            if (at.row === "") return words.m.newRow({ row: words.number(Number(at.slot) + 1) });
-            const drop = resting.current?.drop;
-            const beside = drop?.kind === "join" ? row.tiles[drop.pos] : undefined;
-            return beside !== undefined
-                ? words.m.besideTile({ label: beside.label, row: words.number(index + 1) })
-                : words.m.rowEnd({ row: words.number(index + 1) });
-        },
-        onHover: (x, y, payload) => {
-            const node = el.current;
-            if (node === null) return;
-            const drop = dropAt(index, boxOf(node), tilesIn(node).map(boxOf), x, y);
-            hover(node, drop, payload);
-        },
-    }), [words, resting, row.tiles, index, hover]);
-    const dropRef = useDropCell(coord, false, p.veto, resolve, options);
-    const ref = useCallback((node: HTMLElement | null) => {
-        el.current = node;
-        dropRef(node);
-    }, [dropRef]);
-    return (
-        <Box ref={ref} css={p.styles.row} data-snap-grid-row={row.key} data-snap-grid-row-index={index}>
-            <InsertLine css={p.styles.edgeBefore} styles={p.styles} attr="gap" />
-            <InsertLine css={p.styles.edgeAfter} styles={p.styles} attr="gap" />
-            {p.guide !== undefined && <Box css={p.styles.guide} style={{ top: `${p.guide}px` }} aria-hidden data-snap-grid-guide="" />}
-            {p.children}
-        </Box>
-    );
-});
-
-interface GapProps {
-    /** The gap's index: `0` above the first row, the row count below the last. */
-    index: number;
-    first: boolean;
-    /** The end zone — the gap below the last row. */
-    end: boolean;
-    surface: string;
-    veto: DropVeto;
-    styles: Styles;
-    words: SnapGridWords;
-    hover: Hover;
-}
-
-/** A gap between rows, or the end zone below them: a drop there makes a new row. */
-const SnapGridGapCell = memo(function SnapGridGapCell(p: GapProps) {
-    const { index, surface, words, hover, styles } = p;
-    const el = useRef<HTMLElement | null>(null);
-    const coord = useMemo(() => ({ surface, row: "", slot: String(index) }), [surface, index]);
-    const options = useMemo<DropCellOptions>(() => ({
-        name: () => words.m.newRow({ row: words.number(index + 1) }),
-        onHover: (_x, _y, payload) => hover(el.current, { kind: "gap", at: index }, payload),
-    }), [words, index, hover]);
-    const dropRef = useDropCell(coord, false, p.veto, undefined, options);
-    const ref = useCallback((node: HTMLElement | null) => {
-        el.current = node;
-        dropRef(node);
-    }, [dropRef]);
-    if (p.end) {
-        return (
-            <Box ref={ref} css={styles.endZone} data-snap-grid-end="" data-snap-grid-gap={index}>
-                <Box css={styles.endZoneBox}>
-                    <Box as="span" css={styles.endZoneRest}>{words.m.endZoneRest()}</Box>
-                    {/* Where a drop lands, pointed at by Font Awesome's caret (#1263). */}
-                    <Box as="span" css={styles.endZoneDragging}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneDragging()}</Box>
-                    <Box as="span" css={styles.endZoneTarget}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneTarget()}</Box>
-                </Box>
-            </Box>
-        );
-    }
-    return (
-        <Box ref={ref} css={styles.gap} data-first={p.first ? "" : undefined} data-snap-grid-gap={index}>
-            <InsertLine css={styles.gapLine} styles={styles} attr="gap" />
-        </Box>
-    );
-});
 
 // ============================================================================
 // The canvas
@@ -467,6 +179,35 @@ export interface SnapGridEditorProps {
     renderContent?: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
     /** What a host says of the page on a phone, and does there ({@link SnapGridPhoneOptions}). The canvas's phone form needs none. */
     phone?: SnapGridPhoneOptions | undefined;
+    /**
+     * Told when the selected tile's Edit is pressed, with its key: the host
+     * shows what edits what the tile shows (#1672). Omitted, the tile draws no
+     * Edit.
+     */
+    onEdit?: ((key: string) => void) | undefined;
+    /**
+     * Over the grid: what the host draws there — what edits its own sessions,
+     * a page's starting filters (#1673) — a band between the selection bar and
+     * the grid, and on a phone under the page's head.
+     */
+    head?: ReactNode | undefined;
+    /**
+     * The host's own sessions under one history with the canvas's (#1673);
+     * omitted, the canvas's session is its history.
+     */
+    joined?: SnapGridJoined | undefined;
+    /**
+     * What the host says over the canvas — a mode it is in, linking two tiles
+     * say (#1673) — in the frame's banners slot under the toolbar, after its
+     * sessions' banners; on a phone, in the footer with them.
+     */
+    banners?: ReactNode | undefined;
+    /**
+     * What the host does to the selected tile, by its key: on the tile's frame
+     * beside Edit, Duplicate and Remove — a builder's actions there, never in a
+     * menu of what the tile shows (#1673). Omitted, the tile draws its own.
+     */
+    tileActions?: ((key: string) => readonly SnapGridTileAction[]) | undefined;
 }
 
 /**
@@ -476,23 +217,18 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit, head, joined, banners: hostBanners, tileActions }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
     const phoneStyles = useSlotStyles("snapGridPhone");
     const surfaceTag = getSomeorUndefined(value.surface)?.type ?? "card";
-    const styles = useMemo(() => recipe({ variant: "tiles", surface: surfaceTag }) as Styles, [recipe, surfaceTag]);
-    // The toolbar's zoom and design widths are the shared stepper and seg strip.
-    const stepperRecipe = useSlotRecipe({ key: "stepper" });
-    const stepper = useMemo(() => stepperRecipe({ tone: "neutral", size: "sm" }) as Styles, [stepperRecipe]);
-    const segRecipe = useSlotRecipe({ key: "seg" });
-    const seg = useMemo(() => segRecipe() as Styles, [segRecipe]);
-    // The View chip's menu is the theme's: its items' leading icons and its group labels.
-    const menuRecipe = useSlotRecipe({ key: "menu" });
-    const menu = useMemo(() => menuRecipe() as Styles, [menuRecipe]);
-    const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, action: sessionAction } = editing;
+    const styles = useMemo(() => recipe({ variant: "tiles", surface: surfaceTag }) as SnapGridStyles, [recipe, surfaceTag]);
+    const editing = useSnapGridEditing(value, storageKey, joined);
+    const {
+        session, subject, key: canvasKey, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, insert,
+        action: sessionAction,
+    } = editing;
 
     // ── A phone's frame: the canvas's phone form, by itself at 560px and narrower ──
     // Hidden, as under a preview, it stays what it was: its tiles' state is kept.
@@ -506,20 +242,21 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const onPlacing = phoneOptions?.onPlacing ?? setOwnPlacing;
 
     // ── When the source last confirmed an Apply ──────────────────────────
-    // An Apply is confirmed when the session leaves `reconciling` for `idle`
-    // — heard from the session itself, since both can pass within one render;
-    // a Discard clears the time, as it clears the drafts.
+    // An Apply is confirmed when the session — or the history over it and its
+    // host's — leaves `reconciling` for `idle`, heard from it itself, since
+    // both can pass within one render; a Discard clears the time, as it clears
+    // the drafts.
     const [savedAt, setSavedAt] = useState<Date | undefined>(undefined);
     // How many a Save carried: what a phone's band says once it lands (ST36).
     const carried = useRef(0);
     useEffect(() => {
-        let was = session.status;
-        return session.subscribe(() => {
-            if (was !== "applying" && session.status === "applying") carried.current = session.pending;
-            if (was === "reconciling" && session.status === "idle") setSavedAt(new Date());
-            was = session.status;
+        let was = subject.status;
+        return subject.subscribe(() => {
+            if (was !== "applying" && subject.status === "applying") carried.current = subject.pending;
+            if (was === "reconciling" && subject.status === "idle") setSavedAt(new Date());
+            was = subject.status;
         });
-    }, [session]);
+    }, [subject]);
     const action = useCallback((a: HistoryAction) => {
         if (a === "discard") setSavedAt(undefined);
         sessionAction(a);
@@ -575,9 +312,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const surface = getSomeorUndefined(value.id) ?? `snap-grid${ownId}`;
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
     const irVeto = useIRCanDrop(canDropFn);
-    // A row holding its most tiles takes no other: the ⊘ stage. Then the host's word.
+    // Whether the canvas stands stacked, as a phone shows the page: this render's, for the drag layer's callbacks.
+    const stackedRef = useRef(false);
+    // A row holding its most tiles takes no other: the ⊘ stage. Stacked, a row's columns are the wider layout's, and a
+    // drop lands only between rows. Then the host's word.
     const veto = useCallback<DropVeto>((event) => {
         const into = event.type === "add" ? event.value.into : event.type === "move" ? event.value.to : undefined;
+        if (stackedRef.current && into !== undefined && into.row !== "") return false;
         if (into !== undefined && into.row !== "") {
             const moving = event.type === "move" && event.value.from.event.type === "some" ? event.value.from.event.value : undefined;
             const row = rowsRef.current.find((r) => r.key === into.row);
@@ -668,8 +409,6 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     // go of one whose end was never heard, as Esc does, and as the canvas going does.
     const dropResize = useRef<(() => void) | undefined>(undefined);
     useEffect(() => () => dropResize.current?.(), []);
-    /** Each tile's content height, taken the last time it was auto — where a height drag returns it to auto. */
-    const naturals = useRef(new Map<string, number>());
     const onResizeStart = useCallback((e: ReactPointerEvent, key: string, kind: ResizeKind) => {
         if (e.button !== 0) return;
         e.stopPropagation();
@@ -686,8 +425,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         // A height is in layout px: the pointer's travel through the zoom.
         const scaleY = frameEl.offsetHeight > 0 ? frameEl.getBoundingClientRect().height / frameEl.offsetHeight : 1;
         const h0 = frameEl.offsetHeight;
-        if (tile.height === undefined) naturals.current.set(key, h0);
-        const natural = naturals.current.get(key) ?? h0;
+        // Its content's own height — where a height drag stops, and returns it to its content's. Read with its height let
+        // go: the height it stands at would hold every shorter one off.
+        const natural = contentHeight(frameEl);
         const siblings = tilesIn(rowEl).filter((el) => el !== tileEl)
             .map((el) => (el.firstElementChild instanceof HTMLElement ? el.firstElementChild.offsetHeight : 0));
         const y0 = e.clientY;
@@ -730,46 +470,64 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         };
     }, [resize, height]);
 
-    // Each auto tile's content height, kept fresh — what a height a pane asks
-    // for is held to, as a height drag is.
-    useEffect(() => {
-        for (const tile of tiles) {
-            if (tile.height !== undefined) continue;
-            const frame = tileEls.current.get(tile.key)?.firstElementChild;
-            if (frame instanceof HTMLElement && frame.offsetHeight > 0) naturals.current.set(tile.key, frame.offsetHeight);
-        }
-    });
-
-    // ── A change a pane asks for (#996) — one gesture, then written back ─
+    // ── A change a pane asks for (#996, #1672) — one gesture, then written back ─
     useEffect(() => {
         if (request === undefined || bound === undefined) return;
         const tile = tilesRef.current.find((t) => t.key === request.key);
         const change = request.change;
+        // A copy, and an entry added, is selected in its tile's place; any other change leaves the selection as it is.
+        let selecting = bound.read().selected;
         if (tile !== undefined) {
-            if (change.type === "span") {
-                resize(tile.key, Number(change.value));
-            } else if (change.type === "row") {
-                rowTo(tile.key, Number(change.value));
-            } else if (change.type === "height") {
-                // As a height drag: a least height floors it, else its content's
-                // height, where it returns to auto; never past the most.
-                const asked = change.value.type === "some" ? Number(change.value.value) : null;
-                const natural = naturals.current.get(tile.key);
-                const kept = asked === null ? null
-                    : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
-                        : natural !== undefined && asked <= natural ? null
-                            : Math.min(MAX_HEIGHT, asked);
-                height(tile.key, kept);
-            } else {
-                align(tile.key, change.value.type);
+            switch (change.type) {
+                case "span":
+                    resize(tile.key, Number(change.value));
+                    break;
+                case "row":
+                    rowTo(tile.key, Number(change.value));
+                    break;
+                case "height": {
+                    // As a height drag: a least height floors it, else its content's
+                    // height, where it returns to auto; never past the most.
+                    const asked = change.value.type === "some" ? Number(change.value.value) : null;
+                    const frame = tileEls.current.get(tile.key)?.firstElementChild;
+                    const natural = frame instanceof HTMLElement && frame.offsetHeight > 0 ? contentHeight(frame) : undefined;
+                    const kept = asked === null ? null
+                        : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
+                            : natural !== undefined && asked <= natural ? null
+                                : Math.min(MAX_HEIGHT, asked);
+                    height(tile.key, kept);
+                    break;
+                }
+                case "align":
+                    align(tile.key, change.value.type);
+                    break;
+                case "field":
+                    field(tile.key, change.value.name, change.value.value);
+                    break;
+                case "duplicate": {
+                    const copy = duplicate(tile.key);
+                    if (copy !== undefined) {
+                        selecting = some(copy);
+                        announce(m.announceDuplicated({ label: tile.label }));
+                    }
+                    break;
+                }
+                case "add": {
+                    const added = insert(tile.key, change.value);
+                    if (added !== undefined) {
+                        selecting = some(added.key);
+                        announce(m.announceAdded({ label: added.label }));
+                    }
+                    break;
+                }
             }
         }
         try {
-            bound.write({ selected: bound.read().selected, request: none });
+            bound.write({ selected: selecting, request: none });
         } catch (err) {
             console.error("[SnapGrid] ui state write failed:", err);
         }
-    }, [request, bound, resize, rowTo, height, align]);
+    }, [request, bound, resize, rowTo, height, align, field, duplicate, insert, announce, m]);
 
     // ── An Apply a screen asks for (#998) — the drafts applied, then answered ─
     const applyBind = value.apply.type === "some" ? value.apply.value : undefined;
@@ -778,7 +536,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const asked = applyRead.ok && applyRead.value !== undefined && applyRead.value.type === "asked" ? applyRead.value.value : undefined;
     useEffect(() => {
         if (asked === undefined || applyBind === undefined) return;
+        let live = true;
         let started = false;
+        // Whether the Apply started here has returned. Until it has, a change
+        // of the subject is one of the Apply's own steps — a history accepts
+        // every session's drafts, telling its readers, before any session
+        // sends — never a refusal.
+        let sent = false;
         let answered = false;
         const answer = (state: ApplyState) => {
             answered = true;
@@ -788,25 +552,33 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 console.error("[SnapGrid] apply state write failed:", err);
             }
         };
-        // At every change of the session: an Apply running is waited out;
-        // with no draft left, the drafts landed; once, the drafts are applied
-        // as the history item applies them — a request of unknown outcome
-        // retried; otherwise they cannot land, and the canvas says why.
+        // At every change of the session — or of the history over it and its
+        // host's: an Apply running is waited out; with no draft left, the
+        // drafts landed; once, the drafts are applied as the history item
+        // applies them — a request of unknown outcome retried; otherwise they
+        // cannot land, and the canvas says why: one that could not start, or
+        // the one started here, once it has returned.
         const step = () => {
-            if (answered || session.status === "applying" || session.status === "reconciling") return;
-            if (session.pending === 0) {
+            if (!live || answered || subject.status === "applying" || subject.status === "reconciling") return;
+            if (subject.pending === 0) {
                 answer(variant("applied", asked));
-            } else if (!started && (session.status === "unknown" || session.canApply)) {
+            } else if (!started && (subject.status === "unknown" || subject.canApply)) {
                 started = true;
-                void session.apply();
-            } else {
-                answer(variant("refused", { id: asked, reason: refusalOf(session, words) }));
+                void subject.apply().finally(() => {
+                    sent = true;
+                    step();
+                });
+            } else if (!started || sent) {
+                answer(variant("refused", { id: asked, reason: refusalOf(subject, words) }));
             }
         };
-        const unsubscribe = session.subscribe(step);
+        const unsubscribe = subject.subscribe(step);
         step();
-        return () => { unsubscribe(); };
-    }, [asked, applyBind, session, words]);
+        return () => {
+            live = false;
+            unsubscribe();
+        };
+    }, [asked, applyBind, subject, words]);
 
     const onRemove = useCallback((key: string) => {
         const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;
@@ -814,6 +586,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         announce(m.announceRemoved({ label }));
         select(null);
     }, [remove, announce, m, select]);
+    // A copy after it, selected (#1672).
+    const onDuplicate = useCallback((key: string) => {
+        const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;
+        const copy = duplicate(key);
+        if (copy === undefined) return;
+        announce(m.announceDuplicated({ label }));
+        select(copy);
+    }, [duplicate, announce, m, select]);
 
     // ── The keyboard ─────────────────────────────────────────────────────
     // The history shortcuts, anywhere in the frame — a pane's controls too;
@@ -852,7 +632,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 return;
             case "ArrowLeft": case "ArrowRight": case "ArrowUp": case "ArrowDown": {
                 const arrow = e.key === "ArrowLeft" ? "left" : e.key === "ArrowRight" ? "right" : e.key === "ArrowUp" ? "up" : "down";
-                const next = tile === undefined ? tiles[0]?.key : neighbourOf(rows, tile.key, arrow);
+                const next = tile === undefined ? tiles[0]?.key : neighbourOf(rows, tile.key, arrow, stacked);
                 const to = next !== undefined ? tiles.find((x) => x.key === next) : undefined;
                 if (to === undefined) return;
                 e.preventDefault();
@@ -862,7 +642,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 return;
             }
             case "[": case "]": {
-                if (tile === undefined) return;
+                // Stacked, its span is the wider layout's: the keys leave it.
+                if (tile === undefined || stacked) return;
                 e.preventDefault();
                 const span = heldSpan(tiles, tile.key, tile.span + (e.key === "]" ? 1 : -1));
                 if (resize(tile.key, span)) announce(m.announceSpan({ label: tile.label, span: words.number(span) }));
@@ -896,12 +677,18 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     }, [select, focusTile]);
     // A tile as the page shows it, in the frame's banners and its conflicts' cards: its label — `Breakdown bars` — else its id.
     const tileWhere = useCallback((issue: EditIssue) => tilesRef.current.find((t) => t.id === issue.entry)?.label ?? issue.entry, []);
+    // An issue of the host's own session in the host's words (#1673); one of the canvas's by its tile.
+    const where = useCallback((issue: EditIssue) => {
+        const of = joined?.history.sourceOf(issue);
+        const held = of === undefined || of === canvasKey ? undefined : joined?.sessions.find((s) => s.key === of);
+        return held === undefined ? tileWhere(issue) : held.where?.(issue) ?? issue.entry;
+    }, [joined, canvasKey, tileWhere]);
     // On a phone an inspector pane the frame draws takes an Issues tab, which the second row's Issues opens (ST7, D9).
     const [phoneTab, setPhoneTab] = useState<string | undefined>(undefined);
     const hostEnd = panes?.end;
     const issuesDock = phone && hostEnd !== undefined && !("element" in hostEnd) ? hostEnd : undefined;
     const openIssues = () => { setPhoneTab("issues"); issuesDock?.onCollapsedChange?.(false); };
-    const history = historyToolbarItem({ session, words, editing: false, onAction: action, onIssue, where: tileWhere, onOpenIssues: issuesDock === undefined ? undefined : openIssues });
+    const history = historyToolbarItem({ session: subject, words, editing: false, onAction: action, onIssue, where, onOpenIssues: issuesDock === undefined ? undefined : openIssues });
 
     // ── The ruler: the selected tile's columns ───────────────────────────
     const guides = value.guides;
@@ -937,115 +724,17 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     }, [viewBind]);
     const width = parseCssSize(getSomeorUndefined(view.width) ?? getSomeorUndefined(value.width));
     const zoom = getSomeorUndefined(view.zoom) ?? getSomeorUndefined(value.zoom) ?? 1;
-    const zoomTo = (to: number) => setView({ width: view.width, zoom: some(Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, to)) * 10) / 10) });
     // The design width is the most the grid lays out at: a narrower column
     // lays it out at the column's width, a wider one centres it at its own.
     const canvasStyle: CSSProperties = { ...(width !== undefined ? { maxWidth: width, marginInline: "auto" } : {}), ...(zoom !== 1 ? { zoom } : {}) };
+    const widthPx = pxOf(width);
+    // A design width under a phone's lays the page out as a phone shows it (see the module docs).
+    const stacked = widthPx !== undefined && widthPx < SNAP_GRID_STACKED_BELOW;
+    stackedRef.current = stacked;
     const tabStop = selected ?? tiles[0]?.key;
 
     // ── The toolbar: the host's start items, the canvas's own, the history item, the host's end items ──
-    const widthPx = pxOf(width);
-    const zoomControl = (
-        <Box css={stepper.root} role="group" aria-label={m.zoomLabel()} data-snap-grid-zoom="">
-            <chakra.button type="button" css={stepper.button} aria-label={m.zoomOut()} title={m.zoomOut()}
-                disabled={zoom <= ZOOM_MIN} onClick={() => zoomTo(zoom - ZOOM_STEP)}>
-                <FontAwesomeIcon icon={faMinus} />
-            </chakra.button>
-            <Box as="output" css={stepper.value}>{words.percent(zoom)}</Box>
-            <chakra.button type="button" css={stepper.button} aria-label={m.zoomIn()} title={m.zoomIn()}
-                disabled={zoom >= ZOOM_MAX} onClick={() => zoomTo(zoom + ZOOM_STEP)}>
-                <FontAwesomeIcon icon={faPlus} />
-            </chakra.button>
-        </Box>
-    );
-    const widthsGroup = (iconsOnly: boolean) => (
-        <Box css={seg.root} role="group" aria-label={m.widthsLabel()} data-snap-grid-widths="">
-            {value.widths.map((preset, i) => {
-                const icon = getSomeorUndefined(preset.icon);
-                const pressed = parseCssSize(preset.width) === width;
-                return (
-                    <chakra.button key={i} type="button" css={seg.item} data-state={pressed ? "on" : "off"} aria-pressed={pressed}
-                        {...(iconsOnly ? { "aria-label": preset.label, title: preset.label } : {})}
-                        onClick={() => setView({ width: some(preset.width), zoom: view.zoom })}>
-                        {icon !== undefined && <Box as="span" css={styles.widthIcon}><FontAwesomeIcon icon={["fas", icon as IconName]} /></Box>}
-                        {(!iconsOnly || icon === undefined) && <span>{preset.label}</span>}
-                    </chakra.button>
-                );
-            })}
-        </Box>
-    );
-    // The zoom and the widths folded into one chip (#1229): Zoom out, the zoom
-    // and Zoom in — which leave the menu open — then the widths as a choice of one.
-    const openWidth = String(value.widths.findIndex((preset) => parseCssSize(preset.width) === width));
-    const viewChip = (
-        <ChipMenu label={m.viewLabel()} icon={faEye} caret data="data-snap-grid-view" onSelect={(picked) => {
-            if (picked === "zoom-out") zoomTo(zoom - ZOOM_STEP);
-            else if (picked === "zoom-in") zoomTo(zoom + ZOOM_STEP);
-        }}>
-            <ChakraMenu.Item value="zoom-out" closeOnSelect={false} disabled={zoom <= ZOOM_MIN}>
-                <Box as="span" css={menu.itemIndicator}><FontAwesomeIcon icon={faMinus} /></Box>
-                {m.zoomOut()}
-            </ChakraMenu.Item>
-            <Box css={menu.itemGroupLabel} aria-live="polite" data-snap-grid-view-zoom="">{words.percent(zoom)}</Box>
-            <ChakraMenu.Item value="zoom-in" closeOnSelect={false} disabled={zoom >= ZOOM_MAX}>
-                <Box as="span" css={menu.itemIndicator}><FontAwesomeIcon icon={faPlus} /></Box>
-                {m.zoomIn()}
-            </ChakraMenu.Item>
-            {value.widths.length > 0 && (
-                <>
-                    <ChakraMenu.Separator />
-                    <Box css={menu.itemGroupLabel}>{m.widthsLabel()}</Box>
-                    <ChakraMenu.RadioItemGroup value={openWidth} onValueChange={(d) => {
-                        const preset = value.widths[Number(d.value)];
-                        if (preset !== undefined) setView({ width: some(preset.width), zoom: view.zoom });
-                    }}>
-                        {value.widths.map((preset, i) => (
-                            <ChakraMenu.RadioItem key={i} value={String(i)}>
-                                <Box as="span" css={menu.itemIndicator}>{String(i) === openWidth && <FontAwesomeIcon icon={faCheck} />}</Box>
-                                {preset.label}
-                            </ChakraMenu.RadioItem>
-                        ))}
-                    </ChakraMenu.RadioItemGroup>
-                </>
-            )}
-        </ChipMenu>
-    );
-    const items: ReadonlyArray<ToolbarItem | false | null | undefined> = phone ? [
-        // A phone's: no grid chip, no zoom, no widths, the canvas being drawn at the frame's width (D3); the history its second row's.
-        ...(toolbar?.start ?? []),
-        ...(toolbarItems ?? []),
-        history,
-        ...(toolbar?.end ?? []),
-    ] : [
-        // The value's start items go last of the canvas's own steps (#1229).
-        ...value.toolbar.start.map((node, i): ToolbarItem => ({
-            key: `start-${i}`, side: "start", rank: RANK_START,
-            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.start.${i}`} />, null],
-        })),
-        ...(toolbar?.start ?? []),
-        { key: "grid", side: "start", forms: [<Box as="span" css={styles.chip} data-snap-grid-chip="">{m.gridChip()}</Box>, null], rank: RANK_GRID },
-        savedAt !== undefined && {
-            key: "saved", side: "start", rank: RANK_SAVED, version: savedAt.getTime(),
-            forms: [<Box as="span" css={styles.saved} data-snap-grid-saved="">{m.saved({ time: words.time(savedAt) })}</Box>, null],
-        },
-        widthPx !== undefined && {
-            key: "readout", side: "end", rank: RANK_READOUT, version: widthPx,
-            forms: [<Box as="span" css={styles.readout} data-snap-grid-readout="">{m.widthReadout({ px: words.bare(widthPx) })}</Box>, null],
-        },
-        { key: "zoom", side: "end", forms: [zoomControl, viewChip], rank: RANK_VIEW, bundle: VIEW_BUNDLE, version: zoom },
-        { key: "rule", side: "end", forms: [<Box as="span" css={styles.divider} aria-hidden />] },
-        ...(toolbarItems ?? []),
-        history,
-        value.widths.length > 0 && {
-            key: "widths", side: "end", forms: [widthsGroup(false), widthsGroup(true), null],
-            rank: [RANK_WIDTHS, RANK_VIEW], bundle: [undefined, VIEW_BUNDLE], version: width,
-        },
-        ...value.toolbar.end.map((node, i): ToolbarItem => ({
-            key: `end-${i}`, side: "end",
-            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.end.${i}`} />],
-        })),
-        ...(toolbar?.end ?? []),
-    ];
+    const items = useCanvasToolbar({ value, storageKey, words, styles, phone, view, setView, width, widthPx, zoom, savedAt, history, toolbar, toolbarItems });
 
     // ── The selection bar: the selected tile's icon, name and meta ──────
     const selectedCell = selected !== null ? cellOf.get(selected) : undefined;
@@ -1056,14 +745,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const eastPaneEnd = getSomeorUndefined(value.panes.end);
     const paneStart: BuilderFramePane | undefined = panes?.start ?? (eastPaneStart !== undefined
         ? { element: <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> } : undefined);
-    const issuesCount = session.unsettled + (session.readiness.type === "ready" ? session.issues.length : session.readiness.value.length);
+    const issuesCount = subject.unsettled + (subject.readiness.type === "ready" ? subject.issues.length : subject.readiness.value.length);
     const paneEnd: BuilderFramePane | undefined = issuesDock !== undefined ? {
         ...issuesDock,
         tab: phoneTab ?? issuesDock.tabs?.[0]?.key,
         onTabChange: setPhoneTab,
         tabs: [...(issuesDock.tabs ?? []), {
             key: "issues", label: m.phoneIssues(), count: words.number(issuesCount),
-            body: <SnapGridPhoneIssues session={session} rows={rows} words={words} where={tileWhere} />,
+            body: <SnapGridPhoneIssues session={subject} rows={rows} words={words} where={where} />,
         }],
     } : panes?.end ?? (eastPaneEnd !== undefined
         ? { element: <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> } : undefined);
@@ -1075,7 +764,24 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         return spans;
     }, [value.cells]);
     const conflicted = useCallback((id: string) => session.conflicts.has(id), [session.conflicts]);
-    const banners = <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={issuesDock === undefined ? undefined : openIssues} />;
+    const choose = issuesDock === undefined ? undefined : openIssues;
+    // Each session's banners act on it alone (`EditHistory.actOn`), the host's named.
+    const actOn = (key: string, a: HistoryAction) => {
+        if (a === "discard") setSavedAt(undefined);
+        joined?.history.actOn(key, a);
+    };
+    const sessionBanners = joined === undefined
+        ? <SessionBanners session={session} words={words} onAction={action} where={tileWhere} onChoose={choose} />
+        : (
+            <>
+                <SessionBanners session={session} words={words} onAction={(a) => actOn(canvasKey, a)} where={tileWhere} onChoose={choose} />
+                {joined.sessions.map((held) => (
+                    <SessionBanners key={held.key} session={held.session} words={words} name={held.name} where={held.where} onAction={(a) => actOn(held.key, a)} onChoose={choose} />
+                ))}
+            </>
+        );
+    // The host's own after its sessions'.
+    const banners = <>{sessionBanners}{hostBanners}</>;
 
     return (
         <Box
@@ -1089,13 +795,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         >
             <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown} phonePanel phoneViews
                 banners={phone ? undefined : banners}
-                footer={phone ? <>{banners}{savedAt !== undefined && session.pending === 0 && carried.current > 0 && (
+                footer={phone ? <>{banners}{savedAt !== undefined && subject.pending === 0 && carried.current > 0 && (
                     <Box css={phoneStyles.saved} role="status" data-snap-grid-saved-band=""><Box as="span" css={phoneStyles.savedCheck} aria-hidden><FontAwesomeIcon icon={faCheck} /></Box>{m.phoneSaved({ n: carried.current, count: words.number(carried.current) })}</Box>
                 )}</> : undefined}>
                 {phone ? (
                     <SnapGridPhoneCanvas rows={rows} cellOf={cellOf} savedSpans={savedSpans} selected={selected} select={select} available={available} conflicted={conflicted}
                         words={words} storageKey={storageKey} renderContent={renderContent} register={register} options={phoneOptions} placing={placing} onPlacing={onPlacing}
-                        move={move} add={add} resize={resize} remove={onRemove} />
+                        move={move} add={add} resize={resize} remove={onRemove} head={head} />
                 ) : (
                 <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
@@ -1114,9 +820,12 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                             </>
                         )}
                     </Box>
+                    {/* What the host draws over the grid: outside the canvas's zoom, its keys and its clicks (#1673). */}
+                    {head !== undefined && <Box css={styles.pageHead} data-snap-grid-head="">{head}</Box>}
                     <Box css={styles.viewport} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onClick={onClick}>
-                        <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas="">
-                            {guides && (
+                        <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas=""
+                            data-stacked={stacked ? "" : undefined}>
+                            {guides && !stacked && (
                                 <Box css={styles.ruler} aria-hidden data-snap-grid-ruler="">
                                     {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => (
                                         <Box key={i} css={styles.rulerMark} data-on={on !== undefined && i + 1 >= on.first && i + 1 <= on.last ? "" : undefined}>
@@ -1125,7 +834,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                     ))}
                                 </Box>
                             )}
-                            {guides && (
+                            {guides && !stacked && (
                                 <Box css={styles.bands} aria-hidden data-snap-grid-bands="">
                                     {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => <Box key={i} css={styles.band} />)}
                                 </Box>
@@ -1151,12 +860,16 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     tabStop={tile.key === tabStop}
                                                     mark={marks.get(tile.key)}
                                                     conflict={session.conflicts.has(tile.id)}
-                                                    movable={available}
+                                                    movable={available && !stacked}
                                                     heights={heights}
+                                                    stacked={stacked}
                                                     preview={preview?.key === tile.key ? preview : undefined}
                                                     onSelect={select}
                                                     onResizeStart={onResizeStart}
                                                     onRemove={onRemove}
+                                                    onDuplicate={onDuplicate}
+                                                    onEdit={onEdit}
+                                                    actions={tile.key === selected ? tileActions?.(tile.key) : undefined}
                                                     register={register}
                                                     renderContent={renderContent}
                                                 />

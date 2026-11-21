@@ -17,7 +17,8 @@
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
  * opens the 320px save popover with the name and the description. The history
  * item's Save shows the drafts it saves until the record reads back, never the
- * query as it was before them. The frame is set to the mock's width, 1240px,
+ * query as it was before them. Two steps added and the first of them removed
+ * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
  * and every measurement is polled until it holds, on a page at rest. Its
  * builder frame (#1125 F3): on a desktop the pane is pinned, the results
  * beside it; on a phone it rests on its rail, and opened it floats over the
@@ -244,6 +245,24 @@ test.describe("Query builder (#940)", () => {
         const seen = await page.evaluate(() => (window as unknown as { stepsSeen: string[] }).stepsSeen);
         expect(seen.filter((state) => state !== drafted), `the steps went back to ${before}`).toEqual([]);
     });
+
+    test("two steps added at the end, the first of them removed: the second stands after the query's own; one Undo puts the first back (#1673)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")));
+        const saved = await steps();
+        // Each opens on its first slot's list, which Esc puts away.
+        await builder.locator("[data-query-foot] button", { hasText: "Group and total" }).click();
+        await page.keyboard.press("Escape");
+        await builder.locator("[data-query-foot] button", { hasText: "Sort by" }).click();
+        await page.keyboard.press("Escape");
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
+        // The first of the two out: the second stands where it stood.
+        await builder.locator("[data-step-id]").nth(saved.length).getByRole("button", { name: "Remove step" }).click();
+        await expect.poll(steps).toEqual([...saved, "Sort"]);
+        // One Undo: the first back, before the second.
+        await builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").getByRole("button", { name: "Undo" }).click();
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
+    });
 });
 
 test.describe("Query builder — its builder frame on a desktop (#1125 F3)", () => {
@@ -336,8 +355,12 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         expect((await slot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         await slot.click(); await settled(page);
         const picker = frame.locator("[data-query-view-picker]");
-        const [p, f] = [(await picker.boundingBox())!, (await frame.boundingBox())!];
-        expect([Math.round(p.width), Math.round(p.height)]).toEqual([Math.round(f.width), Math.round(f.height)]);
+        await expect(picker).toBeVisible();
+        // Read in one go from the frame, which stands: the view is drawn afresh as its slot's summary arrives (its key the
+        // editor's generation), and a handle taken to it a moment before would read the one it replaced.
+        const [p, f] = await frame.evaluate((root) => [root.querySelector("[data-query-view-picker]")!.getBoundingClientRect(), root.getBoundingClientRect()]
+            .map((box) => [Math.round(box.width), Math.round(box.height)]));
+        expect(p).toEqual(f);
         expect(await picker.locator("[role=option]").evaluateAll((rows) => rows.every((r) => r.getBoundingClientRect().height >= 44))).toBe(true);
         await nothingFloats(page);
         // Esc closes the picker, and the Query view stays under it.

@@ -1,0 +1,129 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A page filter's conditions, edited (#1673): the query builder's condition
+ * rows over one source — a condition drawn as its row, a value picked from
+ * the values the source holds, a condition added and told only once it is
+ * finished, all or any, and a line of jq where no row says the condition.
+ * In place: no frame of their own, a lone condition with no joiner column,
+ * the shared picker in the flow under them — open on a new filter's field,
+ * Esc closing it and leaving the rows, Tab choosing as Enter does. Its
+ * values are read on e3 itself, from the quarter's orders the tiles examples
+ * deploy (`tile_test_quarter`).
+ */
+
+import { describe, expect, test } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { printJq, type JqNode } from "@elaraai/east";
+import { act, settle } from "../e3-web-mount.test-utils.js";
+import { slotActions } from "../query/slots.test-utils.js";
+import { ORDERS_ROOT, ORDERS_SOURCE, condition } from "../query/visual/visual.test-utils.js";
+import { FilterConditions } from "./filter-editor.js";
+import { onE3, tileHarness } from "./tile.test-utils.js";
+
+tileHarness();
+
+const { popover, offers, openSlot, pick } = slotActions(act, settle);
+
+/** A filter's rows over the orders, on e3, and each condition they told, as jq; `autoOpen` as a new filter's are. */
+async function rowsOf(where: string | undefined, autoOpen = false) {
+    const told: string[] = [];
+    const onChange = (next: JqNode) => { told.push(printJq(next).text); };
+    const { container } = await onE3(
+        <FilterConditions id="f1" where={where === undefined ? undefined : condition(where)} read={ORDERS_SOURCE} root={ORDERS_ROOT} onChange={onChange} autoOpen={autoOpen} />,
+    );
+    const rows = container.querySelector<HTMLElement>("[data-studio-filter-rows]")!;
+    return { rows, told };
+}
+
+/** Each row's words: its slots', its inputs' and its joiners', in order. */
+const lines = (rows: HTMLElement) => [...rows.querySelectorAll<HTMLElement>("[data-query-line=row]")].map((row) => row.textContent);
+
+describe("a page filter's conditions", () => {
+    test("draws its condition as the query builder's row — a field, a comparison, a value — and no card, step number or toolbar around it", async () => {
+        const { rows } = await rowsOf(`.region == "SA"`);
+        expect(lines(rows)).toHaveLength(1);
+        expect(lines(rows)[0]).toContain("region");
+        expect(lines(rows)[0]).toContain("SA");
+        expect(rows.querySelector("[data-step-id], [data-query-shape-text]")).toBeNull();
+        expect(screen.queryByRole("button", { name: "Move up" })).toBeNull();
+    });
+
+    test("offers a value from the values the source holds, with how many rows hold each, and tells the condition the pick makes", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        // Each value the orders hold, with its count.
+        expect(popover()!.textContent).toContain("VIC");
+        await pick("NSW");
+        expect(told).toEqual([`.region == "NSW"`]);
+        expect(lines(rows)[0]).toContain("NSW");
+    });
+
+    test("tells a condition added only once it is finished: until its field, its comparison and its value are set, the filter is as it was", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        expect(lines(rows)).toHaveLength(2);
+        expect(told).toEqual([]);
+        // The new row's field opens at once: pick revenue, then its comparison, then type its value.
+        await waitFor(() => expect(popover()).not.toBeNull());
+        await pick("revenue");
+        expect(told).toEqual([]);
+        // Its value opens next, offering figures the orders' revenue holds: the pick finishes the row.
+        await waitFor(() => expect(offers()).toContain("40.00"));
+        await pick("40.00");
+        // A number is at least its value until its comparison is changed.
+        expect(told).toEqual([`.region == "SA" and .revenue >= 40`]);
+        expect(lines(rows)).toHaveLength(2);
+    });
+
+    test("starts a filter still to be written as one empty row, and tells nothing until it is finished", async () => {
+        const { rows, told } = await rowsOf(undefined);
+        expect(lines(rows)).toHaveLength(1);
+        expect(told).toEqual([]);
+    });
+
+    test("in place: the rows draw no frame of their own — a lone condition with no joiner column; from the second, the all · any head", async () => {
+        const { rows } = await rowsOf(`.region == "SA"`);
+        const block = rows.querySelector<HTMLElement>("[data-condition-rows]")!;
+        expect([block.getAttribute("data-query-look"), block.hasAttribute("data-single"), block.querySelector("[data-query-line=head]")]).toEqual(["inline", true, null]);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        expect([block.hasAttribute("data-single"), block.querySelector("[data-query-line=head]")!.textContent]).toEqual([false, "allof these are true"]);
+    });
+
+    test("a new filter opens on its field's list: the shared picker under the rows, named by its slot, its offers the source's fields", async () => {
+        await rowsOf(undefined, true);
+        await waitFor(() => expect(popover()).not.toBeNull());
+        expect([popover()!.hasAttribute("data-chooser"), popover()!.getAttribute("data-surface")]).toEqual([true, "bare"]);
+        // Its search takes the focus as it mounts.
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Field" })));
+        expect(offers()).toEqual(["ordered at", "region", "customer", "revenue", "units", "margin"]);
+    });
+
+    test("Esc in the list closes it and leaves the rows, the focus back on its slot; Tab chooses as Enter does", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "Escape" }); });
+        await settle();
+        expect([popover(), lines(rows)[0]?.includes("SA"), document.activeElement?.textContent?.startsWith("SA")]).toEqual([null, true, true]);
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "ArrowDown" }); });
+        await act(async () => { fireEvent.keyDown(screen.getByRole("combobox", { name: "Value" }), { key: "Tab" }); });
+        await settle();
+        expect(told).toHaveLength(1);
+        expect(popover()).toBeNull();
+    });
+
+    test("holds a condition no row says as a line of jq", async () => {
+        const { rows } = await rowsOf(`.region | IN("SA", "NSW")`);
+        expect(lines(rows)).toHaveLength(0);
+        expect(rows.textContent).toContain(`map(select(.region | IN("SA", "NSW")))`);
+    });
+});

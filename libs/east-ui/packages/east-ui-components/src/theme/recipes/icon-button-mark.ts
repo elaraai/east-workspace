@@ -5,7 +5,7 @@
 
 /**
  * IconButton mark recipe — the Font Awesome mark of one of Chakra's icon
- * buttons (#1263): a close button's xmark, the pagination's ellipsis. Each
+ * buttons (#1263): a close button's xmark, a banner's. Each
  * button size draws its mark in the square Chakra's own icon took there — the
  * button recipe's `_icon` size: 14px at 2xs, 16px at xs and sm, 20px at md
  * to xl, 24px at 2xl. Chakra's icon button sets its icon's font to 1.2em of

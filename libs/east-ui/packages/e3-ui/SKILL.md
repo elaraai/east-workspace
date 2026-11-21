@@ -127,16 +127,23 @@ Task → What do you need?
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
-    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
-    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen? id? />
-    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page version? />
+    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)] })
+    │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder and the page (range: a date field every row has, never an optional one)
+    │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
+    │   ├─ What a click on a visual does, and who follows it → Studio.visual.of(source, view, { click?: variant("select" | "filter" | "none", null) or variant("open", pageKey), follow?: { leader, from, to, empty: variant("all" | "prompt", null) } })
+    │   ├─ Narrow one visual alone, or where readers start  → Studio.visual.of(source, view, { where: jq }) · a layout's filters: [{ key, source, where }], its starting filters
+    │   ├─ Alerts: a condition on a visual's rows           → e3.record("alerts", Studio.Types.Alerts, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) }); alerts={Record.bind(alerts)} on the builder and the page · <Studio.AlertBell alerts onOpen? /> in the host's bar
+    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? alerts? env? audience? rollout? id? />
+    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
+    │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
+    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? alerts? /> (onOpen: a click, or an alert, that opens a page)
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
     │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
     │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, savedAt }])
-    │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? id? />
-    │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
+    │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? onOpen? id? />
+    │   ├─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen query? id? />
+    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen`
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -457,12 +464,73 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   `<Studio.Builder>` and `<Studio.Library>` take `Record.bind(pages)`;
   `<Studio.Page>` takes `Data.bind(pages).read()`. Each takes the components
   as one `$.let([...])` list in palette order; the surface's manifest is the
-  union of their reads.
+  union of their reads. The open page is the host's: a builder shows the
+  `page` it is given and calls `onOpen` when its palette asks for another, and
+  the page library calls `onOpen` and opens nothing itself — the host
+  navigates, or writes the State both read. A builder given no `page` holds
+  its own; `page` without `onOpen` is refused when the surface is built.
+  A placement holds `content` (`Studio.Types.Content`): a component's key, a
+  visual — a KPI, a chart, a table, a list or a slicer over a source — or a
+  text block. `Studio.visual` builds each with its defaults, for a record's
+  seeds. A surface lists the sources its visuals may read as
+  `sources={{ orders: Studio.source(handle, meta) }}`: the key is the name a
+  query reads the source by, the handle a `Data.bind`, `Data.bindPaged` or
+  `Record.bind` whose rows are an Array or a Dict of Structs, and `fields`,
+  `range`, `search` and `split` name the row's own fields, checked when the
+  surface is built. A visual's tile prints its jq programs and asks them on e3
+  as `<Query.Builder>` runs a query — one call, or a split call over a large
+  dataset's pieces — once a program and dataset hash however many tiles ask;
+  it shows waiting, a well to fill, a field its source lacks, its source's
+  error, "no data", or its answer drawn with east-ui's own parts — a KPI's
+  value with its change, trend and goal; a chart (a pie is `Chart.Pie`); the
+  records; a summary's heads over its groups, with the query's own totals; a
+  pivot on the heat ramp; a list with its ranking bar. Records, a list, a
+  summary and a pivot are read a page at a time under the tile's pager; a
+  chart draws its first 500 groups and says how many it holds of how many.
+  Its eyebrow names it — its placement's title, else its wells (`Revenue by
+  month`) — and its menu shows its rows as a value tree in a popover, or
+  exports them as CSV. `e3-ui:studio.examples.tsx:studioVisuals` is a page of
+  every form. A click on a visual's row or mark selects (a list's and a
+  table's, unless it says otherwise), filters the page (a chart's and a KPI's)
+  or opens another page narrowed to it, which the page's `onOpen` is told. A
+  filter is a chip on the page's rail, read by every visual of its source; one
+  a click made keeps its placement (`from`), which marks the groups and is not
+  narrowed. A reader starts with the layout's `filters`, its starting filters
+  (the builder's rail sets them), to change or clear; a visual's own `where`
+  narrows it alone, before them. A visual that `follow`s one whose click selects narrows to the
+  selection, its eyebrow saying what; with nothing selected it shows every
+  row (`all`) or asks for a pick (`prompt`): `e3-ui:studio.examples.tsx:studioClicks`.
+  A visual whose filter reads `$now` ("in the last 7
+  days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
+  readers only what their pages bind must admit their platform-free calls over
+  those datasets. A text block draws. A pages record written before a placement
+  held content is carried by listing `Studio.migrations.cellContent` as a rows
+  step; a later kind of content ships a step of its own.
+  `e3-ui:studio.examples.tsx:studioContent` holds all of it.
+  Given `alerts={Record.bind(alerts)}` (a `Studio.Types.Alerts` record whose
+  one mutation is a patch), each data visual's header carries a bell that sets
+  alerts on it: a condition on its rows — its groups and values by name — with
+  the rows that meet it now, kept with the page's filters as it was made; a
+  visual of more than 200 rows takes none. A published page checks its project's alerts
+  that are not paused, as it opens and as their data moves — one e3 call each,
+  as a tile's — and writes each one's latest firing; `<Studio.AlertBell>` lists
+  those firing, and opening one sets the page's filters to its own, tells
+  `onOpen`, and the page draws a banner naming it, with its rows:
+  `e3-ui:alerts.examples.tsx:studioAlertsPage`.
 - **Queries.** One `Query.Types.Saved` record with a patch mutation holds the
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
-  `<Query.Library>` lists them. A run of one program is a call the workspace
+  `<Query.Library>` lists them. Its steps say, beside the rest, a date in the
+  last N hours, days or weeks, a group by several fields, and a ratio total
+  (one field added up over another), each of which splits. A query may read
+  `.now`, the minute it is asked: the root's last field — unless a data source
+  is named `now` — given to the call as a value beside the datasets, and no
+  data source of a saved query's root; `Query.value` checks a query that reads
+  it, and an answer that read it is kept for that minute. The open query is the host's, as Studio's open
+  page is: a `Query.Types.Open` — `Query.open.saved(name)`, or
+  `Query.open.on(source)` for a new query — given to both as `query` and
+  changed in `onOpen` (a builder's `query` takes a saved query's name too). A run of one program is a call the workspace
   keeps, as it keeps a function's (the **e3** skill): held to its own timeout,
   never a request's, and listed among the workspace's calls, naming no
   function. A split run's plan read-out says how many pieces it cut and how

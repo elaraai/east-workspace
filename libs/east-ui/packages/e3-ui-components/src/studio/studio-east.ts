@@ -5,9 +5,10 @@
 
 /**
  * The Studio's East, compiled for its renderers (#1000) — what the builder's
- * palette, canvas, inspector and publish preview, and the page library, show
- * and write is computed by the functions `@elaraai/e3-ui` declares, compiled
- * once, on first use; nothing here restates them.
+ * palette, canvas, inspector and its Configure tab (#1672) and publish
+ * preview, the page library, and a placement's content (#1669) show and write
+ * is computed by the functions `@elaraai/e3-ui` declares, compiled once, on
+ * first use; nothing here restates them.
  *
  * @packageDocumentation
  */
@@ -15,17 +16,38 @@
 import { East, type TypeOf, type ValueTypeOf } from "@elaraai/east";
 import {
     Studio,
+    alertFiring,
     canvasTiles,
+    componentFrames,
+    componentNames,
+    contentFramed,
+    contentTile,
+    contentWords,
+    emptyView,
+    fieldGroup,
+    fieldMeasures,
     inspectorSelection,
+    kindOfView,
     libraryPages,
     libraryProjects,
     libraryTemplates,
+    mostUsedSource,
     nameWriteRefusal,
     paletteCards,
     palettePages,
+    placedPill,
     publishRefusal,
     publishSummary,
+    saveAlerts,
     saveCells,
+    saveFilters,
+    sourceName,
+    sourceNames,
+    switchedView,
+    textParagraphs,
+    viewIcon,
+    viewWords,
+    visualWords,
 } from "@elaraai/e3-ui/internal";
 
 /** The JavaScript function an East function compiles to. */
@@ -39,6 +61,28 @@ export interface StudioEast {
     palettePages: Compiled<typeof palettePages>;
     /** Each listed component's tile on the canvas. */
     canvasTiles: Compiled<typeof canvasTiles>;
+    /** The tile of what a placement holds: a listed component's, a visual's, a text block's. */
+    contentTile: Compiled<typeof contentTile>;
+    /** What a placement holds, in words. */
+    contentWords: Compiled<typeof contentWords>;
+    /** A visual, in words: its view and its source's name. */
+    visualWords: Compiled<typeof visualWords>;
+    /** Each listed component's name, by its key. */
+    componentNames: Compiled<typeof componentNames>;
+    /** Each listed component's frame, by its key. */
+    componentFrames: Compiled<typeof componentFrames>;
+    /** Whether a placement is drawn in a tile frame, by what it holds. */
+    contentFramed: Compiled<typeof contentFramed>;
+    /** A view's icon. */
+    viewIcon: Compiled<typeof viewIcon>;
+    /** A view, in words — "Column chart". */
+    viewWords: Compiled<typeof viewWords>;
+    /** A text block's paragraphs. */
+    textParagraphs: Compiled<typeof textParagraphs>;
+    /** Each listed source's name, by its key. */
+    sourceNames: Compiled<typeof sourceNames>;
+    /** A source's name, by its key: its key where the surface lists none of it. */
+    sourceName: Compiled<typeof sourceName>;
     /** The selected placement, as the inspector shows it. */
     inspectorSelection: Compiled<typeof inspectorSelection>;
     /** What the publish preview shows of the open entry. */
@@ -63,6 +107,26 @@ export interface StudioEast {
     saveTemplate: Compiled<typeof Studio.saveTemplate>;
     /** The canvas's Apply: a batch of placements, one patch through the record's patch write. */
     save: Compiled<typeof saveCells>;
+    /** The starting filters' Apply (#1673): a batch of them, one patch on them alone through the record's patch write. */
+    saveFilters: Compiled<typeof saveFilters>;
+    /** The pill a field makes placed in a well (#1672). */
+    placedPill: Compiled<typeof placedPill>;
+    /** The measures a value of a field may take. */
+    fieldMeasures: Compiled<typeof fieldMeasures>;
+    /** A field as a group, by its kind's defaults. */
+    fieldGroup: Compiled<typeof fieldGroup>;
+    /** The kind a view is. */
+    kindOfView: Compiled<typeof kindOfView>;
+    /** A kind with nothing in its wells: what a dropped visual starts as. */
+    emptyView: Compiled<typeof emptyView>;
+    /** A view switched to another kind, its wells that fit carried over. */
+    switchedView: Compiled<typeof switchedView>;
+    /** The source a dropped visual reads: the page's most used. */
+    mostUsedSource: Compiled<typeof mostUsedSource>;
+    /** A batch of writes to alerts — a Save, a pause, a delete, a firing — one patch through the alerts record's patch write (#1674). */
+    saveAlerts: Compiled<typeof saveAlerts>;
+    /** What a check does to an alert's firing: it fires, it clears, or nothing (#1674). */
+    alertFiring: Compiled<typeof alertFiring>;
 }
 
 /** Compiles every function the renderers call. */
@@ -74,6 +138,28 @@ function compileStudio(): StudioEast {
         palettePages: East.compile(palettePages, []),
         /** Each listed component's tile on the canvas. */
         canvasTiles: East.compile(canvasTiles, []),
+        /** The tile of what a placement holds: a listed component's, a visual's, a text block's. */
+        contentTile: East.compile(contentTile, []),
+        /** What a placement holds, in words. */
+        contentWords: East.compile(contentWords, []),
+        /** A visual, in words: its view and its source's name. */
+        visualWords: East.compile(visualWords, []),
+        /** Each listed component's name, by its key. */
+        componentNames: East.compile(componentNames, []),
+        /** Each listed component's frame, by its key. */
+        componentFrames: East.compile(componentFrames, []),
+        /** Whether a placement is drawn in a tile frame, by what it holds. */
+        contentFramed: East.compile(contentFramed, []),
+        /** A view's icon. */
+        viewIcon: East.compile(viewIcon, []),
+        /** A view, in words — "Column chart". */
+        viewWords: East.compile(viewWords, []),
+        /** A text block's paragraphs. */
+        textParagraphs: East.compile(textParagraphs, []),
+        /** Each listed source's name, by its key. */
+        sourceNames: East.compile(sourceNames, []),
+        /** A source's name, by its key: its key where the surface lists none of it. */
+        sourceName: East.compile(sourceName, []),
         /** The selected placement, as the inspector shows it. */
         inspectorSelection: East.compile(inspectorSelection, []),
         /** What the publish preview shows of the open entry. */
@@ -98,6 +184,26 @@ function compileStudio(): StudioEast {
         saveTemplate: East.compile(Studio.saveTemplate, []),
         /** The canvas's Apply: a batch of placements, one patch through the record's patch write. */
         save: East.compileAsync(saveCells, []),
+        /** The starting filters' Apply (#1673): a batch of them, one patch on them alone through the record's patch write. */
+        saveFilters: East.compileAsync(saveFilters, []),
+        /** The pill a field makes placed in a well (#1672). */
+        placedPill: East.compile(placedPill, []),
+        /** The measures a value of a field may take. */
+        fieldMeasures: East.compile(fieldMeasures, []),
+        /** A field as a group, by its kind's defaults. */
+        fieldGroup: East.compile(fieldGroup, []),
+        /** The kind a view is. */
+        kindOfView: East.compile(kindOfView, []),
+        /** A kind with nothing in its wells: what a dropped visual starts as. */
+        emptyView: East.compile(emptyView, []),
+        /** A view switched to another kind, its wells that fit carried over. */
+        switchedView: East.compile(switchedView, []),
+        /** The source a dropped visual reads: the page's most used. */
+        mostUsedSource: East.compile(mostUsedSource, []),
+        /** A batch of writes to alerts, one patch through the alerts record's patch write (#1674). */
+        saveAlerts: East.compileAsync(saveAlerts, []),
+        /** What a check does to an alert's firing (#1674). */
+        alertFiring: East.compile(alertFiring, []),
     };
 }
 

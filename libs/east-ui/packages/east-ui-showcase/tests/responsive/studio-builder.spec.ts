@@ -6,7 +6,7 @@
 /**
  * The Studio's builder, measured in a real browser (#1000): one 44px toolbar
  * across its frame, over the palette's 264px pane under its 44px tab row, the
- * canvas column — whose selection bar is 44px — and the inspector's 300px
+ * canvas column — whose selection bar is 44px — and the inspector's 320px
  * pane; each pane collapses to a 44px rail and the column takes the room (B1,
  * B13, B15). The palette's cards sit 6px apart, each with a 30px icon tile
  * (B3). The toolbar folds by one ladder — the grid chip first, then the width
@@ -15,9 +15,17 @@
  * (#1229), the status, the history item last — so whatever a narrower frame
  * folds is the ladder's first steps (B8). Preview
  * opens the publish preview in the canvas's place: its 44px bar across the
- * frame and its 320px aside (E1, E3); the page on its panel, 24 / 28px in, at
+ * frame, and its publish panel a rail along its foot, across the frame, the
+ * page over it the frame's whole width — opened by Preview its change list
+ * shut, the rail its one row under its rule; its toggle shows the list over
+ * the row and shuts it, and a narrower frame wraps the row, never wider than
+ * the frame (E1, E3, ruled 20 November 2026); the page on its panel, 24 / 28px in, at
  * most each device's width — Desktop and Tablet laying the page out at its
  * declared spans, Mobile stacking its placements in row order at 390px (E2).
+ * The canvas's Mobile does as the preview's: the canvas 390px wide, every tile
+ * its rows' width in row order, no column ruler, and a selected tile with no
+ * handles (B14). The design widths' icons and the preview's devices' stand at
+ * their segments' middles on whole pixels, as an icon button's do (I1, I2).
  * The builder is set to the Studio's width, 1440px, and measured on the page
  * it opens at rest. Its builder frame (#1125 F3): on a desktop the palette
  * and the inspector are pinned, main between them; on a phone each rests on
@@ -33,6 +41,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
+import { iconRows, offCentre } from "./segment-rows";
 import { settled } from "./settle";
 import { frameAt, type Box } from "./builder-frame";
 
@@ -118,22 +127,24 @@ test.describe("Studio builder (#1000)", () => {
         await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 220);
     });
 
-    test("B15: the inspector's pane is 300px after the canvas column; collapsed, it is a 44px rail and the column takes the room", async ({ page }) => {
+    test("B15: the inspector's pane is 320px after the canvas column, as the spec's builder draws it; collapsed, it is a 44px rail and the column takes the room", async ({ page }) => {
         const builder = await openBuilder(page);
-        await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(300);
+        await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(320);
         const before = (await box(builder, "[data-snap-grid-main]")).w;
 
         await builder.getByRole("button", { name: "Collapse Inspector" }).click();
         await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(44);
-        await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 256);
+        await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 276);
     });
 
     test("B3: the palette's cards sit 6px apart, each with a 30px icon tile", async ({ page }) => {
         const builder = await openBuilder(page);
         await expect.poll(() => builder.evaluate((root) => {
-            // The Display group's two cards: the KPI rail, then the breakdown bars.
-            const cards = [...root.querySelectorAll("[data-library^='studio.components'] [data-clickable]")]
-                .map((card) => card.getBoundingClientRect());
+            // The developers' first two cards, under the visuals an operator configures (#1672, BLD-1): the KPI rail, then the
+            // breakdown bars.
+            const every = [...root.querySelectorAll("[data-library^='studio.components'] [data-clickable]")];
+            const first = every.findIndex((card) => card.querySelector("svg[data-icon='gauge-high']") !== null);
+            const cards = every.slice(first, first + 2).map((card) => card.getBoundingClientRect());
             const tile = root.querySelector("[data-library^='studio.components'] svg[data-icon='gauge-high']")!
                 .parentElement!.getBoundingClientRect();
             return {
@@ -165,15 +176,52 @@ test.describe("Studio builder (#1000)", () => {
         }
     });
 
-    test("E1, E3: the preview's bar is 44px tall across the frame; the aside is 320px wide beside the page, at the frame's edge", async ({ page }) => {
+    test("E1, E3: the preview's bar is 44px tall across the frame; its publish panel is a rail along its foot, across the frame, the page over it the frame's whole width — opened by Preview, its change list shut; its toggle shows the list over its row, and shuts it", async ({ page }) => {
         const preview = await openPreview(page);
-        await expect.poll(() => preview.evaluate((root) => {
+        /** The bar, the page's panel and the rail, each against the frame: its width, whether it starts at the frame's edge, its height; and the rail's change list. */
+        const read = () => preview.evaluate((root) => {
             const r = root.getBoundingClientRect();
             const bar = root.querySelector("[data-publish-bar]")!.getBoundingClientRect();
-            const aside = root.querySelector("[data-publish-aside]")!.getBoundingClientRect();
-            return { bar: [Math.round(bar.height), Math.round(bar.width)], aside: Math.round(aside.width), asideAtRight: Math.round(r.right - aside.right) };
-        })).toEqual({ bar: [44, 1440], aside: 320, asideAtRight: 0 });
+            const main = root.querySelector("[data-publish-main]")!.getBoundingClientRect();
+            const railEl = root.querySelector("[data-publish-rail]")!;
+            const rail = railEl.getBoundingClientRect();
+            const rule = Number.parseFloat(getComputedStyle(railEl).borderTopWidth);
+            const row = root.querySelector("[data-publish-rail-row]")!.getBoundingClientRect();
+            const list = root.querySelector<HTMLElement>("[data-publish-changes]")!;
+            const shown = list.getBoundingClientRect();
+            return {
+                bar: [Math.round(bar.height), Math.round(bar.width)],
+                main: [Math.round(main.width), main.left === r.left, Math.round(rail.top - main.bottom)],
+                rail: [Math.round(rail.width), rail.left === r.left, Math.round(r.bottom - rail.bottom)],
+                // Shut, the list is hidden; shown, it stands over the row, inside the rail.
+                list: list.hidden ? "shut" : shown.bottom <= row.top + 0.5 && shown.top >= rail.top - 0.5 ? "over the row" : JSON.stringify([shown.top, shown.bottom, row.top]),
+                // The rail holds its row alone, under its rule.
+                railIsRow: Math.abs(row.bottom - rail.bottom) <= 0.5 && Math.abs(row.top - (rail.top + rule)) <= 0.5,
+                fits: root.scrollWidth <= root.clientWidth,
+            };
+        });
+        await expect.poll(read).toEqual({
+            bar: [44, 1440], main: [1440, true, 0], rail: [1440, true, 0], list: "shut", railIsRow: true, fits: true,
+        });
+        const toggle = preview.locator("[data-publish-toggle]");
+        await expect(toggle).toHaveAttribute("aria-expanded", "false");
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-expanded", "true");
+        await settled(page);
+        const open = await read();
+        expect([open.list, open.railIsRow, open.main, open.rail]).toEqual(["over the row", false, [1440, true, 0], [1440, true, 0]]);
+        await toggle.click();
+        await expect.poll(async () => (await read()).list).toBe("shut");
+        // Narrower, the rail's row stands inside the frame, nothing scrolled sideways.
+        for (const width of [1000, 760]) {
+            await preview.evaluate((root, w) => { (root.closest("[data-studio-builder]") as HTMLElement).style.width = `${w}px`; }, width);
+            await settled(page);
+            const at = await read();
+            expect([at.rail[0], at.rail[2], at.fits], `at ${width}px`).toEqual([width, 0, true]);
+        }
         // Its device, its environment and Exit, their words on whole pixels (#1646's review).
+        await preview.evaluate((root) => { (root.closest("[data-studio-builder]") as HTMLElement).style.width = "1440px"; });
+        await settled(page);
         await expectWholeBoxWords(preview.locator("[data-publish-bar]"), "the preview's bar");
     });
 
@@ -214,6 +262,58 @@ test.describe("Studio builder (#1000)", () => {
             };
         }).toEqual({ frame: 390, centred: true, keys: ["a-kpi", "a-orders", "a-bars", "a-trend"], full: true, stacked: true });
     });
+
+    test("B14: the canvas's Mobile lays the page out as the preview's does — 390px wide, every tile its rows' width, in row order, no column ruler; a tile selected there wears no handles; Desktop puts it back on its columns", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const widths = builder.locator("[data-snap-grid-widths]");
+        /** The canvas's width, its ruler, and its tiles: their keys, whether each is its rows' width, and whether each stands under the one before. */
+        const laidOut = () => builder.evaluate((root) => {
+            const canvas = root.querySelector("[data-snap-grid-canvas]")!;
+            const rows = root.querySelector("[data-snap-grid-rows]")!.getBoundingClientRect();
+            const tiles = [...root.querySelectorAll("[data-snap-grid-tile]")];
+            const boxes = tiles.map((t) => t.getBoundingClientRect());
+            return {
+                canvas: Math.round(canvas.getBoundingClientRect().width),
+                ruler: canvas.querySelector("[data-snap-grid-ruler]") !== null,
+                keys: tiles.map((t) => t.getAttribute("data-snap-grid-tile")),
+                full: boxes.every((b) => Math.abs(b.left - rows.left) < 0.5 && Math.abs(b.width - rows.width) < 0.5),
+                stacked: boxes.every((b, i) => i === 0 || b.top >= boxes[i - 1]!.bottom),
+            };
+        });
+        await widths.getByRole("button", { name: "Mobile" }).click();
+        await settled(page);
+        await expect.poll(laidOut).toEqual({ canvas: 390, ruler: false, keys: ["a-kpi", "a-orders", "a-bars", "a-trend"], full: true, stacked: true });
+        await builder.locator('[data-snap-grid-tile="a-orders"]').click();
+        await settled(page);
+        await expect(builder.locator('[data-snap-grid-tile="a-orders"] [data-snap-grid-tile-bar]')).toBeVisible();
+        await expect(builder.locator("[data-snap-grid-tile] [data-handle]")).toHaveCount(0);
+        await widths.getByRole("button", { name: "Desktop" }).click();
+        await settled(page);
+        await expect.poll(async () => {
+            const at = await laidOut();
+            return { canvas: at.canvas > 390, ruler: at.ruler, full: at.full, stacked: at.stacked };
+        }).toEqual({ canvas: true, ruler: true, full: false, stacked: false });
+    });
+
+    test("I1: the design widths, Desktop · Tablet · Mobile, in the toolbar's row: each icon at its segment's middle on whole pixels — a 10px glyph, 8 rows either side", async ({ page }) => {
+        const builder = await openBuilder(page, 1600);
+        const widths = builder.locator("[data-snap-grid-widths]").first();
+        await expect(widths).toBeVisible();
+        const rows = await iconRows(widths, "button");
+        expect(rows.map((row) => row.label.trim()), "every width, each with its icon").toEqual(["Desktop", "Tablet", "Mobile"]);
+        expect(offCentre(rows)).toEqual([]);
+        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8], [10, 8]]);
+    });
+
+    test("I2: the preview's devices: each icon at its segment's middle on whole pixels — a 10px glyph in its 26px, 8 rows either side", async ({ page }) => {
+        const preview = await openPreview(page);
+        const devices = preview.locator("[data-publish-devices]").first();
+        await expect(devices).toBeVisible();
+        const rows = await iconRows(devices, "[data-publish-device]");
+        expect(rows.length).toBe(3);
+        expect(offCentre(rows)).toEqual([]);
+        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8], [10, 8]]);
+    });
 });
 
 test.describe("Studio builder — its builder frame on a desktop (#1125 F3)", () => {
@@ -235,7 +335,7 @@ test.describe("Studio builder — its builder frame on a desktop (#1125 F3)", ()
         }).toEqual({
             modes: ["pinned", "pinned"], collapsed: [false, false],
             mainFromPalette: 0, inspectorFromMain: 0,
-            inSlots: [{ x: 0, y: 0, w: 264, h: expect.any(Number) }, { x: 0, y: 0, w: 300, h: expect.any(Number) }],
+            inSlots: [{ x: 0, y: 0, w: 264, h: expect.any(Number) }, { x: 0, y: 0, w: 320, h: expect.any(Number) }],
             scrim: null,
         });
     });
@@ -364,6 +464,8 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         // The Inspector: its row a readout, Move starts placing; Height a view of its options, nothing floating.
         await frame.locator("[data-pane-tab='end']").click(); await settled(page);
         const inspector = frame.locator("[data-frame-drawer][data-open]");
+        // It opens on what the placement holds (#1672): its layout is its second tab.
+        await inspector.getByRole("tab", { name: "Layout" }).click(); await settled(page);
         await expect(inspector.locator("[data-inspector-row]")).toHaveText(/of/);
         await inspector.locator("[data-inspector-height]").click(); await settled(page);
         await expect(frame.locator('[data-frame-slot="overlay"] [data-inspector-heights] [role=option]').first()).toBeVisible();

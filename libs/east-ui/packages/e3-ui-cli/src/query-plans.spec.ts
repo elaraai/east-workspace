@@ -31,6 +31,10 @@
  * - **N4**: a relaunch is served from the cache, running no unit; after an
  *   append, only the pieces around it run, and the answer is the one-shot
  *   call's over the new rows.
+ * - **`.now`** (#1670): a query that reads the minute it is asked is given it
+ *   as a value beside the datasets, which reaches every piece: its split call
+ *   answers as its one-shot call does, both for that minute, and a later
+ *   minute answers for that one, never from the cache of the first.
  *
  * What ran is read from e3's execution records: every unit that runs — a piece
  * or a merge — writes one, with its runner's peak, and a unit served from the
@@ -51,8 +55,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import {
-    ArrayType, DictType, FloatType, IntegerType, RUN_MAX_BYTES, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, isVariant, toEastTypeValue, variant,
+    ArrayType, DateTimeType, DictType, FloatType, IntegerType, RUN_MAX_BYTES, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, isVariant, parseFor, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { randomStream } from '@elaraai/east/internal';
@@ -78,18 +82,24 @@ const CustomerType = StructType({ name: StringType, region: StringType });
 const CustomersType = DictType(StringType, CustomerType);
 /** Each customer's credit limit: a dict keyed as the customers are. */
 const CreditType = DictType(StringType, FloatType);
+/** Events, each at its minute: what a query reading `.now` counts back over (#1670). */
+const EventType = StructType({ id: IntegerType, at: DateTimeType });
+const EventsType = ArrayType(EventType);
 type Order = ValueTypeOf<typeof OrderType>;
 
 const ORDERS: TreePath = [variant('field', 'inputs'), variant('field', 'orders')];
 const CUSTOMERS: TreePath = [variant('field', 'inputs'), variant('field', 'customers')];
 const CREDIT: TreePath = [variant('field', 'inputs'), variant('field', 'credit')];
+const EVENTS: TreePath = [variant('field', 'inputs'), variant('field', 'events')];
+/** The builder's root over the data sources: `.now`, the minute a query is asked, its last field (#1670). */
 const ROOT = queryRoot([
     { name: 'orders', path: ORDERS, type: toEastTypeValue(OrdersType) },
     { name: 'customers', path: CUSTOMERS, type: toEastTypeValue(CustomersType) },
     { name: 'credit', path: CREDIT, type: toEastTypeValue(CreditType) },
+    { name: 'events', path: EVENTS, type: toEastTypeValue(EventsType) },
 ]);
 /** Each data source's path, by its name. */
-const PATHS: ReadonlyMap<string, TreePath> = new Map([['orders', ORDERS], ['customers', CUSTOMERS], ['credit', CREDIT]]);
+const PATHS: ReadonlyMap<string, TreePath> = new Map([['orders', ORDERS], ['customers', CUSTOMERS], ['credit', CREDIT], ['events', EVENTS]]);
 
 /** The smaller input's orders, about 2.5 MB: some 8 pieces at the test's piece size. The larger holds twice as many. */
 const ORDER_COUNT = 40_000;
@@ -121,6 +131,34 @@ function customers(count = CUSTOMER_COUNT): SortedMap<string, ValueTypeOf<typeof
         Array.from({ length: count }, (_, i) => [customerId(i), { name: `Customer ${i}`, region: REGIONS[(i * 7) % REGIONS.length]! }] as const),
         compareFor(StringType),
     );
+}
+
+/** How many events there are: more than one piece as e3 stores them, at the test's piece size. */
+const EVENT_COUNT = 60_000;
+
+const readDateTime = parseFor(DateTimeType);
+
+/**
+ * An instant written as East prints a DateTime (UTC), read with East's own parser.
+ *
+ * @param text - The DateTime's East text
+ * @returns The instant
+ */
+function utcAt(text: string): Date {
+    const read = readDateTime(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
+
+/** The first event's minute; event `i` comes `i` minutes after it. */
+const EVENTS_OPEN = utcAt('2026-01-05T08:00:00.000');
+
+/** The minute `n` minutes after the first event's: counted on from it, the one instant the spec writes. */
+const minutesAfterOpen = (n: number): Date => new Date(EVENTS_OPEN.getTime() + n * 60_000);
+
+/** The events, one a minute from {@link EVENTS_OPEN}, by id. */
+function events(): ValueTypeOf<typeof EventsType> {
+    return Array.from({ length: EVENT_COUNT }, (_, i) => ({ id: BigInt(i), at: minutesAfterOpen(i) }));
 }
 
 /** The first `count` customers' credit limits, but every fifth customer's, which has none. */
@@ -182,6 +220,9 @@ const REKEYED: readonly string[] = [
 /** A join of two dicts keyed alike, the credit read only at the customer's own key: cut at the same keys (#942). */
 const CREDIT_BY_REGION =
     '.credit as $l | .customers | to_entries | map({region: .value.region, limit: ($l[.key] // 0)}) | group_by(.region) | map({region: .[0].region, limit: map(.limit) | add, n: length})';
+
+/** The events of the last two hours before the minute the query is asked, and every one after it, by id: as a step's "in the last 2 hours" prints (#1670). */
+const RECENT_EVENTS = '.now as $now | .events | map(select(.at >= ($now | datetime_add(-2; "hour")))) | map(.id)';
 
 // ─── Reading what came back ──────────────────────────────────────────────────
 
@@ -271,8 +312,8 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
         return name;
     }
 
-    /** A query's plan on a workspace, the data sources named weighed by their statuses, as the builder weighs them. */
-    async function planOf(ws: string, program: string, runner: RunnerValue, weighed: readonly string[]) {
+    /** A query's plan on a workspace, the data sources named weighed by their statuses, as the builder weighs them, and the minute it reads as `.now`. */
+    async function planOf(ws: string, program: string, runner: RunnerValue, weighed: readonly string[], now?: Date) {
         const weights = new Map<string, { bytes: number | undefined; rows: number | undefined }>();
         for (const name of weighed) {
             const status = await datasetGetStatus(server.apiUrl, server.repo, ws, PATHS.get(name)!, NO_TOKEN);
@@ -281,7 +322,7 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                 rows: status.rows.type === 'some' ? Number(status.rows.value) : undefined,
             });
         }
-        const plan = planQuery(program, ROOT, weights, { pieceBytes: PIECE_MIN, runner });
+        const plan = planQuery(program, ROOT, weights, { pieceBytes: PIECE_MIN, runner, ...(now === undefined ? {} : { now }) });
         if ('result' in plan) assert.fail(`${program} does not check`);
         return plan.plan;
     }
@@ -301,9 +342,9 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
         return { result: queryResultOf(plan.reading, answer.result), output: plan.request.output.type, pieces: Number(explained.pieces) };
     }
 
-    /** A query's one-shot call on a workspace, read as the builder reads it. */
-    async function oneShot(ws: string, program: string, runner: RunnerValue): Promise<QueryResult> {
-        const prepared = prepareQuery(program, ROOT, { runner });
+    /** A query's one-shot call on a workspace, read as the builder reads it, and the minute it reads as `.now`. */
+    async function oneShot(ws: string, program: string, runner: RunnerValue, now?: Date): Promise<QueryResult> {
+        const prepared = prepareQuery(program, ROOT, { runner, ...(now === undefined ? {} : { now }) });
         if ('result' in prepared) assert.fail(`${program} does not check`);
         return queryResultOf(prepared.prepared, await oneShotExecute(server.apiUrl, server.repo, ws, prepared.prepared.request, NO_TOKEN));
     }
@@ -316,7 +357,7 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
         mkdirSync(repo);
         repoInit(repo);
         const zip = join(scratch, 'orders.zip');
-        await e3.export(e3.package('orders', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType), e3.input('credit', CreditType)), zip);
+        await e3.export(e3.package('orders', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType), e3.input('credit', CreditType), e3.input('events', EventsType)), zip);
         await packageImport(storage, repo, zip);
         server = await startRepoServer(repo);
     });
@@ -382,12 +423,38 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                     const explained = await splitCallExplain(server.apiUrl, server.repo, ws, join, NO_TOKEN);
                     assert.ok(Number(explained.pieces) > 4, `${program}: the join is many pieces, not ${explained.pieces}: the heavier weighs ${explained.bytes} bytes`);
                     const joined = await splitCall(server.apiUrl, server.repo, ws, join, NO_TOKEN);
-                    const got = queryResultOf(plan.reading, plan.answer(first.result, joined.result));
+                    const { result, reading } = plan.answer(first.result, joined.result);
+                    const got = queryResultOf(reading, result);
                     const one = await oneShot(ws, program, runner);
                     const [value, want] = [decoded(got, `${program}'s re-keyed join`), decoded(one, `${program}'s one-shot call`)];
                     assert.ok(isTypeEqual(value.type, want.type), `${program}: the re-keyed join answers at the one-shot call's type`);
                     assert.ok(close(want.type, value.value, want.value), `${program}: the re-keyed join's answer is the one-shot call's`);
                     assert.deepEqual(pinned(got), pinned(one), `${program}: the re-keyed join read what the one-shot call read`);
+                }
+            });
+
+            it('.now: the minute reaches every piece as a value, the split call answers as the one-shot call does for it, and a later minute answers for that one (#1670)', async (t) => {
+                const ws = await workspace(`now-${name}`, orders(0, 100, 7));
+                await workspaceSetDataset(storage, repo, ws, EVENTS, events(), EventsType);
+                const ids = equalFor(ArrayType(IntegerType));
+                for (const minute of [30_000, 31_000]) {
+                    const now = minutesAfterOpen(minute);
+                    const plan = await planOf(ws, RECENT_EVENTS, runner, ['events'], now);
+                    if (plan.kind !== 'split') assert.fail(`the events' query planned ${plan.kind}`);
+                    assert.deepEqual(plan.request.args.map((a) => `${a.arg.type}:${a.partition.type}`).sort(), ['dataset:some', 'value:none'],
+                        'the events cut into pieces, the minute given whole to each');
+                    const explained = await splitCallExplain(server.apiUrl, server.repo, ws, plan.request, NO_TOKEN);
+                    assert.ok(Number(explained.pieces) > 1, `the events are several pieces, not ${explained.pieces}: they weigh ${explained.bytes} bytes`);
+                    t.diagnostic(`minute ${minute}: ${explained.pieces} pieces`);
+                    const got = queryResultOf(plan.reading, (await splitCall(server.apiUrl, server.repo, ws, plan.request, NO_TOKEN)).result);
+                    const one = await oneShot(ws, RECENT_EVENTS, runner, now);
+                    const [value, want] = [decoded(got, `the split call at minute ${minute}`), decoded(one, `the one-shot call at minute ${minute}`)];
+                    // Two hours before the minute on: the events from minute - 120 to the last.
+                    const recent = Array.from({ length: EVENT_COUNT - (minute - 120) }, (_, i) => BigInt(minute - 120 + i));
+                    assert.ok(ids(want.value as bigint[], recent), `the one-shot call answers for minute ${minute}`);
+                    assert.ok(isTypeEqual(value.type, want.type) && ids(value.value as bigint[], recent), `the split call answers for minute ${minute}, not another's from the cache`);
+                    assert.deepEqual(pinned(got), pinned(one), 'the split call read what the one-shot call read: the events, and no minute among them');
+                    assert.deepEqual([...pinned(one).keys()], ['events']);
                 }
             });
 

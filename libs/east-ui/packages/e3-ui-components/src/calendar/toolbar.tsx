@@ -193,7 +193,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
         // The eye, immediately before the history item (#1409, D4).
         args.optimise,
-        commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
+        commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, onAction, locked: args.locked === true,
             // A conflict's event, named as its kind's banners name it.
             where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
             onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) goTo(kind, issue.entry, issue.field); },

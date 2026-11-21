@@ -43,11 +43,11 @@ export interface InputRef {
 
 /** What a remove takes out. */
 export interface RemoveRef {
-    /** A condition (or a group), a total, a field shown, a field a Look up brings in. */
-    readonly kind: "condition" | "total" | "pick" | "lookup-field";
+    /** A condition (or a group), a total, a field shown, a field a Look up brings in, a field a group is by (#1670). */
+    readonly kind: "condition" | "total" | "pick" | "lookup-field" | "by-field";
     /** The step it is in. */
     readonly stepId: string;
-    /** Its id; a Look up's field by its name. */
+    /** Its id; a Look up's field, and a field a group is by, by its name. */
     readonly id: string;
 }
 

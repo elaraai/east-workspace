@@ -284,8 +284,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             ...(timeNavigation ? [null] : []),
         ],
     } : undefined), [drawn, pairs, selectFirst, timeNavigation]);
-    // The banners say the session's error, so the toolbar keeps one row.
-    const historyItem = useMemo(() => (history === undefined ? undefined : historyToolbarItem({ ...history, showError: false })), [history]);
+    // The history item: what the session has to say beyond its buttons is its banners', under the toolbar.
+    const historyItem = useMemo(() => (history === undefined ? undefined : historyToolbarItem(history)), [history]);
     return useMemo(() => (drawn ? [
         ...rail,
         seek,

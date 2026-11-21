@@ -20,7 +20,15 @@
  * the buttons the `button` and `iconButton` recipes, the status line's dots
  * the `status` recipe. This recipe adds what those have not: the dashed and
  * danger states (by data attributes), and the joiner column that lines
- * conditions up. Its toolbar row and its layout are the builder frame's, its
+ * conditions up.
+ *
+ * In place (#1673) — a filter's conditions in a popover, a visual's own
+ * filter — the same rows stand in `conditions`, marked
+ * `data-query-look="inline"`, with no frame of their own: their slots are the
+ * step card's, boxed — solid once filled, dashed while empty — on the edges
+ * the query builder's spec draws them on (`Query Editor Spec.md` §4.3); a
+ * lone condition (`data-single`) has no joiner column, its slot boxes and its
+ * foot's add on the rows' own edge. Its toolbar row and its layout are the builder frame's, its
  * pane the `dock`'s, its history item the `editHistory`'s, Download ▾ the
  * `menu`'s; the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
@@ -58,7 +66,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         // The Query tab.
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
-        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished",
+        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished", "conditions",
         "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove",
         "group", "groupBox", "groupHead", "cardFoot", "note", "problem", "problemIcon", "problemText",
         "tabFoot", "addAtEnd", "quick", "quickLabel",
@@ -309,6 +317,15 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             color: "fg.subtle",
         },
+        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart; it gives up
+           its height to the picker under them, which takes what its host's body has left (#1673). */
+        conditions: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            minWidth: "0",
+            minHeight: "0",
+        },
         /* A row of words and parts. */
         row: {
             display: "flex",
@@ -323,6 +340,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             fontSize: "12.5px",
             color: "fg.muted",
+            "[data-query-look='inline'][data-single] &": { display: "none" },
         },
         word: {
             fontSize: "12.5px",
@@ -396,9 +414,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle", color: "link" },
             },
         },
-        /* A row's ×. */
+        /* A row's ×; in place, at its line's end, in line with its group's (#1673). */
         remove: {
             color: "fg.subtle",
+            "[data-query-look='inline'] &": { marginInlineStart: "auto" },
         },
         /* A group of conditions: its joiner, and its box. */
         group: {
@@ -432,11 +451,15 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.3}",
             minHeight: "26px",
             paddingInlineStart: "32px",
+            // A lone condition's add, its icon on the edge its slots' boxes stand on, as the spec's foot stands under a step's
+            // slots: back over the add's own padding.
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0", marginInlineStart: "-4px" },
         },
         note: {
             paddingInlineStart: "36px",
             fontSize: "12px",
             color: "fg.subtle",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
         },
         /* A problem under its row, in its severity's ink, with its fixes. */
         problem: {
@@ -448,6 +471,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             paddingBottom: "{spacing.1}",
             fontSize: "12px",
             lineHeight: "1.4",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
             "&[data-severity=error]": { color: "fg.danger" },
             "&[data-severity=warning]": { color: "fg.warning" },
             "&[data-severity=note]": { color: "fg.muted" },

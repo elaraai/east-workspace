@@ -101,6 +101,22 @@ export function slotKey(slot: SlotRef): string {
 }
 
 /**
+ * The element in a block of rows that carries a slot's key: what a slot's
+ * list hangs from once the rows have drawn again.
+ *
+ * @param root - The block: the builder, or a host's rows in place
+ * @param key - The slot's key ({@link slotKey})
+ * @returns The element, or `undefined` when the block draws no such slot
+ */
+export function slotElement(root: HTMLElement | null, key: string): HTMLElement | undefined {
+    if (root === null) return undefined;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-slot-key]")) {
+        if (el.getAttribute("data-slot-key") === key) return el;
+    }
+    return undefined;
+}
+
+/**
  * A tooltip over a control: the design system's, after a moment's hover.
  *
  * @param props - The words it shows, and the control
@@ -175,7 +191,9 @@ function Part({ part, ps, actions, ghost }: { part: CardPart; ps: PartStyles; ac
     const m = words.messages;
     switch (part.t) {
         case "word":
-            return <Box as="span" css={part.joiner === true ? styles.joiner : styles.word}>{part.text}</Box>;
+            return part.joiner === true
+                ? <Box as="span" css={styles.joiner} data-query-joiner="">{part.text}</Box>
+                : <Box as="span" css={styles.word}>{part.text}</Box>;
         case "slot": {
             const key = slotKey(part.slot);
             const open = actions.openSlot === key;
@@ -283,8 +301,8 @@ export function Lines({ lines, ps, actions }: { lines: readonly CardLine[]; ps: 
                     <Fragment key={i}>
                         <Box css={styles.group} data-query-line="group">
                             <Parts parts={line.parts} ps={ps} actions={actions} />
-                            <Box css={styles.groupBox}>
-                                <Box css={styles.groupHead}>
+                            <Box css={styles.groupBox} data-query-group-box="">
+                                <Box css={styles.groupHead} data-query-group-head="">
                                     <Parts parts={head.filter(p => p.t !== "remove")} ps={ps} actions={actions} />
                                     <Box css={styles.cardSpacer} />
                                     <Parts parts={head.filter(p => p.t === "remove")} ps={ps} actions={actions} />

@@ -12,7 +12,16 @@
  *     padding. A column that prints numbers sets them in mono, aligned
  *     right, and its header's controls come before its label; one that
  *     prints dates sets them in mono at their start.
- *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
+ *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600 — a
+ *     footer the value declares, and the rows of values a host totals it
+ *     with (#1671), each value after what made it (`sum`) in the label voice:
+ *     mono 9.5 uppercase `--ink-4`.
+ *   - A cell its host marks negative (`data-tone=negative`, #1671): the
+ *     negative text step, Font Awesome's circle-exclamation in `--neg` before
+ *     its value.
+ *   - A group's head, as its host marks it (`data-row-head`, #1671): mono
+ *     10/600/0.1em uppercase, then its count on `--paper-3` in mono 9.5
+ *     `--ink-3`.
  *   - Page band (`pagination`, under the rows): `Page 2 of 5 (120 total)` in
  *     mono 10.5 `fg.muted` — the phone pager's range voice — then its ‹ ›
  *     steps, a 1 px `border.subtle` top rule.
@@ -28,7 +37,17 @@
  *     range mono 10.5 and its ‹ › 44 ghosts, listing the columns in place; a
  *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
  *     it, the last in view's 16 after it; values wrapping, numbers and dates mono 13/500,
- *     an absent value `no data` in mono italic `--ink-4`.
+ *     an absent value `no data` in mono italic `--ink-4`. A tile's (`data-table-tile`,
+ *     #1692): its words wrap at their spaces only, a word or a head too wide for its
+ *     column ended in an ellipsis; a number or a date on one line, whole.
+ *   - In a tile (`tile`, #1671) — the design system's Table running edge to
+ *     edge in a Frame: its header on the surface over a `--rule`, each head its
+ *     label alone, the whole of it the button that sorts, the sorted one in
+ *     `--ink` with a 10 px caret; cells padded 0 12, the first and the last
+ *     20 at the Frame's edges; rows ruled over, never under, so the last row
+ *     meets a footer's rule with none of its own; numbers mono 13/500, dates
+ *     mono 12.5; a total row on `--paper-2` in mono 13/600; a nested row's
+ *     step 24, its parent's a 9 px chevron in `--ink-4`.
  *
  * @packageDocumentation
  */
@@ -36,7 +55,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
-import { centredLine } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { tokens } from "../tokens.js";
 
 /** A header's padding over and under its content at each size, in px: what the size variants pad it by. */
@@ -57,10 +76,10 @@ const headerRoom = (size: keyof typeof HEADER_PAD): number =>
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
     slots: [
-        "root", "header", "body", "row", "cell", "cellText", "columnHeader",
+        "root", "header", "body", "row", "cell", "cellText", "cellMark", "rowCount", "totalLabel", "columnHeader",
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
-        "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
+        "footer", "caption", "scrollArea", "treeIndent", "treeToggle", "tileHeader", "tileHeaderLabel", "tileHeaderNote",
         "pageBand", "pageBandText", "pageBandStep",
         "phoneGroupRow", "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
@@ -226,6 +245,24 @@ export const tableSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
             "&[aria-expanded=false]": { transform: "rotate(-90deg)" },
         },
+        /* A tile's head (#1671): the button over the whole of it that sorts — its label, a note after it, and the
+           caret of a sort. Its row is centred in the 35px over the header's rule, on a whole, odd line (#1638). A
+           number column's ends at its end, the caret leading so the label stays flush with the figures. */
+        tileHeader: {
+            all: "unset", boxSizing: "border-box", width: "100%", height: "100%", minWidth: "0", display: "flex", alignItems: "center", gap: "6px",
+            paddingX: "12px", cursor: "pointer", lineHeight: centredLine(35, 19),
+            "th:first-of-type > &": { paddingInlineStart: "20px" },
+            "th:last-of-type > &": { paddingInlineEnd: "20px" },
+            "&[data-align=end]": { justifyContent: "flex-end", "& svg": { order: -1 } },
+            "&[data-sorted]": { color: "fg" },
+            "&:disabled": { cursor: "default" },
+            "& svg": { width: "10px", height: "10px", flex: "none" },
+            _hover: { "&:not(:disabled)": { background: "bg.canvas" } },
+            _focusVisible: { boxShadow: "focusInset" },
+        },
+        tileHeaderLabel: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        /* What a head says after its label — a value's goal: the label voice a step lighter, `--ink-4` whatever its head's sort. */
+        tileHeaderNote: { flex: "none", fontWeight: "500", letterSpacing: "0.06em", color: "fg.subtle", whiteSpace: "nowrap" },
         cell: {
             fontSize: "{fontSizes.body}",
             // Tight leading so a single-line cell + 10px vertical padding
@@ -244,6 +281,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A parent's subtotal (#954) — an accounting subtotal: its
             // children's scale, heavier.
             "&[data-subtotal]": { fontWeight: "semibold" },
+            // A value its host marks negative — one on the wrong side of its goal (#1671): the negative text step.
+            "&[data-tone=negative]": { color: "fg.danger" },
+            // A group's head (#1671): the group-head voice, every cell of it.
+            "tr[data-row-head] > &": { fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "0.1em", textTransform: "uppercase" },
             "[data-table-phone] &": {
                 fontSize: "{fontSizes.body}", paddingY: "8px", paddingX: "12px",
                 "&[data-pinned]": { paddingInlineStart: "16px" },
@@ -258,9 +299,26 @@ export const tableSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             "&[data-numeric], &[data-date]": { fontFamily: "mono", fontSize: "12px" },
             "&[data-numeric]": { textAlign: "right" },
+            /* A group's head's: its row's voice, a number's too. */
+            "tr[data-row-head] &": { fontSize: "label.sm" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
             "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric], &[data-date]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
+            /* A tile's at a phone's width (#1692): its words wrap at their spaces, never inside one, and a word too wide for its
+               column ends in an ellipsis, its whole on hover; a number or a date stands whole on its line, its column as wide as it. */
+            "[data-table-phone][data-table-tile] &": { overflow: "hidden", overflowWrap: "normal", textOverflow: "ellipsis", "&[data-numeric], &[data-date]": { whiteSpace: "nowrap" } },
         },
+        /* A negative cell's mark: the exclamation before its value, in `--neg`, so colour is never its only sign. */
+        cellMark: { display: "inline-flex", alignItems: "center", flexShrink: 0, marginInlineEnd: "6px", color: "status.neg", "& svg": fontAwesomeSize("10px") },
+        /* A group head's count, after its label: the count chip — a one-line box with no edge, its line its own
+           16px (#1638): the 9.5px face's own line centred its numeral at a fraction of a pixel under the chip's top. */
+        rowCount: {
+            ...oneLineBox(16, 0),
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: "16px", paddingX: "4px", marginInlineStart: "6px",
+            boxSizing: "border-box", background: "bg.subtle", borderRadius: "sm", fontFamily: "mono", fontSize: "label.xs", fontWeight: "500", letterSpacing: "0",
+            color: "fg.muted",
+        },
+        /* What made a total, before it: the label voice. */
+        totalLabel: { flexShrink: 0, marginInlineEnd: "6px", fontFamily: "mono", fontSize: "label.xs", fontWeight: "400", letterSpacing: "0.1em", textTransform: "uppercase", color: "fg.subtle" },
         /* The page band under the rows: its words, then its ‹ ›. */
         pageBand: {
             display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "{spacing.2}", paddingX: "{spacing.3}", paddingY: "{spacing.2}",
@@ -336,6 +394,8 @@ export const tableSlotRecipe = defineSlotRecipe({
             "&:disabled": { cursor: "default" },
             "& svg": { width: "8px", height: "8px", flex: "none" },
             _focusVisible: { boxShadow: "focusInset" },
+            /* A tile's (#1692): a label too wide for its column on one line, ended in an ellipsis, its whole on hover. */
+            "[data-table-tile] &": { "& > span": { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
         },
         phoneBar: { height: "12px", borderRadius: "0", background: "bg.subtle", animation: "none" },
         phoneAbsent: { fontFamily: "mono", fontSize: "label.md", fontStyle: "italic", fontWeight: "400", color: "fg.subtle", whiteSpace: "nowrap" },
@@ -382,6 +442,34 @@ export const tableSlotRecipe = defineSlotRecipe({
             lg: {
                 cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" },
                 columnHeader: { paddingX: "{spacing.4}", paddingY: `${HEADER_PAD.lg}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("lg"), 19) },
+            },
+        },
+        // A tile's table (#1671): the design system's Table in a Frame. Its paddings are the size variants' own keys,
+        // so they replace them whatever the size.
+        tile: {
+            true: {
+                columnHeader: { background: "transparent", paddingX: "0", paddingY: "0", borderBottomColor: "border.subtle" },
+                cell: {
+                    paddingX: "12px", paddingY: "0",
+                    // Every row is ruled over, the first transparently under the header's own rule: each row's words
+                    // are centred in the same 35px, on a whole, odd line (#1638).
+                    lineHeight: centredLine(35, 17),
+                    borderBottomWidth: "0", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+                    "[data-index='0'] > tr > &": { borderTopColor: "transparent" },
+                    "&:first-of-type": { paddingInlineStart: "20px" },
+                    "&:last-of-type": { paddingInlineEnd: "20px" },
+                    // A total row: on `--paper-2`, mono 13/600.
+                    "tr[data-table-total] > &": { background: "bg.canvas", fontFamily: "mono", fontWeight: "600" },
+                },
+                cellText: {
+                    "&[data-numeric]": { fontSize: "{fontSizes.body}", fontWeight: "500", fontVariantNumeric: "tabular-nums" },
+                    "&[data-date]": { fontSize: "12.5px" },
+                    "tr[data-row-head] &": { fontSize: "label.sm", fontWeight: "600" },
+                    "tr[data-table-total] &": { fontSize: "{fontSizes.body}", fontWeight: "600" },
+                },
+                // A nested row's step: its parent's 10px chevron and the 14 after it.
+                treeIndent: { paddingLeft: "calc(var(--table-depth, 0) * 24px)" },
+                treeToggle: { width: "10px", height: "10px", marginRight: "14px", fontSize: "9px", borderRadius: "0" },
             },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },

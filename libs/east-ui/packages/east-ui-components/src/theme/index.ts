@@ -120,6 +120,8 @@ import { commandPaletteSlotRecipe } from "./slot-recipes/commandPalette.js";
 import { actionBarSlotRecipe } from "./slot-recipes/actionBar.js";
 import { segmentedMeterSlotRecipe } from "./slot-recipes/segmentedMeter.js";
 import { barStripSlotRecipe } from "./slot-recipes/barStrip.js";
+import { chartLegendSlotRecipe } from "./slot-recipes/chartLegend.js";
+import { chartPieSlotRecipe } from "./slot-recipes/chartPie.js";
 import { meterSlotRecipe } from "./slot-recipes/meter.js";
 import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
 import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
@@ -157,6 +159,9 @@ import { flowchartInspectorSlotRecipe } from "./slot-recipes/flowchartInspector.
 import { schematicInspectorSlotRecipe } from "./slot-recipes/schematicInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
+import { studioFiltersSlotRecipe } from "./slot-recipes/studioFilters.js";
+import { studioTextSlotRecipe } from "./slot-recipes/studioText.js";
+import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
 import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
@@ -278,6 +283,8 @@ const config = defineConfig({
             actionBar:       actionBarSlotRecipe,
             segmentedMeter: segmentedMeterSlotRecipe,
             barStrip:        barStripSlotRecipe,
+            chartLegend:     chartLegendSlotRecipe,
+            chartPie:        chartPieSlotRecipe,
             meter:           meterSlotRecipe,
             metricChip:      metricChipSlotRecipe,
             chipRail:        chipRailSlotRecipe,
@@ -315,6 +322,9 @@ const config = defineConfig({
             schematicInspector: schematicInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
+            studioText:      studioTextSlotRecipe,
+            studioFilters:   studioFiltersSlotRecipe,
+            studioVisual:    studioVisualSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
             queryResults:    queryResultsSlotRecipe,
             queryPhone:      queryPhoneSlotRecipe,

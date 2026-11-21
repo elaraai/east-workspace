@@ -127,6 +127,13 @@ export {
     type EastChakraSparklineProps,
     EastVisxChart,
     type EastVisxChartProps,
+    // A click on a chart's mark, as its host is told it (#1671)
+    type ChartMark,
+    type ChartMarkHandler,
+    // What a chart's host marks of its marks (#1673)
+    type ChartMarkedTest,
+    // How a host prints a chart's numbers where room is short (#1671)
+    type ChartNumberText,
 } from "./charts/index.js";
 
 // Disclosure
@@ -173,6 +180,20 @@ export {
     type TableRootValue,
     type TableColumnValue,
     type EastChakraTableProps,
+    // A sort a viewer chose, as the Table's host is told it — a Studio records table sorts every row by it (#1671)
+    type ColumnSort,
+    // What a host that builds a Table in the browser gives it beside its value: a total row's cells, a cell's tone, a group's head (#1671)
+    type TableCellValue,
+    type TableCellTone,
+    type TableTotalCell,
+    type TableRowHead,
+    // The Pagination and the Matrix, for a host that draws them over values it builds — a Studio tile's (#1671)
+    EastChakraPagination,
+    type PaginationValue,
+    type EastChakraPaginationProps,
+    EastChakraMatrix,
+    type MatrixRootValue,
+    type EastChakraMatrixProps,
     EastChakraTreeView,
     toChakraTreeViewRoot,
     type TreeViewRootValue,
@@ -596,8 +617,10 @@ export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps 
 // of room folds into it — the SnapGrid editor's View, Studio's and the query
 // builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.
 export { ChipMenu, type ChipMenuProps } from "./toolbar/chip-menu.js";
-export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor.js";
+export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor-toolbar.js";
 export type { SnapGridPhoneOptions, SnapGridPlacing } from "./layout/snap-grid/phone.js";
+// A host's own sessions under the canvas's one history (#1673): what it joins, and the rows' ref they share.
+export type { SnapGridEntryRef, SnapGridJoined, SnapGridJoinedSession } from "./layout/snap-grid/use-snap-grid-editing.js";
 export { LibraryLayoutSwitch } from "./collections/library";
 // The key search as one item of a builder's toolbar (#1193) — the box, folding
 // to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet
@@ -618,13 +641,15 @@ export {
 // projection of an entry is typed (`wireType`): a ref's, `EntryRefType`. A
 // new entry's key is its session's to make (`EditSession.mint`), by the rule
 // its builder binds — the shared ones here (`keys.ts`) — and to make again
-// where another write takes it (#1583).
+// where another write takes it (#1583). A host whose own sessions join a
+// collection's history keeps that history itself (`useKeptHistory`, #1673).
 export {
     EditSession,
     EditHistory,
     EditingScope,
     useEditSession,
     useEditHistory,
+    useKeptHistory,
     historyKeyOf,
     EntryRefType,
     drawnFromKeys,

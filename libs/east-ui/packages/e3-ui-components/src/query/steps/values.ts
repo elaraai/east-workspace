@@ -10,7 +10,7 @@
  * @packageDocumentation
  */
 
-import { variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type {
     QueryAggregateType,
     QueryComparisonType,
@@ -82,6 +82,97 @@ export function comparison(kind: ComparisonKind): Comparison {
 }
 
 /**
+ * Each "is in the last" comparison by the unit it counts back in, the unit
+ * `datetime_add` moves a date by (#1670): the one place the two are paired.
+ * The parser reads back the units it names, and the words and the counts a
+ * slot offers are kept by its units, so a unit added here is asked for there.
+ */
+const LAST_COMPARISON = { hour: "inLastHours", day: "inLastDays", week: "inLastWeeks" } as const satisfies Readonly<Record<string, ComparisonKind>>;
+
+/** A unit `datetime_add` moves a date by: the unit of an "is in the last" comparison (#1670). */
+export type LastUnit = keyof typeof LAST_COMPARISON;
+
+/** The pairs, each unit with its comparison. */
+const LAST_PAIRS = Object.entries(LAST_COMPARISON) as readonly (readonly [LastUnit, ComparisonKind])[];
+
+/**
+ * The unit an "is in the last" comparison counts in.
+ *
+ * @param kind - the comparison
+ * @returns `hour`, `day` or `week`; `undefined` for any other comparison
+ */
+export function lastUnit(kind: ComparisonKind): LastUnit | undefined {
+    return LAST_PAIRS.find(([, cmp]) => cmp === kind)?.[0];
+}
+
+/**
+ * The "is in the last" comparison of a unit.
+ *
+ * @param unit - the unit
+ * @returns the comparison
+ */
+export function lastComparison(unit: LastUnit): ComparisonKind {
+    return LAST_COMPARISON[unit];
+}
+
+/**
+ * Whether a name is a unit an "is in the last" comparison counts in: how
+ * `datetime_add`'s unit is read back.
+ *
+ * @param name - the unit's name, as the jq writes it
+ * @returns whether it is one
+ */
+export function isLastUnit(name: string): name is LastUnit {
+    return LAST_PAIRS.some(([unit]) => unit === name);
+}
+
+/** What a Group and total step groups by: a field, several, all rows together, or nothing chosen yet. */
+export type GroupBy = StepOf<"group">["value"]["by"];
+
+/**
+ * The fields a Group and total step groups on, in order: one, several, or
+ * none for all rows together.
+ *
+ * @param by - what it groups by
+ * @returns the fields' refs
+ */
+export function groupFields(by: GroupBy): readonly string[] {
+    if (by.type === "none") return [];
+    switch (by.value.type) {
+        case "field": return [by.value.value];
+        case "fields": return by.value.value;
+        case "all": return [];
+    }
+}
+
+/**
+ * What a Group and total step groups by, from the fields it groups on
+ * (#1670): nothing chosen for none, the field for one, the fields for several.
+ *
+ * @param fields - the fields' refs, in order
+ * @returns what it groups by
+ */
+export function groupedBy(fields: readonly string[]): GroupBy {
+    if (fields.length === 0) return none;
+    return some(fields.length === 1 ? variant("field", fields[0]!) : variant("fields", [...fields])) as GroupBy;
+}
+
+/**
+ * What a Group and total step groups by with one of its fields set to
+ * another, in its place; a step by one field, or by none, then groups by
+ * that field.
+ *
+ * @param by - what it groups by
+ * @param was - the field set, of the several it groups by
+ * @param field - the field in its place
+ * @returns what it groups by after
+ */
+export function withGroupField(by: GroupBy, was: string | undefined, field: string): GroupBy {
+    const fields = groupFields(by);
+    return groupedBy(was !== undefined && fields.length > 1 ? fields.map(f => (f === was ? field : f)) : [field]);
+}
+
+/**
  * Whether a value is filled in: any value but empty text.
  *
  * @param value - the value
@@ -146,7 +237,9 @@ export function isComplete(step: Step): boolean {
             const { by, aggs } = step.value;
             if (by.type === "none") return false;
             if (by.value.type === "all" && aggs.length === 0) return false;
-            return aggs.every(a => a.fn.type === "count" || a.field.type === "some");
+            if (by.value.type === "fields" && by.value.value.length === 0) return false;
+            // A ratio needs the field it is per as well as its own.
+            return aggs.every(a => a.fn.type === "count" || (a.field.type === "some" && (a.fn.type !== "ratio" || a.fn.value.type === "some")));
         }
         case "sort":
             return step.value.field.type === "some";

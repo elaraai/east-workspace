@@ -77,6 +77,22 @@ export interface Formatters {
     percent(fraction: number): string;
     /** A compact magnitude with one fraction digit — `12.3K`. */
     compact(n: number): string;
+    /**
+     * A number where room is short — a tile's value, an axis tick, a bar's
+     * end: under ten thousand as it is, grouped, to two decimals at most
+     * (`1,284`, `11.42`); from there at three significant digits of its
+     * magnitude (`612k`, `3.84M`; `3,84 Mio.` in `de-DE`), the thousand's sign
+     * small, as SI writes it.
+     *
+     * @param n - The number
+     * @param of - A number it is read beside — a goal beside its gap, a total beside its share — whose magnitude and
+     *   decimals it then takes, so the two share a scale: `0.66M` beside `4.50M`, `1210k` beside `612k`. Itself when
+     *   omitted
+     * @param trim - Whether zeros that end its decimals are left off, as an axis's ticks read: `25k`, `2.5M`, never
+     *   `25.0k`
+     * @returns The text; a zero is `0` at any scale
+     */
+    short(n: number, of?: number, trim?: boolean): string;
     /** A bare chart tick — a whole number, else one decimal, never grouped:
      *  `1200`, `2.5` (`2,5` in `de-DE`); a negative zero prints `0`. */
     tick(n: number): string;
@@ -333,6 +349,15 @@ function build(locale: string): Formatters {
     const group = plain.formatToParts(1234567).find((p) => p.type === "group")?.value ?? ",";
     const pct = numberFormat({ style: "percent", maximumFractionDigits: 0 });
     const compact = numberFormat({ notation: "compact", maximumFractionDigits: 1 });
+    // The short form: a plain amount under ten thousand, three significant digits of its magnitude from there.
+    const amount = numberFormat({ maximumFractionDigits: 2 });
+    const magnitude = { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 } as const;
+    const short = numberFormat(magnitude);
+    // The same in Latin digits: what a number's magnitude is read from, whatever digits the locale writes.
+    const shortLatin = numberFormat({ ...magnitude, numberingSystem: "latn" });
+    const isDigits = (part: Intl.NumberFormatPart) => part.type === "integer" || part.type === "group" || part.type === "decimal" || part.type === "fraction";
+    // What the locale writes about a short number, before or after its digits; the thousand's `K` small.
+    const about = (parts: Intl.NumberFormatPart[]) => parts.map((part) => (part.type === "compact" && part.value === "K" ? "k" : part.value)).join("");
     const whole = numberFormat({ useGrouping: false, maximumFractionDigits: 0 });
     const tenth = numberFormat({ useGrouping: false, minimumFractionDigits: 1, maximumFractionDigits: 1 });
     const dmy = { day: "numeric", month: "short", year: "numeric" } as const;
@@ -354,6 +379,25 @@ function build(locale: string): Formatters {
         float: (n) => printFloat(n).replace(".", decimal),
         percent: (fraction) => pct.format(fraction),
         compact: (n) => compact.format(n),
+        short(n, of = n, trim = false) {
+            const size = Math.abs(of);
+            if (n === 0 || !Number.isFinite(n) || !(size >= 10_000) || !Number.isFinite(size)) return amount.format(n === 0 ? 0 : n);
+            // The magnitude `of` prints at: the number it shows against the number it is — a power of ten, and the
+            // fraction digits it shows it to.
+            const probe = shortLatin.formatToParts(size);
+            const digitsOf = (type: Intl.NumberFormatPartTypes) => probe.filter((part) => part.type === type).map((part) => part.value).join("");
+            const fraction = digitsOf("fraction");
+            const shown = Number(`${digitsOf("integer")}.${fraction === "" ? "0" : fraction}`);
+            const exponent = Math.round(Math.log10(size / shown));
+            // At a magnitude the number is short already: no digit groups, so `1210k` beside `612k`. At none — a locale
+            // with no word for a thousand — it is the number, grouped.
+            const scaled = numberFormat({
+                minimumFractionDigits: trim ? 0 : fraction.length, maximumFractionDigits: fraction.length, useGrouping: exponent === 0,
+            }).format(n / 10 ** exponent);
+            const parts = short.formatToParts(size);
+            const digits = parts.map(isDigits);
+            return about(parts.slice(0, digits.indexOf(true))) + scaled + about(parts.slice(digits.lastIndexOf(true) + 1));
+        },
         tick: (n) => (Number.isInteger(n) ? whole.format(n === 0 ? 0 : n) : tenth.format(n)),
         value(n, format, showSign = false) {
             if (format === undefined) return numberFormat(withSign({}, showSign)).format(n);
