@@ -55,6 +55,7 @@ import {
 import type { SheetOptions } from "../sheet/root.js";
 import type { RecordAgeColumn, RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
 import type { RecordKeyField } from "../bind/record.js";
+import type { KindKeyBuilder } from "../utils/record-kind.js";
 import { groupMembers } from "../sheet/registers.js";
 
 /** The Sheet's payload, as the Record reads the parts it keeps. */
@@ -229,7 +230,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `key` on a Record handed no record, beside `newKey`, or that builds no key of its key's type; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
@@ -328,7 +329,8 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
  * it, the rail's narrowing drawn over them, and Apply commits through
  * `record` by key (east-workspace#1622). Where the rows hold their own key in
  * a field, `keyField` names it, and a record the Record adds holds its key
- * there.
+ * there. Where the app builds a row's key from the row, `key` does, and a row
+ * stands under the key it builds.
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
@@ -342,6 +344,14 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
          * record holds already keeps what its field holds. The field is of the record's key type.
          */
         keyField?: RecordKeyField<K, R>;
+        /**
+         * A row's key, built from the row: `(rack) => rack.code` keys each rack by the code a person types. A row Add
+         * drafts goes under the key it builds at once, a cell still empty read as empty, and a row moves under another
+         * key as an edit changes what its key reads — in the step of the edit, which Undo takes back with it. A key
+         * another row stands under refuses the edit, and the Record says so. It builds a key of the record's key type.
+         * Never beside `newKey`.
+         */
+        key?: KindKeyBuilder<R, K>;
         slice?: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
     } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,

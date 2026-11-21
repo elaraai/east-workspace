@@ -121,7 +121,7 @@ import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadines
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
 import { scheduleLastKey } from "../schedule/window.js";
-import { newKeyOf } from "../utils/record-kind.js";
+import { checkOneKeyRule, newKeyOf } from "../utils/record-kind.js";
 import type { RecordSaveTypeFor } from "../bind/record.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
@@ -253,7 +253,7 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
      * batch has drafted — one that is not. Without it a String key is a UUID, and an Integer one one past the largest
      * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves, once it is read.
      * Any other key needs it, and so does an Integer key read through an index's window or a narrowing, which can't say
-     * the record's largest.
+     * the record's largest — or, over a record, `key`, which builds a row's key from the row. Never beside `key`.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
@@ -415,6 +415,12 @@ export interface SheetInternalOptions {
      * constructor need give it.
      */
     keyField?: string | undefined;
+    /**
+     * A record's entry's key, built from the entry by the app (`<Sheet record key>`): the sheet makes a new entry — a
+     * row, a grouped sheet's group — under the key its entry builds, and moves an entry to another as an edit changes
+     * what its key reads. One way a new entry's key is decided, the sheet's `newKey` the other: never both.
+     */
+    key?: unknown;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -843,11 +849,17 @@ function buildSheet(
     // `newKey`; else a UUID the renderer mints for a String key, and one past the largest for an Integer one (#1182,
     // #1536, #1549). Any other key needs `newKey`.
     const entry = groupDecl === undefined ? "row" : "group";
-    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && opts.newKey === undefined
+    // A new entry's key is decided one way: built from the entry (`key`, which a sheet over a record takes), or made
+    // from the keys taken (`newKey`).
+    checkOneKeyRule("Sheet", { key: internal.key, newKey: opts.newKey });
+    const decided = opts.newKey !== undefined || internal.key !== undefined;
+    // How the app decides a new entry's key, as a refusal says it: a sheet over a record may build it from the entry.
+    const decide = `${internal.applyKeyed !== undefined ? `\`key\`, building a new ${entry}'s key from the ${entry}, or ` : ""}\`newKey\`, an East function from the keys taken to a new one`;
+    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && !decided
         && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
             `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is made only for a String key or an Integer one — ` +
-            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
+            `pass ${decide}, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
     // The app's `newKey` on the wire: over the keys' text, as the rows' ids are, as every builder's is.
@@ -858,14 +870,14 @@ function buildSheet(
     // 1. An index's window ends at the last of its own order, and a narrowing at the last it keeps: neither says the
     // record's largest key, so a sheet that adds rows over one takes the app's `newKey`.
     const unsaid = incoming.kind === "ordered" ? "an index's window" : incoming.kind === "paged" && incoming.query ? "a narrowing" : undefined;
-    if (keyType?.type === "Integer" && opts.newKey === undefined && unsaid !== undefined
+    if (keyType?.type === "Integer" && !decided && unsaid !== undefined
         && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
             `Sheet: the ${entry}s are keyed by Integer and read through ${unsaid}, which can't say the record's largest key — a new ${entry}'s is one past it — ` +
-            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
+            `pass ${decide}, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
-    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" || unsaid !== undefined ? undefined : (() => {
+    const integerKey = decided || keyType?.type !== "Integer" || unsaid !== undefined ? undefined : (() => {
         // The record's own entries, paged, end at its largest key.
         const lastKey = incoming.kind === "paged"
             ? scheduleLastKey(incoming.source as unknown as ExprType<EastType>, IntegerType)
@@ -1239,7 +1251,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
-        unsettable, keyField,
+        unsettable, keyField, key: internal.key,
     }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined

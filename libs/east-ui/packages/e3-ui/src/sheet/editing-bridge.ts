@@ -19,6 +19,7 @@ import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor, SheetPatchEventTypeFor 
 import { SheetEditingType, SheetSeedType, SheetWireApplyType } from "./editing-types.js";
 import { buildSheetSeed } from "./seed-bridge.js";
 import { resolveSheetEdits, type SheetEditsInput } from "./edits.js";
+import { keyBuilderOf } from "../utils/record-kind.js";
 
 /** Author editing behavior, erased only at the factory boundary. @internal */
 export interface SheetEditingInput {
@@ -37,6 +38,8 @@ export interface SheetEditingInput {
     unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
     /** The field of a record's entries that holds each one's key, checked against the record — e3-ui's record forms only. */
     keyField?: string | undefined;
+    /** An entry's key, built from the entry by the app (`key`) — e3-ui's record forms only. */
+    key?: unknown;
 }
 
 /**
@@ -219,6 +222,12 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
             };
         });
     }
+    // An entry's key the app builds from the entry (`key`): on the wire, the entry's bytes to its key's text — what a
+    // sheet makes a new entry under, and moves an entry to as an edit changes what its key reads.
+    if (input.key !== undefined && (keyType === undefined || draftType.type !== "Struct")) {
+        throw new Error("Sheet: `key` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
+    }
+    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.key);
     const readyGroupExpr = input.ready?.group;
     if (readyGroupExpr !== undefined && field === undefined) throw new Error("Sheet: ready.group requires a group declaration");
     // A group's check takes its DraftGroup; the renderer sends the entry's
@@ -271,6 +280,7 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
         keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, project, underKey: underKey !== undefined ? some(underKey) : none,
+        rowKey: rowKey !== undefined ? some(rowKey) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
         toDraft: toDraft !== undefined ? some(toDraft) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
