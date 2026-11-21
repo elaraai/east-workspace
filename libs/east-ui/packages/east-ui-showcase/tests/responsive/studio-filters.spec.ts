@@ -29,8 +29,9 @@
  *    over its grid, measured as F1 measures a page's (ruled 19 November 2026).
  *  - F6 as the page narrows the rail folds its chips one at a time into
  *    `+N more` — every filter a chip or counted, the row 28px and never wider
- *    than its page — and `+N more` opens one popover that lists them all,
- *    whose Clear all takes every one out.
+ *    than its page — and `+N more` opens one popover that holds the filters it
+ *    counts, under their dataset's name, none the row shows; its Clear all
+ *    takes every one out.
  *  - F7 on a phone the builder's toolbar holds no Filters button; its
  *    Preview's page, on Mobile, draws the rail over its grid as a reader's page
  *    does — measured as F1 measures it, inside the builder — and the editor it
@@ -412,7 +413,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await settled(page);
         expect(await railAtRest(rail)).toEqual(AT_REST);
     });
-    test("F6: as the page narrows the rail folds its chips one at a time into +N more, 28px and never wider than its page; +N more lists every filter, and its Clear all takes them out", async ({ page }) => {
+    test("F6: as the page narrows the rail folds its chips one at a time into +N more, 28px and never wider than its page; +N more holds the filters it counts, none the row shows, and its Clear all takes every one out", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
@@ -429,10 +430,11 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await page.keyboard.press("Escape");
             await settled(page);
         };
-        // Three, after the page's starting filter: four in all.
+        // Three, after the page's starting filter: four in all, each said whole on its chip's hover and in +N more.
         await add("region", "SA");
         await add("category", "Tools");
         await add("customer", "Northwind");
+        const WHOLE = ["ordered at is on or after 2026-07-01 and ordered at is before 2026-10-01", "region is SA", "category is Tools", "customer is Northwind"];
         /** The rail as drawn: its width, its chips, how many `+N more` counts, and whether anything runs past it. */
         const read = () => rail.evaluate((el) => {
             const more = el.querySelector("[data-slice-more]")?.textContent ?? "";
@@ -443,6 +445,21 @@ test.describe("A Studio page's filter rail (#1673)", () => {
                 fits: el.scrollWidth <= el.clientWidth && document.documentElement.scrollWidth <= document.documentElement.clientWidth,
             };
         });
+        /** The filters the row shows — each chip's whole words — and its `+N more` opened: its head's words, and the datasets it names and the filters it holds. */
+        const split = async () => {
+            const shown = await rail.locator("[data-slice-clause]").evaluateAll((all) => all.map((chip) => chip.getAttribute("title")));
+            await rail.locator("[data-slice-more]").click();
+            const popover = page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
+            await expect(popover.locator("[data-slice-more-row]").first()).toBeVisible();
+            const more = await popover.evaluate((el) => ({
+                head: el.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+                named: [...el.querySelectorAll("[data-slice-more-group]")].map((group) => group.textContent),
+                held: [...el.querySelectorAll("[data-slice-more-row] > span")].map((row) => row.textContent),
+            }));
+            await page.keyboard.press("Escape");
+            await expect(popover).toHaveCount(0);
+            return { shown, ...more };
+        };
         const drawn: Awaited<ReturnType<typeof read>>[] = [];
         for (const width of [1440, 900, 480, 390]) {
             await page.setViewportSize({ width, height: 1000 });
@@ -452,6 +469,12 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             const now = await read();
             expect([now.height, now.add, now.fits], `at ${width}px`).toEqual([28, true, true]);
             drawn.push(now);
+            if (now.folded === 0) continue;
+            // +N more holds what it counts: the filters the row folds, under their dataset's name — none the row shows.
+            const { shown, head, named, held } = await split();
+            expect({ head, named, held: held.length, every: [...shown, ...held].sort() }, `at ${width}px`).toEqual({
+                head: `${now.folded} more filter${now.folded === 1 ? "" : "s"}`, named: ["Orders"], held: now.folded, every: [...WHOLE].sort(),
+            });
         }
         // The wider the rail, the more chips it shows — at a phone's fewer than at its widest — the rest counted at every width.
         const byWidth = [...drawn].sort((a, b) => a.width - b.width);
@@ -459,11 +482,9 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const [narrowest, widest] = [byWidth[0]!, byWidth[byWidth.length - 1]!];
         expect([narrowest.chips < widest.chips, widest.chips + widest.folded, narrowest.chips + narrowest.folded]).toEqual([true, 4, 4]);
 
-        // +N more: one popover that lists every filter, and clears them.
+        // +N more's Clear all: every filter out, the row's too.
         await rail.locator("[data-slice-more]").click();
-        const popover = page.getByRole("dialog").filter({ hasText: "4 active filters" });
-        await expect(popover).toBeVisible();
-        for (const words of ["ordered at is on or after 2026-07-01", "region is SA", "category is Tools", "customer is Northwind"]) await expect(popover).toContainText(words);
+        const popover = page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
         await popover.getByRole("button", { name: "Clear all" }).click();
         await expect.poll(async () => { const now = await read(); return [now.chips, now.folded]; }).toEqual([0, 0]);
     });

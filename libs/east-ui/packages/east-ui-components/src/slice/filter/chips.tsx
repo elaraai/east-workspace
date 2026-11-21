@@ -36,11 +36,15 @@
  * page's datasets — gives each chip its group: the row draws a group's chips
  * together and names the group once, before the first of them it draws, in
  * the caption type a group's fields are headed in (`railGroupLabel`); a group
- * folded whole into `+N more` goes unnamed in the row, and `+N more` lists
- * the filters under their groups' names. The groups come in the order the host
- * names them (`groups`), so no filter added or taken out reorders them
- * (`./groups.ts`). A chip is still told by its place in the host's order:
- * what `onRemove` and its editor are told.
+ * folded whole into `+N more` goes unnamed in the row. The groups come in the
+ * order the host names them (`groups`), so no filter added or taken out
+ * reorders them (`./groups.ts`). A chip is still told by its place in the
+ * host's order: what `onRemove` and its editor are told.
+ *
+ * `+N more` holds what it counts: the filters the row folds, in the order the
+ * row draws them — none it shows — under their groups' names, a group split
+ * between the row and `+N more` named in each; its head counts them
+ * (`2 more filters`), and its Clear all takes every filter out, the row's too.
  *
  * @packageDocumentation
  */
@@ -57,7 +61,7 @@ import { SliceEditPopover } from "../edit";
 import { SliceRailHold } from "../rail/hold.js";
 import type { SliceRailGroup } from "../rail/toolbar.js";
 import { usePressWait } from "../../pointer/press-wait.js";
-import { chipOrder } from "./groups.js";
+import { chipOrder, foldedOrder } from "./groups.js";
 
 /** One filter of the row, as its chip shows it. */
 export interface SliceFilterChip {
@@ -155,9 +159,9 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     const [frozen, setFrozen] = useState<Frozen | null>(null);
     const rowChips = frozen === null ? chips
         : chips.slice(0, frozen.labels.length).map((held, i) => ({ ...held, label: frozen.labels[i]!, whole: frozen.wholes[i] }));
-    // The order the row draws its chips in, each group's together; and the order `+N more` lists every filter in.
-    const drawn = chipOrder(rowChips.map((held) => held.group?.key), groups);
-    const listed = chipOrder(chips.map((held) => held.group?.key), groups);
+    // The order the row draws its chips in, each group's together.
+    const rowGroups = rowChips.map((held) => held.group?.key);
+    const drawn = chipOrder(rowGroups, groups);
 
     // Compact eyebrow is one row that never wraps/clips — Priority+ overflow: as
     // many chips as fit, the rest collapse into `+N more`. The hook measures the
@@ -306,6 +310,9 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         // folds with it.
         const shown = measuring ? drawn.order : drawn.order.slice(0, visibleCount);
         const overflow = rowChips.length - (measuring ? 0 : visibleCount);
+        // What `+N more` holds: the filters the row folds, in the order it draws them — none it shows.
+        const folded = foldedOrder(drawn, rowGroups, shown.length);
+        const more = folded.order.length;
         // Reserve the `+N more` chip's width during measuring (worst-case count)
         // so it never collapses one chip too many once it appears.
         const showMore = measuring ? rowChips.length > 0 : overflow > 0;
@@ -324,7 +331,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                         <SliceEditPopover
                             open={open === "more" || open === "save"}
                             onOpenChange={o => setOpen(o ? "more" : null)}
-                            label={saving ? "Save as cohort" : `${chips.length} active filters`}
+                            label={saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size="lg"
                             footLeft={save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined}
                             footActions={saving
@@ -355,12 +362,12 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                                     {save.name.trim() === "" && <Box as="span" fontFamily="mono" fontSize="10px" color="fg.muted">Give the cohort a name to save it.</Box>}
                                 </Box>
                             )}
-                            {(open === "more" || open === "save") && listed.order.map((i, at) => {
+                            {(open === "more" || open === "save") && folded.order.map((i, at) => {
                                 const held = chips[i]!;
                                 return (
                                     <Fragment key={i}>
                                         {/* Each group's filters under its name, in the caption a group's fields are headed by. */}
-                                        {listed.starts[at] === true && held.group !== undefined && (
+                                        {folded.starts[at] === true && held.group !== undefined && (
                                             <Box css={frame.railGroupHead} data-slice-more-group={held.group.key}>
                                                 <Box as="span" css={frame.railGroupLabel}>{held.group.label}</Box>
                                             </Box>

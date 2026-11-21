@@ -17,6 +17,11 @@
  * it — so a row held as it stood while an editor is open (`chips.tsx`) draws
  * the same chips in the same order whatever the host appends meanwhile.
  *
+ * `+N more` holds the chips the row folds — those after the ones it shows, in
+ * the same order — and none it shows, each named group named again before the
+ * first of its chips it holds: a group split between the row and `+N more` is
+ * named in each.
+ *
  * @packageDocumentation
  */
 
@@ -56,5 +61,20 @@ export function chipOrder(groups: readonly (string | undefined)[], named: readon
             starts.push(group !== undefined && at === 0);
         });
     }
+    return { order, starts };
+}
+
+/**
+ * The chips a row folds into `+N more`, in the order it draws them — see the
+ * module docs.
+ *
+ * @param drawn - The order the row draws its chips in ({@link chipOrder})
+ * @param groups - Each chip's group's key, in the host's order; `undefined` for a chip in none
+ * @param shown - How many chips the row shows: the first of `drawn`'s order
+ * @returns The chips it folds, each its place in the host's order, and where each named group starts among them
+ */
+export function foldedOrder(drawn: ChipOrder, groups: readonly (string | undefined)[], shown: number): ChipOrder {
+    const order = drawn.order.slice(Math.max(0, shown));
+    const starts = order.map((place, at) => groups[place] !== undefined && (at === 0 || groups[order[at - 1]!] !== groups[place]));
     return { order, starts };
 }

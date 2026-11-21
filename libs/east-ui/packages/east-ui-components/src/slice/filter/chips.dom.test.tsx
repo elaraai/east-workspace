@@ -15,8 +15,8 @@
  * them on hover, its label cut where it runs long. Chips in groups are drawn
  * each group's together, the group named once before its first, in the order
  * the host names the groups, each chip still the host's by its place; a group
- * folded whole goes unnamed, and `+N more` lists the filters under their
- * groups' names.
+ * folded whole goes unnamed, and `+N more` holds the filters the row folds —
+ * none it shows — under their groups' names.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -259,15 +259,29 @@ describe("a row of chips in groups (#1673)", () => {
         expect(drawnRow()).toEqual(["Orders", "Region: SA", "Units: more than 1", "Revenue: at least 100", "Stock", "Site: North"]);
     });
 
-    test("folded: a group folded whole into +N more goes unnamed in the row, and +N more lists every filter under its group's name", async () => {
+    test("folded: +N more holds the filters the row folds — none it shows — each under its group's name, its head counting them; a group folded whole goes unnamed in the row, and one split between the two is named in each", async () => {
+        /** The open `+N more`: its head's words, and the groups' names and the filters it holds, in order. */
+        const more = () => {
+            const content = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open']")!;
+            return {
+                head: content.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+                held: [...content.querySelectorAll("[data-slice-more-group], [data-slice-more-row] > span")].map((el) => el.textContent),
+            };
+        };
+        // The stock's one filter folded: the row draws the orders' two, the stock unnamed; +1 more holds the stock's alone.
         render(<GroupedRow density="compact" foldChips={1} />);
         expect(drawnRow()).toEqual(["Orders", "Region: SA", "Units: more than 1"]);
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
-        const listed = [...document.querySelectorAll("[data-slice-more-group], [data-slice-more-row] > span")].map((el) => el.textContent);
-        expect(listed).toEqual(["Orders", "Region: SA — said whole", "Units: more than 1 — said whole", "Stock", "Site: North — said whole"]);
+        expect(more()).toEqual({ head: "1 more filter", held: ["Stock", "Site: North — said whole"] });
+        cleanup();
+        // The orders' second and the stock's folded: the orders named before their first in the row, and again in +2 more.
+        render(<GroupedRow density="compact" foldChips={2} />);
+        expect(drawnRow()).toEqual(["Orders", "Region: SA"]);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        expect(more()).toEqual({ head: "2 more filters", held: ["Orders", "Units: more than 1 — said whole", "Stock", "Site: North — said whole"] });
     });
 
-    test("chips in no group: no name is drawn, in the row or in +N more", async () => {
+    test("chips in no group: no name is drawn, in the row or in +N more, which holds the one it folds", async () => {
         render(<LiveRow />);
         expect(document.querySelectorAll("[data-slice-chip-group]")).toHaveLength(0);
         cleanup();
@@ -278,6 +292,7 @@ describe("a row of chips in groups (#1673)", () => {
             </ChakraProvider>,
         );
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
-        expect([document.querySelectorAll("[data-slice-chip-group], [data-slice-more-group]").length, document.querySelectorAll("[data-slice-more-row]").length]).toEqual([0, 2]);
+        const held = [...document.querySelectorAll("[data-slice-more-row] > span")].map((el) => el.textContent);
+        expect([document.querySelectorAll("[data-slice-chip-group], [data-slice-more-group]").length, held]).toEqual([0, ["Units: more than 1"]]);
     });
 });
