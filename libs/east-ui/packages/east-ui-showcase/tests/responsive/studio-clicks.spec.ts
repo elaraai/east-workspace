@@ -19,10 +19,11 @@
  *  - C3 ⌘-click adds a row, and the followers say both; Esc clears the
  *    selection, and they show every customer again.
  *  - C4 a click on a donut's legend row filters the page: the slice is a chip
- *    on the rail and every other visual of the source narrows, while the
- *    donut keeps its slices and marks the one clicked — the rest the muted
- *    mark, their legend rows off. ⌘-click adds a slice; a click on it again,
- *    or the chip's ×, puts them back (#1673).
+ *    on the rail and every other visual of the source narrows — the
+ *    customers list counts each customer's orders in that category alone —
+ *    while the donut keeps its slices and marks the one clicked — the rest the
+ *    muted mark, their legend rows off. ⌘-click adds a slice; a click on it
+ *    again, or the chip's ×, puts them back (#1673).
  *  - C5 a click on a bar opens the page it names, narrowed: the surface shows
  *    the Region orders page, the clicked region its chip, its numbers that
  *    region's alone — its count the records' own, every row drawn of it.
@@ -81,6 +82,11 @@ const followOf = (entry: Locator, key: string) => tile(entry, key).locator("[dat
 const chartWords = (entry: Locator, key: string) => tile(entry, key).locator("[data-studio-chart]").evaluate((el) => [...el.querySelectorAll("svg text")].map((t) => t.textContent).join("|"));
 /** The rail's chips, by their words. */
 const chips = (entry: Locator) => entry.locator("[data-studio-filters] [data-slice-clause]").evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+/** A list's rows, each its name and what its last value counts: the customers list's orders. */
+const counted = (rows: Locator) => rows.evaluateAll((els) => els.map((el) => {
+    const values = el.querySelectorAll("[data-studio-list-value]");
+    return [el.querySelector("[data-studio-list-name]")!.textContent, Number(values[values.length - 1]!.textContent!.replace(/\D/g, ""))] as const;
+}));
 /** Colours of the theme's, as the page computes them: each token by its variable's name after `--chakra-colors-`. */
 const colours = (entry: Locator, tokens: readonly string[]) => entry.evaluate((el, names) => names.map((token) => {
     const probe = el.appendChild(document.createElement("span"));
@@ -153,7 +159,8 @@ test.describe("A Studio page's clicks (#1673)", () => {
     test("C4: a click on a donut's legend row filters the page — the slice a chip on the rail, every other visual of the source narrowed — while the donut keeps its slices and marks the one clicked, the rest the muted mark and their rows off; ⌘-click adds one; a click on it again, or the chip's ×, puts them back", async ({ page }) => {
         const entry = await openClicks(page);
         const rows = tile(entry, "k-customers").locator("[data-studio-list-row]");
-        const all = await rows.count();
+        /** Each customer, and the orders it counts. */
+        const orders = await counted(rows);
         const donut = tile(entry, "k-category").locator("[data-studio-chart]");
         const legend = donut.locator("[data-clickable]");
         const slice = (await legend.first().textContent())!;
@@ -178,8 +185,13 @@ test.describe("A Studio page's clicks (#1673)", () => {
         const [chip] = await chips(entry);
         expect(chip).toMatch(/^category is /);
         expect(slice.startsWith(chip!.slice("category is ".length))).toBe(true);
-        // Every other visual of the source narrows: fewer customers bought in that category.
-        await expect.poll(() => rows.count()).toBeLessThan(all);
+        // Every other visual of the source narrows: every customer bought in that category, so all fourteen stay, each
+        // counting its orders in it alone — fewer than before. How many rows there are says nothing: while the list asks
+        // again it draws none, and then every customer again.
+        await expect.poll(async () => {
+            const now = await counted(rows);
+            return now.length === orders.length && now.every(([name, n]) => n < (orders.find(([was]) => was === name)?.[1] ?? 0));
+        }).toBe(true);
         // The donut keeps its slices: the one clicked as it was, the rest the muted mark, their legend rows off.
         await expect.poll(async () => (await marking())[0]).toBe("marked");
         const marked = await drawn();
@@ -198,7 +210,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         await expect.poll(async () => (await marking()).filter((state) => state === "marked")).toHaveLength(1);
         await legend.first().click();
         await expect.poll(() => chips(entry)).toEqual([]);
-        await expect.poll(() => rows.count()).toBe(all);
+        await expect.poll(() => counted(rows)).toEqual(orders);
         await expect.poll(drawn).toEqual(before);
         // The chip's × clears the mark with the filter.
         await legend.first().click();
@@ -206,7 +218,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         await entry.locator("[data-studio-filters] [data-slice-clause] [data-chip-remove]").click();
         await expect.poll(() => chips(entry)).toEqual([]);
         await expect.poll(drawn).toEqual(before);
-        await expect.poll(() => rows.count()).toBe(all);
+        await expect.poll(() => counted(rows)).toEqual(orders);
     });
 
     test("C5, C6: a click on a bar opens the page it names, narrowed — the region its chip, the page's numbers that region's alone — and a records row there takes a click and is marked", async ({ page }) => {
