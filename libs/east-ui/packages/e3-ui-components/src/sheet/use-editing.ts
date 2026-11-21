@@ -34,6 +34,7 @@ import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
+import { settleBuiltKeys, type TouchedEntry } from "../shared/built-keys.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import { closedOver } from "./standing-rows.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -285,48 +286,21 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         };
         return (id: string, draft: unknown): string => build(encodeEntry(filled(entryType, normalizeDraft(draftType, draft, id).held)));
     }, [editing]);
-    // Each entry a gesture leaves goes under the key its row builds, in the gesture: one it makes, from the made-up key
-    // it stood under for the gesture alone; one it changes, where what its key reads changed, to another key than it
-    // stands under — a row stored apart from its key, edited back to build it, stays (#1581). Each leaves its key before
-    // any arrives, so a row may take the key another leaves. A key another row stands under, and one that fails as it is
-    // built, refuse the whole gesture, and the footer says why. Answers each entry moved, by the key it left.
-    const rekey = useCallback((updates: Map<string, EntryUpdate>, startOf: (id: string) => EntryVersion): Map<string, string> => {
-        const moves = new Map<string, string>();
-        if (builtKey === undefined) return moves;
-        const refuse = (why: { taken: string } | { failed: unknown }): never => {
-            throw new SheetRefused({ id: "keyRefused", what: editing.children.type === "some" ? "group" : "row", noun, why });
-        };
-        const going: { from: string; to: string; before: EntryVersion; after: EntryVersion }[] = [];
-        for (const [id, { before, after }] of updates) {
-            if (after.draft === undefined) continue;
-            let to: string;
-            try {
-                to = builtKey(id, after.draft);
-                if (stringEqual(to, id) || (before.draft !== undefined && stringEqual(builtKey(id, before.draft), to))) continue;
-            } catch (error) {
-                console.error("[Sheet] a row's key could not be built from the row:", error);
-                return refuse({ failed: error });
-            }
-            going.push({ from: id, to, before, after });
-        }
-        const leaving = new Set(going.map((move) => move.from));
-        const arriving = new Set<string>();
-        for (const { to } of going) {
-            // Whether a row stands under the key: another the gesture moves there, one it leaves there, or one the session
-            // or the rows hold — never one that leaves it in this gesture.
-            const there = updates.get(to);
-            if (arriving.has(to) || (!leaving.has(to) && (there !== undefined ? there.after.draft !== undefined : startOf(to).draft !== undefined))) refuse({ taken: to });
-            arriving.add(to);
-        }
-        for (const { from, before } of going) {
-            if (before.draft === undefined) updates.delete(from);
-            else updates.set(from, { id: from, before, after: absent });
-        }
-        for (const { from, to, after } of going) {
-            updates.set(to, { id: to, before: updates.get(to)?.before ?? startOf(to), after: underKey(to, after) });
-            moves.set(from, to);
-        }
-        return moves;
+    // Each entry a gesture leaves goes under the key its row builds, in the gesture, by the one rule every builder
+    // follows (`../shared/built-keys.ts`). A key another row stands under, and one that fails as it is built, refuse the
+    // whole gesture, and the footer says why. Answers each entry moved, by the key it left.
+    const rekey = useCallback((updates: Map<string, TouchedEntry<SheetRowValue>>, startOf: (id: string) => EntryVersion): ReadonlyMap<string, string> => {
+        if (builtKey === undefined) return NO_MOVES;
+        const settled = settleBuiltKeys(updates, {
+            holds: (version) => version.draft !== undefined,
+            build: (id, version) => builtKey(id, version.draft),
+            original: startOf,
+            underKey,
+        });
+        if (!("refused" in settled)) return settled.all;
+        const why = settled.refused.why;
+        if ("failed" in why) console.error("[Sheet] a row's key could not be built from the row:", why.failed);
+        throw new SheetRefused({ id: "keyRefused", what: editing.children.type === "some" ? "group" : "row", noun, why });
     }, [builtKey, underKey, noun, editing]);
     // What the last gesture recorded moved, for a caller that holds a row by the key it made it under; and the last
     // gesture's that moved any, which the ring follows.
@@ -400,7 +374,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
         const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
-        const updates = new Map<string, EntryUpdate>();
+        const updates = new Map<string, TouchedEntry<SheetRowValue>>();
         const inputs = new Map<string, SheetRowValue>();
         const at = day ?? sheetDayOf(new Date());
         let origin: Origin = "typed";
@@ -419,7 +393,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
                 draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)), at)),
                 wire: prepared.row, place: placement ?? current.place,
             };
-            updates.set(id, { id, before, after });
+            updates.set(id, { before, after });
         };
         for (const event of events) {
             switch (event.type) {
@@ -438,7 +412,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const before = updates.get(id)?.before ?? originalOf(id);
             const current = updates.get(id)?.after ?? before;
             if (current.draft === undefined) continue;
-            updates.set(id, { id, before, after: edit(current) });
+            updates.set(id, { before, after: edit(current) });
         }
         // Where the app builds a row's key from the row, each entry stands under the key it builds.
         const moves = rekey(updates, originalOf);
@@ -446,7 +420,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // A new entry holds its key in its record's key field from the gesture that makes it — a duplicate its own, never
         // the key of the row it copies. One just moved under the key it builds holds it there already.
         if (keyedAs !== undefined) {
-            for (const [id, { before, after }] of updates) if (before.draft === undefined && !arrived.has(id)) updates.set(id, { id, before, after: keyedAs(id, after) });
+            for (const [id, { before, after }] of updates) if (before.draft === undefined && !arrived.has(id)) updates.set(id, { before, after: keyedAs(id, after) });
         }
         // A new entry, or a new line, the app left a field of empty — one no person can set — is never drafted (#1536):
         // the whole gesture is refused, and the footer names the field.
@@ -457,7 +431,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const gestureOrigin = originOverride ?? origin;
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
-        const recorded = session.record([...updates.values()], gestureOrigin, label, joins);
+        const recorded = session.record([...updates].map(([id, versions]): EntryUpdate => ({ id, ...versions })), gestureOrigin, label, joins);
         if (recorded) {
             lastMoves.current = moves;
             if (moves.size > 0) setMoved(moves);

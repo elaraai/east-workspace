@@ -30,6 +30,7 @@ import {
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
+import { settleBuiltKeys } from "../built-keys.js";
 import { givenKeys } from "../given-keys.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
@@ -1149,10 +1150,9 @@ export function useScheduleEditing<I extends Item = Item>({
             return true;
         };
         if (!apply(changes)) return undefined;
-        // A part that builds its keys from its rows (`key`): each row the gesture makes stands under the key its row
-        // builds, and each it changes moves under the key its row then builds — where what its key reads changed, to
-        // another than the one it stands under: a row an app stored apart from its key, edited back to build it,
-        // stays (#1581). A key another row stands under, or one that fails as it is built, refuses the whole gesture.
+        // A part that builds its keys from its rows (`key`): each row the gesture leaves stands under the key its row
+        // builds, by the one rule every builder follows (`../built-keys.ts`). A key another row stands under, or one
+        // that fails as it is built, refuses the whole gesture.
         const settle = (): { readonly all: Map<string, Map<string, string>>; readonly held: Map<string, Map<string, string>> } | undefined => {
             const now = new Map<string, Map<string, string>>();
             // Those of them its record held: what the rows naming one by its key follow.
@@ -1163,58 +1163,27 @@ export function useScheduleEditing<I extends Item = Item>({
                 const codec = codecs[i]!;
                 if (part.rowKey.type !== "some") continue;
                 const build = part.rowKey.value;
-                const going: { from: string; to: string; row: unknown; before: EntryVersion<ScheduleEntryRef> }[] = [];
-                for (const [id, { before, after }] of entries) {
-                    const row = rowOf(after);
-                    if (row === undefined) continue;
-                    let to: string;
-                    try {
-                        to = build(codec.encodeRow(row));
-                        const was = rowOf(before);
-                        if (stringEqual(to, id) || (was !== undefined && stringEqual(build(codec.encodeRow(was)), to))) continue;
-                    } catch (err) {
-                        console.error(`[Schedule] ${part.name}'s key could not be built from a row:`, err);
-                        keyRefusedRef.current = { kind: part.key, name: part.name, id: before.draft === undefined ? "" : id, why: { failed: err } };
-                        return undefined;
-                    }
-                    going.push({ from: id, to, row, before });
+                const settled = settleBuiltKeys(entries, {
+                    holds: (version) => rowOf(version) !== undefined,
+                    build: (_id, version) => build(codec.encodeRow(rowOf(version))),
+                    // The session's own, what its last Save left, its record's as last read.
+                    original: (id) => state.original(key, id),
+                    // One its builder shows, of a record read a window at a time.
+                    shown: (id) => {
+                        if (part.entries.type !== "some") return false;
+                        const cell = heldRowOf(cellRows?.current, part.key, id);
+                        return standing?.current?.[part.key]?.(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
+                    },
+                    underKey: (id, version) => ({ draft: variant("value", codec.underKey(id, rowOf(version))), wire: { id }, place: KEY_ORDER }),
+                });
+                if ("refused" in settled) {
+                    if ("failed" in settled.refused.why) console.error(`[Schedule] ${part.name}'s key could not be built from a row:`, settled.refused.why.failed);
+                    keyRefusedRef.current = { kind: part.key, name: part.name, ...settled.refused };
+                    return undefined;
                 }
-                if (going.length === 0) continue;
-                const leaving = new Set(going.map((move) => move.from));
-                const arriving = new Set<string>();
-                const byKey = new Map<string, string>();
-                const heldByKey = new Map<string, string>();
-                for (const { from, to, before } of going) {
-                    // Whether a row stands under the key: one the gesture leaves there, the session's own, what its last
-                    // Save left, its record's as last read — or one its builder shows, of a record read a window at a time.
-                    const there = entries.get(to);
-                    const stood = there?.before ?? state.original(key, to);
-                    const cell = heldRowOf(cellRows?.current, part.key, to);
-                    const shown = part.entries.type === "some"
-                        && (standing?.current?.[part.key]?.(to) !== undefined || (cell.type === "some" && cell.value.type === "some"));
-                    const stands = arriving.has(to) || (there !== undefined ? rowOf(there.after) !== undefined && !leaving.has(to)
-                        : stood !== undefined ? rowOf(stood) !== undefined : shown);
-                    if (stands) {
-                        keyRefusedRef.current = { kind: part.key, name: part.name, id: before.draft === undefined ? "" : from, why: { taken: to } };
-                        return undefined;
-                    }
-                    arriving.add(to);
-                    byKey.set(from, to);
-                    if (before.draft !== undefined) heldByKey.set(from, to);
-                }
-                // Each leaves the key it stood under before any arrives, so a row may take the key another leaves in the
-                // gesture. A row the gesture made stood under its made-up key for the gesture alone; one the record holds
-                // leaves it.
-                for (const { from, before } of going) {
-                    if (before.draft === undefined) entries.delete(from);
-                    else entries.set(from, { before, after: DELETED });
-                }
-                for (const { to, row } of going) {
-                    const stood = entries.get(to)?.before ?? state.original(key, to);
-                    entries.set(to, { before: stood ?? ABSENT, after: { draft: variant("value", codec.underKey(to, row)), wire: { id: to }, place: KEY_ORDER } });
-                }
-                now.set(part.key, byKey);
-                if (heldByKey.size > 0) held.set(part.key, heldByKey);
+                if (settled.all.size === 0) continue;
+                now.set(part.key, settled.all);
+                if (settled.held.size > 0) held.set(part.key, settled.held);
             }
             return { all: now, held };
         };
