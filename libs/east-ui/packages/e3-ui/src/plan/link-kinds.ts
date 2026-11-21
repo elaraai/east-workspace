@@ -559,7 +559,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         }
     }
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);

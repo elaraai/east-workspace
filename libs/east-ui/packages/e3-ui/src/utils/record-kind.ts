@@ -32,7 +32,7 @@
  * keyed ({@link KindRowKeys}), the same in every builder: its `key` builds
  * the key from the row, or its `newKey` makes one from the keys taken — one
  * or neither — and its `keyField` names the field of the row that holds the
- * key too.
+ * key too, a field its `key` never reads.
  *
  * @packageDocumentation
  */
@@ -55,6 +55,7 @@ import { keyFieldHints, scheduleEntriesSeam, scheduleRecordSession } from "../sc
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleNewKeyType, ScheduleReadyEntryType } from "../schedule/types.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
+import { rowReadIn } from "./row-reads.js";
 
 // ============================================================================
 // The wire
@@ -437,17 +438,23 @@ export type KindKeyBuilder<R extends EastType, K extends EastType> = (row: ExprT
  * A kind's `key`, reified once and held to the record's key type (#1549): on
  * the wire, a new row's key's text from the row's bytes — a String key as
  * itself, any other as East prints it — which the renderer makes a new row
- * under, and moves the row to as an edit changes what it reads.
+ * under, and moves the row to as an edit changes what it reads. It reads no
+ * field its declaration's `keyField` names: that field holds a copy of the
+ * key, which the builder keeps there, so a key built from it would be built
+ * from itself.
  *
  * @param keyType - The record's key type
  * @param rowType - The record's row type
  * @param where - The kind, as a refusal names it
  * @param noun - A row of the kind, as the refusal names it (`a transition`)
  * @param fn - What the kind was given
+ * @param keyField - The field its declaration says holds each row's key; `undefined` for a declaration naming none
  * @returns `(bytes)` → the key's text; `undefined` when not given
- * @throws {Error} When it is no function, or builds a key of another type than the record's, naming both
+ * @throws {Error} When it is no function, builds a key of another type than the record's, naming both, or reads the
+ *   field `keyField` names, naming it
  */
-export function keyBuilderOf(keyType: EastType, rowType: StructType, where: string, noun: string, fn: unknown): ExprType<FunctionType<[BlobType], StringType>> | undefined {
+export function keyBuilderOf(keyType: EastType, rowType: StructType, where: string, noun: string, fn: unknown,
+    keyField: string | undefined): ExprType<FunctionType<[BlobType], StringType>> | undefined {
     if (fn === undefined) return undefined;
     if (typeof fn !== "function") throw new Error(`${where}: \`key\` builds ${noun}'s key from its row, (row) => …`);
     const author = fn as (row: ExprType<EastType>) => SubtypeExprOrValue<EastType>;
@@ -460,6 +467,11 @@ export function keyBuilderOf(keyType: EastType, rowType: StructType, where: stri
         const inferred = East.function([rowType], undefined, (_$, row) => author(row) as ExprType<EastType>);
         const builds = (Expr.type(inferred as unknown as Expr) as FunctionType).output as EastType;
         throw new Error(`${where}: \`key\` builds ${noun}'s key, of the record's key type ${typeText(keyType)} — and this one builds ${typeText(builds)}`);
+    }
+    // The key field holds a copy of the key, kept there by the builder: a key that reads it is built from itself.
+    if (keyField !== undefined && rowReadIn(built, new Set([keyField]))?.kind === "reads") {
+        throw new Error(`${where}: \`key\` reads "${keyField}", the field \`keyField\` names — that field holds a copy of ${noun}'s key, kept there by its builder, ` +
+            "so no key is built from it: leave `keyField` out, and `key` alone keys each one by what the field holds");
     }
     const textOf = keyTextOf(keyType);
     return East.function([BlobType], StringType, ($, bytes) => {
@@ -807,8 +819,8 @@ export interface RecordSide<R extends StructType = StructType, K extends EastTyp
 export interface KindRowKeys<R extends StructType = StructType, K extends EastType = StringType> {
     /**
      * A new row's key, built from its row: what the builder makes a row under, and what a row moves to as an edit
-     * changes the fields it reads — refused when another row holds it. Omitted, with no `newKey`, a String key is made
-     * up and an Integer one is one past the largest.
+     * changes the fields it reads — refused when another row holds it. It never reads the field `keyField` names.
+     * Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest.
      */
     key?: KindKeyBuilder<R, K>;
     /**
@@ -822,7 +834,8 @@ export interface KindRowKeys<R extends StructType = StructType, K extends EastTy
      * by their code, each rack's `code` its key. A row the builder adds holds its key there from the first, and is
      * saved with it: where another Save takes the key first and the builder gives the row another, the field follows.
      * A row the record holds already keeps what its field holds. The form shows the field read only, and no role
-     * writes it. The field is of the record's key type.
+     * writes it. The field is of the record's key type, and `key` reads another: one keyed by a field a person types
+     * takes `key` alone.
      */
     keyField?: RecordKeyField<K, R>;
 }

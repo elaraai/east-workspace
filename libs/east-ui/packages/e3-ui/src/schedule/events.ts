@@ -1115,7 +1115,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // Or built from its row, the event moving with it: one of the two, or neither.
     checkOneKeyRule(where, config);
     const newKey = config.newKey === undefined ? undefined : newKeyOf(keyType, where, config.newKey);
-    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.key);
+    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.key, keyField);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
     // records draws its roles in its own sections, so its form leaves out the fields they name too.

@@ -227,7 +227,7 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
     if (input.key !== undefined && (keyType === undefined || draftType.type !== "Struct")) {
         throw new Error("Sheet: `key` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
     }
-    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.key);
+    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.key, keyField);
     const readyGroupExpr = input.ready?.group;
     if (readyGroupExpr !== undefined && field === undefined) throw new Error("Sheet: ready.group requires a group declaration");
     // A group's check takes its DraftGroup; the renderer sends the entry's

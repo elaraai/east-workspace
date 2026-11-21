@@ -269,7 +269,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     // A new target's key by the app's own rule, where it gives one — or built from its row: one of the two, or neither.
     checkOneKeyRule(where, c);
     const newKey = c.newKey === undefined ? undefined : newKeyOf(StringType, where, c.newKey);
-    const keyBuilt = keyBuilderOf(StringType, rowType, where, "a target", c.key);
+    const keyBuilt = keyBuilderOf(StringType, rowType, where, "a target", c.key, keyField);
 
     return {
         [ROSTER_TARGETS]: true,

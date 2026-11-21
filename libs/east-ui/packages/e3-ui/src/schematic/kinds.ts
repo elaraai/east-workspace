@@ -648,7 +648,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
         : checkedSchematicTemplates(templates, ValuesType, `\`${config.x}\` and \`${config.y}\``, where);
     // A new item's key, built from its row (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "an item", config.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "an item", config.key, config.keyField);
 
     // One item's roles, from its row and its key.
     const rolesOf = East.function([rowType, bound.keyType], SchematicItemType, ($, row, key) => {
@@ -1054,7 +1054,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         : checkedSchematicTemplates(templates, ValuesType, `\`${from.field}\` and \`${to.field}\``, where);
     const valuesOf = scheduleNewValues(SchematicEndsType, rowType, ValuesType, config.values, where);
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
@@ -1248,7 +1248,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         : checkedSchematicTemplates(templates, ValuesType, `\`${sources.field}\` and \`${destinations.field}\``, where);
     const valuesOf = scheduleNewValues(SchematicSidesType, rowType, ValuesType, config.values, where);
     // A new net's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a net", config.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a net", config.key, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "nets", "Connect's Shift session makes one");
 
     // A side's members, as references to the items of its slot: each key its text, a String key as itself and any other

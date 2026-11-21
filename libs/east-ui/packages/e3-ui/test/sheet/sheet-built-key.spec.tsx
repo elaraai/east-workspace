@@ -9,9 +9,9 @@
  * A record whose rows' keys the app builds from them (`key`,
  * east-workspace#1709), as a Sheet and a Record are told it: what the sheet
  * carries to keep each row under the key it builds — an entry's bytes to its
- * key's text (`rowKey`) — the one rule beside `newKey`, and what each tag
- * refuses. A row added and moved in a browser runs in e3-ui-components' record
- * spec, on e3.
+ * key's text (`rowKey`) — the one rule beside `newKey`, the field `keyField`
+ * names kept out of what it reads, and what each tag refuses. A row added and
+ * moved in a browser runs in e3-ui-components' record spec, on e3.
  */
 
 import { test, describe } from "node:test";
@@ -151,6 +151,17 @@ describe("a sheet told how its record's rows are keyed from them", () => {
         assert.throws(() => build("code"), /Sheet: `key` builds a row's key from its row, \(row\) => …/);
     });
 
+    test("ruling 8 — a `key` that reads the field `keyField` names is refused, naming both: the field holds a copy of the key, so no key is built from it", () => {
+        const build = (key: unknown) => East.function([], NullType, ($) => {
+            const held = $.const(RACKS, racksType);
+            $(createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, keyField: "code", key }));
+        });
+        assert.throws(() => build((rack: { code: unknown }) => rack.code),
+            /Sheet: `key` reads "code", the field `keyField` names — that field holds a copy of a row's key, kept there by its builder, so no key is built from it: leave `keyField` out, and `key` alone keys each one by what the field holds/);
+        // A key built from another field stands beside it.
+        build((rack: { bay: unknown }) => rack.bay);
+    });
+
     test("ruling 1 — on a grouped sheet the key is the group's, built from the group", () => {
         const root = East.compile(East.function([], Sheet.Types.Root, ($) => {
             const held = $.const(ORDERS, ordersType);
@@ -182,6 +193,17 @@ describe("<Sheet> and <Record> with `key`", () => {
             // @ts-expect-error — the racks are keyed by a String, and this builds an Integer
             void <Sheet record={held} columns={COLUMNS} key={(rack) => rack.code.length()} />;
         }), /Sheet: `key` builds a row's key, of the record's key type \.String — and this one builds \.Integer/);
+    });
+
+    test("ruling 8 — each tag told `keyField` and a `key` that reads it is refused in its own name: `<Sheet record keyField key>` and `<Record record keyField key>`", () => {
+        assert.throws(() => inBlock(($) => {
+            const held = $.let(Record.bind(racks));
+            void <Sheet record={held} columns={COLUMNS} keyField="code" key={(rack) => rack.code} />;
+        }), /Sheet: `key` reads "code", the field `keyField` names/);
+        assert.throws(() => inBlock(($) => {
+            const held = $.let(Record.bind(racks));
+            void <Record record={held} columns={{ code: Record.column.title(Rack, { header: "Code" }), bay: Record.column.text(Rack, { header: "Bay" }) }} keyField="code" key={(rack) => rack.code} />;
+        }), /Record: `key` reads "code", the field `keyField` names/);
     });
 
     test("ruling 1 — a Sheet handed no record takes none, and names `record`; nor one over one entry's rows", () => {

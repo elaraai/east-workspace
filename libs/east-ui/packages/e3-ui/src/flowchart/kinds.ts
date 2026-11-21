@@ -710,7 +710,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
     const roles = [label.field, ...placed];
     const valuesOf = scheduleNewValues(FlowchartStateWriteType, rowType, valuesTypeOf(rowType, roles), spec.values, where);
     // A new state's key, built from its row (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a state", spec.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a state", spec.key, spec.keyField);
 
     // A lane's key as its text, and its text read back at the lane field's type (#1549).
     const laneText = lane === undefined ? undefined : keyTextOf(lane.type);
@@ -942,7 +942,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
     const roles = decision === undefined ? placed : [...placed, decision.field];
     const valuesOf = scheduleNewValues(FlowchartTransitionWriteType, rowType, valuesTypeOf(rowType, roles), spec.values, where);
     // A new transition's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a transition", spec.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a transition", spec.key, spec.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || spec.newKey !== undefined, where, "transitions", "Connect makes one");
 
     // A state's key as its text and read back at the ends' type; a decision's at its key's (#1549).
@@ -1144,7 +1144,7 @@ export function flowchartLanes<R extends StructType, O extends FlowchartOrderFie
     const roles = [label.field, ...placed];
     const valuesOf = scheduleNewValues(FlowchartLaneWriteType, rowType, valuesTypeOf(rowType, roles), spec.values, where);
     // A new lane's key, built from its row (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a lane", spec.key);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a lane", spec.key, spec.keyField);
 
     // One lane's roles, from its row and its key: an Integer order read as a Float.
     const rolesOf = East.function([rowType, bound.keyType], FlowchartLaneRolesType, ($, row, _key) => {
