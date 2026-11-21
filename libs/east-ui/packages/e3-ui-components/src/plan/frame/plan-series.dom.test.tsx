@@ -36,7 +36,8 @@
  *   in the inspector as placeholders, never 0, until they land.
  * - A kind hidden in the Series tab, read by its cells, is in no figure — the
  *   footer's, the pane's, a row's — none of its cells is read, and nothing
- *   says so.
+ *   says so. The presses hidden there take their rows off the paged canvas,
+ *   though the events' new revision reads its window again (#1712).
  * - A series and a summary index led by a field the rail chooses read its
  *   cells exactly: the field is asked of no event, and past the budget the
  *   summary it leads shades (#1432).
@@ -58,7 +59,7 @@ import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot, tabs, toggleSeries } from "./harness.test-utils.js";
 import { evaluatesAgain } from "../../e3-web-mount.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
@@ -824,6 +825,17 @@ describe("a kind hidden in the Series tab (#1039)", () => {
         expect(notCounted(c)).toBeNull();
         // Hidden, the jobs draw nothing: none of their cells is read.
         expect(askedOf(SERIES)).toEqual([]);
+    });
+
+    test("the presses switched off take every press's row off the paged canvas, though new events read its window again; switched on, they draw again with their bars (#1712)", async () => {
+        const { container: c } = await h.mount(checkedPlan);
+        await settle();
+        expect(bar(c, "W-0001", "P-1001")).not.toBeNull();
+        await toggleSeries(c, "Presses");
+        await waitFor(() => expect(c.querySelector(rowAt(pressRow("P-1001")))).toBeNull());
+        expect(slot(c, "main")!.querySelectorAll("[data-plan-row]")).toHaveLength(0);
+        await toggleSeries(c, "Presses");
+        await waitFor(() => expect(bar(c, "W-0001", "P-1001")).not.toBeNull(), { timeout: 10_000 });
     });
 });
 

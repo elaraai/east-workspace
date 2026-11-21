@@ -22,7 +22,7 @@
  * @packageDocumentation
  */
 
-import type { RenderResult } from "@testing-library/react";
+import { fireEvent, within, type RenderResult } from "@testing-library/react";
 import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
@@ -120,6 +120,27 @@ export const slot = (container: HTMLElement, name: string) => container.querySel
  * @returns Each tab's text: its name and its count
  */
 export const tabs = (pane: HTMLElement) => [...pane.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
+
+/**
+ * Switches one of the library's Series tab's lines on or off by its name, as a viewer does, the tab opened first where
+ * it is not; then lets what it starts settle.
+ *
+ * @param container - The render's container
+ * @param name - The line's name: its series' title, or its kind's name
+ * @throws {Error} When the Plan's library has no Series tab
+ */
+export async function toggleSeries(container: HTMLElement, name: string): Promise<void> {
+    const pane = slot(container, "start")!;
+    const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "));
+    if (tab === undefined) throw new Error("no Series tab");
+    if (tab.getAttribute("aria-selected") !== "true") {
+        fireEvent.click(tab);
+        await settle();
+    }
+    const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    fireEvent.click(within(panel).getByRole("button", { name: `Toggle ${name}` }));
+    await settle();
+}
 
 /** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
 export { entry };
