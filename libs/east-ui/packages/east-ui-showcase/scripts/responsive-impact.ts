@@ -50,10 +50,10 @@ const componentSpecs = {
     ],
     sheet: ["optimise-sheet.spec.ts", "sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-far-moves.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     // The Studio's builder, page library and published page; what a placement holds, its visuals and their tiles
-    // (#1669, #1671) — at every size (#1692) — and the chart rules as its page of visuals draws them — each reads the
-    // Studio's own pages alone.
+    // (#1669, #1671) — at every size (#1692), paged — the chart rules as its page of visuals draws them, and its alerts
+    // (#1674) — each reads the Studio's own pages alone.
     studio: [
-        "chart-rules.spec.ts", "studio-builder.spec.ts", "studio-chart-options.spec.ts", "studio-clicks.spec.ts", "studio-configure.spec.ts", "studio-content.spec.ts", "studio-filters.spec.ts", "studio-heights.spec.ts", "studio-linking.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts", "studio-rows.spec.ts",
+        "chart-rules.spec.ts", "studio-alerts.spec.ts", "studio-builder.spec.ts", "studio-chart-options.spec.ts", "studio-clicks.spec.ts", "studio-configure.spec.ts", "studio-content.spec.ts", "studio-filters.spec.ts", "studio-heights.spec.ts", "studio-linking.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts", "studio-paging.spec.ts", "studio-rows.spec.ts",
         "studio-tile-sizes.spec.ts", "studio-tiles.spec.ts", "studio-visuals.spec.ts",
     ],
 } as const;
