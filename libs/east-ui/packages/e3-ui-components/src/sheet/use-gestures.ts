@@ -53,6 +53,8 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         canEdit, childField, dispatchStore, draftType, editingState, locked, mintAmong, recordGesture, rows, runLayout, session,
         store, takenKeys, ui,
     } = sheetSession;
+    // Where a row a gesture made stands now: stable, so the ring's placing below runs as the rows move, never each draw.
+    const { under } = editingState;
     const { endPosition, rowAt, rowOf, rowSpace } = sheetBody;
     const { ctxRef, dispatch, uiRef } = sheetMachine;
     const { failed } = sheetWrites;
@@ -191,7 +193,7 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         if (made === undefined) return;
         // A row made where the app builds a row's key from the row (`key`) stands under the key it built by now, not the
         // made-up one its gesture made it under.
-        const target = { ...made, id: editingState.under(made.id) };
+        const target = { ...made, id: under(made.id) };
         pendingInsertFocus.current = target;
         const id = target.child === undefined ? target.id : lineId(target.id, target.child);
         const r = rowOf(id);
@@ -237,7 +239,7 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);
         const c = item?.kind === "group" ? 0 : driverC >= 0 ? driverC : Math.max(0, columns.list.findIndex(col => col.editable));
         dispatch({ t: "cell.dbl", r, c });
-    }, [rows, rowOf, rowAt, columns, driverColumn, dispatch, ctxRef, uiRef, rowSpace, setScrollTarget, runEffects, editingState]);
+    }, [rows, rowOf, rowAt, columns, driverColumn, dispatch, ctxRef, uiRef, rowSpace, setScrollTarget, runEffects, under]);
     return { actedRef, anchorFor, insertWhenClosed, onHistoryAction, onInsert, onRowDiscard, pendingInsertFocus };
 }
 
