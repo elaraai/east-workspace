@@ -20,7 +20,8 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
-import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
+import type { VisualPage } from "../../query/visual/print.js";
+import { LISTED_ORDERS, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages-en.js";
 import { SUMMARY_LABEL_KEY, summaryModel, summaryValueKey, type SummaryView } from "./summary-table.js";
 
@@ -34,10 +35,10 @@ function summaryOf(content: ReturnType<typeof v.of>): SummaryView {
     return content.value.view.value.value;
 }
 
-/** A summary over the quarter's orders, read from its answers. */
-async function modelOf(content: ReturnType<typeof v.of>) {
-    const { asks, answers } = await answered(content);
-    const model = summaryModel(summaryOf(content), asks, answers, LISTED_ORDERS, words, m);
+/** A summary over the quarter's orders, read from its answers: a page of it, its first unless given. */
+async function modelOf(content: ReturnType<typeof v.of>, page?: VisualPage) {
+    const { asks, answers } = await answered(content, QUARTER, page);
+    const model = summaryModel(summaryOf(content), asks, answers, LISTED_ORDERS, words, m, page?.offset);
     if (model === undefined) throw new Error("no model");
     return model;
 }
@@ -147,6 +148,24 @@ describe("summaryModel", () => {
         expect(model.shown).toEqual({ shown: 2, of: 4 });
         // The total is the query's: three customers, not one and two.
         expect(model.totals?.[0]?.get("v0")).toEqual({ value: float(3), label: "distinct", tone: undefined });
+    });
+
+    it("pages its first group's groups of their first N (#1667): Other closes the last page, and each page says where it stands", async () => {
+        // Revenue by region, high first: SA 170, NSW 50, VIC 30, WA 20 — the first three, then Western Australia as Other.
+        const summary = v.of("orders", v.summary({ rows: [v.group("region", { sort: "high", top: 3n })], values: [v.sum("revenue")], total: true }));
+        const first = await modelOf(summary, { offset: 0, size: 2 });
+        expect([rowsOf(first.table, 1), first.place]).toEqual([[["SA", 0, float(170)], ["NSW", 0, float(50)]], { first: 1, last: 2, total: 3 }]);
+        const last = await modelOf(summary, { offset: 2, size: 2 });
+        expect([rowsOf(last.table, 1), last.place]).toEqual([[["VIC", 0, float(30)], ["Other", 0, float(20)]], { first: 3, last: 3, total: 3 }]);
+        // The total row is every row's, on every page.
+        expect([first.totals?.[0]?.get("v0")?.value, last.totals?.[0]?.get("v0")?.value]).toEqual([float(270), float(270)]);
+    });
+
+    it("pages a summary of two groups by its heads, each over every customer it holds", async () => {
+        const summary = v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" }), v.group("customer")], values: [v.sum("revenue")] }));
+        const model = await modelOf(summary, { offset: 1, size: 2 });
+        expect(rowsOf(model.table, 1)).toEqual([["NSW", 0, float(50)], ["Harbour", 1, float(50)], ["VIC", 0, float(30)], ["Northwind", 1, float(30)]]);
+        expect([model.head(0), model.head(2), model.place]).toEqual([{ count: 1 }, { count: 1 }, { first: 2, last: 3, total: 4 }]);
     });
 
     it("prints a value with no unit grouped, to two decimals at most", async () => {

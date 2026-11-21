@@ -21,7 +21,7 @@ import { createInMemoryQueryCall } from "../in-memory-call.js";
 import { queryRoot } from "../one-shot.js";
 import { askProgram, type VisualAnswer } from "./ask.js";
 import { printStateOf } from "./filters.js";
-import { printVisual, visualValues, type PrintState, type RecordsPage, type VisualAsk } from "./print.js";
+import { printVisual, visualValues, type PrintState, type VisualAsk, type VisualPage } from "./print.js";
 import { printSourceOf } from "./source.js";
 
 /** An order. */
@@ -90,10 +90,10 @@ export interface Answered {
  *
  * @param content - The visual, as a placement holds it
  * @param state - The page's state; the quarter's filter unless given
- * @param page - A records table's rows it asks; its first page unless given
+ * @param page - The page of its rows it asks — a records table's, a list's, a summary's, a pivot's; its first unless given
  * @returns Its asks, their answers, and its values
  */
-export async function answered(content: ReturnType<typeof Studio.visual.of>, state: PrintState = QUARTER, page?: RecordsPage): Promise<Answered> {
+export async function answered(content: ReturnType<typeof Studio.visual.of>, state: PrintState = QUARTER, page?: VisualPage): Promise<Answered> {
     if (content.type !== "visual") throw new Error("not a visual");
     const printed = printVisual(content.value, ORDERS_SOURCE, state, page);
     if (printed.kind !== "asks") throw new Error(`printed ${printed.kind}`);

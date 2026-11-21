@@ -19,7 +19,8 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters, type MatrixRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
-import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
+import type { VisualPage } from "../../query/visual/print.js";
+import { LISTED_ORDERS, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages-en.js";
 import { pivotModel, type PivotView } from "./pivot-matrix.js";
 
@@ -33,10 +34,10 @@ function pivotOf(content: ReturnType<typeof v.of>): PivotView {
     return content.value.view.value.value;
 }
 
-/** A pivot over the quarter's orders, read from its answer. */
-async function modelOf(content: ReturnType<typeof v.of>) {
-    const { asks, answers } = await answered(content);
-    const model = pivotModel(pivotOf(content), asks, answers, LISTED_ORDERS, words, m);
+/** A pivot over the quarter's orders, read from its answer: a page of it, its first unless given. */
+async function modelOf(content: ReturnType<typeof v.of>, page?: VisualPage) {
+    const { asks, answers } = await answered(content, QUARTER, page);
+    const model = pivotModel(pivotOf(content), asks, answers, LISTED_ORDERS, words, m, page?.offset);
     if (model === undefined) throw new Error("no model");
     return model;
 }
@@ -115,6 +116,21 @@ describe("pivotModel", () => {
             ["Other", "no data", "30.00", "20.00"],
         ]);
         expect(model.shown).toBeUndefined();
+    });
+
+    it("pages its rows (#1667) over the same columns, every page on the heat ramp of every pair, and says where the page stands", async () => {
+        const pivot = v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "month" }), value: v.sum("revenue"), heat: true }));
+        const first = await modelOf(pivot, { offset: 0, size: 2 });
+        const last = await modelOf(pivot, { offset: 2, size: 2 });
+        // Victoria and Western Australia hold no July, and the page still draws it: its columns are every page's.
+        expect([columnsOf(last.matrix), last.matrix.rows.map((row) => row.value)]).toEqual([columnsOf(first.matrix), ["VIC", "WA"]]);
+        // Every pair's 95th percentile is 100, so steps of 20 on both pages: 30 and 20 the second step.
+        expect([first.heat, last.heat?.map((step) => step.label)]).toEqual([last.heat, ["0", "20", "40", "60", "≥80"]]);
+        expect(cellsOf(last.matrix)).toEqual([
+            ["VIC", ["no data", "free", "transparent"], ["30.00", "neutral", "heat.2"], ["no data", "free", "transparent"]],
+            ["WA", ["no data", "free", "transparent"], ["no data", "free", "transparent"], ["20.00", "neutral", "heat.2"]],
+        ]);
+        expect([first.place, last.place]).toEqual([{ first: 1, last: 2, total: 4 }, { first: 3, last: 4, total: 4 }]);
     });
 
     it("leaves out a rest no fold makes — a distinct count — and says what it holds of how many", async () => {

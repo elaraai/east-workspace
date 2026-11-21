@@ -18,7 +18,8 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition } from "../../query/visual/clicks.js";
-import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
+import type { VisualPage } from "../../query/visual/print.js";
+import { LISTED_ORDERS, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages-en.js";
 import { listModel, type ListView } from "./list-rows.js";
 
@@ -32,10 +33,10 @@ function listOf(content: ReturnType<typeof v.of>): ListView {
     return content.value.view.value;
 }
 
-/** A list over the quarter's orders, read from its answer. */
-async function modelOf(content: ReturnType<typeof v.of>) {
-    const { asks, answers } = await answered(content);
-    const model = listModel(listOf(content), asks, answers, LISTED_ORDERS, words, m);
+/** A list over the quarter's orders, read from its answer: a page of it, its first unless given. */
+async function modelOf(content: ReturnType<typeof v.of>, page?: VisualPage) {
+    const { asks, answers } = await answered(content, QUARTER, page);
+    const model = listModel(listOf(content), asks, answers, LISTED_ORDERS, words, m, page?.offset);
     if (model === undefined) throw new Error("no model");
     return model;
 }
@@ -60,6 +61,14 @@ describe("listModel", () => {
         const model = await modelOf(v.of("orders", v.list({ item: v.group("customer", { top: 2n }), values: [v.mean("margin")] })));
         // As is natural: Harbour has no margin.
         expect(model.rows.map((row) => [row.name, row.caption, row.values[0]?.text])).toEqual([["Harbour", undefined, "no data"], ["Northwind", undefined, "25%"]]);
-        expect([model.bar, model.shown]).toEqual([false, { shown: 2, of: 3 }]);
+        expect([model.bar, model.shown, model.place]).toEqual([false, { shown: 2, of: 3 }, { first: 1, last: 2, total: 2 }]);
+    });
+
+    it("pages its items (#1667): a page from its offset, its bar against the largest of every item, never the page's, and where the page stands", async () => {
+        const list = v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue")], bar: true }));
+        // Northwind 130, Summit 90, Harbour 50: the second alone.
+        const model = await modelOf(list, { offset: 1, size: 1 });
+        expect(model.rows.map((row) => [row.name, row.share])).toEqual([["Summit", 90 / 130]]);
+        expect([model.place, model.shown]).toEqual([{ first: 2, last: 2, total: 3 }, undefined]);
     });
 });

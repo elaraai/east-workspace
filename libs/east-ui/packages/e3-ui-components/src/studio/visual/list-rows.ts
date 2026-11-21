@@ -8,8 +8,9 @@
  * group of its item, in its order: the item's name, a caption under it (the
  * caption field's value in the group's first row), up to two values in
  * short, each with its unit (`612k AUD`), and, with the ranking bar on, the
- * first value's share of the largest. Its item's first N; a list cut says
- * what it holds of how many.
+ * first value's share of the largest. A page of its items at a time (#1667),
+ * and where the page stands; its item's first N, and a list its first N cut
+ * says what it holds of how many.
  *
  * It imports neither React nor the renderers.
  *
@@ -21,10 +22,10 @@ import type { QueryWords } from "../../query/model/words.js";
 import { valueText } from "../../query/results-table.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { ClickedGroup } from "../../query/visual/clicks.js";
-import { visualValues, type VisualAsk } from "../../query/visual/print.js";
+import { topOf, visualValues, type VisualAsk } from "../../query/visual/print.js";
 import { partsAt, readGroups } from "../../query/visual/read.js";
 import type { StudioMessages } from "../messages.js";
-import { groupLabel, shortValue, unitLabel, visualWords, type VisualShown, type VisualSource, type VisualView } from "./values.js";
+import { groupLabel, placeOf, shortValue, unitLabel, visualWords, type VisualPlace, type VisualShown, type VisualSource, type VisualView } from "./values.js";
 
 /** A list's view: its item, its caption, its values, and whether it ranks them with a bar. */
 export type ListView = Extract<VisualView, { type: "list" }>["value"];
@@ -67,16 +68,19 @@ export interface ListRow {
 /**
  * A list, read from its answer.
  *
- * @property rows - Its rows, in its item's order
+ * @property rows - Its page's rows, in its item's order
  * @property bar - Whether its rows carry the ranking bar
- * @property shown - What it holds of how many items, when it holds fewer; `undefined` when it holds them all
+ * @property place - Where its page stands among its items: what its foot says, and its pager pages
+ * @property shown - What its first N holds of how many items, when its item keeps fewer than there are; `undefined` when it holds them all
  */
 export interface ListModel {
-    /** Its rows, in its item's order. */
+    /** Its page's rows, in its item's order. */
     readonly rows: readonly ListRow[];
     /** Whether its rows carry the ranking bar. */
     readonly bar: boolean;
-    /** What it holds of how many items, when it holds fewer; `undefined` when it holds them all. */
+    /** Where its page stands among its items. */
+    readonly place: VisualPlace;
+    /** What its first N holds of how many items, when its item keeps fewer than there are; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
 }
 
@@ -89,27 +93,31 @@ export interface ListModel {
  * @param source - Its source
  * @param words - The words and formatters
  * @param m - The Studio's words
+ * @param offset - Its page's first item, from 0
  * @returns The model; `undefined` when its program did not answer
  *
  * @remarks
- * - **The rows** are its program's groups, in its item's order — by key, or
- *   by the first value high or low — its first N where its item keeps N.
+ * - **The rows** are its program's page of groups, in its item's order — by
+ *   key, or by the first value high or low — of its first N where its item
+ *   keeps N.
  * - **A bar** is the row's first value over the largest first value among
- *   the rows drawn; a value under 0, or a largest of 0, draws none.
+ *   the list's items — every page's, as its program answered it; a value
+ *   under 0, or a largest of 0, draws none.
  */
-export function listModel(list: ListView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages): ListModel | undefined {
+export function listModel(list: ListView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages, offset = 0): ListModel | undefined {
     const values = visualValues(variant("list", list));
     const read = readGroups(asks, answers, values, "groups");
     const keyType = read?.keyTypes[0];
     if (read === undefined || keyType === undefined) return undefined;
     const said = visualWords(words, m);
     const f = said.formatters;
-    const kept = list.item.top.type === "none" ? read.groups : read.groups.slice(0, Number(list.item.top.value));
+    const top = topOf(list.item);
     const captionType = read.extraTypes.get("c");
-    const firsts = kept.map((group) => partsAt(group.parts, 0));
-    const largest = Math.max(0, ...firsts.filter((first): first is number => first !== undefined));
+    const firsts = read.groups.map((group) => partsAt(group.parts, 0));
+    // The largest among every item, as the program answered it: a bar means the same on every page.
+    const largest = read.largest ?? Math.max(0, ...firsts.filter((first): first is number => first !== undefined));
     const units = values.map((value) => unitLabel(value, source, m));
-    const rows = kept.map((group, i): ListRow => ({
+    const rows = read.groups.map((group, i): ListRow => ({
         name: groupLabel(group.keys[0], keyType, list.item, said, m),
         caption: captionType === undefined || list.caption.type === "none" ? undefined : valueText(captionType, group.extras.get("c"), said, list.caption.value),
         values: values.map((_value, v): ListValue => {
@@ -119,6 +127,8 @@ export function listModel(list: ListView, asks: readonly VisualAsk[], answers: r
         share: largest <= 0 || firsts[i] === undefined ? undefined : Math.max(0, firsts[i]!) / largest,
         clicked: [{ group: list.item, key: group.keys[0], type: keyType }],
     }));
-    const of = Math.max(read.of, read.groups.length);
-    return { rows, bar: list.bar, shown: kept.length < of ? { shown: kept.length, of } : undefined };
+    return {
+        rows, bar: list.bar, place: placeOf(offset, rows.length, read.of, top),
+        shown: top !== undefined && top < read.of ? { shown: top, of: read.of } : undefined,
+    };
 }

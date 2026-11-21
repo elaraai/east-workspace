@@ -13,7 +13,8 @@
  * its goal a small label after its header; each value's numbers in short, at
  * their column's scale (`1.81M`, `0.48M`); and a group's first N, then the
  * rest folded into Other where the fold is exact — else left out, which it
- * says.
+ * says. A page of its first group's groups at a time (#1667) — of its heads,
+ * each over every group of the second it holds — and where the page stands.
  *
  * It imports neither React nor the renderers.
  *
@@ -26,13 +27,13 @@ import type { QueryWords } from "../../query/model/words.js";
 import { rowsTable, type ResultColumn } from "../../query/results-table.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { ClickedGroup } from "../../query/visual/clicks.js";
-import type { VisualAsk, VisualValue } from "../../query/visual/print.js";
-import { foldGroups, partsAt, readGroups, readTotal, type ReadGroup, type ReadGroups } from "../../query/visual/read.js";
+import { topOf, type VisualAsk, type VisualValue } from "../../query/visual/print.js";
+import { foldGroups, partsAt, readGroups, readTotal, type ReadGroup } from "../../query/visual/read.js";
 import { capitalised } from "../../shared/capital.js";
 import type { StudioMessages } from "../messages.js";
 import {
-    groupLabel, groupWords, shortNumber, valueFieldFormat, valueHead, visualWords, wrongSideOfGoal,
-    type VisualGroup, type VisualShown, type VisualSource, type VisualView,
+    groupLabel, groupWords, placeOf, shortNumber, valueFieldFormat, valueHead, visualWords, wrongSideOfGoal,
+    type VisualGroup, type VisualPlace, type VisualShown, type VisualSource, type VisualView,
 } from "./values.js";
 
 /** A summary table's view: its groups, its values, and whether it has a total row. */
@@ -62,7 +63,8 @@ const compareFloat = compareFor(FloatType);
  * @property head - Whether a row is a head, by its pre-order index, with how many groups it holds
  * @property note - What a column's head says after its label, by its key: a value's goal — `goal 11.00`
  * @property number - A column's number in short, by its key, at the scale of the largest the column draws
- * @property shown - What it holds of how many groups, when it holds fewer; `undefined` when it holds them all
+ * @property place - Where its page stands among its first group's groups: what its foot says, and its pager pages
+ * @property shown - What its first group's first N holds of how many, when it keeps fewer and no fold makes Other; `undefined` when it holds them all
  * @property clicked - The groups a row stands for, by its pre-order index: what a click on it is made on (TBL-6)
  */
 export interface SummaryModel {
@@ -78,7 +80,9 @@ export interface SummaryModel {
     readonly note: (columnKey: string) => string | undefined;
     /** A column's number in short, by its key, at the scale of the largest the column draws; `undefined` for a column of no value. */
     readonly number: (n: number, columnKey: string) => string | undefined;
-    /** What it holds of how many groups, when it holds fewer; `undefined` when it holds them all. */
+    /** Where its page stands among its first group's groups. */
+    readonly place: VisualPlace;
+    /** What its first group's first N holds of how many, when it keeps fewer and no fold makes Other; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
     /** The groups a row stands for, by its pre-order index (TBL-6): a head's its own, a group under a head both; `undefined` for Other's. */
     readonly clicked: (rowIndex: number) => readonly ClickedGroup[] | undefined;
@@ -119,22 +123,14 @@ function ordered(groups: readonly ReadGroup[], dim: 0 | 1, group: VisualGroup, t
 }
 
 /**
- * A level's groups, already in order: its first N, then the rest folded into
- * Other where the fold is exact — complete, and no distinct count among them;
- * else left out, and counted.
+ * A head's groups of the second, in their order: its first N, then the rest
+ * folded into Other where the fold is exact — no distinct count among them;
+ * else left out. Every group of a head on the page is answered.
  */
-function cutAt(groups: readonly ReadGroup[], group: VisualGroup, complete: boolean): { readonly kept: readonly ReadGroup[]; readonly other: ReadGroup | undefined; readonly hidden: number } {
-    if (group.top.type === "none" || groups.length <= Number(group.top.value)) return { kept: groups, other: undefined, hidden: 0 };
+function cutAt(groups: readonly ReadGroup[], group: VisualGroup): { readonly kept: readonly ReadGroup[]; readonly other: ReadGroup | undefined } {
+    if (group.top.type === "none" || groups.length <= Number(group.top.value)) return { kept: groups, other: undefined };
     const kept = groups.slice(0, Number(group.top.value));
-    const rest = groups.slice(kept.length);
-    const other = complete ? foldGroups(rest) : undefined;
-    return { kept, other, hidden: other === undefined ? rest.length : 0 };
-}
-
-/** What a level holds of how many groups, when it holds fewer. */
-function shownOf(read: ReadGroups, hidden: number, kept: number): SummaryModel["shown"] {
-    if (read.of > read.groups.length) return { shown: read.groups.length, of: read.of };
-    return hidden > 0 ? { shown: kept, of: kept + hidden } : undefined;
+    return { kept, other: foldGroups(groups.slice(kept.length)) };
 }
 
 /**
@@ -146,23 +142,26 @@ function shownOf(read: ReadGroups, hidden: number, kept: number): SummaryModel["
  * @param source - Its source
  * @param words - The words and formatters
  * @param m - The Studio's words
+ * @param offset - Its page's first group of its first field, from 0
  * @returns The model; `undefined` when its groups' program did not answer
  *
  * @remarks
- * - **One group**: a row a group, in its order — by key, or by the first
- *   value high or low — its first N then Other.
+ * - **A page** of its first group's groups (#1667), in the order its program
+ *   answered them — by key, or by the first value high or low — of its first
+ *   N; Other, past them, on the last page.
+ * - **One group**: a row a group.
  * - **Two groups**: each head of the first, its values from the `heads`
- *   program, in that order, over its groups of the second, in theirs; the
- *   first N heads then Other, which folds the heads past them; under each
- *   head its first N groups then Other. A head says how many groups it holds.
+ *   program, in that order, over every group of the second it holds, in
+ *   theirs — its first N, then Other. A head says how many groups it holds.
  * - **Other** folds its groups' parts — a sum's and a mean's add, a least
- *   takes the lesser — and is left out where no fold is exact: a distinct
- *   count, or groups its program cut at its limit.
+ *   takes the lesser — the first group's as its program answered it; it is
+ *   left out where no fold is exact: a distinct count, which its first N
+ *   then says it holds of how many.
  * - **The total row**, when asked, is the `total` program's: each value
  *   after its measure's word — `sum`, `ratio`.
  * - **A goal** marks each cell on its wrong side, the total's too.
  */
-export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages): SummaryModel | undefined {
+export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages, offset = 0): SummaryModel | undefined {
     const values = summary.values;
     const leaves = readGroups(asks, answers, values, "groups");
     const [first, second] = summary.rows;
@@ -170,19 +169,24 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
     const said = visualWords(words, m);
     const label = (key: unknown, type: EastType | undefined, group: VisualGroup) => (type === undefined ? m.other() : groupLabel(key, type, group, said, m));
     const rows: SummaryRow[] = [];
-    let shown: SummaryModel["shown"];
     const heads = second === undefined ? undefined : readGroups(asks, answers, values, "heads");
+    // What it pages: its first group's groups — its heads, with a second — of their first N.
+    const paged = heads ?? leaves;
+    const top = topOf(first);
+    const place = placeOf(offset, paged.groups.length, paged.of, top);
+    // Other, past the first N, closes the last page: the rest folded, as the program answered it.
+    const other = place.last >= place.total ? paged.other?.[0] : undefined;
+    // A first N that no fold makes Other of says what it holds of how many.
+    const shown = top !== undefined && top < paged.of && paged.other === undefined ? { shown: top, of: paged.of } : undefined;
     if (second === undefined || heads === undefined) {
-        // One group: a row a group, its first N then Other.
-        const level = cutAt(ordered(leaves.groups, 0, first, leaves.keyTypes[0]!), first, leaves.of <= leaves.groups.length);
-        for (const group of level.kept) {
+        // One group: a row a group.
+        for (const group of leaves.groups) {
             rows.push({
                 label: label(group.keys[0], leaves.keyTypes[0], first), parts: group.parts, depth: 0, head: undefined,
                 clicked: [{ group: first, key: group.keys[0], type: leaves.keyTypes[0]! }],
             });
         }
-        if (level.other !== undefined) rows.push({ label: m.other(), parts: level.other.parts, depth: 0, head: undefined });
-        shown = shownOf(leaves, level.hidden, level.kept.length);
+        if (other !== undefined) rows.push({ label: m.other(), parts: other.parts, depth: 0, head: undefined });
     } else {
         // Two groups: each head over its groups, which the groups' program answers under its key.
         const headType = heads.keyTypes[0]!;
@@ -193,14 +197,11 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
             if (held === undefined) under.set(group.keys[0], [group]);
             else held.push(group);
         }
-        // Every group of a head is answered, unless the groups' program was cut.
-        const complete = leaves.of <= leaves.groups.length;
-        const level = cutAt(heads.groups, first, heads.of <= heads.groups.length);
-        for (const head of level.kept) {
+        for (const head of heads.groups) {
             const groups = under.get(head.keys[0]) ?? [];
             const headed: ClickedGroup = { group: first, key: head.keys[0], type: headType };
             rows.push({ label: label(head.keys[0], headType, first), parts: head.parts, depth: 0, head: { count: groups.length }, clicked: [headed] });
-            const inner = cutAt(ordered(groups, 1, second, groupType), second, complete);
+            const inner = cutAt(ordered(groups, 1, second, groupType), second);
             for (const group of inner.kept) {
                 rows.push({
                     label: label(group.keys[1], groupType, second), parts: group.parts, depth: 1, head: undefined,
@@ -210,8 +211,7 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
             if (inner.other !== undefined) rows.push({ label: m.other(), parts: inner.other.parts, depth: 1, head: undefined });
         }
         // Other's head: the heads past the first N, folded — the query's own heads, so a mean is still the query's.
-        if (level.other !== undefined) rows.push({ label: m.other(), parts: level.other.parts, depth: 0, head: {} });
-        shown = shownOf(heads, level.hidden, level.kept.length) ?? (complete ? undefined : { shown: leaves.groups.length, of: leaves.of });
+        if (other !== undefined) rows.push({ label: m.other(), parts: other.parts, depth: 0, head: {} });
     }
     // The columns: the groups' labels, then each value, headed by its name and its unit, its goal a note after them.
     const heads_ = values.map((value) => valueHead(value, source, said, m));
@@ -272,6 +272,7 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
             const format = declared[i]!;
             return shortNumber(n, format.type === "some" ? format.value : undefined, said.formatters, scales[i] === 0 ? undefined : scales[i]);
         },
+        place,
         shown,
         clicked: (rowIndex) => rows[rowIndex]?.clicked,
     };

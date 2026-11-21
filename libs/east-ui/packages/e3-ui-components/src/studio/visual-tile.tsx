@@ -413,12 +413,13 @@ function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey,
                 case "chart": return <ChartVisual chart={view.value} asks={asks} answers={asked.answers} source={listed} />;
                 case "table":
                     switch (view.value.type) {
+                        // A paged view asks its own page's programs: the first page's are these, asked once (#1667).
                         case "records": return <RecordsVisual visual={visual} source={listed} read={read} state={state} storageKey={storageKey} />;
-                        case "summary": return <SummaryVisual summary={view.value.value} asks={asks} answers={asked.answers} source={listed} storageKey={storageKey} />;
-                        case "pivot": return <PivotVisual pivot={view.value.value} asks={asks} answers={asked.answers} source={listed} storageKey={storageKey} />;
+                        case "summary": return <SummaryVisual visual={visual} summary={view.value.value} source={listed} read={read} state={state} storageKey={storageKey} />;
+                        case "pivot": return <PivotVisual visual={visual} pivot={view.value.value} source={listed} read={read} state={state} storageKey={storageKey} />;
                     }
                     break;
-                case "list": return <ListVisual list={view.value} asks={asks} answers={asked.answers} source={listed} />;
+                case "list": return <ListVisual visual={visual} list={view.value} source={listed} read={read} state={state} storageKey={storageKey} />;
                 default:
                     break;
             }
