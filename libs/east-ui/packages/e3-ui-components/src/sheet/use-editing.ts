@@ -12,12 +12,18 @@
  * rows — what a Save landed among it, over the rows read before the Save,
  * until their source reads them again; and a row changed here that the rows,
  * read again, hold no more — another session removed it — standing where it
- * stood until its session has read it by its key (`standing-rows.ts`).
+ * stood until its session has read it by its key (`standing-rows.ts`). Over a
+ * record whose rows' keys the app builds from them (`key`,
+ * east-workspace#1709), each gesture leaves every row it made or changed under
+ * the key its row builds.
  *
  * @packageDocumentation
  */
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+    OptionType, StringType, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant,
+    type EastType, type ValueTypeOf, type option,
+} from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, getSomeorUndefined, useEditSession, type EntryKeys } from "@elaraai/east-ui-components";
@@ -28,6 +34,7 @@ import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
+import { settleBuiltKeys, type TouchedEntry } from "../shared/built-keys.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import { closedOver } from "./standing-rows.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -38,6 +45,7 @@ const stringEqual = equalFor(StringType);
 const encodeWire = encodeBeast2For(Sheet.Types.Row);
 const NO_ROWS: readonly SheetRowValue[] = [];
 const NO_POSITIONS: readonly number[] = [];
+const NO_MOVES: ReadonlyMap<string, string> = new Map();
 /** A row as the Sheet's `project` answers it. */
 const decodeRow = decodeBeast2For(Sheet.Types.Row);
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
@@ -110,7 +118,8 @@ export interface SheetEditingResult {
      * gives its `label`; else the label is the origin's. A gesture that `joins` the last one — recorded with the same
      * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1). A gesture with a new entry, or
      * a new line, the app left a field of empty that no person can set (#1536) throws {@link SheetRefused}, and nothing
-     * is drafted. An entry the sheet no longer draws — scrolled out of the rows read, or out of a narrowing's — begins
+     * is drafted; so does one that would leave a row under a key another row stands under, or whose key fails as it is
+     * built, where the app builds a row's key from the row (`key`). An entry the sheet no longer draws — scrolled out of the rows read, or out of a narrowing's — begins
      * from the version a host `held` of it while it was drawn (#1579): what removing a row ticked there takes.
      */
     record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>) => boolean;
@@ -150,6 +159,17 @@ export interface SheetEditingResult {
      * which holds every row there is.
      */
     readByKeys: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
+    /**
+     * Each entry the last gesture to move one put under another key, by the key it left — over a record whose rows' keys
+     * the app builds from them (`key`), where the gesture made a row or changed what a row's key reads. What the ring
+     * keeps to its row by.
+     */
+    moved: ReadonlyMap<string, string>;
+    /**
+     * The key an entry stands under since the last gesture recorded: another than `id` where that gesture put it there
+     * — a row it made under a made-up key, which stood under it for the gesture alone — else `id` itself.
+     */
+    under: (id: string) => string;
     /** Editing is available now. */
     available: boolean;
     /** The session's version. */
@@ -222,8 +242,21 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             return entry === undefined ? prior : decodeRow(editing.project(encodeEntry(entry), id)) as SheetRowValue;
         };
     }, [editing]);
+    // An entry under a key, over a record whose entries hold their own key in a field: its draft and its row with the
+    // key there, as the sheet's own `underKey` gives them. None where the record has no such field.
+    const keyedAs = useMemo(() => {
+        const under = getSomeorUndefined(editing.underKey);
+        if (under === undefined) return undefined;
+        const draftType = fromEastTypeValue(editing.draftType);
+        const [encodeDraft, decodeDraft] = [encodeBeast2For(draftType), decodeBeast2For(draftType)];
+        return (id: string, version: EntryVersion): EntryVersion => {
+            if (version.draft === undefined || version.wire === undefined) return version;
+            const keyed = under(encodeDraft(version.draft), encodeWire(version.wire), id);
+            return { draft: decodeDraft(keyed.draft), wire: decodeRow(keyed.row) as SheetRowValue, place: version.place };
+        };
+    }, [editing]);
     // A new row the session makes another key — another write having added its own under the first (#1583) — goes on
-    // under it whole: its draft's identity field, where its draft holds one, and its row with it.
+    // under it whole: its draft's identity field, where its draft holds one, its record's key field, and its row with it.
     const underKey = useMemo(() => {
         const idField = editing.idField.type === "some" ? editing.idField.value : undefined;
         return (next: string, version: EntryVersion): EntryVersion => {
@@ -232,9 +265,48 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const renamed = idField !== undefined && idField in fields ? { ...fields, [idField]: variant("value", next) } : fields;
             const draft = isVariant(held) ? variant(held.type, renamed) : renamed;
             const prior = version.wire === undefined ? undefined : { ...version.wire, id: next };
-            return { draft, wire: wireOf(next, draft, prior), place: version.place };
+            const moved: EntryVersion = { draft, wire: wireOf(next, draft, prior), place: version.place };
+            return keyedAs?.(next, moved) ?? moved;
         };
-    }, [editing, wireOf]);
+    }, [editing, wireOf, keyedAs]);
+    // The key an entry's row builds, where the app builds a row's key from the row (`key`): from the entry as far as its
+    // draft holds it, each field still empty read as its type's empty value — so a row is keyed from the gesture that
+    // makes it, whatever of it is typed first.
+    const builtKey = useMemo(() => {
+        const build = getSomeorUndefined(editing.rowKey);
+        if (build === undefined) return undefined;
+        const draftType = fromEastTypeValue(editing.draftType);
+        const entryType = fromEastTypeValue(editing.entryType);
+        const encodeEntry = encodeBeast2For(editing.entryType) as (entry: unknown) => Uint8Array;
+        const filled = (type: EastType, held: unknown): unknown => {
+            if (held === undefined) return defaultValue(type);
+            if (type.type === "Struct") return Object.fromEntries(Object.entries(type.fields).map(([name, field]) => [name, filled(field, (held as Record<string, unknown>)[name])]));
+            if (type.type === "Array") return (held as unknown[]).map((item) => filled(type.value, item));
+            return held;
+        };
+        return (id: string, draft: unknown): string => build(encodeEntry(filled(entryType, normalizeDraft(draftType, draft, id).held)));
+    }, [editing]);
+    // Each entry a gesture leaves goes under the key its row builds, in the gesture, by the one rule every builder
+    // follows (`../shared/built-keys.ts`). A key another row stands under, and one that fails as it is built, refuse the
+    // whole gesture, and the footer says why. Answers each entry moved, by the key it left.
+    const rekey = useCallback((updates: Map<string, TouchedEntry<SheetRowValue>>, startOf: (id: string) => EntryVersion): ReadonlyMap<string, string> => {
+        if (builtKey === undefined) return NO_MOVES;
+        const settled = settleBuiltKeys(updates, {
+            holds: (version) => version.draft !== undefined,
+            build: (id, version) => builtKey(id, version.draft),
+            original: startOf,
+            underKey,
+        });
+        if (!("refused" in settled)) return settled.all;
+        const why = settled.refused.why;
+        if ("failed" in why) console.error("[Sheet] a row's key could not be built from the row:", why.failed);
+        throw new SheetRefused({ id: "keyRefused", what: editing.children.type === "some" ? "group" : "row", noun, why });
+    }, [builtKey, underKey, noun, editing]);
+    // What the last gesture recorded moved, for a caller that holds a row by the key it made it under; and the last
+    // gesture's that moved any, which the ring follows.
+    const lastMoves = useRef<ReadonlyMap<string, string>>(NO_MOVES);
+    const [moved, setMoved] = useState<ReadonlyMap<string, string>>(NO_MOVES);
+    const under = useCallback((id: string): string => lastMoves.current.get(id) ?? id, []);
     // Where no record Slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
     const entriesByKey = useMemo(() => (rowsId === undefined || editing.keyType.type !== "some" ? undefined
         : entriesByKeyOf(rowsId, fromEastTypeValue(editing.keyType.value), fromEastTypeValue(editing.entryType))), [rowsId, editing.keyType, editing.entryType]);
@@ -302,7 +374,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
         const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
-        const updates = new Map<string, EntryUpdate>();
+        const updates = new Map<string, TouchedEntry<SheetRowValue>>();
         const inputs = new Map<string, SheetRowValue>();
         const at = day ?? sheetDayOf(new Date());
         let origin: Origin = "typed";
@@ -321,7 +393,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
                 draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)), at)),
                 wire: prepared.row, place: placement ?? current.place,
             };
-            updates.set(id, { id, before, after });
+            updates.set(id, { before, after });
         };
         for (const event of events) {
             switch (event.type) {
@@ -340,7 +412,15 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const before = updates.get(id)?.before ?? originalOf(id);
             const current = updates.get(id)?.after ?? before;
             if (current.draft === undefined) continue;
-            updates.set(id, { id, before, after: edit(current) });
+            updates.set(id, { before, after: edit(current) });
+        }
+        // Where the app builds a row's key from the row, each entry stands under the key it builds.
+        const moves = rekey(updates, originalOf);
+        const arrived = new Set(moves.values());
+        // A new entry holds its key in its record's key field from the gesture that makes it — a duplicate its own, never
+        // the key of the row it copies. One just moved under the key it builds holds it there already.
+        if (keyedAs !== undefined) {
+            for (const [id, { before, after }] of updates) if (before.draft === undefined && !arrived.has(id)) updates.set(id, { before, after: keyedAs(id, after) });
         }
         // A new entry, or a new line, the app left a field of empty — one no person can set — is never drafted (#1536):
         // the whole gesture is refused, and the footer names the field.
@@ -351,13 +431,24 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const gestureOrigin = originOverride ?? origin;
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
-        return session.record([...updates.values()], gestureOrigin, label, joins);
-    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun, day]);
+        const recorded = session.record([...updates].map(([id, versions]): EntryUpdate => ({ id, ...versions })), gestureOrigin, label, joins);
+        if (recorded) {
+            lastMoves.current = moves;
+            if (moves.size > 0) setMoved(moves);
+        }
+        return recorded;
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun, day, keyedAs, rekey]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);
-        return session.record(updates, origin, label);
-    }, [session, observed, replacing]);
+        // An entry the versions add holds its key in its record's key field, as one a gesture adds does.
+        const keyed = keyedAs === undefined ? updates
+            : updates.map((update) => (update.before.draft === undefined ? { ...update, after: keyedAs(update.id, update.after) } : update));
+        // An answer names each row's key itself: none is moved under another.
+        const recorded = session.record(keyed, origin, label);
+        if (recorded) lastMoves.current = NO_MOVES;
+        return recorded;
+    }, [session, observed, replacing, keyedAs]);
     // The source position each drafted row the rows draw stood at as the layer was last made: what stands through a
     // carry-over (`standing-rows.ts`).
     const stoodRef = useRef<ReadonlyMap<string, number>>(new Map());
@@ -489,5 +580,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, drafts, codecs, awaiting]);
     return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, shown, project: wireOf, readByKeys: pinned?.readCurrentAll,
-        available: available && !replacing && !retained, version };
+        moved, under, available: available && !replacing && !retained, version };
 }

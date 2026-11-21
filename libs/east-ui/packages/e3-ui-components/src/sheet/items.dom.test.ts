@@ -1,0 +1,44 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * Where a place of the row space stands once a gesture has put rows under
+ * other keys (`key`, east-workspace#1709): what the ring, a range and an open
+ * editor follow. A row follows to the key it stands under now; a group that
+ * moved takes its lines and its blank line with it, each named after its
+ * group; and a padding row's place is the gesture's own to set.
+ */
+
+import { describe, expect, test } from "vitest";
+import { blankLineId, lineId } from "./model.js";
+import { followRows, rekeyedSlots, type RowSlot } from "./items.js";
+
+/** Where each place of `before` stands in `after`, in order. */
+const places = (before: readonly (RowSlot | undefined)[], after: readonly (RowSlot | undefined)[]): (number | null | undefined)[] => {
+    const follow = followRows(before, after);
+    return before.map((_slot, r) => follow(r));
+};
+
+describe("a place of the row space follows its row under another key (east-workspace#1709)", () => {
+    test("ruling 6 — a row moved under another key is followed to where it stands now, a row that kept its key to its own, and a padding row's place is left to the gesture", () => {
+        // B-2 moves under A-1: the rows stand in key order, so it comes first.
+        const before: RowSlot[] = [{ id: "B-1" }, { id: "B-2" }, { blank: 0 }];
+        const after: RowSlot[] = [{ id: "A-1" }, { id: "B-1" }, { blank: 0 }];
+        expect(places(rekeyedSlots(before, new Map([["B-2", "A-1"]])), after)).toEqual([1, 0, undefined]);
+    });
+
+    test("ruling 6 — a group moved under another key takes its lines and its blank line with it: a place on one of its lines follows the line, never dropped as a row that left", () => {
+        // The order R-1, its two lines and its blank line, then R-5: R-1 moves under R-9, past R-5.
+        const before: RowSlot[] = [
+            { id: "R-1" }, { id: lineId("R-1", "L1") }, { id: lineId("R-1", "L2") }, { id: blankLineId("R-1") },
+            { id: "R-5" }, { id: lineId("R-5", "L1") }, { id: blankLineId("R-5") },
+        ];
+        const after: RowSlot[] = [
+            { id: "R-5" }, { id: lineId("R-5", "L1") }, { id: blankLineId("R-5") },
+            { id: "R-9" }, { id: lineId("R-9", "L1") }, { id: lineId("R-9", "L2") }, { id: blankLineId("R-9") },
+        ];
+        expect(places(rekeyedSlots(before, new Map([["R-1", "R-9"]])), after)).toEqual([3, 4, 5, 6, 0, 1, 2]);
+    });
+});

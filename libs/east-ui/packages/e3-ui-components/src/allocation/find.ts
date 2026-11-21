@@ -30,7 +30,7 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { Formatters, KeySearchSource } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { hiddenLine, type RowHidden } from "../shared/schedule/hidden.js";
-import { STRING_KEYS } from "../shared/schedule/kind-keys.js";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
 import { readsRows, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
 import type { HiddenBins } from "./hidden.js";
 import type { AllocationWords } from "./messages.js";
@@ -92,16 +92,18 @@ export interface AllocationFindProps {
 export function useAllocationFind({ value, domain, part, words, hidden, onPick }: AllocationFindProps): KeySearchSource | undefined {
     const latest = useRef({ value, domain, words, hidden, onPick });
     useLayoutEffect(() => { latest.current = { value, domain, words, hidden, onPick }; });
+    // The bins' keys at their record's own key type: a number typed into the box is a number key.
+    const binKeys = value.bin.kind.editing.keyType;
     // The bins' own source hides no bin on the board: their lanes', resources' and arrivals' do (`hidings`).
     const sources = useMemo((): SoughtSource<FoundBin>[] => (part === undefined ? [] : [{
-        part, keys: STRING_KEYS,
+        part, keys: binKeys.type === "some" ? kindKeys(binKeys.value) : STRING_KEYS,
         read: readsRows((id, row) => {
             const { value: board, domain: rows } = latest.current;
             const roles = board.bin.read(rows.encodeRow(row));
             return { key: id, at: roles.at, lane: roles.lane, arrival: roles.arrival.type === "some" ? roles.arrival.value : undefined,
                 parts: partsOf(roles).map(p => p.key) };
         }),
-    }]), [part]);
+    }]), [part, binKeys]);
     return useSearchRecords({
         name: "Allocation", resetKey: "allocation", sources,
         line: ({ item: bin, hidden: hides }) => {

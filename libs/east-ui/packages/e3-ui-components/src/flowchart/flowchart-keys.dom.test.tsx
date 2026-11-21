@@ -26,7 +26,10 @@
  *   DateTime, a placeholder — Save waiting, Issues listing it at its key field,
  *   no row named in its place — until the viewer types its key in the
  *   inspector; and by Blob, which no form types, none: + LANE, + STATE,
- *   Duplicate and the Steps' cards off, each saying why.
+ *   Duplicate and the Steps' cards off, each saying why. A kind told the app's
+ *   own rule (`newKey`, east-workspace#1709) keys each new row by it, whatever
+ *   its key type would make — read through the rail, the rule told the key of
+ *   every row the rail's read holds.
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
  *   it is refused, saying why, and records nothing; its choices cleared, the
@@ -50,7 +53,11 @@
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, variant, type BlockBuilder } from "@elaraai/east";
+import {
+    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, printFor, variant,
+    type BlockBuilder,
+} from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
@@ -61,7 +68,15 @@ import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps 
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessages, flowchartMessagesOf } from "./messages.js";
 
-const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx });
+/** A station holding its key in its code (`keyField`), beside its label. */
+const CodedStation = StructType({ code: StringType, label: StringType });
+/** The stations the labelled steps stand at, each its code its key: the Bench and the Oven. */
+const codedStations = e3.record("flowchart_coded_stations", DictType(StringType, CodedStation), {
+    initial: new SortedMap([["Bench", { code: "Bench", label: "Bench" }], ["Oven", { code: "Oven", label: "Oven" }]], compareFor(StringType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx, "flowchart/key-field": { codedStations } });
 // The trays' Steps tab lays its cards out: each Library alone measured, the canvas as jsdom has it.
 measureLibrary();
 
@@ -323,6 +338,99 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.keyedStations.type)(withRows(stations, compareNumber, [[11n, { label: m.newLane({ n: 4, count: "4" }) }]])));
         expect(printFor(fx.keyedSteps.type)(await h.read(fx.keyedSteps))).toBe(printFor(fx.keyedSteps.type)(withRows(steps, compareNumber, [[12n, { name: "Proof", station: 2n }]])));
         expect(printFor(fx.keyedMoves.type)(await h.read(fx.keyedMoves))).toBe(printFor(fx.keyedMoves.type)(withRows(moves, compareNumber, [[11n, { from: 2n, to: 11n }]])));
+    });
+
+    test("ruling 1 — told the app's rule, + LANE keys a station by the stations' `newKey` — S-3, never a name made up — and Duplicate a step by the steps' — a hundred past the largest, never the next number — and Save writes each under it", async () => {
+        const stations = await h.read(fx.labelledStations), steps = await h.read(fx.labelledSteps);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(fx.labelledStations));
+            // The stations in the bakery's own scheme, S-1, S-2, …; the steps numbered in hundreds.
+            const nextStation = $.const(East.function([SetType(StringType)], StringType, (_$, taken) => East.str`S-${taken.size().add(1n)}`));
+            const nextStep = $.const(East.function([SetType(IntegerType)], IntegerType, (_$, taken) =>
+                taken.reduce((_$2, most, key) => East.max(most, key), 0n).add(100n)));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", newKey: nextStep }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", newKey: nextStation }),
+            };
+        }, "1");
+        await addLane(c);
+        expect(laneKeys(c)).toEqual(["Bench", "Oven", "S-3"]);
+        await gesture(() => { fireEvent.click(node(c, "1")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect(node(c, "102")?.hasAttribute("data-selected")).toBe(true);
+        expect(await save()).toEqual([fx.labelledStations.name, fx.labelledSteps.name].sort(compareText));
+        expect(printFor(fx.labelledStations.type)(await h.read(fx.labelledStations)))
+            .toBe(printFor(fx.labelledStations.type)(withRows(stations, compareText, [["S-3", { label: m.newLane({ n: 3, count: "3" }) }]])));
+        expect(printFor(fx.labelledSteps.type)(await h.read(fx.labelledSteps)))
+            .toBe(printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[102n, { name: "Weigh", station: "Bench" }]])));
+    });
+
+    test("ruling 1 — where the app's rule gives a key a row holds, or fails, no row is added and the footer says why: + LANE a station whose key the oven holds, Duplicate a step no key could be made for", async () => {
+        const stations = await h.read(fx.labelledStations);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(fx.labelledStations));
+            // The stations' rule gives the oven's own key; the steps' fails.
+            const ovens = $.const(East.function([SetType(StringType)], StringType, (_$, _taken) => "Oven"));
+            const none = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+                $2.if(taken.has(1n), ($3) => { $3.error("no step numbers left"); });
+                return 0n;
+            }));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", newKey: none }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", newKey: ovens }),
+            };
+        }, "1");
+        await addLane(c);
+        expect([laneKeys(c), footer(c)]).toEqual([["Bench", "Oven"], m.gestureRefused({ refusal: "taken", sort: "lanes", name: stations.get("Oven")!.label })]);
+        await gesture(() => { fireEvent.click(node(c, "1")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect(footer(c)).toBe(m.gestureRefused({ refusal: "unkeyed", sort: "states" }));
+        expect(footer(c)).toBe("No key can be made for this state");
+    });
+
+    test("ruling 9 — read through the rail, Duplicate keys a step by the steps' `newKey` told the key of every step the rail's read holds — one past the largest, 12, never 1 — and Save writes it under it", async () => {
+        const steps = await h.read(fx.keyedSteps);
+        const c = await open(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.keyed.ruled", {
+                states: { source: Data.bindPaged(fx.keyedSteps, { indexes: ["flowchart_keyed_steps_by_station"] }) },
+            }));
+            const stepsBound = $.let(Record.bind(fx.keyedSteps));
+            const stepEntries = $.let(Data.bindPaged(fx.keyedSteps));
+            const stations = $.let(Data.bind(fx.keyedStations));
+            // The steps numbered one past the largest the app is told is taken.
+            const nextStep = $.const(East.function([SetType(IntegerType)], IntegerType, (_$, taken) =>
+                taken.reduce((_$2, most, key) => East.max(most, key), 0n).add(1n)));
+            return {
+                slice: { slice },
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", entries: stepEntries, newKey: nextStep }),
+                lanes: Flowchart.lanes(stations, { label: "label" }),
+            };
+        });
+        await gesture(() => { fireEvent.click(node(c, "9")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect([node(c, "12")?.hasAttribute("data-selected"), node(c, "1")]).toEqual([true, null]);
+        expect(await save()).toEqual([fx.keyedSteps.name]);
+        expect(printFor(fx.keyedSteps.type)(await h.read(fx.keyedSteps)))
+            .toBe(printFor(fx.keyedSteps.type)(withRows(steps, compareFor(IntegerType), [[12n, { name: "Proof", station: 2n }]])));
+    });
+
+    test("ruling 1 — holding its key in a field (`keyField`), a station + LANE adds holds its own key in its code from the first, and Save writes it so", async () => {
+        const stations = await h.read(codedStations);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(codedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", keyField: "code" }),
+            };
+        }, "1");
+        await addLane(c);
+        expect(laneKeys(c)).toEqual(["Bench", "Oven", "lane-3"]);
+        expect(await save()).toEqual([codedStations.name]);
+        expect(printFor(codedStations.type)(await h.read(codedStations)))
+            .toBe(printFor(codedStations.type)(withRows(stations, compareText, [["lane-3", { code: "lane-3", label: m.newLane({ n: 3, count: "3" }) }]])));
     });
 
     test("keyed by their ends, Connect keys a move as the transitions' `key` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {

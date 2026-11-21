@@ -46,7 +46,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { resolveRowSource } from "@elaraai/east-ui/internal";
-import { Record } from "../bind/record.js";
+import { Record, checkRecordKeyField } from "../bind/record.js";
 import type { SheetSaves } from "./optimise.js";
 import type { SheetInternalOptions } from "./root.js";
 
@@ -75,6 +75,8 @@ export interface SheetRecordRowsOptions<K extends EastType> {
     entry?: SheetRecordEntry<K> | undefined;
     /** The record's entries a window at a time — `Data.bindPaged(record)`. */
     window?: unknown;
+    /** The field of the record's entries that holds each one's key: a new entry is drafted, and saved, with its key there. */
+    keyField?: string | undefined;
 }
 
 /** What a record's rows hand the sheet's root. */
@@ -164,18 +166,20 @@ export interface SheetRailRecord {
  *
  * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`; a `Dict`
  * @param rows - The rows the `rows` source's page holds, a pinned source (`recordBaseSource`)
+ * @param keyField - The field of the record's entries that holds each one's key, where one does
  * @returns The keyed Apply, and what it writes
- * @throws Error naming the prop and the remedy: a record that is not a Dict or is not bound with its patch mutation, and one whose entries the `rows` source does not page
+ * @throws Error naming the prop and the remedy: a record that is not a Dict or is not bound with its patch mutation, one whose entries the `rows` source does not page, and a `keyField` that is no field of the entries of the key's type
  * @internal
  */
-export function railRecord(record: unknown, rows: ExprType<EastType>): SheetRailRecord {
+export function railRecord(record: unknown, rows: ExprType<EastType>, keyField?: string): SheetRailRecord {
     const { handle, recordType, name } = boundRecord(record);
+    if (keyField !== undefined) checkRecordKeyField("Sheet", recordType, keyField);
     const { served, entries } = servedOf(rows, recordType);
     if (!entries) {
         throw new Error(`Sheet: \`record\` holds ${printType(recordType)}, and \`slice\`'s \`rows\` source pages ${served === undefined ? "no collection" : printType(served)} — ` +
             "a sheet saves the rows it reads: hand it the record its `rows` source reads");
     }
-    return { applyKeyed: Record.onApply(handle as never, { keyed: true }), saves: { record: name, rows: recordType, entry: undefined } };
+    return { applyKeyed: Record.onApply(handle as never, { keyed: true, keyField } as never), saves: { record: name, rows: recordType, entry: undefined } };
 }
 
 /** A row type's identity field, checked: a String field of a row struct, or of every arm of an entry of groups and loose rows. */
@@ -191,9 +195,9 @@ function checkIdField(element: EastType, id: string, rows: string): void {
  * Builds the rows a record hands a sheet, and the Apply back to it (#1182).
  *
  * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`; a `Dict`
- * @param options - `entry` for one entry's rows, or `window` to page the entries
+ * @param options - `entry` for one entry's rows, or `window` to page the entries; `keyField`, the field of the entries that holds each one's key
  * @returns The rows, the options the form fixes, the root's own options, and the missing entry's key
- * @throws Error naming the prop and the remedy: a record that is not a Dict or is not bound with its patch mutation, `window` with `entry`, a window over another collection, or an `entry` whose rows or id field the entry type does not have
+ * @throws Error naming the prop and the remedy: a record that is not a Dict or is not bound with its patch mutation, `window` with `entry`, a window over another collection, an `entry` whose rows or id field the entry type does not have, a `keyField` that is no field of the entries of the key's type, or one with `entry`
  * @internal
  */
 export function recordRows(record: unknown, options: SheetRecordRowsOptions<EastType> = {}): SheetRecordRows {
@@ -201,15 +205,17 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     const keyType = recordType.key as EastType;
     const entryType = recordType.value as EastType;
 
+    const keyField = options.keyField;
     if (options.entry === undefined) {
         // The record's entries are the rows (SB13), committed by key (SB16).
-        const applyKeyed = Record.onApply(handle as never, { keyed: true });
+        if (keyField !== undefined) checkRecordKeyField("Sheet", recordType, keyField);
+        const applyKeyed = Record.onApply(handle as never, { keyed: true, keyField } as never);
         const saves: SheetSaves = { record: name, rows: recordType, entry: undefined };
         if (options.window === undefined) {
             return {
                 data: handle,
                 options: {},
-                internal: { keyOrdered: true, applyKeyed, sourceId: name },
+                internal: { keyOrdered: true, applyKeyed, sourceId: name, keyField },
                 saves,
                 missing: East.value(none, OptionType(StringType)),
             };
@@ -223,7 +229,7 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
         return {
             data: window,
             options: {},
-            internal: { applyKeyed },
+            internal: { applyKeyed, keyField },
             saves,
             missing: East.value(none, OptionType(StringType)),
         };
@@ -231,6 +237,9 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
 
     if (options.window !== undefined) {
         throw new Error("Sheet: `window` pages the record's entries, and with `entry` the rows are one entry's field, read whole — pass one or the other");
+    }
+    if (keyField !== undefined) {
+        throw new Error("Sheet: `keyField` names the field of the record's entries that holds their key, and with `entry` the rows are one entry's, identified by `entry.id` — leave it out");
     }
     // One entry's rows (SB15): its Array field, in its own order.
     const { rows, id } = options.entry;

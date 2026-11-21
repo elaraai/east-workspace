@@ -592,7 +592,7 @@ describe("a new row's key: a kind's `key` builds it from its row (#1549)", () =>
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
             transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to" }),
         })), `Flowchart.transitions: the transitions are keyed by ${printType(MoveKey)}, and Connect makes one with no key typed — give \`key\`, ` +
-            "building one's key from its row, or key them by String or Integer");
+            "building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer");
         // Given `key`, they build; read only, they need none.
         East.function([], UIComponentType, ($) => PublicFlowchart({
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),

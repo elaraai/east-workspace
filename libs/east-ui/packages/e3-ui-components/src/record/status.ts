@@ -9,8 +9,8 @@
  *
  * - **the last gesture's words** — the Sheet's notice, worded again where the
  *   Record has words of its own: a row added, rows deleted, an Add the app
- *   gave nothing to draft from, the issues gone to; every other notice in the
- *   Sheet's words;
+ *   gave nothing to draft from, a row refused for its key, the issues gone
+ *   to; every other notice in the Sheet's words;
  * - **else what a step of the history did** — Undo, Redo, Discard and
  *   Apply, each told as it is taken ({@link stepOf}, {@link createRecordStatus}),
  *   an Apply once its batch is read back, as the history bar stops saying it
@@ -35,6 +35,7 @@ import { DRAFT_ISSUE_TEXT } from "@elaraai/east-ui-components/internal";
 import type { SheetNotice } from "../sheet/sheet-types.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { noticeText, type SheetWords } from "../sheet/words.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 import { recordMessages as m, type RecordTally } from "./messages.js";
 import type { RecordTicks } from "./ticks.js";
 
@@ -193,6 +194,7 @@ export function recordNoticeText(notice: SheetNotice, words: SheetWords, noun: R
                 : m.deleted({ n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
         case "cantAdd": return notice.what === "row" ? m.cantAdd({ noun: noun.singular, label: notice.label }) : noticeText(notice, words);
         case "renumbered": return m.renumbered({ from: notice.from, to: notice.to, n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
+        case "keyRefused": return notice.what === "row" ? keyRefusedText(noun.singular, notice.why) : noticeText(notice, words);
         case "issue": {
             // The issues holding Apply: a new row's empty fields alone, or the app's refusals among them (AD3).
             if (issues.length === 0) return noticeText(notice, words);

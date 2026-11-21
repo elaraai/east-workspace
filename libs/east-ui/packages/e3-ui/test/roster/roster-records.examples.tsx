@@ -135,7 +135,7 @@ export const indexedStaffFit = e3.function("indexed_roster_staff_fit", {
     const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
     dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
     const read = $.const(rosterFitRead);
-    const answer = $.const(Roster.answer);
+    const answer = $.const(Roster.answer());
     return answer(request, read(people, week, shiftRows, teamRows, positionRows, activityRows), rosterGreedyFit);
 });
 

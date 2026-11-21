@@ -36,7 +36,9 @@
  *   hands back, whole. A gesture any of whose rows its kind refuses records
  *   nothing.
  * - **A new row's key (#1549)** is its kind's to make (`newKey`): built from
- *   the row by the kind's `key`; else, keyed by String, minted unique among
+ *   the row by the kind's `key`; else by the app's own rule, the kind's
+ *   `newKey`, given the keys taken — its session's to ask; else, keyed by
+ *   String, minted unique among
  *   every key the Schematic has read and drafted (`mintKey`, SC7); by Integer,
  *   one past the largest the record, the drafts and the gesture hold — a kind
  *   read by key asking its record for its largest; by any type the form types,
@@ -79,17 +81,25 @@ import type { EditHistory, LandedEntry, Origin } from "@elaraai/east-ui-componen
 import { draftedOf, type DraftedRows, type DraftedRowsKind } from "../shared/schedule/drafted-rows.js";
 import {
     useScheduleEditing,
-    type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
-    type ScheduleStandingRows,
+    type ScheduleChange, type ScheduleDrawnRows, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef,
+    type ScheduleRowRead, type ScheduleStandingRows,
 } from "../shared/schedule/editing.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
-import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
+import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec, windowRead } from "../shared/schedule/records.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
 import { NO_LANDED, type LandedRow, type SchematicDrafts, type SchematicLanded, type SortDrafts, type SortLanded } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
+import type { KindRows } from "./kind-rows.js";
 import { detailsKey } from "./record-keys.js";
+
+/**
+ * The rows of the kinds read by area that the paged Backlog's pages and the Index read outside their windows
+ * (`kind-rows.ts`), each at the revision it was read at: a row by the kind's slot and its key, and the keys of a kind's.
+ */
+export type SchematicPagedRows = Pick<KindRows<unknown>, "rowOf" | "keysOf">;
 
 const stringEqual = equalFor(StringType);
 
@@ -111,14 +121,8 @@ export interface SchematicKeyWords {
     readonly placeholder: (p: { name: string }) => string;
 }
 
-/** A new row's key, as its kind makes it (#1549). */
-export type SchematicNewKey =
-    /** Its key: built from its row, minted, one past the largest, or a placeholder until the viewer types its key. */
-    | { readonly key: string }
-    /** None: the key its row builds is held already, by the row of that key. */
-    | { readonly taken: string }
-    /** None: its kind's keys are of a type the form can't type — by the type's name — and its kind builds none. */
-    | { readonly untyped: string };
+/** A new row's key, as its kind makes it (#1549): every builder's (`shared/schedule/new-row-key.ts`). */
+export type SchematicNewKey = NewRowKey;
 
 /** A row a gesture moves under the key its fields build once the gesture writes them (#1549). */
 export interface SchematicMove {
@@ -179,14 +183,14 @@ export interface SchematicEditing {
     edited(record: string): boolean;
     /**
      * A new row's key, as its kind makes one (#1549; the module docs): built from the row the edit makes, by the kind's
-     * `key`, refused where a row stands under it; else, keyed by String, minted unique (SC7); by Integer, one past the
-     * largest; by a type the form types, a placeholder; by any other, none.
+     * `key`, refused where a row stands under it; else by the app's rule, the kind's `newKey`; else, keyed by String,
+     * minted unique (SC7); by Integer, one past the largest; by a type the form types, a placeholder; by any other, none.
      *
      * @param made - The edit making the row — an item's, a link's or a net's — under any key: its kind's, and the row the
      *   kind's `key` builds a key from
      * @param minted - The keys the gesture has made already
-     * @returns The key, or why there is none; `undefined` while a kind read by key asks its record for its largest, or
-     *   where the kind makes no row of the edit
+     * @returns The key, or why there is none — the app's rule giving a key a row holds, or failing, among them;
+     *   `undefined` while a kind read by key asks its record for its largest, or where the kind makes no row of the edit
      */
     newKey(made: SchematicEdit, minted?: ReadonlySet<string>): SchematicNewKey | undefined;
     /**
@@ -221,7 +225,8 @@ export interface SchematicEditing {
      */
     builds(slot: string): boolean;
     /**
-     * Why a kind adds no row (#1549): its keys are of a type the form can't type, and it builds none.
+     * Why a kind adds no row (#1549): its keys are of a type the form can't type, and it neither builds one nor is given
+     * the app's rule for one.
      *
      * @param slot - The kind's slot
      * @returns The key type's name; `undefined` for a kind that keys the rows it adds
@@ -229,7 +234,8 @@ export interface SchematicEditing {
     untyped(slot: string): string | undefined;
     /**
      * Whether the viewer types a kind's new rows' keys (#1549): it makes none of its own — keyed by neither String nor
-     * Integer, and building none — and the form types its key type. A new row waits under a placeholder until it is typed.
+     * Integer, building none and given no rule for one — and the form types its key type. A new row waits under a
+     * placeholder until it is typed.
      *
      * @param slot - The kind's slot
      */
@@ -266,7 +272,8 @@ function builderOf(kind: AnyKind | undefined): ((row: Uint8Array) => string) | u
 
 /** Whether a kind's new rows wait under a placeholder for the viewer to type their keys (#1549): it makes none of its own. */
 function placeholdersOf(kind: AnyKind): boolean {
-    return !kindKeys(kind.keyType).text && kind.keyType.type !== "Integer" && builderOf(kind) === undefined;
+    const rule = newRowKeyRule(kind, builderOf(kind) !== undefined);
+    return rule === "placeholder" || rule === "none";
 }
 
 /** A record a change names, as a row is found in it: its row type, its read by key, and its keys — a details record's its kind's. */
@@ -299,14 +306,15 @@ const NO_MINTED: ReadonlySet<string> = new Set<string>();
  * @param areas - The kinds read by area, by slot: never read whole, nor their narrowing complete
  * @param windows - The rows each kind read by area holds in its window, at the revision they were read at
  * @param words - What the editing says of a new row's key
- * @param paged - A row of a kind read by area the paged Backlog's pages read, by the kind's slot and the row's key, and the
- *   revision they read it at (#1393): asked as a gesture reads it, for a row the window does not hold
+ * @param paged - The rows of the kinds read by area the paged Backlog's pages and the Index read, at the revision they read
+ *   them at (#1393): a row the window does not hold is asked of them as a gesture reads it, and their keys are among those
+ *   a new row's key is made past, which its rule is told
  * @param retained - Whether what the canvas draws is retained (#1398, CL8): no record takes an edit while it is
  * @returns The editing
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
     held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows, words: SchematicKeyWords,
-    paged?: (slot: string, key: string) => { readonly revision: string; readonly row: Uint8Array } | undefined, retained = false): SchematicEditing {
+    paged?: SchematicPagedRows, retained = false): SchematicEditing {
     const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // The words as they stand when the history's check is made.
@@ -335,7 +343,10 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                 const ready = waiting(kind.ready, () => variant("incomplete", [{ field: "", message: wordsNow.current.placeholder({ name: kind.name }) }]));
                 // A kind read by area draws its rows from its window, which a Save's confirmation doesn't read: its session
                 // keeps what each Save landed, drawn until the window is read again.
-                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields, drawsLanded: areas.has(kind.key) });
+                out.push({
+                    key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, newKey: kind.newKey, ready, fields: kind.fields,
+                    drawsLanded: areas.has(kind.key),
+                });
             }
             const details = someOf(kind.details);
             if (details !== undefined && details.editable && details.editing.type === "some") {
@@ -374,39 +385,56 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             if (!kind.editable || kind.entries.type !== "some") continue;
             const entries = kind.entries.value;
             if (areas.has(kind.key)) {
-                out[kind.key] = (key) => {
-                    const at = entries.revision();
-                    if (at.type !== "some") return undefined;
-                    const window = windowsNow.current.get(kind.key);
-                    const inWindow = window === undefined || !stringEqual(window.revision, at.value) ? undefined : heldInWindow(some(window.rows), key);
-                    if (inWindow !== undefined) return inWindow;
-                    // A row the window doesn't hold, a page of the Backlog read at the revision: a drop placing it (#1393).
-                    const page = pagedNow.current?.(kind.key, key);
-                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                out[kind.key] = {
+                    row: (key) => {
+                        const at = entries.revision();
+                        if (at.type !== "some") return undefined;
+                        const window = windowsNow.current.get(kind.key);
+                        const inWindow = window === undefined || !stringEqual(window.revision, at.value) ? undefined : heldInWindow(some(window.rows), key);
+                        if (inWindow !== undefined) return inWindow;
+                        // A row the window doesn't hold, a page of the Backlog read at the revision: a drop placing it (#1393).
+                        const page = pagedNow.current?.rowOf(kind.key, key);
+                        return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                    },
+                    ids: function* () {
+                        const at = entries.revision();
+                        if (at.type !== "some") return;
+                        const window = windowsNow.current.get(kind.key);
+                        if (window !== undefined && stringEqual(window.revision, at.value)) yield* window.rows.keys();
+                        const page = pagedNow.current?.keysOf(kind.key);
+                        if (page !== undefined && stringEqual(page.revision, at.value)) yield* page.keys;
+                    },
                 };
                 continue;
             }
             const rows = keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows());
-            out[kind.key] = (key) => {
+            out[kind.key] = windowRead(() => {
                 const read = rows();
                 // The rows last read stand on the canvas while the record's revision now is read.
                 if (read.type === "some") lastRows.current.set(kind.key, read.value);
-                return heldInWindow(read, key);
-            };
+                return read;
+            });
         }
         return out;
     }, [kinds, areas]);
     // What the canvas draws of each kind's rows now, at whatever revision they were read (`ScheduleStandingRows`): a kind
     // read by area, its window's rows and the Backlog's pages; one read through its source, the rows its read last held.
     // A gesture begins from them — the row its person sees — so one made while a window is read again, after a Save or
-    // another session's write, is taken at once (a Save never stops the editing).
+    // another session's write, is taken at once (a Save never stops the editing); and a new row's key is made past their
+    // keys, which its rule is told.
     const standing = useMemo((): { current: ScheduleStandingRows } => {
-        const out: Record<string, (id: string) => Uint8Array | undefined> = {};
+        const out: Record<string, ScheduleDrawnRows> = {};
         for (const kind of kinds) {
             if (!kind.editable || kind.entries.type !== "some") continue;
             out[kind.key] = areas.has(kind.key)
-                ? (id) => windowsNow.current.get(kind.key)?.rows.get(id)?.row ?? pagedNow.current?.(kind.key, id)?.row
-                : (id) => lastRows.current.get(kind.key)?.get(id)?.row;
+                ? {
+                    row: (id) => windowsNow.current.get(kind.key)?.rows.get(id)?.row ?? pagedNow.current?.rowOf(kind.key, id)?.row,
+                    ids: function* () {
+                        yield* windowsNow.current.get(kind.key)?.rows.keys() ?? [];
+                        yield* pagedNow.current?.keysOf(kind.key)?.keys ?? [];
+                    },
+                }
+                : { row: (id) => lastRows.current.get(kind.key)?.get(id)?.row, ids: () => lastRows.current.get(kind.key)?.keys() ?? [] };
         }
         return { current: out };
     }, [kinds, areas]);
@@ -498,7 +526,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         }
         let read: option<option<Uint8Array>>;
         try {
-            read = own[record]?.(id) ?? side.entries.value.entry(id);
+            read = own[record]?.row(id) ?? side.entries.value.entry(id);
         } catch (err) {
             console.error(`[Schematic] ${record}'s row ${id} could not be read:`, err);
             return READING_ROW;
@@ -632,32 +660,11 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         const { value: payload, schedule: editing } = latest.current;
         const slot = made.ref.kind;
         const kind = kindOf(payload, slot);
-        if (kind === undefined) return undefined;
-        const keys = kindKeys(kind.keyType);
-        const holds = (key: string): boolean => minted.has(key) || taken(slot, key);
-        // Built from the row the edit makes: refused where a row stands under it.
-        const build = builderOf(kind);
-        if (build !== undefined) {
-            const change = changesOf([made])?.[0];
-            const row = change !== undefined && "row" in change ? change.row : undefined;
-            if (row === undefined) return undefined;
-            let key: string;
-            try {
-                key = build(row);
-            } catch (err) {
-                console.error(`[Schematic] ${kind.name}'s key could not be built from a new row:`, err);
-                return undefined;
-            }
-            return minted.has(key) || stands(slot, key) ? { taken: key } : { key };
-        }
-        if (keys.text) return { key: mintKey(holds) };
-        if (kind.keyType.type === "Integer") {
-            const key = editing.mint(slot, "", minted);
-            return key === undefined ? undefined : { key };
-        }
-        // A placeholder: a text minted that no key prints as, until the viewer types its key.
-        if (keys.typed) return { key: mintKey((key) => keys.isKey(key) || holds(key)) };
-        return { untyped: kind.keyType.type };
+        // A String key, and a placeholder, are minted unique (SC7).
+        return kind === undefined ? undefined : newRowKey({
+            builder: "Schematic", kind, slot, build: builderOf(kind), editing, made: () => changesOf([made])?.[0], minted,
+            taken: (key) => taken(slot, key), stands: (key) => stands(slot, key), madeUp: mintKey,
+        });
     }, [changesOf, taken, stands]);
     const moves = useCallback((edits: readonly SchematicEdit[]): SchematicMove[] => {
         const { value: payload } = latest.current;
@@ -710,13 +717,11 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     const builds = useCallback((slot: string): boolean => builderOf(kindOf(latest.current.value, slot)) !== undefined, []);
     const untyped = useCallback((slot: string): string | undefined => {
         const kind = kindOf(latest.current.value, slot);
-        if (kind === undefined || builderOf(kind) !== undefined) return undefined;
-        const keys = kindKeys(kind.keyType);
-        return keys.text || kind.keyType.type === "Integer" || keys.typed ? undefined : kind.keyType.type;
+        return kind !== undefined && newRowKeyRule(kind, builderOf(kind) !== undefined) === "none" ? kind.keyType.type : undefined;
     }, []);
     const keysTyped = useCallback((slot: string): boolean => {
         const kind = kindOf(latest.current.value, slot);
-        return kind !== undefined && placeholdersOf(kind) && kindKeys(kind.keyType).typed;
+        return kind !== undefined && newRowKeyRule(kind, builderOf(kind) !== undefined) === "placeholder";
     }, []);
 
     return useMemo(() => ({

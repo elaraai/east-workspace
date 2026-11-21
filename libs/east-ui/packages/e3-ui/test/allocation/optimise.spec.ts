@@ -100,7 +100,7 @@ describe("the types (#1622)", () => {
         assert.ok(isTypeEqual(Allocation.Types.OptimiseResult(ex.KilnBins), StructType({ bins: PatchType(ex.KilnBins) })));
         assert.equal(isTypeEqual(Allocation.Types.OptimiseResult(MinimalBins), Allocation.Types.OptimiseResult(ex.KilnBins)), false);
         assert.throws(() => Allocation.Types.OptimiseResult(KilnBin as unknown as DictType<EastType, EastType>), {
-            message: `Allocation.Types.OptimiseResult: is given ${printType(KilnBin)} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`,
+            message: `Allocation.Types.OptimiseResult: is given ${printType(KilnBin)} — it takes the bins' record type, a Dict of bins by their key: DictType(StringType, Bin), or DictType(IntegerType, Bin) for bins keyed by number`,
         });
     });
 

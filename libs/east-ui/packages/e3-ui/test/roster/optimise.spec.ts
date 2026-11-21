@@ -109,12 +109,21 @@ describe("the types (#1622)", () => {
         assert.equal(isTypeEqual(Roster.Types.OptimiseRequest({ edges: true }), Roster.Types.OptimiseRequest()), false);
     });
 
+    test("ruling 11 — given { edges: true, key }, the duties it must leave are named at the duties' own key type: `fixed` a Set of it, of Strings without `key`; a `key` that is no East type is refused", () => {
+        assert.ok(isTypeEqual(Roster.Types.OptimiseRequest({ edges: true, key: IntegerType }),
+            StructType({ from: DateTimeType, to: DateTimeType, period: Roster.Types.OptimisePeriod, run: IntegerType, slice: SLICE, fixed: SetType(IntegerType) })));
+        assert.ok(isTypeEqual(Roster.Types.OptimiseRequest({ edges: true, key: StringType }), Roster.Types.OptimiseRequest({ edges: true })));
+        assert.throws(() => Roster.Types.OptimiseRequest({ edges: true, key: "Integer" as never }), {
+            message: "Roster.Types.OptimiseRequest: `key` is the duties' key type, an East type — { edges: true, key: IntegerType } for duties keyed by number",
+        });
+    });
+
     test("a request type takes no row, and a result type a record's type alone, each refused otherwise", () => {
         assert.throws(() => (Roster.Types.OptimiseRequest as (options: unknown) => unknown)(WarehouseDuty), {
             message: "Roster.Types.OptimiseRequest: takes nothing, or { edges: true } for an optimiser that may change the duties at the week's edges",
         });
         assert.throws(() => Roster.Types.OptimiseResult(WarehouseDuty as unknown as DictType<EastType, EastType>), {
-            message: `Roster.Types.OptimiseResult: is given ${printType(WarehouseDuty)} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`,
+            message: `Roster.Types.OptimiseResult: is given ${printType(WarehouseDuty)} — it takes the duties' record type, a Dict of duties by their key: DictType(StringType, Duty), or DictType(IntegerType, Duty) for duties keyed by number`,
         });
     });
 
@@ -207,6 +216,31 @@ describe("`optimise`: Func.bind of an e3.function from OptimiseRequest() to Opti
         assert.throws(() => payload({ optimise: Func.bind(ex.rotaPlanNights) as never }), {
             message: `Roster: \`optimise\` answers ${printType(Roster.Types.OptimiseResult(ex.NightsShifts))}, not Roster.Types.OptimiseResult(${printType(ex.WarehouseDuties)}) — ` +
                 "a patch of each record the Roster edits",
+        });
+    });
+
+    test("ruling 11 — over duties keyed by number, an optimiser asking { edges: true, key: IntegerType } is taken; one asking { edges: true }, the duties' keys as text, is refused, naming the request it takes and the duties' key type", () => {
+        const Duties = DictType(IntegerType, WarehouseDuty);
+        const numbered = e3.record("roster_optimise_spec_numbered", Duties, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        const asking = (name: string, request: EastType) => e3.function(name, { inputs: [], args: [request as never], output: Roster.Types.OptimiseResult(Duties) }, ($) => {
+            const held = $.const(new Map(), Duties);
+            return { duties: East.diff(held, held) };
+        });
+        /** The optimiser's binding as the tag holds it, over the numbered duties. */
+        const bound = (def: unknown) => East.function([], FuncBindingType, ($) => {
+            const rota = $.let(Record.bind(numbered));
+            const optimise = $.let(Func.bind(def as never));
+            const kind = Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team",
+            });
+            return rosterOptimise(optimise, kind as never, rosterEdits(kind as never, undefined, undefined)).binding;
+        });
+        assert.doesNotThrow(() => bound(asking("roster_optimise_spec_numbered_edges", Roster.Types.OptimiseRequest({ edges: true, key: IntegerType }))));
+        assert.throws(() => bound(asking("roster_optimise_spec_numbered_text", Roster.Types.OptimiseRequest({ edges: true }))), {
+            message: `Roster: \`optimise\` asks ${printType(Roster.Types.OptimiseRequest({ edges: true }))}, not Roster.Types.OptimiseRequest({ edges: true, key: K }), ` +
+                `K the duties' key type ${printType(IntegerType)} — ` +
+                "a request carries the period in view, the run's number and the page's narrowing, and no row: the function reads what it needs from the workspace",
         });
     });
 });

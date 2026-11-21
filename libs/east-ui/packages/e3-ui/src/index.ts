@@ -94,6 +94,7 @@ export {
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
+    type RecordKeyField,
     recordBindPlatformFn,
 } from './bind/record.js';
 // The Record: `<Record>`, the table for a system of records, and the record
@@ -106,6 +107,10 @@ export {
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { ui } from './ui.js';
+// What the compiler calls, of this root, for a tag whose `key` is written
+// after a spread under this package's pragma (`<Record {...shared} key={…} />`);
+// no one imports it by hand.
+export { createElement } from './runtime/runtime.js';
 
 // The Studio (#787): components as code, the pages record operators build, and
 // the components a solution mounts — the builder, the page library, one page.

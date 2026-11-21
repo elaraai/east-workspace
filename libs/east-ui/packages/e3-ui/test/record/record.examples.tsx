@@ -10,9 +10,10 @@
  * records, and its columns from data (`Record Columns From Data - DX
  * Proposal.md` §2). Each example is the proposal's, whole: the record, its
  * binding, the Record. Two page the Sheet's 50,000 work orders
- * (`sheet/sheet-records.examples.tsx`) through their indexes, and the last
- * meets someone else's save — a change, a removal and an addition — in one
- * window.
+ * (`sheet/sheet-records.examples.tsx`) through their indexes, one meets
+ * someone else's save — a change, a removal and an addition — in one window,
+ * one keeps each row's key in the field that holds it, and the last keys each
+ * row by the key its row builds.
  */
 
 import {
@@ -1298,13 +1299,21 @@ export const recordConflicts = example({
                 { key: "1", name: "Supervised" },
                 { key: "2", name: "Competent" },
             ], ArrayType(LevelType));
-            // A new member's key in the crew's own scheme: given every key taken, the first C-00N none of them is.
+            // A new member's key in the crew's own scheme: given every key taken, the first C-NNN none of them is — its
+            // number three digits at least, C-009 then C-010.
             const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const idOf = $.const(East.function([IntegerType], StringType, ($2, n) => {
+                    const digits = $2.let(East.str`${n}`);
+                    $2.while(digits.length().lessThan(3n), ($3) => {
+                        $3.assign(digits, East.str`0${digits}`);
+                    });
+                    return East.str`C-${digits}`;
+                }));
                 const n = $.let(taken.size().add(1n));
-                $.while(taken.has(East.str`C-00${n}`), ($2) => {
+                $.while(taken.has(idOf(n)), ($2) => {
                     $2.assign(n, n.add(1n));
                 });
-                return East.str`C-00${n}`;
+                return idOf(n);
             }));
             // A new member as they join: not yet inducted, not trained — their name left to type.
             const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Crew), (_$) => Record.patch(Crew, { inducted: false, forklift: "0" })));
@@ -1339,3 +1348,116 @@ export const recordConflicts = example({
     inputs: [],
 });
 
+// ============================================================================
+// Example 14 — rows that hold their own key in a field
+// ============================================================================
+
+/** A member of staff: their staff id, which their row is keyed by too, their name and their team. */
+export const StaffMember = StructType({ id: StringType, name: StringType, team: StringType });
+export const recordStaff = e3.record("record_staff", DictType(StringType, StaffMember), {
+    initial: new Map([
+        ["S-001", { id: "S-001", name: "A. Morgan", team: "Inbound" }],
+        ["S-002", { id: "S-002", name: "B. Ellis", team: "Outbound" }],
+    ]),
+    mutations: (mutation) => ({
+        // The staff list's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordStaffIds = example({
+    keywords: ["Record", "keyField", "key field", "key in a field", "row key", "id", "newKey", "newRow", "Record.patch", "Add", "read only"],
+    description: "A record whose rows hold their own key in a field: the staff list keyed by staff id, each member's `id` their key too. `keyField` names the field, so a member Add drafts shows the id the Record keyed them by at once and is saved with it — and takes the next id with their key where someone else's save took theirs first. `newRow` gives a new member their team and says nothing of their id, and the id's column is read only",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const staff = $.let(Record.bind(recordStaff));
+            // A new member's key in the list's own scheme: given every key taken, the first S-NNN none of them is — its
+            // number three digits at least, S-009 then S-010.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const idOf = $.const(East.function([IntegerType], StringType, ($2, n) => {
+                    const digits = $2.let(East.str`${n}`);
+                    $2.while(digits.length().lessThan(3n), ($3) => {
+                        $3.assign(digits, East.str`0${digits}`);
+                    });
+                    return East.str`S-${digits}`;
+                }));
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(idOf(n)), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
+                return idOf(n);
+            }));
+            // A new member as they join: in Inbound, their name left to type — and their id the Record's to keep.
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StaffMember), (_$) => Record.patch(StaffMember, { team: "Inbound" })));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={staff}
+                        // The field each member's key is held in too: the Record keeps it for every member it adds.
+                        keyField="id"
+                        title="Staff"
+                        noun={{ singular: "member", plural: "members" }}
+                        columns={{
+                            name: Record.column.title(StaffMember, { header: "Name", width: "176px" }),
+                            id:   Record.column.text(StaffMember, { header: "Staff id", width: "112px" }),
+                            team: Record.column.text(StaffMember, { header: "Team", width: "136px" }),
+                        }}
+                        newKey={newKey}
+                        newRow={newRow}
+                        name="recordStaffIds"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 15 — rows keyed by the key their row builds
+// ============================================================================
+
+/** A stock location: what it holds, and the aisle and the bin its key is built from. */
+export const StockLocation = StructType({ item: StringType, aisle: StringType, bin: IntegerType });
+export const recordLocations = e3.record("record_locations", DictType(StringType, StockLocation), {
+    initial: new Map([
+        ["A-1", { item: "Pallet wrap", aisle: "A", bin: 1n }],
+        ["A-2", { item: "Strapping", aisle: "A", bin: 2n }],
+        ["B-1", { item: "Corner boards", aisle: "B", bin: 1n }],
+    ]),
+    mutations: (mutation) => ({
+        // The locations' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordBuiltKeys = example({
+    keywords: ["Record", "key", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "newRow", "Record.patch", "Add", "duplicate key", "key taken", "refused"],
+    description: "A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `key` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const locations = $.let(Record.bind(recordLocations));
+            // A new location as it is added: in aisle C, its bin and what it holds left to type.
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockLocation), (_$) => Record.patch(StockLocation, { aisle: "C" })));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={locations}
+                        // A location's key, built from its row: its aisle and its bin.
+                        key={(location) => East.str`${location.aisle}-${location.bin}`}
+                        title="Stock locations"
+                        noun={{ singular: "location", plural: "locations" }}
+                        columns={{
+                            item:  Record.column.title(StockLocation, { header: "Holds", width: "200px" }),
+                            aisle: Record.column.text(StockLocation, { header: "Aisle", width: "96px" }),
+                            bin:   Record.column.integer(StockLocation, { header: "Bin", width: "96px" }),
+                        }}
+                        newRow={newRow}
+                        name="recordBuiltKeys"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

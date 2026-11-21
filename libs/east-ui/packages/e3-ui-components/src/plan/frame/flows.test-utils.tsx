@@ -7,11 +7,11 @@
  * Example 16's Plan as the link kinds' tests mount it (#1541, U10): the works'
  * centres, their four event kinds and the flows between them — a link kind
  * over a record — with its inspector, and the Plan's own `canConnect`, the
- * flows' `key`, their presets or a binding that reads them only where a test
- * gives one.
+ * flows' `key` or their `newKey`, the print jobs' `key` or their `keyField`,
+ * the flows' presets or a binding that reads them only where a test gives one.
  */
 
-import { DictType, East, FloatType, OptionType, StringType, StructType, some, type ExprType, type FunctionType } from "@elaraai/east";
+import { DictType, East, FloatType, OptionType, StringType, StructType, some, type ExprType, type FunctionType, type SetType } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -39,17 +39,23 @@ export interface FlowsPlanOptions {
     templates?: boolean;
     /** The flows' `key`, built from a new flow's row; left out, a String key made up. */
     key?: (flow: ExprType<typeof ex.PrintFlow>) => ExprType<StringType>;
+    /** The flows' `newKey`, the app's rule for a new flow's key, built inside the Plan's own block; left out, a String key made up. */
+    newKey?: () => ExprType<FunctionType<[SetType<StringType>], StringType>>;
     /** Whether the flows are read only, bound with `Data.bind`; left out, bound with their patch door. */
     readOnly?: boolean;
+    /** The print jobs' `key`, built from a job's row; left out, a String key made up. */
+    jobKey?: (job: ExprType<typeof ex.PrintJob>) => ExprType<StringType>;
+    /** The print jobs' `keyField`, the field a job holds its key in; left out, none. */
+    jobKeyField?: "customer";
 }
 
 /**
  * Example 16's Plan, with its inspector.
  *
- * @param options - The Plan's veto, the flows' key, whether they have templates and whether they are read only
+ * @param options - The Plan's veto, the flows' key or their rule for one, the print jobs' key or their key field, whether the flows have templates and whether they are read only
  * @returns The program, for the harness's `mount`
  */
-export function flowsPlan({ canConnect, templates = false, key, readOnly = false }: FlowsPlanOptions = {}) {
+export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly = false, jobKey, jobKeyField }: FlowsPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const works = $.let(Record.bind(ex.planLinkWorks, []));
         const plates = $.let(Record.bind(ex.planLinkPlates));
@@ -82,7 +88,11 @@ export function flowsPlan({ canConnect, templates = false, key, readOnly = false
                         }),
                     }),
                 }),
-                job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+                job: Schedule.events(jobs, {
+                    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                    ...(jobKey === undefined ? {} : { key: jobKey }),
+                    ...(jobKeyField === undefined ? {} : { keyField: jobKeyField }),
+                }),
                 binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
                 delivery: Schedule.events(deliveries, { name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" } }),
             },
@@ -93,6 +103,7 @@ export function flowsPlan({ canConnect, templates = false, key, readOnly = false
                     to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
                     quantity: { field: "sheets", unit: "k sheets" },
                     ...(key === undefined ? {} : { key }),
+                    ...(newKey === undefined ? {} : { newKey: $.const(newKey()) }),
                     ...(templates ? {
                         templates: Schedule.templates($.const(FLOW_PRESETS, DictType(StringType, FlowPreset)), { name: (preset) => preset.name, values: (preset) => preset.values }),
                     } : {}),

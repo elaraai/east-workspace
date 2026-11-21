@@ -31,7 +31,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, equalFor, fromEastTypeValue, isVariant, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { RosterComponent, RosterContextType, RosterIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -51,6 +51,7 @@ import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js"
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
+import { heldUnderMoves } from "../shared/schedule/moved.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -195,8 +196,13 @@ function RosterFrame(props: FrameProps) {
     // month's four to six — what the month's cells draw, and what a pattern dropped on one of them applies to. Its periods
     // are the week, or its seven days where the periods are days (#1550), each its row as stored and as drafted.
     const days = byDay(source);
+    // The stored duties as the drafts key them (east-workspace#1709): a duty an edit moved under the key its fields build
+    // is filed under it — the duty it was, edited, its Details saying what changed — and the key it left draws no duty
+    // removed. Each week's stored duties, and its drafted ones over them, read them so.
+    const movedDuties = editing?.schedule.movedFrom(source.duty.kind.key);
+    const storedRows = useMemo(() => heldUnderMoves(current ? data.duties : NO_STORED, movedDuties), [current, data.duties, movedDuties]);
     const weekStates = useMemo((): WeekState[] => span.weeks.map(at => {
-        const stored = place(current ? data.duties : NO_STORED, at);
+        const stored = place(storedRows, at);
         const drafted = placeDrafted(domain, stored, dutyDrafts, at, context);
         const heldTargets = placeTargets(current ? data.targets : NO_STORED_TARGETS, NO_TARGET_DRAFTS, at, source);
         const targets = placeTargets(current ? data.targets : NO_STORED_TARGETS, targetDrafts, at, source);
@@ -207,7 +213,7 @@ function RosterFrame(props: FrameProps) {
         });
         return { start: at, week: weekOf(drafted, targets, periods.map(p => p.period)), held: weekOf(stored, heldTargets, periods.map(p => p.held)),
             duties: drafted, heldDuties: stored, targets, periods };
-    }), [span.weeks, current, data.duties, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source, days]);
+    }), [span.weeks, current, storedRows, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source, days]);
     const [selection, setSelection] = useState<Selection>();
     // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), or the
     // week of the work requirement's day selected there (#1568), else the selected duty's — as drafted, else as stored: a
@@ -247,6 +253,15 @@ function RosterFrame(props: FrameProps) {
         setSelection(next); setTab("details");
     }, []);
     const select = useCallback((next: Selection | undefined) => { choose(next); if (next !== undefined) panes.current?.reveal("end"); }, [choose]);
+    // A duty that goes on under another key — one a gesture moved under the key its fields build (east-workspace#1709), a
+    // new one's from the key made for it — stays selected under it, its Details open on it still: each move followed once.
+    const selectionNow = useRef(selection); selectionNow.current = selection;
+    const renumbered = editing?.schedule.renumbered, dutySlot = source.duty.kind.key;
+    useLayoutEffect(() => {
+        const held = selectionNow.current;
+        const to = held?.type === "assignment" ? renumbered?.get(dutySlot)?.get(held.key) : undefined;
+        if (to !== undefined) setSelection({ type: "assignment", key: to });
+    }, [renumbered, dutySlot]);
     // A press whose whole purpose is to look at what it selects — a phone's lane line — opens the inspector's view, where
     // a tap that selects leaves main in view (the strip's tab saying what is selected).
     const inspect = useCallback((next: Selection) => { choose(next); panes.current?.open("end"); }, [choose]);
@@ -386,7 +401,10 @@ function RosterFrame(props: FrameProps) {
     const landingStyles = useLandingStyles();
     // An optimiser that takes the edges (#1553): the payload says which form its function takes.
     const edgesForm = source.optimise.type === "some" && source.optimise.value.edges;
-    const optimiseTypes = useMemo(() => rosterOptimiseTypes(domain.rowType, edgesForm), [domain, edgesForm]);
+    // Its answer's patch is read at the duties' own key type: a number key's as a number.
+    const dutyKeys = source.duty.kind.editing.keyType;
+    const optimiseTypes = useMemo(() => rosterOptimiseTypes(dutyKeys.type === "some" ? fromEastTypeValue(dutyKeys.value) as EastType : StringType, domain.rowType, edgesForm),
+        [dutyKeys, domain, edgesForm]);
     // The period a run is asked of: the one the Roster shows.
     const dayView = window.view.layout === "shifts" && window.view.period === "day";
     const asked = useMemo((): RosterOptimisePeriod => {
@@ -470,7 +488,7 @@ function RosterFrame(props: FrameProps) {
             const now = latestRun.current;
             // The duties the answer must leave, as the session holds them now, for an optimiser that takes the edges (#1553).
             const fixed = !edgesForm || now.reach === undefined ? undefined
-                : rosterFixed({ stored: now.stored, drafts: now.drafts, period: now.asked, reach: now.reach });
+                : rosterFixed({ stored: now.stored, drafts: now.drafts, period: now.asked, reach: now.reach, types: optimiseTypes });
             return rosterOptimiseRequest(now.asked, optimiseSlice(source.slice.type === "some" ? source.slice.value : undefined), n, fixed);
         }, landKey: week,
     });
@@ -562,7 +580,8 @@ function RosterFrame(props: FrameProps) {
     // focus is on — its chip, its tile, its card — and the board takes the focus, never the page's body, where the history's
     // keys, the Undo that brings it back, go unheard. A saved duty stays, its tombstone, and the focus with it.
     const keepOnBoard = (kind: "assignment" | "proposal", key: string) => {
-        if (kind === "assignment" && held.assignments.has(key)) return;
+        // A duty an edit moved under another key leaves its tombstone under the key it had: the board takes the focus.
+        if (kind === "assignment" && held.assignments.has(key) && movedDuties?.has(key) !== true) return;
         const board = main.current;
         const active = board?.ownerDocument.activeElement;
         if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;

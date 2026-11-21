@@ -22,8 +22,10 @@
  *   Unassigned row, takes none); the row draws that kind; its own `write` takes the gesture;
  *   and the Plan's `canDrop` lets land what the drop would do (`Plan.Types.Candidate`, #1541 U7). The
  *   first refusal is what the ghost says, in red: `Needs presses`, or
- *   `canDrop`'s message. Allowed, the ghost says what lands where:
- *   `Brochure run · Press A1 · Mon, Oct 12, 2026`.
+ *   `canDrop`'s message — and, last, why its event's key refuses it
+ *   (east-workspace#1709): the key its fields would build is another event's,
+ *   or the links naming it cannot follow it. Allowed, the ghost says what lands
+ *   where: `Brochure run · Press A1 · Mon, Oct 12, 2026`.
  * - **The gestures**, each one step of the Plan's one history through the
  *   recorder (`events.ts`): a template's drop `create`s an event of its kind
  *   under a new key (`mint`) — from the template's `at` on a day or longer —
@@ -585,6 +587,16 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
 
         /**
+         * Why a gesture's keys refuse it (east-workspace#1709), as the ghost says it: asked of a gesture not made yet, by
+         * what it would change — or, given none, of the key just asked for. `undefined` where its keys stand.
+         */
+        const keyWhy = (changes?: readonly PlanEventChange[]): string | undefined => {
+            const a = latest.current;
+            const refusal = changes === undefined ? a.editing.keyRefusal() : a.editing.keyRefusalOf(changes);
+            return refusal === undefined ? undefined : a.words.m.keyRefused({ kind: refusal.name, why: refusal.why });
+        };
+
+        /**
          * Where an event of a kind would land on what a row stands for, as a candidate says it: the resource's own
          * row — its landing row, whichever row beside it the kind draws on — or the kind's Unassigned row, and its times.
          */
@@ -634,14 +646,15 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const end = kind.instant ? start : new Date(start.getTime() + durationMinutes(template.duration) * MINUTE_MS);
             const span = { start: timeInstant(start), end: timeInstant(end) };
             const id = a.editing.mint(kind.key, keyFrom, NONE_MINTED);
-            if (id === undefined) return refused(m.dropRefused(), span);
+            if (id === undefined) return refused(keyWhy() ?? m.dropRefused(), span);
             const gesture = variant("create", { template: template.key, start, end, resource: resourceFor(target) }) as PlanEventGestureValue;
+            const changes: PlanEventChange[] = [{ kind: kind.key, id, gesture }, ...placing(kind, id, target, lane)];
             const why = judge(kind, { id, entry: NO_ENTRY, gesture },
-                eventCandidate(ADD, kind.key, from, landsOn(kind, target, start, end, lane)), target.kind === "unassigned");
+                eventCandidate(ADD, kind.key, from, landsOn(kind, target, start, end, lane)), target.kind === "unassigned") ?? keyWhy(changes);
             if (why !== undefined) return refused(why, span);
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what: template.name, where, ...whenOf(start) }), span },
-                changes: [{ kind: kind.key, id, gesture }, ...placing(kind, id, target, lane)],
+                changes,
                 origin: "drop",
                 label: `Drop ${template.name} on ${where}`,
                 selects: { keys: [printEventRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
@@ -692,10 +705,12 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const said = a.veto?.refusal(eventCandidate(ADD, kind.key, variant("card", { library: from.library, key: from.key }), {
                     row: standsOn(kind, read), start: span?.start, end: span?.end,
                 }, { kind: kind.key, key: ref.key }));
-                if (said !== undefined) return refused(said, span);
+                const sets = card.sets.map((set): PlanEventChange => ({ kind: kind.key, id: ref.key, gesture: variant("field", { path: [...set.path], value: set.value }) }));
+                const refusal = said ?? keyWhy(sets);
+                if (refusal !== undefined) return refused(refusal, span);
                 return {
                     verdict: { allowed: true, caption: m.dropCardOnEvent({ card: card.label, event: read.item.title }), span },
-                    changes: card.sets.map((set): PlanEventChange => ({ kind: kind.key, id: ref.key, gesture: variant("field", { path: [...set.path], value: set.value }) })),
+                    changes: sets,
                     origin: "drop",
                     label: `Set ${card.label} on ${read.item.title}`,
                     selects: undefined,
@@ -727,12 +742,14 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             // A locked event stays in the backlog (#1541, U9).
             const held = lockOf(read);
             if (held !== undefined) return refused(held, span);
+            const changes: PlanEventChange[] = [{ kind: kind.key, id: ref.key, gesture }, ...placing(kind, ref.key, target, lane)];
             const why = judge(kind, { id: ref.key, entry: read.row, gesture },
-                eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end, lane)), target.kind === "unassigned");
+                eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end, lane)), target.kind === "unassigned")
+                ?? keyWhy(changes);
             if (why !== undefined) return refused(why, span);
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what: read.item.title, where, ...whenOf(start) }), span },
-                changes: [{ kind: kind.key, id: ref.key, gesture }, ...placing(kind, ref.key, target, lane)],
+                changes,
                 origin: "drop",
                 label: `Schedule ${read.item.title} on ${where}`,
                 selects: { keys: [printEventRef({ kind: kind.key, key: ref.key })], row: rowFor(kind, target) },
@@ -830,6 +847,9 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                     { row: one.row, lane: one.lane, start: timeInstant(one.start), end: timeInstant(one.end) }), one.resource.type === "none");
                 if (why !== undefined) return refused(why, to.span);
             }
+            const changes = changed.flatMap((one): PlanEventChange[] => [{ kind: one.kind.key, id: one.id, gesture: one.gesture }, ...one.also()]);
+            const keyed = keyWhy(changes);
+            if (keyed !== undefined) return refused(keyed, to.span);
             const what = changed.length > 1 ? m.inspectorEvents({ n: changed.length, count: a.words.number(changed.length) }) : movable.label;
             const where = whereName(target);
             const label = changed.length > 1 ? `Move ${changed.length} events`
@@ -837,7 +857,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                     : across ? `Move ${movable.label} to ${where}` : `Move ${movable.label}`;
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what, where, ...whenOf(own.start) }), span: to.span },
-                changes: changed.flatMap((one): PlanEventChange[] => [{ kind: one.kind.key, id: one.id, gesture: one.gesture }, ...one.also()]),
+                changes,
                 origin: origin.kind,
                 label,
                 selects: undefined,
@@ -862,12 +882,13 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             if (held !== undefined) return refused(held);
             const gesture = variant("unplace", null) as PlanEventGestureValue;
             // Taken off the canvas, back to the Backlog tab: it lands on no row, at no time.
+            const changes: PlanEventChange[] = [{ kind: kind.key, id: ref.key, gesture }];
             const why = judge(kind, { id: ref.key, entry: read.row, gesture },
-                eventCandidate(variant("remove", variant("source", null)), kind.key, variant("event", { kind: kind.key, key: ref.key })));
+                eventCandidate(variant("remove", variant("source", null)), kind.key, variant("event", { kind: kind.key, key: ref.key }))) ?? keyWhy(changes);
             if (why !== undefined) return refused(why);
             return {
                 verdict: { allowed: true, caption: m.dropUnschedule({ what: read.item.title }), span: undefined },
-                changes: [{ kind: kind.key, id: ref.key, gesture }],
+                changes,
                 origin: "move",
                 label: `Unschedule ${read.item.title}`,
                 selects: undefined,

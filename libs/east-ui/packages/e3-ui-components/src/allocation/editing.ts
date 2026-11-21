@@ -25,7 +25,7 @@ import { isBounded } from "../shared/bounds.js";
 import {
     useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead, type ScheduleStandingRows,
 } from "../shared/schedule/editing.js";
-import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, keptAtRevision, periodRowRead, rowCodec, windowRead } from "../shared/schedule/records.js";
 import { DAY, allocationDomain, dayKey, periodSpan, type AllocationValue, type DraftedBin, type StoredBin } from "./model.js";
 
 /** What a change names the periods' record by in the history — its days', or its weeks' (#1550): no bin kind's slot. */
@@ -73,8 +73,9 @@ const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 
 /**
  * Says what the board draws of each record now ({@link AllocationEditing.standing}): the day's bins, and the own row
- * of the period holding the day — as the frame holds them, at whatever revision they were read. None while the board
- * draws no read of the day in view. Said as the frame commits, so a gesture reads what the page shows.
+ * of the period holding the day — as the frame holds them, at whatever revision they were read — and the keys of them
+ * all. None while the board draws no read of the day in view. Said as the frame commits, so a gesture, and a new row's
+ * key, read what the page shows.
  *
  * @param editing - The board's editing; none for a board read only
  * @param bins - The bins the frame draws, while its read is the day's own
@@ -87,8 +88,8 @@ export function useAllocationStanding(editing: AllocationEditing | undefined, bi
     useLayoutEffect(() => {
         if (standing === undefined || bin === undefined) return undefined;
         standing.current = bins === undefined ? undefined : {
-            [bin]: id => bins.get(id)?.bytes,
-            [PERIODS]: id => (keyEqual(id, periodId) ? period : undefined),
+            [bin]: { row: id => bins.get(id)?.bytes, ids: () => bins.keys() },
+            [PERIODS]: { row: id => (keyEqual(id, periodId) ? period : undefined), ids: () => (period === undefined ? [] : [periodId]) },
         };
         return () => { standing.current = undefined; };
     }, [standing, bin, bins, period, periodId]);
@@ -117,8 +118,7 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
     // and what a Save confirms its entries by at the revision it committed.
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const from = new Date(epoch), to = new Date(epoch + DAY);
-        const bins = keptAtRevision(value.bin.kind.entries, () => value.bin.rows(from, to));
-        const out: Record<string, ScheduleRowRead> = { [value.bin.kind.key]: key => heldInWindow(bins(), key) };
+        const out: Record<string, ScheduleRowRead> = { [value.bin.kind.key]: windowRead(keptAtRevision(value.bin.kind.entries, () => value.bin.rows(from, to))) };
         // The period's own row, by its start: the day's read holds none of another period's.
         if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, new Date(ownFrom), new Date(ownTo), dayKey(new Date(ownFrom)));
         return out;

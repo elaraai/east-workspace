@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
-import { SortedSet, StringType, StructType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, StructType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, randomKeys, useCoarsePointer, useSlicesReactivity, useDataStable, type KnownKeys } from "@elaraai/east-ui-components";
 import { useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -20,6 +20,7 @@ import { recordSliceChoicesOf, type RecordSliceBindType, type RecordSliceStateTy
 import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, cellWritable, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
 import { keyOrderOf } from "./key-order.js";
 import { narrowingOf, sheetViewsEqual } from "./view-state.js";
+import { givenKeys } from "../shared/given-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { todayUtc } from "./parse/date.js";
 import { SheetRefused } from "./creation.js";
@@ -34,8 +35,6 @@ import type { SheetHost, SheetHostLayout } from "./parts.js";
 const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 
 const stringEqual = equalFor(StringType);
-
-const compareString = compareFor(StringType);
 
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
@@ -267,17 +266,11 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     // refuses the gesture. Its session makes every new row's key by it (#1583, `use-session.ts`), and holds the key as
     // its own: the sheet keeps none.
     const newKeyFn = useMemo(() => getSomeorUndefined(value.newKey), [value.newKey]);
-    const makeKey = useCallback((known: KnownKeys): string => {
-        if (newKeyFn === undefined) return MADE_UP.make(known, undefined, undefined)!;
-        let key: string;
-        try {
-            key = newKeyFn(new SortedSet(known.ids(), compareString));
-        } catch (error) {
-            throw new SheetRefused({ id: "keyFailed", reason: error instanceof Error ? error.message : String(error) });
-        }
-        if (known.has(key)) throw new SheetRefused({ id: "keyTaken", key });
-        return key;
-    }, [newKeyFn]);
+    const keys = useMemo(() => (newKeyFn === undefined ? MADE_UP : givenKeys(newKeyFn, (why) => {
+        if ("taken" in why) throw new SheetRefused({ id: "keyTaken", key: why.taken });
+        throw new SheetRefused({ id: "keyFailed", reason: why.failed instanceof Error ? why.failed.message : String(why.failed) });
+    })), [newKeyFn]);
+    const makeKey = useCallback((known: KnownKeys): string => keys.make(known, undefined, undefined)!, [keys]);
     // The controlled selection follows the host's DATA: a closure-only change
     // must not snap the ring back to it.
     const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);

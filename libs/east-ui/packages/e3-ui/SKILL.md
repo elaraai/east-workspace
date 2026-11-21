@@ -250,9 +250,9 @@ Task → What do you need?
     │   ├─ Publish a day at a time: the app's days                    → periods={Schedule.periods(Record.bind(days), { every: "day", status, dismissed?, entries? })} — in Shifts' Day, Publish day writes the day in view; else Publish week, each day of the week that takes edits, as one request; a published day read-only in every layout and period while its week's other days take edits, a rejected proposal kept on its day's row
     │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
-    │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest to FitResult — asked the need, the slot and the page's scope, no row; the function lists the duties in drafts, reads the week through their index (Roster.window) and whom it asks about, and answers with Roster.answer + Roster.fit() over a Roster.Types.FitContext
+    │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest to FitResult — asked the need, the slot and the page's scope, no row; the function lists the duties in drafts, reads the week through their index (Roster.window) and whom it asks about, and answers with Roster.answer() + Roster.fit() over a Roster.Types.FitContext() — over duties keyed by other than String, each given their key type: Roster.answer({ key: IntegerType })
     │   ├─ The app's optimiser over the period in view                → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest() — the day, the week or the month it shows, `period` its kind — to Roster.Types.OptimiseResult(Duties), a patch of the duties' record
-    │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest({ edges: true }) — the request also names in `fixed` the edge duties the answer must leave: those of a week that takes no edit; its one patch may change a duty in the weeks either side; one that changes a fixed duty, or puts one in a week taking no edit or beyond them, is refused, naming the duty
+    │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest({ edges: true }) — the request also names in `fixed` the edge duties the answer must leave: those of a week that takes no edit; its one patch may change a duty in the weeks either side; one that changes a fixed duty, or puts one in a week taking no edit or beyond them, is refused, naming the duty — duties keyed by other than String name their key type: { edges: true, key: IntegerType }
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
     │   ├─ The app's check, and a record it reads beside the duties   → check={fn(Roster.Types.CheckContext(R)) → Array<Roster.Types.Issue>} · the first step's rota as the slice's reference: { duty, reference: { source, range: "start" } }, check from CheckContext(R, P) — cx.reference: Dict<String, P>, the week's rows and 12 h either side, read through its interval index, never whole; nothing draws it, the rail offers none of it
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
@@ -269,7 +269,7 @@ Task → What do you need?
     │   ├─ The lanes and the resources                                → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
     │   ├─ Publish: the app's days, or its weeks                      → periods={Schedule.periods(Record.bind(days), { every: "day", status })} · or its weeks, { every: "week", … }, each keyed by its first day, week={{ start: "monday" | "sunday" }} — Publish week writes the week holding the day in view, and every day of a published week is read-only
-    │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest to FitResult — asked the day, the question and the page's scope, no row; the function lists the bins in drafts, reads the day's through their index, and answers with Allocation.answer + Allocation.fit (+ Allocation.lookahead) over an Allocation.Types.FitContext
+    │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest() to FitResult() — asked the day, the question and the page's scope, no row; the function lists the bins in drafts, reads the day's through their index, and answers with Allocation.answer() + Allocation.fit() (+ Allocation.lookahead()) over an Allocation.Types.FitContext() — over bins keyed by other than String, each given their key type: FitRequest({ key: IntegerType })
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest (the day, the run, the rail's narrowing; no row) to Allocation.Types.OptimiseResult(Bins), a patch of the bins' record
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
@@ -385,6 +385,16 @@ and saves nothing. A draft that no longer fits its record ends the call
   the entry's panel shows the refusal over its form, the field ringed, an
   Issues tab lists it, and the history's warning button selects the entry.
   Save's menu holds Autosave, off unless `autosave` (a Boolean) begins it on.
+- **A new row's key is decided the same way on every builder**, on what adds
+  the row: the `<Sheet>` / `<Record>` tag, `Schedule.events`, `Roster.targets`,
+  `Plan.links`, a Flowchart's or a Schematic's kind. `newKey` is the app's rule,
+  an East function from the keys taken to a new one. `key: (row) => …` builds it
+  from the row: a row an edit changes the key of moves under it, and a key
+  another row holds is refused on the page. Give one, never both. `keyField`
+  names a field of the row that holds its key, which the builder writes and no
+  role may. With none, a String key is made up and an Integer's is one past the
+  largest (`e3-ui:record.examples.tsx:recordConflicts`, `recordBuiltKeys`,
+  `recordStaffIds`, `e3-ui:calendar.examples.tsx:calendarBuiltKeys`).
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,

@@ -383,6 +383,7 @@ describeEast("Record.toDraft — its example, and the draft form a Save carries"
     Assert.examples(test, {
         recordToDraft: draftEx.recordToDraft,
         recordSaveDraft: draftEx.recordSaveDraft,
+        recordKeyField: draftEx.recordKeyField,
     });
 }, { platformFns: [...TestImpl, ...refusingPlatform] });
 
@@ -498,6 +499,113 @@ describe("Record.toDraft", () => {
         assert.ok(sameAnswer(carried(EDIT), direct(EDIT)));
         assert.equal(carried(EDIT).type, "draft");
         assert.ok(sameAnswer(carried({ ...EDIT, changes: [] }), variant("unchanged", null)));
+    });
+});
+
+/** `keyField`'s type checks: never called — `tsc` checks what each line says. */
+function keyFieldTypeChecks($: BlockBuilder<NullType>): void {
+    const members = $.let(Record.bind(draftEx.crew));
+    $.const(Record.onApply(members, { keyed: true, keyField: "staff" }));
+    $.const(Record.toDraft(members, { keyField: "staff" }));
+    // @ts-expect-error — `badge` is no field of a member
+    $.const(Record.onApply(members, { keyed: true, keyField: "badge" }));
+    const numbered = $.let(Record.bind(numberedCrew));
+    $.const(Record.toDraft(numbered, { keyed: true, keyField: "no" }));
+    // @ts-expect-error — `name` is a String, and the crew is keyed by an Integer
+    $.const(Record.toDraft(numbered, { keyed: true, keyField: "name" }));
+}
+
+// A crew keyed by a number its rows hold too: a key that is no String.
+const NumberedMember = StructType({ no: IntegerType, name: StringType });
+const numberedCrew = e3.record("numbered_crew", DictType(IntegerType, NumberedMember), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+// `keyField` (east-workspace#1705): a record whose rows hold their own key in a field. The Save writes a new row's key
+// into it, for every builder, since each makes its Save here; over the record's own entries the write is built from
+// the batch alone, so its patch is read here, against a platform whose every read, write and call refuses.
+describe("Record.onApply and Record.toDraft with keyField", () => {
+    const Crew = draftEx.crew.type;
+    const Member = draftEx.CrewMemberType;
+    type MemberValue = ValueTypeOf<typeof Member>;
+    const Batch = Editing.Types.ChangeSet(Member, StringType);
+    const change = diffFor(OptionType(Member));
+    const byStaff = compareFor(StringType);
+    const samePatch = equalFor(PatchType(Crew));
+    /** The patch a draft of the batch holds: what its Save commits. */
+    const patchOf = (batch: ValueTypeOf<typeof Batch>, keyField?: "staff") => {
+        const toDraft = East.compile(East.function([Batch], RecordToDraftResultType, ($, pending) => {
+            const members = $.let(Record.bind(draftEx.crew));
+            const draft = $.const(Record.toDraft(members, keyField === undefined ? { keyed: true } : { keyed: true, keyField }));
+            return draft(pending);
+        }), refusingPlatform);
+        const answer = toDraft(batch);
+        if (answer.type !== "draft") assert.fail(`expected a draft, got ${answer.type}`);
+        return decodeBeast2For(PatchType(Crew))(answer.value.args[0]!);
+    };
+    const crewOf = (members: [string, MemberValue][]) => new SortedMap(members, byStaff);
+
+    hostTest("a row the batch adds is saved with its key in the field, whatever the batch drafted there — left empty, or the key the row had before its session made it another; without keyField it is saved as drafted", () => {
+        const added: ValueTypeOf<typeof Batch> = {
+            requestId: "", base: variant("revision", "r0"), label: "",
+            changes: [
+                { id: "S-1", patch: change(none, some({ staff: "", name: "Ada" })), place: some(variant("keyOrder", null)) },
+                // Drafted under S-2 and given S-3 since: the field still says S-2.
+                { id: "S-3", patch: change(none, some({ staff: "S-2", name: "Grace" })), place: some(variant("keyOrder", null)) },
+            ],
+        };
+        assert.ok(samePatch(patchOf(added, "staff"), diffFor(Crew)(crewOf([]), crewOf([["S-1", { staff: "S-1", name: "Ada" }], ["S-3", { staff: "S-3", name: "Grace" }]]))));
+        assert.ok(samePatch(patchOf(added), diffFor(Crew)(crewOf([]), crewOf([["S-1", { staff: "", name: "Ada" }], ["S-3", { staff: "S-2", name: "Grace" }]]))));
+    });
+
+    hostTest("a row the record holds already is written as the batch has it: one whose field does not hold its key keeps what it holds through a change of another field, and a row removed is removed as it was", () => {
+        const stored = crewOf([["S-1", { staff: "", name: "Ada" }], ["S-2", { staff: "elsewhere", name: "Grace" }]]);
+        const edited: ValueTypeOf<typeof Batch> = {
+            requestId: "", base: variant("revision", "r0"), label: "",
+            changes: [
+                { id: "S-1", patch: change(some({ staff: "", name: "Ada" }), some({ staff: "", name: "Ada L." })), place: none },
+                { id: "S-2", patch: change(some({ staff: "elsewhere", name: "Grace" }), none), place: none },
+            ],
+        };
+        assert.ok(samePatch(patchOf(edited, "staff"), diffFor(Crew)(stored, crewOf([["S-1", { staff: "", name: "Ada L." }]]))));
+    });
+
+    hostTest("a key that is no String is written as the key it is: an Integer key read from its row's id", () => {
+        const Numbered = numberedCrew.type;
+        const NumberedBatch = Editing.Types.ChangeSet(NumberedMember, IntegerType);
+        const toDraft = East.compile(East.function([NumberedBatch], RecordToDraftResultType, ($, pending) => {
+            const members = $.let(Record.bind(numberedCrew));
+            const draft = $.const(Record.toDraft(members, { keyed: true, keyField: "no" }));
+            return draft(pending);
+        }), refusingPlatform);
+        const answer = toDraft({
+            requestId: "", base: variant("revision", "r0"), label: "",
+            changes: [{ id: "7", patch: diffFor(OptionType(NumberedMember))(none, some({ no: 0n, name: "Ada" })), place: some(variant("keyOrder", null)) }],
+        });
+        if (answer.type !== "draft") assert.fail(`expected a draft, got ${answer.type}`);
+        const byNumber = compareFor(IntegerType);
+        assert.ok(equalFor(PatchType(Numbered))(decodeBeast2For(PatchType(Numbered))(answer.value.args[0]!),
+            diffFor(Numbered)(new SortedMap([], byNumber), new SortedMap([[7n, { no: 7n, name: "Ada" }]], byNumber))));
+    });
+
+    hostTest("the Save and its draft form are the same with keyField; a field the entries do not have, and one of another type than the key, are refused where the Save is built, in its own name", () => {
+        assert.equal(typeof keyFieldTypeChecks, "function");
+        const save = typeOf($ => {
+            const members = $.let(Record.bind(draftEx.crew));
+            return Record.onApply(members, { keyed: true, keyField: "staff" });
+        });
+        assert.ok(isSaveOver(save, Batch));
+        assert.throws(() => typeOf($ => {
+            const members = $.let(Record.bind(draftEx.crew));
+            return Record.onApply(members, { keyed: true, keyField: "badge" as never });
+        }), /Record\.onApply: `keyField` names the field of an entry that holds its key, a \.String as the key is — "badge" is not a field of \.Struct/);
+        assert.throws(() => typeOf($ => {
+            const members = $.let(Record.bind(numberedCrew));
+            return Record.toDraft(members, { keyed: true, keyField: "name" as never });
+        }), /Record\.toDraft: `keyField` names the field of an entry that holds its key, a \.Integer as the key is — "name" is a \.String field of \.Struct/);
     });
 });
 

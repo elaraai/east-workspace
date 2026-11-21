@@ -24,7 +24,7 @@ import type { SheetSavedView, SheetNarrowing, SheetRootValue, SheetRowValue } fr
 import type { SheetDecode } from "./use-decode.js";
 import type { SheetSession } from "./use-session.js";
 import type { SheetBody } from "./use-body.js";
-import { followRows, type RowSlot, slotOf } from "./items.js";
+import { followRows, rekeyedSlots, type RowSlot, slotOf } from "./items.js";
 
 /**
  * The machine's East values, by their types' names: a value's inferred type carries East's variant brand, which the
@@ -241,15 +241,24 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     // editor follow their ROWS, not the indices they had (#854), and an
     // editor whose row left closes (#877). Only a move of the SOURCE's rows
     // is followed: the sheet's own writes put the ring where the new rows
-    // have it.
+    // have it — but for a gesture that put rows under other keys, where the
+    // app builds a row's key from the row (`key`): the rows stand in key
+    // order, so it moved them, and a place on a row follows it to the key it
+    // stands under now. A padding row's place stays the gesture's to set.
     const rowSpaceSlots = useMemo(() => rowSpace.bodyIndexOf.map((bi) => slotOf(body[bi]!)), [rowSpace, body]);
     const seenRows = useRef({ source: sourceRows, slots: rowSpaceSlots });
+    const keyMoves = editingState.moved;
+    const seenKeyMoves = useRef(keyMoves);
     useEffect(() => {
         const seen = seenRows.current;
         seenRows.current = { source: sourceRows, slots: rowSpaceSlots };
-        const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots) : undefined;
+        const rekeyed = seenKeyMoves.current !== keyMoves;
+        seenKeyMoves.current = keyMoves;
+        const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots)
+            : rekeyed ? followRows(rekeyedSlots(seen.slots, keyMoves), rowSpaceSlots)
+            : undefined;
         dispatch({ t: "rows.changed", moved });
-    }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch]);
+    }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch, keyMoves]);
 
     // The slice's narrowing changed underneath the sheet (a keystroke in the
     // search, a filter): the ring returns to the top — unless the sheet wrote

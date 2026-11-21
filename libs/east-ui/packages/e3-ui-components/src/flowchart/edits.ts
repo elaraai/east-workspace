@@ -188,6 +188,8 @@ export type FlowchartRefusal =
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort; readonly key: string }
     /** Its kind's keys are of a type the form can't type, by the type's name, and its kind builds none. */
     | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
+    /** No key could be made for the row it adds (east-workspace#1709): its kind's `key`, or the app's `newKey`, failed. */
+    | { readonly refusal: "unkeyed"; readonly sort: FlowchartSort }
     /**
      * A row whose key the gesture moves, which rows of another kind name — by that kind (`by`) — that the flowchart doesn't
      * all hold, and why (#1580): what it leaves out would keep naming the old key.
@@ -232,6 +234,7 @@ function newRowKey(holding: FlowchartHolding, sort: FlowchartSort, made: Flowcha
     if (keyed === undefined) return undefined;
     if ("taken" in keyed) return { refused: { refusal: "taken", sort, key: keyed.taken } };
     if ("untyped" in keyed) return { refused: { refusal: "untyped", sort, type: keyed.untyped } };
+    if ("failed" in keyed) return { refused: { refusal: "unkeyed", sort } };
     return keyed;
 }
 

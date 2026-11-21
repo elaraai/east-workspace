@@ -8,8 +8,8 @@
  * Interfaces Spec.md` §7): the Roster's and the Allocation's. A new row's key,
  * minted unique among every key the builder holds (§7.6); a window of a
  * record kept at the revision it was read at, and a row read from it, which a
- * Save confirms its entries by and a gesture finds a row's original in
- * (`ScheduleRowRead`); the period's own row, read the same way; a record's
+ * Save confirms its entries by and a gesture finds a row's original in, and
+ * the keys it holds (`ScheduleRowRead`); the period's own row, read the same way; a record's
  * rows as bytes and back; a field of an event's row edited, as the kind writes
  * it; and Publish: Save first, then the period's status once every record
  * reads back as saved (§7.3).
@@ -18,8 +18,8 @@
  */
 
 import {
-    DateTimeType, EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, parseFor, some, variant, type EastType,
-    type EastTypeValue, type StructType, type ValueTypeOf, type option,
+    DateTimeType, EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, parseFor, printFor, some, variant,
+    type EastType, type EastTypeValue, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { optionOf, type ScheduleFieldWriteType, type ScheduleKindType, type SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
@@ -34,6 +34,7 @@ export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
 const stringEqual = equalFor(StringType);
 const sameTypeValue = equalFor(EastTypeType);
 const parseInstant = parseFor(DateTimeType);
+const printInstant = printFor(DateTimeType);
 
 /** A record's rows, as bytes and back: a period's, a target's, by their row type. */
 export interface RowCodec { readonly encode: (row: unknown) => Uint8Array; readonly decode: (bytes: Uint8Array) => unknown }
@@ -267,10 +268,28 @@ export function keptAtRevision<R>(entries: ScheduleEditingRecord["entries"], rea
  * @param key - The row's key's text
  * @returns The row as the window holds it
  */
-export function heldInWindow(rows: option<ReadonlyMap<string, { readonly row: Uint8Array }>>, key: string): ReturnType<ScheduleRowRead> {
+export function heldInWindow(rows: option<ReadonlyMap<string, { readonly row: Uint8Array }>>, key: string): ReturnType<ScheduleRowRead["row"]> {
     if (rows.type !== "some") return none;
     const row = rows.value.get(key);
     return row === undefined ? undefined : some(some(row.row));
+}
+
+/**
+ * A builder's own read of a window of a record (`ScheduleRowRead`): each row
+ * where the window holds it ({@link heldInWindow}), and the keys of every row
+ * it holds — none while it is read.
+ *
+ * @param rows - The window's read, by key, each its row's bytes: kept at the revision it was read at ({@link keptAtRevision})
+ * @returns The read
+ */
+export function windowRead(rows: () => option<ReadonlyMap<string, { readonly row: Uint8Array }>>): ScheduleRowRead {
+    return {
+        row: (key) => heldInWindow(rows(), key),
+        ids: () => {
+            const read = rows();
+            return read.type === "some" ? read.value.keys() : [];
+        },
+    };
 }
 
 /**
@@ -286,12 +305,18 @@ export function heldInWindow(rows: option<ReadonlyMap<string, { readonly row: Ui
  */
 export function periodRowRead(periods: SchedulePeriodsValue, from: Date, to: Date, id: string): ScheduleRowRead {
     const rows = keptAtRevision(periods.entries, () => periods.rows(from, to));
-    return key => {
-        if (!stringEqual(key, id)) return undefined;
-        const got = rows();
-        if (got.type !== "some") return none;
-        const row = got.value.get(from);
-        return some(row === undefined ? none : some(row));
+    return {
+        row: (key) => {
+            if (!stringEqual(key, id)) return undefined;
+            const got = rows();
+            if (got.type !== "some") return none;
+            const row = got.value.get(from);
+            return some(row === undefined ? none : some(row));
+        },
+        ids: () => {
+            const got = rows();
+            return got.type === "some" && got.value.get(from) !== undefined ? [id] : [];
+        },
     };
 }
 
@@ -308,13 +333,19 @@ export function periodRowRead(periods: SchedulePeriodsValue, from: Date, to: Dat
  */
 export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Date): ScheduleRowRead {
     const rows = keptAtRevision(periods.entries, () => periods.rows(from, to));
-    return key => {
-        const at = parseInstant(key);
-        if (!at.success || !meetsWindow(at.value, undefined, from, to)) return undefined;
-        const got = rows();
-        if (got.type !== "some") return none;
-        const row = got.value.get(at.value);
-        return some(row === undefined ? none : some(row));
+    return {
+        row: (key) => {
+            const at = parseInstant(key);
+            if (!at.success || !meetsWindow(at.value, undefined, from, to)) return undefined;
+            const got = rows();
+            if (got.type !== "some") return none;
+            const row = got.value.get(at.value);
+            return some(row === undefined ? none : some(row));
+        },
+        ids: () => {
+            const got = rows();
+            return got.type === "some" ? [...got.value.keys()].map((at) => printInstant(at)) : [];
+        },
     };
 }
 

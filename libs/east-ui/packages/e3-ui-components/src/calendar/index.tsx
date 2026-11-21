@@ -361,11 +361,18 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         for (const kind of value.events) {
             if (!paged.has(kind.key) || kind.entries.type !== "some") continue;
             const entries = kind.entries.value;
-            out[kind.key] = (id) => {
-                const at = entries.revision();
-                if (at.type !== "some") return undefined;
-                const page = backlogNow.current?.servedRow(kind.key, id);
-                return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+            out[kind.key] = {
+                row: (id) => {
+                    const at = entries.revision();
+                    if (at.type !== "some") return undefined;
+                    const page = backlogNow.current?.servedRow(kind.key, id);
+                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                },
+                // The events the Backlog lists at the revision: keys a new event's is made past, which its rule is told.
+                ids: () => {
+                    const at = entries.revision();
+                    return at.type !== "some" ? [] : backlogNow.current?.servedIds(kind.key, at.value) ?? [];
+                },
             };
         }
         return out;
@@ -532,8 +539,9 @@ function CalendarFrame(props: HostProps) {
     // The paged kind's resources whose events are read, which alone a creation can find free: the cells reader's, where
     // it reads them; every one held, where the window's read reads the kind's events.
     const cellsDrawn = data.cells?.drawn;
-    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }),
-        [value, editing, select, items, shown, pagedRows, cellsDrawn]);
+    const commands = useMemo(() => editing === undefined ? undefined
+        : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }, setError),
+    [value, editing, select, items, shown, pagedRows, cellsDrawn]);
     // Held back only while what it shows is another view's (ruled 11 Nov 2026, `../shared/view-read.ts`): the last
     // choices' events standing in for new ones', a resource kind's narrowing resolving, a paged kind's last view standing
     // in for a new narrowing's (CL8) — no gesture until they land. A read again of the view shown — after a Save, or
@@ -715,8 +723,9 @@ function CalendarFrame(props: HostProps) {
         const now = picked.current;
         select(additive ? now.some(was => eventKey(was) === id) ? now.filter(was => eventKey(was) !== id) : [...now, ref] : [ref]);
     }, [select]);
-    // A new event whose made key another Save took goes on under the next its kind makes (#1583): what was selected of it
-    // stays selected, under its new key — the inspector open on it still, before the frame is drawn without it.
+    // An event that goes on under another key stays selected under it — the inspector open on it still, before the frame is
+    // drawn without it: a new event whose made key another Save took, under the next its kind makes (#1583); and one a
+    // gesture moved under the key its fields build (east-workspace#1709), a new event's from the key made for it.
     const renumbered = editing?.renumbered;
     useLayoutEffect(() => {
         if (renumbered === undefined || renumbered.size === 0) return;

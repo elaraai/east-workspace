@@ -4,7 +4,7 @@
  */
 /**
  * The Roster's fit (#1334, east-workspace#1624; `Allocation Spec.md` §13): the
- * ready-made rule (`Roster.fit()`), `Roster.answer` and `Roster.window`, and
+ * ready-made rule (`Roster.fit()`), `Roster.answer()` and `Roster.window`, and
  * the warehouse's fits on e3, held to the warehouse's own week. Each find is
  * one `Roster.check(R)` reports; every figure and word is the functions'
  * answer over the seeded staff — the mock's 69, and the indexed example's 500.
@@ -20,8 +20,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, FloatType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none,
-    printFor, some, variant, type EastIR, type EastType, type ValueTypeOf,
+    DateTimeType, DictType, East, FloatType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    isTypeEqual, none, printFor, some, variant, type EastIR, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Allocation, Roster } from "@elaraai/e3-ui";
@@ -36,7 +36,9 @@ import { rosterContractFit, rosterDuties, rosterDutyRoles, rosterLockedDuties, r
 
 type Week = ValueTypeOf<typeof WarehouseRosterWeek>;
 type Context = ValueTypeOf<typeof Roster.Types.Context>;
-type Read = ValueTypeOf<typeof Roster.Types.FitContext>;
+/** What a fit's function read, the duties keyed by String, as the warehouse's are. */
+const FitContext = Roster.Types.FitContext();
+type Read = ValueTypeOf<typeof FitContext>;
 type Request = ValueTypeOf<typeof Roster.Types.FitRequest>;
 type Result = ValueTypeOf<typeof Roster.Types.FitResult>;
 type Fit = ValueTypeOf<typeof Roster.Types.Fit>;
@@ -88,9 +90,9 @@ const read = (week: Week = fresh(), ctx: Context = context): Read => ({
     }]), byString),
     shifts: ctx.shifts, groups: ctx.groups, positions: ctx.positions, activities: ctx.activities, rest: ctx.rules.rest,
 });
-/** The ready-made rule over what a function read: `Roster.answer` with `Roster.fit()`. */
-const builtIn = East.compile(East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, cx) => {
-    const answer = $.const(Roster.answer);
+/** The ready-made rule over what a function read: `Roster.answer()` with `Roster.fit()`. */
+const builtIn = East.compile(East.function([Roster.Types.FitRequest, FitContext], Roster.Types.FitResult, ($, request, cx) => {
+    const answer = $.const(Roster.answer());
     const rule = $.const(Roster.fit());
     return answer(request, cx, rule);
 }), []);
@@ -169,10 +171,10 @@ test("the types (#1624): a request is the need, the slot, the week's first day a
     assert.ok(isTypeEqual(Roster.Types.FitRequest, StructType({
         need: Roster.Types.Need, slot: Roster.Types.Slot, start: DateTimeType, scope: DictType(StringType, RecordSliceWhereType),
     })));
-    assert.ok(isTypeEqual(Roster.Types.FitContext.fields.duties, DictType(StringType, Schedule.Types.RosterRoles)));
-    assert.ok(isTypeEqual(Roster.Types.FitContext.fields.people, DictType(StringType, Roster.Types.Person)));
-    assert.ok(isTypeEqual(Roster.Types.Candidate.fields.duties, DictType(StringType, StructType({ place: Roster.Types.Place, roles: Schedule.Types.RosterRoles }))));
-    assert.deepEqual(Object.keys(Roster.Types.Candidate.fields),
+    assert.ok(isTypeEqual(FitContext.fields.duties, DictType(StringType, Schedule.Types.RosterRoles)));
+    assert.ok(isTypeEqual(FitContext.fields.people, DictType(StringType, Roster.Types.Person)));
+    assert.ok(isTypeEqual(Roster.Types.Candidate().fields.duties, DictType(StringType, StructType({ place: Roster.Types.Place, roles: Schedule.Types.RosterRoles }))));
+    assert.deepEqual(Object.keys(Roster.Types.Candidate().fields),
         ["need", "slot", "start", "person", "duties", "hours", "shifts", "groups", "positions", "activities", "rest"]);
 });
 
@@ -183,8 +185,8 @@ test("Roster.window: the window a week's duties are read over — the week and t
 });
 
 test("Roster.fit's `notALead`: the app's word in a refusal's reason and its group (#1516)", () => {
-    const worded = East.compile(East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, cx) => {
-        const answer = $.const(Roster.answer);
+    const worded = East.compile(East.function([Roster.Types.FitRequest, FitContext], Roster.Types.FitResult, ($, request, cx) => {
+        const answer = $.const(Roster.answer());
         const rule = $.const(Roster.fit({ notALead: "not a supervisor" }));
         return answer(request, cx, rule);
     }), []);
@@ -247,7 +249,7 @@ test("R1 — Roster.fit ranks the slot's group first, then spare contract hours;
     assert.ok(fits.slice(6).every(([, score, why]) => byScore(score as number, 38) === 0 && why === "from Inbound · 38 h spare"));
 });
 
-test("R1 — Roster.answer: a verdict for every person of the context, and no one else, with the need and the slot it answers", () => {
+test("R1 — Roster.answer(): a verdict for every person of the context, and no one else, with the need and the slot it answers", () => {
     const find = LEAD();
     for (const ctx of [context, indexed]) {
         const result = builtIn(ask(find), read(fresh(), ctx));
@@ -260,16 +262,16 @@ test("R1 — Roster.answer: a verdict for every person of the context, and no on
     assert.deepEqual([...builtIn(ask(find), { ...read(), people: two }).people.keys()], ["jquartz", "wcopse"]);
 });
 
-test("Roster.answer places the context's duties as the page does: a person's candidate holds their duties of the week, and the hours Roster.weekHours gives them", () => {
+test("Roster.answer() places the context's duties as the page does: a person's candidate holds their duties of the week, and the hours Roster.weekHours gives them", () => {
     // Each candidate's hours, and how many duties it holds, as a rule sees them: a rule that scores a candidate by each.
-    const hoursSeen = East.compile(East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, cx) => {
-        const answer = $.const(Roster.answer);
-        return answer(request, cx, East.function([Roster.Types.Candidate], Roster.Types.Fit, (_$2, candidate) =>
+    const hoursSeen = East.compile(East.function([Roster.Types.FitRequest, FitContext], Roster.Types.FitResult, ($, request, cx) => {
+        const answer = $.const(Roster.answer());
+        return answer(request, cx, East.function([Roster.Types.Candidate()], Roster.Types.Fit, (_$2, candidate) =>
             variant("fits", { score: candidate.hours, why: "", warn: none })));
     }), []);
-    const dutiesSeen = East.compile(East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, cx) => {
-        const answer = $.const(Roster.answer);
-        return answer(request, cx, East.function([Roster.Types.Candidate], Roster.Types.Fit, (_$2, candidate) =>
+    const dutiesSeen = East.compile(East.function([Roster.Types.FitRequest, FitContext], Roster.Types.FitResult, ($, request, cx) => {
+        const answer = $.const(Roster.answer());
+        return answer(request, cx, East.function([Roster.Types.Candidate()], Roster.Types.Fit, (_$2, candidate) =>
             variant("fits", { score: candidate.duties.size().toFloat(), why: "", warn: none })));
     }), []);
     /** A rule's score for a person. */
@@ -388,6 +390,28 @@ test("another app's fit: everyone asked about, the warehouse's order and reasons
     for (const [key, fit] of rule.people) {
         if (fit.type === "refused") verdict(ours.people.get(key), fit, key);
     }
+});
+
+test("ruling 12 — over duties keyed by number, Roster.answer({ key }) and Roster.fit({ key }) give every person the verdict the same duties keyed by text get; what a function read and a candidate are made over the duties' key type", () => {
+    const ByNumber = { key: IntegerType };
+    assert.ok(isTypeEqual(Roster.Types.FitContext(ByNumber).fields.duties, DictType(IntegerType, Schedule.Types.RosterRoles)));
+    assert.ok(isTypeEqual(Roster.Types.Candidate(ByNumber).fields.duties, DictType(IntegerType, StructType({ place: Roster.Types.Place, roles: Schedule.Types.RosterRoles }))));
+    assert.ok(isTypeEqual(Roster.Types.FitContext({ key: StringType }), FitContext), "String where none is given");
+    const numberOver = East.compile(East.function([Roster.Types.FitRequest, Roster.Types.FitContext(ByNumber)], Roster.Types.FitResult, ($, request, cx) => {
+        const answer = $.const(Roster.answer(ByNumber));
+        const rule = $.const(Roster.fit(ByNumber));
+        return answer(request, cx, rule);
+    }), []);
+    // The week's duties numbered in their key order: the question and the answer name people, never a duty.
+    const there = read();
+    const numbered = { ...there, duties: new SortedMap([...there.duties.values()].map((roles, i) => [BigInt(i + 1), roles] as const), compareFor(IntegerType)) };
+    for (const [find, of] of [[LEAD(), "Thursday's lead"], [TRAINER_THU(), "Thursday's trainers"], [findOf("Unloading · 8 h short", 4n), "Thursday's unloading"]] as const) {
+        sameResult(numberOver(ask(find), numbered), builtIn(ask(find), there), of);
+    }
+    assert.throws(() => Roster.answer(IntegerType as never),
+        { message: "Roster.answer: takes nothing, or { key: IntegerType } — the duties' key type, for duties keyed by other than String" });
+    assert.throws(() => Roster.Types.Candidate({ key: "Integer" } as never),
+        { message: "Roster.Types.Candidate: `key` is the duties' key type, an East type — { key: IntegerType } for duties keyed by number" });
 });
 
 test("the Roster's fit is Schedule's, the Allocation's too; a find's need is the Fix's find", () => {

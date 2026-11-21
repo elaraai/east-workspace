@@ -11,12 +11,15 @@
  * choices, or dimmed by them where the narrowing draws the row as context
  * ({@link dimmedWords}), or not on this page, where its page's scope does not
  * hold what it stands on ({@link notOnPageText}) — and what a refusal says of
- * a kind its page's scope holds only some rows of ({@link unheldByScopeText})
+ * a kind its page's scope holds only some rows of ({@link unheldByScopeText}),
+ * and of a row not added or not moved for its key ({@link keyRefusedText})
  * — here, with no DOM to load, so a builder's message table that says them
  * loads with none.
  *
  * @packageDocumentation
  */
+
+import type { ScheduleKeyRefusal } from "./editing.js";
 
 /**
  * A word in running text: lower case, unless it is written in capitals (`QA` stays `QA`).
@@ -199,4 +202,22 @@ export function dimmedWords(m: DimmedWords): HiddenWords {
  */
 export function unheldByScopeText(kinds: string): string {
     return `this page holds only some ${kinds}, and one it does not may name it — edit it where they are all held`;
+}
+
+/**
+ * Why a row is not added, or not moved, for its key (east-workspace#1709), as
+ * every builder says it: the key its fields build, or its kind's rule gave, is
+ * another row's — `Another print job is keyed "J-2002" already`; the rows of
+ * another record that name it by its key cannot follow it under another —
+ * `Its flows can't follow this print job to another key`; or no key could be
+ * made — `No key can be made for this print job`.
+ *
+ * @param kind - The row's kind's name, as a heading writes it
+ * @param why - Why, as the shared editing says it
+ * @returns The words
+ */
+export function keyRefusedText(kind: string, why: ScheduleKeyRefusal["why"]): string {
+    const noun = lowerWord(kind);
+    if ("taken" in why) return `Another ${noun} is keyed "${why.taken}" already`;
+    return "named" in why ? `Its ${kindPlural(lowerWord(why.named))} can't follow this ${noun} to another key` : `No key can be made for this ${noun}`;
 }

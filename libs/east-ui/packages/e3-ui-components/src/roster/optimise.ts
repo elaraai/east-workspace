@@ -19,8 +19,9 @@
  * An optimiser that takes the edges (#1553) is also told which duties its
  * answer must leave as they are (`fixed`): those the period's window holds —
  * the period, and the twelve hours either side — whose own period takes no
- * edit, or that the Roster places in no week it holds. Its answer may change a
- * duty at an edge, in the weeks either side.
+ * edit, or that the Roster places in no week it holds, each by its key at the
+ * duties' own key type (east-workspace#1709), a number key as a number. Its
+ * answer may change a duty at an edge, in the weeks either side.
  *
  * An answer that would change what a gesture could not is refused whole,
  * naming the duty, and records nothing (rule 11): a fixed duty changed or
@@ -35,12 +36,12 @@
  * @packageDocumentation
  */
 
-import { DictType, SortedSet, StringType, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { DictType, SortedSet, compareFor, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor, type RosterOptimiseEdgesRequestType, type RosterOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { landOptimisePatches, recordOptimiseRun, type OptimiseDiff, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { landOptimisePatches, optimiseKeyOf, recordOptimiseRun, type OptimiseDiff, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
@@ -48,7 +49,7 @@ import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
 import type { RosterOptimiseWords } from "./messages.js";
 import {
-    DAY, compareString, dayOfSlot, groupName, hourText, ownTimes, shiftOf, type Assignment, type DraftedDuty, type Roles, type RosterDomain,
+    DAY, dayOfSlot, groupName, hourText, ownTimes, shiftOf, type Assignment, type DraftedDuty, type Roles, type RosterDomain,
     type RosterValue, type StoredDuty,
 } from "./model.js";
 import { assignmentName } from "./views.js";
@@ -62,9 +63,10 @@ export interface RosterOptimisePeriod {
 
 /**
  * The run's request: the period in view and its kind, the run's number and the rail's narrowing — and for an optimiser
- * that takes the edges (#1553), `fixed`, the keys of the duties in the period's window its answer must leave as they are.
+ * that takes the edges (#1553), `fixed`, the keys of the duties in the period's window its answer must leave as they are,
+ * at the duties' own key type.
  */
-export type RosterOptimiseRequest = ValueTypeOf<RosterOptimiseRequestType> | ValueTypeOf<RosterOptimiseEdgesRequestType>;
+export type RosterOptimiseRequest = ValueTypeOf<RosterOptimiseRequestType> | ValueTypeOf<RosterOptimiseEdgesRequestType<EastType>>;
 
 /** The run's answer: the patch of the duties' record. */
 export interface RosterOptimiseResult {
@@ -109,22 +111,34 @@ export interface RosterOptimised {
 export interface RosterOptimiseTypes {
     readonly request: EastType;
     readonly result: EastType;
-    /** The duties' record type, `Dict<String, R>`: what the answer's patch is read by. */
+    /** The duties' record type, `Dict<K, R>`: what the answer's patch is read by, its keys at the record's own key type. */
     readonly record: DictType<EastType, EastType>;
+    /**
+     * A duty's key from its key's text, as the session names it: what the request's `fixed` holds it by, at the record's
+     * own key type (east-workspace#1709); `undefined` for a text that names no key of the type.
+     */
+    readonly keyOf: (id: string) => unknown;
+    /** The record's keys in East's order: the order `fixed` holds them in. */
+    readonly order: (a: unknown, b: unknown) => number;
 }
 
 /**
- * The request and result types over the app's duty row type: what the bound
+ * The request and result types over the app's duty record: what the bound
  * optimiser is called with, as the tag held it to — the request with `fixed`
- * where its function takes the edges (#1553).
+ * where its function takes the edges (#1553), at the record's own key type
+ * (east-workspace#1709) — and how a duty's key is read from its text.
  *
+ * @param keyType - The duty kind's record's key type
  * @param rowType - The duty kind's row type
  * @param edges - Whether the optimiser takes the duties at the edges
- * @returns The request and result East types, and the duties' record type
+ * @returns The request and result East types, the duties' record type, and a duty's key from its text, in East's order
  */
-export function rosterOptimiseTypes(rowType: EastType, edges: boolean): RosterOptimiseTypes {
-    const record = DictType(StringType, rowType);
-    return { request: edges ? RosterOptimiseRequestTypeFor({ edges: true }) : RosterOptimiseRequestTypeFor(), result: RosterOptimiseResultTypeFor(record), record };
+export function rosterOptimiseTypes(keyType: EastType, rowType: EastType, edges: boolean): RosterOptimiseTypes {
+    const record = DictType(keyType, rowType);
+    return {
+        request: edges ? RosterOptimiseRequestTypeFor({ edges: true, key: keyType }) : RosterOptimiseRequestTypeFor(), result: RosterOptimiseResultTypeFor(record),
+        record, keyOf: optimiseKeyOf(keyType), order: compareFor(keyType) as (a: unknown, b: unknown) => number,
+    };
 }
 
 /**
@@ -132,23 +146,26 @@ export function rosterOptimiseTypes(rowType: EastType, edges: boolean): RosterOp
  * twelve hours either side — as the session holds it, a stored one a draft holds in its draft's place and one a draft
  * removes absent, whose own period takes no edit, or that the Roster places in no week it holds.
  *
- * @param args - The window's stored duties, every draft of the session, the period in view, and where a row would stand
- * @returns Their keys
+ * @param args - The window's stored duties, every draft of the session, the period in view, where a row would stand, and
+ *   how a duty's key is read from its text
+ * @returns Their keys, at the duties' own key type (east-workspace#1709), in East's order
  */
 export function rosterFixed(args: {
     stored: ReadonlyMap<string, StoredDuty>; drafts: ReadonlyMap<string, DraftedDuty | undefined>; period: Pick<RosterOptimisePeriod, "from" | "to">; reach: RosterReach;
-}): SortedSet<string> {
-    const { stored, drafts, period, reach } = args;
+    types: Pick<RosterOptimiseTypes, "keyOf" | "order">;
+}): SortedSet<unknown> {
+    const { stored, drafts, period, reach, types } = args;
     const window = { from: new Date(period.from.getTime() - DAY / 2), to: new Date(period.to.getTime() + DAY / 2) };
-    const fixed = new SortedSet<string>([], compareString);
-    const consider = (key: string, roles: Roles, row: unknown) => {
+    const fixed = new SortedSet<unknown>([], types.order);
+    const consider = (id: string, roles: Roles, row: unknown) => {
         // As a window's read takes a duty (`meetsWindow`).
         if (!meetsWindow(roles.start, roles.end, window.from, window.to)) return;
-        const reached = reach(row, key);
-        if (reached.type === "beyond" || !reached.open) fixed.add(key);
+        const reached = reach(row, id);
+        const key = types.keyOf(id);
+        if (key !== undefined && (reached.type === "beyond" || !reached.open)) fixed.add(key);
     };
-    for (const [key, duty] of stored) if (!drafts.has(key)) consider(key, duty.roles, duty.row);
-    for (const [key, draft] of drafts) if (draft !== undefined) consider(key, draft.roles, draft.row);
+    for (const [id, duty] of stored) if (!drafts.has(id)) consider(id, duty.roles, duty.row);
+    for (const [id, draft] of drafts) if (draft !== undefined) consider(id, draft.roles, draft.row);
     return fixed;
 }
 
@@ -164,7 +181,7 @@ export function rosterFixed(args: {
  * @param fixed - The duties the answer must leave ({@link rosterFixed}), for an optimiser that takes the edges
  * @returns The request
  */
-export function rosterOptimiseRequest(period: RosterOptimisePeriod, slice: OptimiseSlice, run: number, fixed?: SortedSet<string>): RosterOptimiseRequest {
+export function rosterOptimiseRequest(period: RosterOptimisePeriod, slice: OptimiseSlice, run: number, fixed?: SortedSet<unknown>): RosterOptimiseRequest {
     const asked = { from: period.from, to: period.to, period: variant(period.period, null), run: BigInt(run), slice };
     return fixed === undefined ? asked : { ...asked, fixed };
 }
@@ -247,12 +264,18 @@ export interface RosterLanding {
  * @returns The refusal's words; `undefined` for an answer the Roster takes
  */
 function refusal(args: RosterLanding, diff: OptimiseDiff): string | undefined {
-    const { value, domain, format, request, reach, edges, days, m, period } = args;
+    const { value, domain, format, request, reach, edges, days, m, period, types } = args;
     const unit = days ? "day" : "week";
     // A duty's times outside the period: it meets no part of it, as a window's read takes one.
     const outside = (row: unknown, id: string): boolean => {
         const roles = value.duty.read(domain.encodeRow(row), id);
         return !meetsWindow(roles.start, roles.end, request.from, request.to);
+    };
+    // A duty the request held fixed, by its key at the duties' own key type (east-workspace#1709): its text read back.
+    const fixed = "fixed" in request ? request.fixed : undefined;
+    const isFixed = (id: string): boolean => {
+        const key = fixed === undefined ? undefined : types.keyOf(id);
+        return key !== undefined && fixed!.has(key);
     };
     for (const op of diff.ops.values()) {
         const { id } = op;
@@ -269,7 +292,7 @@ function refusal(args: RosterLanding, diff: OptimiseDiff): string | undefined {
             return optimiseMessages.refusedOutside({ row: rosterDutyName(value, format, named), period });
         }
         // What it changes or removes: one the request held fixed, or one whose period has closed since.
-        if (was !== undefined && (("fixed" in request && request.fixed.has(id)) || was.type === "beyond" || !was.open)) {
+        if (was !== undefined && (isFixed(id) || was.type === "beyond" || !was.open)) {
             return m.optimiseFixed({ duty: rosterDutyName(value, format, was), removes: op.op === "del", unit });
         }
         // Where it puts a duty: a period of the weeks the Roster holds that takes edits.

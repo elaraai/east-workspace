@@ -684,3 +684,35 @@ export const calendarConflicts = example({
         </VStack>;
     }}</Reactive>),
 });
+
+/** A machine's reservation: the machine and the start its key is built from, what it is for, and when it ends. */
+export const CalendarReservation = StructType({ machine: StringType, title: StringType, start: DateTimeType, end: DateTimeType });
+/** The reservations the built-keys example edits, each keyed as its machine and its start build it, in a record of their own. */
+export const calendarReservations = e3.record("calendar_reservations", DictType(StringType, CalendarReservation), {
+    initial: new Map([
+        ["press1@2026-10-01T07:00:00.000", { machine: "press1", title: "Tool trial", start: new Date("2026-10-01T07:00:00Z"), end: new Date("2026-10-01T09:00:00Z") }],
+        ["press1@2026-10-01T11:00:00.000", { machine: "press1", title: "Operator training", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:30:00Z") }],
+        ["lathe1@2026-10-01T07:00:00.000", { machine: "lathe1", title: "First-article run", start: new Date("2026-10-01T07:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        // The reservations' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const calendarBuiltKeys = example({
+    inputs: [],
+    description: "Events keyed by the key their row builds: machine reservations keyed by their machine and their start, with `key` on the event kind — a function of the row, held to the record's key type. A reservation moved to another start or another machine moves under the key it then builds, and one that would build a key another reservation holds is refused, the Calendar naming the key — so no machine is reserved twice for one start. A copy stands under the key its own row builds. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key.",
+    keywords: ["Calendar", "Calendar.events", "Schedule.events", "key", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "double booking", "key taken", "refused", "move", "Duplicate", "newKey", "keyField", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const reservations = $.let(Record.bind(calendarReservations));
+        return <Box height="640px"><Calendar id="builtKeys" inspector view={{ layout: "resources", period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+            events={{ reservation: Calendar.events(reservations, { name: "Reservation", icon: "calendar", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                // A reservation's key, built from its row: its machine and its start.
+                key: row => East.str`${row.machine}@${row.start}`,
+            }) }} />
+        </Box>;
+    }}</Reactive>),
+});

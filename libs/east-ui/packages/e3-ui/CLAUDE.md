@@ -570,8 +570,12 @@ weeks, filtering or resizing discards none, and Save includes them. Publish
 saves first, and only once every record reads back as saved writes the week's
 status — the periods' published case, with the time when it holds one — and
 saves the periods, so a published week never sits over unsaved rows. A new
-duty's or target's key is minted unique among every key the Roster has read
-and drafted (`crypto.randomUUID()`).
+duty's or target's key is its session's to make, as every builder's new rows'
+are (east-workspace#1709): the app's `newKey` where the kind gives one, the key
+its row builds where it gives `key` — a duty an edit changes what that reads
+moving under the key it then builds — and else by the record's key type, past
+every key the Roster has read and drafted: a String key made up at random, an
+Integer key one past the largest.
 
 Pay is the app's, asked a person at a time (§5.6): the app's East function
 over one person's duties for the week, or one agency's requests, answers each
@@ -638,10 +642,13 @@ never a second search/filter implementation, and the renderer decides no one
 itself. Without `fit` no Find fix is offered. The ready-made East parts read
 what the function read, never a row, so none takes the row type: `Roster.fit()`
 (the need held, not rostered that day, rest kept; the slot's group, then spare
-contract hours) over a `Roster.Types.Candidate`, `Roster.answer` over a
-`Roster.Types.FitContext`, and `Roster.window`, the one window a week's duties
-are read over; the Allocation's are `Allocation.candidates`, `answer` and
-`lookahead` over an `Allocation.Types.FitContext`. A measure a page's function
+contract hours) over a `Roster.Types.Candidate()`, `Roster.answer()` over a
+`Roster.Types.FitContext()`, and `Roster.window`, the one window a week's duties
+are read over; the Allocation's are `Allocation.fit()`, `candidates()`,
+`answer()` and `lookahead()` over an `Allocation.Types.FitContext()`. Each is
+made over the records' key type (east-workspace#1709, ruling 12) — given
+`{ key: IntegerType }` where the duties or the bins are keyed by number, String
+otherwise — and names a duty or a bin by its key at that type. A measure a page's function
 and a fit's rule share is one piece both call (`rosterPlaceOf`,
 `rosterRestBetween`, `allocationMatesOf`). Every example's fit reads its own
 builder's rows through an index of their record. Keep the duty kind's own inspector and the targets'

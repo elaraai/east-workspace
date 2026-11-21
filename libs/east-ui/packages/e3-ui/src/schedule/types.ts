@@ -302,6 +302,15 @@ export const ScheduleEntriesType = StructType({
 export type ScheduleEntriesType = typeof ScheduleEntriesType;
 
 /**
+ * A new entry's key by the app's own rule (`newKey`), as a builder's payload
+ * carries it: from the keys taken, each as its text, to a new one's text.
+ */
+export const ScheduleNewKeyType = FunctionType([SetType(StringType)], StringType);
+
+/** Type representing {@link ScheduleNewKeyType}. */
+export type ScheduleNewKeyType = typeof ScheduleNewKeyType;
+
+/**
  * Whether two events of a kind on one resource at once are a conflict.
  *
  * @property warn - They are: both wear a warn ring, and the overlaps count them (the default)
@@ -375,6 +384,10 @@ export const ScheduleRolesType = StructType({
  *   one. None for a kind with no rule
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
  * @property entries - The record read by key, for a kind read a window at a time (#1199); `none` for a kind read whole
+ * @property newKey - The app's rule for a new event's key (`newKey`): given the keys taken, one that is not; `none`, its
+ *   session makes one — a text key from the key the event is made from, else made up, and an Integer key one past the largest
+ * @property rowKey - An event's key's text, built from its row (`key`): what a new event is made under, and what an
+ *   event moves to as an edit changes the fields it reads; `none` for a kind that builds none
  * @property history - The record's commits, newest first
  * @property event - One event by its key's text, the drafts in place, and its row: `none` when there is no such event. A
  *   kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` and its
@@ -407,6 +420,8 @@ export const ScheduleKindType = StructType({
     locked: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType))),
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
+    newKey: OptionType(ScheduleNewKeyType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
     event: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(ScheduleReadType)),
     schedule: ScheduleRolesType,
