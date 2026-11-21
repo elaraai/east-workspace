@@ -32,7 +32,7 @@ import { narrowedFor, placeOf, testField, testOf, type SlotPlace } from "./slot-
 import { orderKind } from "./step-words.js";
 import { leafOf, type Summary } from "./summaries.js";
 import {
-    STEP_ICON, dataNumber, fieldKind, fieldLabel, fieldSummaryWords, human, plural, rowsWords, shapeWords, type QueryWords,
+    FIELD_ICON, STEP_ICON, dataNumber, fieldKind, fieldLabel, fieldSummaryWords, human, plural, rowsWords, shapeWords, type QueryWords,
 } from "./words.js";
 
 /** One offer of a slot's list. */
@@ -116,7 +116,7 @@ function fieldItems(shape: Shape, ctx: SlotContext, text: string, opts: { kinds?
             : f.payload !== undefined ? m.insideGroup({ parent: human(f.payload.parent) })
             : m.fieldsGroup();
         items.push({
-            value: { kind: "field", ref: f.ref }, label, detail: fieldKind(f, ctx.words), group,
+            value: { kind: "field", ref: f.ref }, label, detail: fieldKind(f, ctx.words), icon: FIELD_ICON[f.kind], group,
             ...(meta === "" ? {} : { meta }), ...(note === undefined ? {} : { note }),
         });
     }
@@ -389,7 +389,7 @@ export function slotItems(query: StepQuery, root: EastType, slot: SlotRef, text:
             const dataset = step.value.dataset.type === "some" ? step.value.dataset.value : "";
             return fieldsOfRecord(table.value, new Map())
                 .filter(f => f.payload === undefined && !step.value.fields.includes(f.ref) && matches(text, human(f.name)))
-                .map(f => ({ value: { kind: "lookup-field", name: f.ref } as const, label: human(f.name), detail: fieldKind(f, ctx.words), group: m.fromDatasetGroup({ dataset }) }));
+                .map(f => ({ value: { kind: "lookup-field", name: f.ref } as const, label: human(f.name), detail: fieldKind(f, ctx.words), icon: FIELD_ICON[f.kind], group: m.fromDatasetGroup({ dataset }) }));
         }
         case "by": {
             const all: SlotItem[] = matches(text, m.allRowsTogether())
@@ -438,7 +438,7 @@ export function slotItems(query: StepQuery, root: EastType, slot: SlotRef, text:
             const node = unwrapRecursive(place.before.type);
             return fieldsOfRecord(node, new Map())
                 .filter(f => f.kind === "list" && matches(text, human(f.name)))
-                .map(f => ({ value: { kind: "field", ref: f.ref } as const, label: human(f.name), detail: fieldKind(f, ctx.words), group: m.fieldsGroup() }));
+                .map(f => ({ value: { kind: "field", ref: f.ref } as const, label: human(f.name), detail: fieldKind(f, ctx.words), icon: FIELD_ICON[f.kind], group: m.fieldsGroup() }));
         }
         case "part":
             return (["year", "month", "weekday"] as const)
@@ -515,7 +515,7 @@ export function slotEmpty(slot: SlotRef, words: QueryWords): string {
     return words.messages.slotEmpty({ slot: slot.kind });
 }
 
-// ─── The active offer ────────────────────────────────────────────────────────
+// ─── The current and active offers ───────────────────────────────────────────
 
 const valueEqual = equalFor(QueryStepValueType);
 
@@ -588,6 +588,21 @@ function sameValue(a: SlotValue, b: SlotValue): boolean {
 }
 
 /**
+ * The offer that sets what a slot holds now: the one a phone's list checks
+ * (`Query Builder Phone Spec.md` QP33) — never the value typed.
+ *
+ * @param items - the offers
+ * @param query - the query
+ * @param root - the root's type
+ * @param slot - the slot
+ * @returns its index, or `-1` when none is listed: a slot not filled in, or a value no offer sets
+ */
+export function currentItem(items: readonly SlotItem[], query: StepQuery, root: EastType, slot: SlotRef): number {
+    const now = currentValue(query, root, slot);
+    return now === undefined ? -1 : items.findIndex(i => !i.typed && sameValue(i.value, now));
+}
+
+/**
  * The offer a slot's list opens on (§4.5): the slot's current value when it
  * is listed, else the first that can be picked.
  *
@@ -598,7 +613,6 @@ function sameValue(a: SlotValue, b: SlotValue): boolean {
  * @returns its index, or `-1` when none can be picked
  */
 export function activeItem(items: readonly SlotItem[], query: StepQuery, root: EastType, slot: SlotRef): number {
-    const now = currentValue(query, root, slot);
-    const current = now === undefined ? -1 : items.findIndex(i => !i.typed && sameValue(i.value, now));
+    const current = currentItem(items, query, root, slot);
     return current >= 0 ? current : items.findIndex(i => i.disabled !== true);
 }

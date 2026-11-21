@@ -19,7 +19,7 @@ import {
     type EastType, type SummaryLeafType, type ValueTypeOf,
 } from "@elaraai/east";
 import type { Formatters, TickFormatOpt } from "@elaraai/east-ui-components";
-import { fieldByRef, fieldsOf, type StepField } from "../steps/fields.js";
+import { fieldByRef, fieldsOf, type FieldKind, type StepField } from "../steps/fields.js";
 import { optionPayload, unwrapRecursive, type Shape } from "../steps/shape.js";
 import type { StepKind, StepValue } from "../steps/values.js";
 import { queryMessages } from "./messages-en.js";
@@ -62,6 +62,25 @@ export const STEP_ICON: Readonly<Record<StepKind, string>> = {
     walk: "sitemap",
     tabulate: "chart-line",
     jq: "code",
+};
+
+/**
+ * Each kind of field's icon (Font Awesome's names), before its name in a slot's list (`Query Builder Phone Spec.md`
+ * QP33's icon column) as the Studio's fields list draws a field's: a text's letter, a number's hash, a date's calendar,
+ * a yes or no's switch; a case field's shapes, a list's lines; anything else a cube.
+ */
+export const FIELD_ICON: Readonly<Record<FieldKind, string>> = {
+    text: "font",
+    int: "hashtag",
+    num: "hashtag",
+    date: "calendar",
+    bool: "toggle-on",
+    case: "shapes",
+    list: "list",
+    record: "cube",
+    dict: "cube",
+    fn: "cube",
+    other: "cube",
 };
 
 /** A whole number, grouped, as the summaries print one. */

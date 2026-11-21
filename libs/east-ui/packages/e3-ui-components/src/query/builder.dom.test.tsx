@@ -96,16 +96,16 @@ function partsOf(row: HTMLElement): string[] {
 const rowsOf = (card: HTMLElement) => [...card.querySelectorAll<HTMLElement>("[data-query-line=row]")].map(partsOf);
 /** The shape lines' words, in order. */
 const shapesOf = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-query-shape-text]")].map((el) => el.textContent);
-/** The open autocomplete, its offers' labels, and a slot opened and an offer picked as a pointer does. */
+/** The open slot's picker, its offers' labels, and a slot opened and an offer picked as a pointer does. */
 const { popover, offers, openSlot, pick } = slotActions(act, settle);
-/** Its active offer's label. */
-const activeOffer = () => popover()!.querySelector<HTMLElement>("[role=option][aria-selected=true] [data-label]")?.textContent;
+/** Its highlighted offer's label. */
+const activeOffer = () => popover()!.querySelector<HTMLElement>("[role=option][data-highlighted] [data-option-label]")?.textContent;
 /** Its label. */
-const popoverLabel = () => popover()!.querySelector("label")!.textContent;
-/** Its filter field. */
+const popoverLabel = () => popover()!.querySelector("[data-chooser-label]")!.textContent;
+/** Its search. */
 const filterOf = () => within(popover()!).getByRole("combobox");
 
-/** Presses a key in the autocomplete's filter. */
+/** Presses a key in the picker's search. */
 async function key(name: string, init: Record<string, unknown> = {}) {
     await act(async () => { fireEvent.keyDown(filterOf(), { key: name, ...init }); });
     await settle();

@@ -13,7 +13,9 @@
  *   `Typed`.
  * - **An option**: its label — words in the body face, or data (`mono`) in
  *   the mono; its detail and its note on its line; its meta at its end; its
- *   icon before it; and, listed but not to be picked, refused with its reason.
+ *   icon before it — a step's, a field's kind's; the offer that sets what the
+ *   slot holds now, checked where its host asks (QP33); and, listed but not
+ *   to be picked, refused with its reason.
  * - **Its key**: the offer's group and label — what holds the highlight on it
  *   as the list is given again for the text typed — and the value typed
  *   always the one key, whatever is typed.
@@ -43,9 +45,10 @@ const TYPED_KEY = "typed";
  *
  * @param items - The offers, in their groups' order (`slotItems`)
  * @param initialActive - The offer the list opens on (`activeItem`): its index, or `-1`
+ * @param checked - The offer checked, the one that sets what the slot holds now (`currentItem`): its index, or `-1` for none
  * @returns The sections, each option's offer by its key, and the key it opens on
  */
-export function slotOptions(items: readonly SlotItem[], initialActive: number): SlotOptions {
+export function slotOptions(items: readonly SlotItem[], initialActive: number, checked = -1): SlotOptions {
     const sections: { label: string; options: ChooserOption[] }[] = [];
     const offerOf = new Map<string, SlotItem>();
     let initialKey: string | undefined;
@@ -64,7 +67,7 @@ export function slotOptions(items: readonly SlotItem[], initialActive: number): 
         section.options.push({
             key,
             label: item.label,
-            state: item.disabled === true ? "refused" : "enabled",
+            state: item.disabled === true ? "refused" : i === checked && item.typed !== true ? "current" : "enabled",
             ...(line === "" ? {} : { line }),
             ...(item.meta === undefined || item.meta === "" ? {} : { range: item.meta }),
             ...(item.icon === undefined ? {} : { icon: ["fas", item.icon as IconName] as IconProp }),

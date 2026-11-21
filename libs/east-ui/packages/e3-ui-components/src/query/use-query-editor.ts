@@ -36,7 +36,7 @@ import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
 import { parseErrorWords } from "./model/problem-words.js";
 import { applyAction, applyInput, applyRemove, applySlot } from "./model/slot-edits.js";
 import {
-    activeItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
+    activeItem, currentItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
 import { summaryAt, summaryHashes, summaryNeeded, type SummaryCache } from "./model/summaries.js";
@@ -79,18 +79,19 @@ export interface SlotPopover {
     readonly slot: OpenSlot;
     /** Changes when the offers' source does — a summary arriving — so the list opens afresh on its current value. */
     readonly generation: string;
-    /** Its label, filter placeholder, footer, empty words and keys. */
+    /** Its label, filter placeholder, footer and empty words. */
     readonly label: string;
     readonly placeholder: string;
     readonly hint: string;
     readonly empty: string;
-    readonly keys: string;
     /** The offers for the text typed. */
     readonly items: readonly SlotItem[];
     /** The text typed. */
     readonly text: string;
     /** The offer active as it opens. */
     readonly initialActive: number;
+    /** The offer that sets what the slot holds now — the one a phone's list checks: its index, or `-1`. */
+    readonly current: number;
     /** Told each change of the text. */
     readonly onText: (text: string) => void;
     /** Told the offer picked. */
@@ -468,6 +469,8 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     // It opens on the slot's current value: the offers as they were when they arrived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openRef, summary === undefined, query]);
+    // The offer that sets what the slot holds now, in the offers shown.
+    const holding = useMemo(() => (openRef === undefined ? -1 : currentItem(items, query, root.type, openRef)), [openRef, items, query, root]);
 
     const onPick = useCallback((item: SlotItem) => {
         if (open === undefined) return;
@@ -493,14 +496,14 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         placeholder: slotPlaceholder(open.ref, words),
         hint: slotHint(open.ref, words),
         empty: slotEmpty(open.ref, words),
-        keys: m.slotKeys(),
         items,
         text,
         initialActive,
+        current: holding,
         onText: setText,
         onPick,
         onClose,
-    }), [open, gone, summary, words, m, items, text, initialActive, onPick, onClose]);
+    }), [open, gone, summary, words, items, text, initialActive, holding, onPick, onClose]);
 
     return {
         header, query, checked, source, cards, quick,

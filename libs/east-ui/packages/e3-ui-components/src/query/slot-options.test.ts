@@ -59,4 +59,13 @@ describe("a slot's offers as the picker's options", () => {
             ["enabled", undefined, undefined, undefined],
         ]);
     });
+
+    test("the offer that sets what the slot holds now is checked where its host asks (QP33) — that one of two alike, never the value typed", () => {
+        const states = (checked?: number) => slotOptions(OFFERS, 1, checked).sections.flatMap((s) => s.options).map((o) => o.state);
+        expect([states(3), states(0), states()]).toEqual([
+            ["enabled", "enabled", "enabled", "current"],
+            ["enabled", "enabled", "enabled", "enabled"],
+            ["enabled", "enabled", "enabled", "enabled"],
+        ]);
+    });
 });
