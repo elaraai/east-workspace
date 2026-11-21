@@ -94,7 +94,8 @@
  * edit refused for its event's key (east-workspace#1709) — the key its fields
  * would then build is another event's, or the links naming it cannot follow
  * it — says why under its field, and Duplicate is off for an event whose copy
- * would be refused so.
+ * would be refused so. A link's edit refused for its link's key says why the
+ * same way.
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Duplicate, which selects the copies, an overlap's line, which
@@ -1345,13 +1346,21 @@ function OneLink({ link, words, styles, chrome }: OneLinkProps) {
     const focus = useFieldAsk(kind.key, link.id);
     // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
     const [redraws, setRedraws] = useState(0);
-    // A field edited: one step, written through its record's `set` over the row as the step finds it.
-    const onField = useCallback((path: readonly string[], next: unknown) => {
+    // A field edited: one step, written through its record's `set` over the row as the step finds it. One that records
+    // nothing — the edits off meanwhile, the set turning it down, nothing changed — draws the form again, with nothing to
+    // say; one its link's key refuses (east-workspace#1709) says why under the field, as an event's does.
+    const onField = useCallback((path: readonly string[], next: unknown): string | void => {
         const write = fieldWrite(kind.fields, kind.rowType, path, next);
-        if (editing === undefined || write === undefined) return;
+        if (editing === undefined || write === undefined) return undefined;
         const rewrite = (at: Uint8Array) => getSomeorUndefined(kind.set(at, [write]));
-        if (!writes.current || !editing.record([{ kind: kind.key, id: link.id, rewrite }], "typed", linkStepLabel("Edit", [kind]))) setRedraws((n) => n + 1);
-    }, [editing, kind, link.id]);
+        if (writes.current) {
+            if (editing.record([{ kind: kind.key, id: link.id, rewrite }], "typed", linkStepLabel("Edit", [kind]))) return undefined;
+            const refusal = editing.keyRefusal();
+            if (refusal !== undefined) return m.keyRefused({ kind: refusal.name, why: refusal.why });
+        }
+        setRedraws((n) => n + 1);
+        return undefined;
+    }, [editing, kind, link.id, m]);
     return (
         <Box css={styles.root} data-plan-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={kind} title={m.linkEnds({ from: link.from, to: link.to })} when={null} home />

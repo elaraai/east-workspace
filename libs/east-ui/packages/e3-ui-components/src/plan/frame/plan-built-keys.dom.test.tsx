@@ -13,15 +13,18 @@
  * writes the job and its flows so. An edit its key refuses says why under its
  * field: the key it would build is another job's, or — the flows bound read
  * only — its flows cannot follow it. Duplicate is off for a job standing
- * under the key its row builds, whose copy would build that key too.
+ * under the key its row builds, whose copy would build that key too. A link
+ * kind that builds its links' keys says a refused key the same way, under the
+ * field of the link's own form.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { equalFor, none, some, variant } from "@elaraai/east";
+import { East, equalFor, none, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { retypeNumber } from "../../e3-web-mount.test-utils.js";
+import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot } from "./harness.test-utils.js";
 import { flowsPlan, type FlowsPlanOptions } from "./flows.test-utils.js";
 
 const h = planHarness();
@@ -104,5 +107,35 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         await typeCustomer(c, "Quay Books");
         expect([job(c, "J-2001") !== null, job(c, "Quay Books"), inspected(c), pending(c)]).toEqual([true, null, "Catalogue covers", "0 pending"]);
         expect(customerField(c)).toContain("Its flows can't follow this print job to another key");
+    });
+
+    test("ruling 1 — a link kind that builds each link's key from its row: sheets typed in a flow's own form move it under the key they build, and sheets that build a key another flow stands under are refused, the field saying whose key it is", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            // Each flow keyed by the sheets it moves, as East prints them: stored under their names, each stands apart from that key
+            // until its sheets change.
+            const keyedBySheets: FlowsPlanOptions = { key: (flow) => flow.sheets.match({ some: (_$, sheets) => East.str`${sheets}k`, none: () => "none" }) };
+            const { container: c } = await h.mount(flowsPlan(keyedBySheets), { storageKey: "plan-keyed-flows" });
+            await settle();
+            fireEvent.click(c.querySelector(`${rowAt(A1)} [data-plan-control="links"]`)!);
+            await settle();
+            /** A flow's line on the canvas, by its key. */
+            const flow = (key: string) => [...c.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === elementKey("flow", key));
+            /** The sheets' field of the selected flow's form: its box, and what it reads — its label, and under it why it refused an edit. */
+            const sheets = () => pane(c).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='sheets']")!;
+            // The covers' flow, typed to move 30: under the key its sheets build.
+            fireEvent.click(flow("covers")!);
+            await settle();
+            await retypeNumber(within(sheets()).getByRole("spinbutton"), "30");
+            expect([flow("covers"), flow("30.0k") !== undefined]).toEqual([undefined, true]);
+            // The posters' flow, which moves 24, typed to move 30 too: its sheets would build the key the covers' flow stands under.
+            fireEvent.click(flow("posters")!);
+            await settle();
+            await retypeNumber(within(sheets()).getByRole("spinbutton"), "30");
+            expect(sheets().textContent).toContain('Another flow is keyed "30.0k" already');
+            expect(flow("posters")).not.toBeUndefined();
+        } finally {
+            restore();
+        }
     });
 });
