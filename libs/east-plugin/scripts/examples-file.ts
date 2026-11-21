@@ -4,7 +4,7 @@
  * Reads one examples file (`*.examples.ts` / `*.examples.tsx`) for the search
  * index: every `export const NAME = example({ … })` with its suite, keywords,
  * description and `fn` source, the module-scope declarations that `fn`
- * reaches, and the file's imports.
+ * reaches, and the file's imports, each as written.
  *
  * The TypeScript parser reads the file — as TSX when it is one. A text scan
  * cannot bound an example in a `.tsx` file, where JSX text is not code: an
@@ -27,20 +27,16 @@ export interface ParsedExample {
 }
 
 // ---------------------------------------------------------------------------
-// Extract imports (stop at first export or section divider)
+// The file's imports
 // ---------------------------------------------------------------------------
 
-function extractImports(lines: string[]): string[] {
-    const imports: string[] = [];
-    for (const line of lines) {
-        if (/^\s*export\s+const\s/.test(line) || /^\/\/ -{3,}/.test(line)) {
-            break;
-        }
-        if (/^\s*import\s/.test(line)) {
-            imports.push(line.trimEnd());
-        }
-    }
-    return imports;
+/**
+ * The file's imports, each as written: one over several lines whole, and one
+ * after a section divider too. A scan of the file's lines kept a wide import's
+ * opening line alone (`import {`) and stopped at the first divider.
+ */
+function importsOf(sf: ts.SourceFile): string[] {
+    return sf.statements.filter(ts.isImportDeclaration).map((s) => s.getText(sf));
 }
 
 // ---------------------------------------------------------------------------
@@ -171,8 +167,6 @@ export function parseExamplesFile(filePath: string): ParsedExample[] {
     // Normalise CRLF/CR to LF so the extracted source (and the index built from
     // it) is byte-identical regardless of the checkout's line-ending settings.
     const content = fs.readFileSync(filePath, "utf-8").replace(/\r\n?/g, "\n");
-    const lines = content.split("\n");
-    const imports = extractImports(lines);
     const results: ParsedExample[] = [];
 
     // Extract section names from comment dividers
@@ -186,6 +180,7 @@ export function parseExamplesFile(filePath: string): ParsedExample[] {
 
     const sf = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true,
         filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const imports = importsOf(sf);
 
     // The top-level statements an example may reach: every one but the
     // imports and the examples themselves.

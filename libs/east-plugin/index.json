@@ -4988,7 +4988,7 @@
         "toFloat"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5031,7 +5031,7 @@
         "if"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5070,7 +5070,7 @@
         "callback"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5113,7 +5113,7 @@
         "concat"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5150,7 +5150,7 @@
         "match"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5188,7 +5188,7 @@
         "integer-like names"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5224,7 +5224,7 @@
         "StructType list"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5262,7 +5262,7 @@
         "reduce"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5303,7 +5303,7 @@
         "getYear"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5345,7 +5345,7 @@
         "error"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5382,7 +5382,7 @@
         "label"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5422,7 +5422,7 @@
         "Never"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -5468,7 +5468,7 @@
         "#1312"
       ],
       "imports": [
-        "import {"
+        "import {\n    East, example, variant, some,\n    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13777,7 +13777,7 @@
         "slice"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13817,7 +13817,7 @@
         "bounds"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13856,7 +13856,7 @@
         "index"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13895,7 +13895,7 @@
         "key range"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13935,7 +13935,7 @@
         "key range"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -13975,7 +13975,7 @@
         "tile"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14015,7 +14015,7 @@
         "bounds"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14052,7 +14052,7 @@
         "key range"
       ],
       "imports": [
-        "import {"
+        "import {\n    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14907,7 +14907,7 @@
         "East.field"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14944,7 +14944,7 @@
         "East.field"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14983,7 +14983,7 @@
         "East.struct"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15018,7 +15018,7 @@
         "East.struct"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15056,7 +15056,7 @@
         "East.struct"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15095,7 +15095,7 @@
         "East.withField"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15130,7 +15130,7 @@
         "East.inCase"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15166,7 +15166,7 @@
         "East.patchesFor"
       ],
       "imports": [
-        "import {"
+        "import {\n    ArrayType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, VariantType, example, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16081,7 +16081,7 @@
         "stream"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16121,7 +16121,7 @@
         "as"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16160,7 +16160,7 @@
         "early exit"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16199,7 +16199,7 @@
         "group"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16243,7 +16243,7 @@
         "report"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16294,7 +16294,7 @@
         "DateTime"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16334,7 +16334,7 @@
         "compare"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16375,7 +16375,7 @@
         "new field"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16415,7 +16415,7 @@
         "message"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16453,7 +16453,7 @@
         "stream"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -16495,7 +16495,7 @@
         "depth first"
       ],
       "imports": [
-        "import {"
+        "import {\n  East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType,\n  VariantType, example, none, some, variant,\n} from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -33120,7 +33120,7 @@
         "read-only"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BlobType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    MatrixType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    RefType,\n    SetType,\n    StringType,\n    StructType,\n    VariantType,\n    VectorType,\n    example,\n    ref,\n    some,\n    none,\n    variant,\n} from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from \"@elaraai/east-ui\";"
       ],
@@ -33155,7 +33155,7 @@
         "inspector"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BlobType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    MatrixType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    RefType,\n    SetType,\n    StringType,\n    StructType,\n    VariantType,\n    VectorType,\n    example,\n    ref,\n    some,\n    none,\n    variant,\n} from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from \"@elaraai/east-ui\";"
       ],
@@ -33205,7 +33205,7 @@
         "configurator"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BlobType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    MatrixType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    RefType,\n    SetType,\n    StringType,\n    StructType,\n    VariantType,\n    VectorType,\n    example,\n    ref,\n    some,\n    none,\n    variant,\n} from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from \"@elaraai/east-ui\";"
       ],
@@ -33234,7 +33234,7 @@
         "State"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BlobType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    MatrixType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    RefType,\n    SetType,\n    StringType,\n    StructType,\n    VariantType,\n    VectorType,\n    example,\n    ref,\n    some,\n    none,\n    variant,\n} from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from \"@elaraai/east-ui\";"
       ],
@@ -33261,7 +33261,7 @@
         "State"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BlobType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    MatrixType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    RefType,\n    SetType,\n    StringType,\n    StructType,\n    VariantType,\n    VectorType,\n    example,\n    ref,\n    some,\n    none,\n    variant,\n} from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Configurator, HStack, Input, Reactive, SegmentGroup, Switch, Text, ValueTree } from \"@elaraai/east-ui\";"
       ],
@@ -39043,7 +39043,7 @@
         "initial state"
       ],
       "imports": [
-        "import {",
+        "import {\n    East,\n    IntegerType,\n    NullType,\n    StringType,\n    DateTimeType,\n    StructType,\n    SetType,\n    OptionType,\n    ArrayType,\n    variant,\n    some,\n    none,\n    example,\n} from \"@elaraai/east\";",
         "import { Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Button, Reactive, Separator, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -39082,7 +39082,7 @@
         "Legend"
       ],
       "imports": [
-        "import {",
+        "import {\n    East,\n    IntegerType,\n    NullType,\n    StringType,\n    DateTimeType,\n    StructType,\n    SetType,\n    OptionType,\n    ArrayType,\n    variant,\n    some,\n    none,\n    example,\n} from \"@elaraai/east\";",
         "import { Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Button, Reactive, Separator, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -39109,7 +39109,7 @@
         "numeric slider"
       ],
       "imports": [
-        "import {",
+        "import {\n    East,\n    IntegerType,\n    NullType,\n    StringType,\n    DateTimeType,\n    StructType,\n    SetType,\n    OptionType,\n    ArrayType,\n    variant,\n    some,\n    none,\n    example,\n} from \"@elaraai/east\";",
         "import { Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Button, Reactive, Separator, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -40394,7 +40394,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40427,7 +40427,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40466,7 +40466,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40497,7 +40497,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40527,7 +40527,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40559,7 +40559,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40586,7 +40586,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40616,7 +40616,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40643,7 +40643,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40671,7 +40671,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40704,7 +40704,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40731,7 +40731,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40758,7 +40758,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40790,7 +40790,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40824,7 +40824,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40858,7 +40858,7 @@
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,\n    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,\n} from \"./kiln-yard.js\";"
       ],
       "languages": [
         "tsx"
@@ -40883,7 +40883,7 @@
         "busy"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -40912,7 +40912,7 @@
         "score"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -40940,7 +40940,7 @@
         "e3.function"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -40968,7 +40968,7 @@
         "arrivals"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -40995,7 +40995,7 @@
         "e3.function"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -41020,7 +41020,7 @@
         "fix"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -41045,7 +41045,7 @@
         "reserved"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Allocation, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -42647,7 +42647,7 @@
         "multi-task"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    some, none, variant, example,\n} from '@elaraai/east';",
         "import { Reactive, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionJournal } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42675,7 +42675,7 @@
         "contract"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42702,7 +42702,7 @@
         "gate"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42739,7 +42739,7 @@
         "bars"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42768,7 +42768,7 @@
         "overflow"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42799,7 +42799,7 @@
         "operator"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42825,7 +42825,7 @@
         "views"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42856,7 +42856,7 @@
         "Accept all"
       ],
       "imports": [
-        "import {",
+        "import {\n    East, ArrayType, StructType, VariantType, StringType, FloatType, DateTimeType,\n    NullType, IntegerType, some, none, variant, example,\n} from '@elaraai/east';",
         "import { Box, Chart, Field, Reactive, Separator, Slice, UIComponentType, VStack } from '@elaraai/east-ui';",
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
@@ -42890,7 +42890,7 @@
         "minimal"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -42947,7 +42947,7 @@
         "byService"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -42982,7 +42982,7 @@
         "patch door"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43016,7 +43016,7 @@
         "no data"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43045,7 +43045,7 @@
         "inspector"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43083,7 +43083,7 @@
         "records"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43116,7 +43116,7 @@
         "records"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43145,7 +43145,7 @@
         "Data.bind"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43176,7 +43176,7 @@
         "time in state"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43207,7 +43207,7 @@
         "time in state"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43243,7 +43243,7 @@
         "values"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43535,7 +43535,7 @@
         "#1198"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43564,7 +43564,7 @@
         "#1516"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43672,7 +43672,7 @@
         "out of range"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43709,7 +43709,7 @@
         "#1541"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43775,7 +43775,7 @@
         "#1258"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43809,7 +43809,7 @@
         "Save"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43854,7 +43854,7 @@
         "#1541"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43897,7 +43897,7 @@
         "#1621"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43933,7 +43933,7 @@
         "#1541"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -43978,7 +43978,7 @@
         "#1541"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -44017,7 +44017,7 @@
         "#1549"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -44091,7 +44091,7 @@
         "#1544"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    FunctionType,\n    IntegerType,\n    NullType,\n    OptionType,\n    PatchType,\n    SetType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -44149,7 +44149,7 @@
         "#1438"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, HStack, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
@@ -44186,7 +44186,7 @@
         "Save"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, HStack, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
@@ -44238,7 +44238,7 @@
         "#1039"
       ],
       "imports": [
-        "import {",
+        "import {\n    DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -44278,7 +44278,7 @@
         "#1039"
       ],
       "imports": [
-        "import {",
+        "import {\n    DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -44345,7 +44345,7 @@
         "#1039"
       ],
       "imports": [
-        "import {",
+        "import {\n    DateTimeType,\n    DictType,\n    East,\n    IntegerType,\n    OptionType,\n    SetType,\n    StringType,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -44392,7 +44392,7 @@
         "#1039"
       ],
       "imports": [
-        "import {",
+        "import {\n    DateTimeType,\n    DictType,\n    East,\n    IntegerType,\n    OptionType,\n    SetType,\n    StringType,\n    example,\n    none,\n    some,\n    variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -44645,7 +44645,7 @@
         "§10"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -44720,7 +44720,7 @@
         "e3.input"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -44842,7 +44842,7 @@
         "#1344"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -44953,7 +44953,7 @@
         "Data.bind"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -45010,7 +45010,7 @@
         "#1344"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -45058,7 +45058,7 @@
         "e3.input"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -45094,7 +45094,7 @@
         "#1344"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -45140,7 +45140,7 @@
         "#1541"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType,\n    BooleanType,\n    DateTimeType,\n    DictType,\n    East,\n    FloatType,\n    IntegerType,\n    NullType,\n    OptionType,\n    RecursiveType,\n    SortedMap,\n    StringType,\n    StructType,\n    VariantType,\n    compareFor,\n    example,\n    none,\n    some,\n    variant,\n    type ExprType,\n    type ValueTypeOf,\n    type option,\n} from \"@elaraai/east\";",
         "import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
@@ -45180,7 +45180,7 @@
         "one-shot"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45216,7 +45216,7 @@
         "Reactive"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45246,7 +45246,7 @@
         "Run"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45274,7 +45274,7 @@
         "Value tree"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45301,7 +45301,7 @@
         "what if"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45327,7 +45327,7 @@
         "Quick add"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45358,7 +45358,7 @@
         "Save"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45393,7 +45393,7 @@
         "plan"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45428,7 +45428,7 @@
         "Data.bind"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,\n    StructType, VariantType, compareFor, example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -45455,7 +45455,7 @@
         "system of records"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45486,7 +45486,7 @@
         "slice"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45515,7 +45515,7 @@
         "Record.column.audit"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45545,7 +45545,7 @@
         "avatar"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45571,7 +45571,7 @@
         "slice"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45604,7 +45604,7 @@
         "Configurator"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45637,7 +45637,7 @@
         "Integer key"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45665,7 +45665,7 @@
         "status"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45695,7 +45695,7 @@
         "a column per member"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45724,7 +45724,7 @@
         "a column per field"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45762,7 +45762,7 @@
         "hidden"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45801,7 +45801,7 @@
         "hidden"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45839,7 +45839,7 @@
         "Record.column.toggle"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45870,7 +45870,7 @@
         "pinned title"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45911,7 +45911,7 @@
         "patch"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -45939,7 +45939,7 @@
         "pay"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -45961,7 +45961,7 @@
         "fix"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -45982,7 +45982,7 @@
         "hours"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46004,7 +46004,7 @@
         "overnight"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46030,7 +46030,7 @@
         "rest"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46056,7 +46056,7 @@
         "overlapping"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46080,7 +46080,7 @@
         "two-step roster"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46105,7 +46105,7 @@
         "issue"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46132,7 +46132,7 @@
         "refused"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,\n    type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Roster, Schedule } from \"@elaraai/e3-ui\";"
       ],
       "languages": [
@@ -46173,12 +46173,12 @@
         "fit"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
         "import { WarehouseDuty, WarehousePerson, WarehouseShift } from \"./warehouse.js\";",
-        "import {"
+        "import {\n    MinimalShiftTime, minimalTeams, rosterActivities, rosterAgencies, rosterCover, rosterDuties, rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffFit,\n    rosterSuggestions, rosterTeams, rosterWeeks,\n} from \"./roster.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -46218,12 +46218,12 @@
         "Undo"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType, VariantType,\n    compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
         "import { WarehouseDuty, WarehousePerson, WarehouseShift } from \"./warehouse.js\";",
-        "import {"
+        "import {\n    MinimalShiftTime, minimalTeams, rosterActivities, rosterAgencies, rosterCover, rosterDuties, rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffFit,\n    rosterSuggestions, rosterTeams, rosterWeeks,\n} from \"./roster.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -46259,7 +46259,7 @@
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { WarehouseDuty, WarehouseWeek, warehouseDuties, warehousePreviousStart, warehouseWeeks } from \"./warehouse.js\";",
-        "import {"
+        "import {\n    rosterStaff as warehouseStaff, rosterActivities, rosterAgencies, rosterCover, rosterDutyRoles, rosterFitRead, rosterGreedyFit, rosterPersonOf, rosterPositions,\n    rosterShiftTimes, rosterSuggestions, rosterTeams,\n} from \"./roster.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -46292,7 +46292,7 @@
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { WarehouseDuty, WarehouseWeek, warehouseDuties, warehousePreviousStart, warehouseWeeks } from \"./warehouse.js\";",
-        "import {"
+        "import {\n    rosterStaff as warehouseStaff, rosterActivities, rosterAgencies, rosterCover, rosterDutyRoles, rosterFitRead, rosterGreedyFit, rosterPersonOf, rosterPositions,\n    rosterShiftTimes, rosterSuggestions, rosterTeams,\n} from \"./roster.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -46336,11 +46336,11 @@
         "FieldForm"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46370,11 +46370,11 @@
         "FieldForm"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46401,11 +46401,11 @@
         "Data.bindPaged"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46445,11 +46445,11 @@
         "FieldForm"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46484,11 +46484,11 @@
         "Publish"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46522,11 +46522,11 @@
         "Publish"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46569,11 +46569,11 @@
         "Publish"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46608,11 +46608,11 @@
         "Data.bindPaged"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46642,11 +46642,11 @@
         "FieldForm"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46674,11 +46674,11 @@
         "Publish"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46702,11 +46702,11 @@
         "minimal"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46740,11 +46740,11 @@
         "Reactive"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46781,11 +46781,11 @@
         "unplaced"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46814,11 +46814,11 @@
         "Publish"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46850,11 +46850,11 @@
         "BuilderFrame"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46887,11 +46887,11 @@
         "move"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46921,11 +46921,11 @@
         "FieldForm"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -46954,11 +46954,11 @@
         "Save"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,\n    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Roster, Schedule } from \"@elaraai/e3-ui\";",
-        "import {"
+        "import {\n    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,\n    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,\n    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,\n    warehouseWeeks,\n} from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
@@ -47061,7 +47061,7 @@
         "id"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47095,7 +47095,7 @@
         "id"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47134,7 +47134,7 @@
         "read only"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47193,7 +47193,7 @@
         "Schematic.Types.Sides"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47249,7 +47249,7 @@
         "drop"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47282,7 +47282,7 @@
         "Save"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47318,7 +47318,7 @@
         "inspector"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,\n    none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Button, HStack, Reactive, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Schematic } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47384,7 +47384,7 @@
         "state"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47427,7 +47427,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47459,7 +47459,7 @@
         "updates"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47485,7 +47485,7 @@
         "read only"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47514,7 +47514,7 @@
         "Sheet.field.number"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47543,7 +47543,7 @@
         "Row number"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -47755,8 +47755,8 @@
         "Reactive"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -47797,8 +47797,8 @@
         "State"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -47844,8 +47844,8 @@
         "State"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -47876,8 +47876,8 @@
         "group"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -47960,8 +47960,8 @@
         "joinery"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48028,8 +48028,8 @@
         "write-back"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48058,8 +48058,8 @@
         "#1516"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48122,8 +48122,8 @@
         "hidden"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48159,8 +48159,8 @@
         "record"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48194,8 +48194,8 @@
         "Undo"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48249,8 +48249,8 @@
         "record"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48288,8 +48288,8 @@
         "renumbered"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,\n    example, none, some, variant,\n} from \"@elaraai/east\";",
+        "import {\n    Badge, Box, Button, Configurator, Field, Format, HStack, Input, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Switch, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48354,7 +48354,7 @@
         "natural height"
       ],
       "imports": [
-        "import {",
+        "import {\n    ArrayType, East, FloatType, StringType, StructType, example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
         "import { Chart, Format, HStack, Stat, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Studio } from \"@elaraai/e3-ui\";"
       ],
@@ -48400,8 +48400,8 @@
         "rollout"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,\n    example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
+        "import {\n    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Studio } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48431,8 +48431,8 @@
         "history"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,\n    example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
+        "import {\n    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Studio } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48464,8 +48464,8 @@
         "Save"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,\n    example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
+        "import {\n    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Studio } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48506,8 +48506,8 @@
         "e3.record"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,\n    example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
+        "import {\n    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Studio } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -48534,8 +48534,8 @@
         "SnapGrid"
       ],
       "imports": [
-        "import {",
-        "import {",
+        "import {\n    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,\n    example, none, some, variant, type ValueTypeOf,\n} from \"@elaraai/east\";",
+        "import {\n    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,\n} from \"@elaraai/east-ui\";",
         "import { Data, Record, Studio } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
