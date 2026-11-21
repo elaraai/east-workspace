@@ -482,7 +482,7 @@ function RosterFrame(props: FrameProps) {
             const now = latestRun.current;
             // The duties the answer must leave, as the session holds them now, for an optimiser that takes the edges (#1553).
             const fixed = !edgesForm || now.reach === undefined ? undefined
-                : rosterFixed({ stored: now.stored, drafts: now.drafts, period: now.asked, reach: now.reach });
+                : rosterFixed({ stored: now.stored, drafts: now.drafts, period: now.asked, reach: now.reach, types: optimiseTypes });
             return rosterOptimiseRequest(now.asked, optimiseSlice(source.slice.type === "some" ? source.slice.value : undefined), n, fixed);
         }, landKey: week,
     });

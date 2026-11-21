@@ -109,7 +109,7 @@ export const RosterVocabularyType = StructType({
  * and the form its function takes, which the tag reads from its type.
  *
  * @property binding - The binding, which names the function
- * @property edges - Whether it may change the duties at the week's edges: asked `Roster.Types.OptimiseRequest({ edges: true })`, with the keys of those it must leave
+ * @property edges - Whether it may change the duties at the week's edges: asked `Roster.Types.OptimiseRequest({ edges: true })`, with the keys of those it must leave, at the duties' key type
  */
 export const RosterOptimiseBindingType = StructType({ binding: FuncBindingType, edges: BooleanType });
 /** Type representing {@link RosterOptimiseBindingType}. */
@@ -299,8 +299,9 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
      * One from `Roster.Types.OptimiseRequest({ edges: true })` may change the duties at the week's edges (#1553): its request
      * carries `fixed`, the keys of those its answer must leave as they are, and its one patch can change, remove or add a duty
      * at an edge, in the run's one step; one that changes or removes a fixed duty, or puts one in a week that takes no edit, is
-     * refused, naming it. The Roster reads which form it takes from its type, and checks the handle at build, naming what it
-     * asks and answers.
+     * refused, naming it. `fixed` holds the duties' keys at their own type, which `key` names for duties keyed by other than
+     * String: `Roster.Types.OptimiseRequest({ edges: true, key: IntegerType })`. The Roster reads which form it takes from its
+     * type, and checks the handle at build, naming what it asks and answers.
      */
     optimise?: OptimiseHandle;
     /**
@@ -521,7 +522,8 @@ function takesEdges(optimise: unknown): boolean {
 
 /**
  * The Roster's `optimise` binding, checked (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
- * `Roster.Types.OptimiseRequest()` — or, given `{ edges: true }` (#1553), `Roster.Types.OptimiseRequest({ edges: true })` — to
+ * `Roster.Types.OptimiseRequest()` — or, given `{ edges: true }` (#1553), `Roster.Types.OptimiseRequest({ edges: true })`, its
+ * `fixed` at the duties' key type, which `key` names for duties keyed by other than String — to
  * `Roster.Types.OptimiseResult(D)` over the duties' record, which lists in its `drafts` each record it reads that the Roster
  * edits: the duties', the targets' and the periods'.
  *
@@ -531,19 +533,26 @@ function takesEdges(optimise: unknown): boolean {
  * @param edits - The records the Roster edits, each by its name in the deployed package: the duties', the targets' and the periods'
  * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
  *   Roster edits and does not list it in `drafts`
- * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type — an edges' request
+ *   whose `fixed` holds keys of another type than the duties' among them — naming it
  */
 function rosterOptimiseBinding(
     optimise: unknown, duties: DictType<EastType, EastType>, edges: boolean, edits: readonly ExprType<StringType>[],
 ): ExprType<typeof FuncBindingType> {
     const record = printType(duties);
+    // The edges' request names the duties it must leave by their keys at the duties' own type: `key` beside `edges` for
+    // duties keyed by other than String, which a refusal names.
+    const key = duties.key as EastType;
+    const text = key.type === "String";
+    const edgesRequest = text ? "Roster.Types.OptimiseRequest({ edges: true })" : "Roster.Types.OptimiseRequest({ edges: true, key: K })";
     return optimiseBinding(optimise, {
         builder: "Roster",
-        request: edges ? T.RosterOptimiseRequestTypeFor({ edges: true }) : T.RosterOptimiseRequestTypeFor(),
+        request: edges ? T.RosterOptimiseRequestTypeFor({ edges: true, key }) : T.RosterOptimiseRequestTypeFor(),
         result: T.RosterOptimiseResultTypeFor(duties),
-        signature: `from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(D), or from Roster.Types.OptimiseRequest({ edges: true }), D the duties' record type — here ${record}`,
+        signature: `from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(D), or from ${edgesRequest}, ` +
+            `D the duties' record type${text ? "" : " and K its key type"} — here ${record}`,
         names: {
-            request: edges ? "Roster.Types.OptimiseRequest({ edges: true })" : "Roster.Types.OptimiseRequest()",
+            request: !edges ? "Roster.Types.OptimiseRequest()" : text ? edgesRequest : `${edgesRequest}, K the duties' key type ${printType(key)}`,
             result: `Roster.Types.OptimiseResult(${record})`,
         },
         edits,
@@ -600,7 +609,7 @@ export function rosterEdits(
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
  *   or a `check` over another type; a `fit` that is not `Func.bind` of a function from `FitRequest` to `FitResult`
  *   (east-workspace#1624), or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest()` (or
- *   `OptimiseRequest({ edges: true })`) to `OptimiseResult(D)` over the duties' record (#1409, east-workspace#1622); a library tab listed twice; a `view.period` its layout does not take, naming each
+ *   `OptimiseRequest({ edges: true })`, its `key` the duties' key type) to `OptimiseResult(D)` over the duties' record (#1409, east-workspace#1622); a library tab listed twice; a `view.period` its layout does not take, naming each
  *   layout's periods; a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `viewPeriods` that lists nothing, names no period, leaves out `view.period` or leaves a layout offered no period; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
  *   `"different"`, or a `letters` that is no boolean (#1406); a duty kind whose slot is `reference`, and a `check` that does not
  *   go with the slice's reference record (#1551) — a `reference` source and no check, a check over a reference the slice holds

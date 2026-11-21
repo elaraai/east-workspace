@@ -537,18 +537,27 @@ export type RosterFitResultType = typeof RosterFitResultType;
  * answer change the duties at the week's edges — for a business whose week
  * runs by when its shifts end, say, where the night before the week is the
  * week's first shift — and its request names the keys of those it must leave
- * as they are.
+ * as they are, at the duties' own key type: `key`, for duties keyed by other
+ * than String.
  *
+ * @typeParam K - The duties' key type
  * @property edges - The duties at the week's edges: the request carries `fixed`, and the answer's one patch may change, remove or add a duty at an edge
+ * @property key - The duties' record's key type, which `fixed` holds their keys at — `IntegerType` for duties keyed by number; omitted, String
  */
-export interface RosterOptimiseOptions {
+export interface RosterOptimiseOptions<K extends EastType = StringType> {
     readonly edges: true;
+    readonly key?: K;
 }
 /** Type representing {@link RosterOptimiseRequestTypeFor} over the week alone: Schedule's request, the window and the narrowing. */
 export type RosterOptimiseRequestType = ScheduleOptimiseRequestType;
-/** Type representing {@link RosterOptimiseRequestTypeFor} given `{ edges: true }` (#1553): the week's request, and the duties it must leave. */
-export type RosterOptimiseEdgesRequestType = StructType<{
-    from: DateTimeType; to: DateTimeType; period: OptimisePeriodType; run: IntegerType; slice: OptimiseSliceType; fixed: SetType<StringType>;
+/**
+ * Type representing {@link RosterOptimiseRequestTypeFor} given `{ edges: true }` (#1553): the week's request, and the duties it
+ * must leave, by their keys at the duties' key type `K`.
+ *
+ * @typeParam K - The duties' key type
+ */
+export type RosterOptimiseEdgesRequestType<K extends EastType = StringType> = StructType<{
+    from: DateTimeType; to: DateTimeType; period: OptimisePeriodType; run: IntegerType; slice: OptimiseSliceType; fixed: SetType<K>;
 }>;
 /**
  * One request to the app's optimiser (#1409, east-workspace#1622): the period
@@ -565,19 +574,27 @@ export function RosterOptimiseRequestTypeFor(): RosterOptimiseRequestType;
 /**
  * One request to the app's optimiser that may change the duties at the week's
  * edges (#1553): the week's request, and `fixed`, the keys of the duties at the
- * edges its answer must leave as they are.
+ * edges its answer must leave as they are — at the duties' own key type, which
+ * `key` names for duties keyed by other than String:
+ * `Roster.Types.OptimiseRequest({ edges: true, key: IntegerType })`.
  *
- * @param options - `{ edges: true }`
- * @returns The request type: `{ from, to, period, run, slice, fixed }`
+ * @typeParam K - The duties' key type
+ * @param options - `{ edges: true }`, and the duties' key type, `key`, where they are keyed by other than String
+ * @returns The request type: `{ from, to, period, run, slice, fixed }`, `fixed` a Set of the duties' keys
+ * @throws {Error} When `key` is given and is no East type
  * @remarks `fixed` the keys of the duties the window holds — the period in view and the twelve hours either side — that the Roster places in another week and whose week takes no edit — published, or closed — or, where the periods are days, whose day takes none, or that fall in no week the Roster holds. It is the one thing the Roster still works out for the function.
  */
-export function RosterOptimiseRequestTypeFor(options: RosterOptimiseOptions): RosterOptimiseEdgesRequestType;
-export function RosterOptimiseRequestTypeFor(options?: RosterOptimiseOptions): RosterOptimiseRequestType | RosterOptimiseEdgesRequestType {
+export function RosterOptimiseRequestTypeFor<K extends EastType = StringType>(options: RosterOptimiseOptions<K>): RosterOptimiseEdgesRequestType<K>;
+export function RosterOptimiseRequestTypeFor(options?: RosterOptimiseOptions<EastType>): RosterOptimiseRequestType | RosterOptimiseEdgesRequestType<EastType> {
     if (options === undefined) return ScheduleOptimiseRequestType;
     if (typeof options !== "object" || options === null || options.edges !== true) {
         throw new Error("Roster.Types.OptimiseRequest: takes nothing, or { edges: true } for an optimiser that may change the duties at the week's edges");
     }
-    return StructType({ from: DateTimeType, to: DateTimeType, period: OptimisePeriodType, run: IntegerType, slice: OptimiseSliceType, fixed: SetType(StringType) });
+    const key = options.key ?? StringType;
+    if (typeof key !== "object" || key === null || typeof (key as { readonly type?: unknown }).type !== "string") {
+        throw new Error("Roster.Types.OptimiseRequest: `key` is the duties' key type, an East type — { edges: true, key: IntegerType } for duties keyed by number");
+    }
+    return StructType({ from: DateTimeType, to: DateTimeType, period: OptimisePeriodType, run: IntegerType, slice: OptimiseSliceType, fixed: SetType(key) });
 }
 /**
  * An optimiser's answer over the duties' record `D` — what
@@ -594,7 +611,7 @@ export type RosterOptimiseResultType<D extends DictType<EastType, EastType> = Di
  * `{ edges: true }`, its patch may change a duty at the week's edges too.
  *
  * @typeParam D - The duties' record type
- * @param duties - The duties' record type, `DictType(StringType, Duty)`
+ * @param duties - The duties' record type, `DictType(K, Duty)`
  * @returns `StructType({ duties })`
  * @throws {Error} When given a type that is no Dict of duties by key
  * @remarks A new duty's key is the optimiser's own. A published week stays read only: an answer that changes or removes one of the request's `fixed` duties, or a duty in a week that takes no edit (a day, where the periods are days), or puts one in a week beyond the weeks either side, is refused, naming the duty, and changes nothing.
