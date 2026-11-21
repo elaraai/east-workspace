@@ -26,7 +26,7 @@ import {
     SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Schedule } from "@elaraai/e3-ui";
-import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { Plan, PlanPayloadType, planChildRowKey } from "@elaraai/e3-ui/internal";
 import { recordHandle } from "../record-handles.js";
 import { entry, ids, labels, parents, readings, rowsOf, sameIds, sameLabels, sameParents } from "./plan-rows.fixtures.js";
 
@@ -601,6 +601,15 @@ describe("an event kind's `child`: its events on the rows beneath its resource (
         assert.ok(sameKeys(tilesOn(entry("kinds", "P03", "wash")).keys, refs("T-2")));
         const press = placedRows().find((one) => sameIds([one.id], [entry("press", "P03")]))!;
         assert.notEqual(press.kind.type, "buckets");
+    });
+
+    test("each task is filed by its press's key and its kind's as `planChildRowKey` prints the pair: the text its row's list is found by (#1712)", () => {
+        if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+        const placed = payload.seam.value.placed(W27, W28, new Map(), [], new Map());
+        if (placed.type !== "some") assert.fail("expected the tasks read");
+        // A task on a press with no row of its kind beneath it is filed all the same: `place` finds it no row.
+        const filed = [...(placed.value.on.get("kinds")?.get("buckets")?.keys() ?? [])];
+        assert.ok(sameKeys(filed, [planChildRowKey("P03", "ink"), planChildRowKey("P03", "wash"), planChildRowKey("P04", "ink")]), printFor(ArrayType(StringType))(filed));
     });
 
     test("a variant `lane` draws a lane for every case, empty or not, by name, each tile in its case's", () => {

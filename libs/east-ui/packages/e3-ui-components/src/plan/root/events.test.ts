@@ -14,15 +14,16 @@
  * a page at a time, a top-level resource's row by its id, from the events
  * placed alone (#1199). The events are read over the range the canvas draws and
  * held while they hold; the root's rows are joined with them — inline once, a
- * page at a time each window its source serves — and the windows name the
+ * page at a time each window its source serves, and a window read again over
+ * new events alone only in the rows whose events moved (#1712) — and the windows name the
  * snapshot of their data apart from the revision new events move (#1199), a
  * live source its narrowing with it (#1344).
  */
 
 import { describe, test, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, none, printFor, some, variant } from "@elaraai/east";
-import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
+import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant } from "@elaraai/east";
+import { Plan, ScheduleEventRefType, planChildRowKey, planHideId } from "@elaraai/e3-ui/internal";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import { NO_EDITS, rowId, timeAt, utcAt } from "../plan.test-utils.js";
 import { entry } from "../row-id.test-utils.js";
@@ -57,9 +58,16 @@ const eventEnd = (kind: string, key: string) => ({ row: variant("entry", { serie
 const link = (key: string, from: unknown, to: unknown): PlanLinkValue =>
     ({ key, from, to, quantity: some({ value: 1, unit: none, format: none, text: none }) }) as PlanLinkValue;
 
-/** A series the event kinds land on, drawing the ways given, its landing row the first's: its resources the rows' own entries unless said. */
-const landing = (key: string, draws: readonly string[], top = true): PlanLandingValue =>
-    ({ key, name: key, draws: draws.map((draw) => variant(draw, null)), kinds: [], series: [], top }) as unknown as PlanLandingValue;
+/**
+ * A series the event kinds land on, drawing the ways given, its landing row the first's: its resources the rows' own
+ * entries unless said, and its rows beneath no other landing's unless `under` names one — a step beneath each of that
+ * landing's rows, where a kind's `child` lands.
+ */
+const landing = (key: string, draws: readonly string[], top = true, under?: string): PlanLandingValue =>
+    ({
+        key, name: key, draws: draws.map((draw) => variant(draw, null)), kinds: [], series: [], top,
+        under: under === undefined ? none : some(under),
+    }) as unknown as PlanLandingValue;
 
 /** Presses, whose landing row draws bars, beside a row of tiles and one of marks; crews, whose landing row draws chips. */
 const LANDINGS = [landing("presses", ["span", "buckets", "marks"]), landing("crews", ["cards"])];
@@ -251,9 +259,9 @@ describe("the event kinds' events over the range the canvas draws (#1192)", () =
 describe("the root's rows, the events joined in (#1541)", () => {
     /** A root whose own rows are `rows`. */
     const rootOf = (rows: unknown) => ({ rows, links: [] }) as unknown as PlanRootValue;
-    /** The events at a version, none placed unless given. */
-    const leadAt = (version: number, placed: PlanEventPlacedValue = NOTHING_PLACED): PlanEventLead => ({
-        placed, shading: new SortedMap([], compareString), cells: undefined, version, error: undefined,
+    /** The events at a version, none placed and nothing shaded unless given. */
+    const leadAt = (version: number, placed: PlanEventPlacedValue = NOTHING_PLACED, shading: PlanEventLead["shading"] = new SortedMap([], compareString)): PlanEventLead => ({
+        placed, shading, cells: undefined, version, error: undefined,
     });
     /** The canvas's source the hook hands it. */
     const sourceOf = (root: PlanRootValue) => (root.rows as unknown as { value: PlanPagedSourceValue }).value;
@@ -336,5 +344,138 @@ describe("the root's rows, the events joined in (#1541)", () => {
         // A commit under it: another snapshot again.
         record.revision = "R2";
         expect(source().snapshot?.()).not.toEqual(chosen);
+    });
+
+    describe("a window read again over new events alone (#1712)", () => {
+        const printRowId = printFor(Plan.Types.RowId);
+        const rowIdEqual = equalFor(Plan.Types.RowId);
+        const stringEqual = equalFor(StringType);
+        const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+        const NO_SHADING_HERE = new SortedMap([], compareString) as PlanEventLead["shading"];
+
+        /**
+         * A `place` that joins a window row by row as the seam's does (`whole` false): each landing row's events — filed
+         * under its resource's key, a row a step beneath a resource's under the pair — as its marks, and a row beneath it
+         * for each further way its kinds draw; every other row as it is. It keeps the ids of the rows each call is given.
+         */
+        const rowByRow = (landings: readonly PlanLandingValue[], given: string[][]): PlanEventSeamValue["place"] => (blocks, placed) => {
+            given.push(blocks.flatMap((block) => block.rows.map((one) => printRowId(one.id))));
+            return blocks.map((block) => ({
+                ...block,
+                rows: block.rows.flatMap((one): PlanWireRow[] => {
+                    if (one.id.type !== "entry") return [one];
+                    const { series, path } = one.id.value;
+                    const at = landings.find((l) => l.draws.length > 0 && stringEqual(l.key, series));
+                    if (at === undefined) return [one];
+                    const key = at.under.type === "some" ? planChildRowKey(path[path.length - 2]!, path[path.length - 1]!) : path[path.length - 1]!;
+                    return at.draws.map((draw, i) => {
+                        const marks = (placed.on.get(series)?.get(draw.type)?.get(key) ?? []).map((p) => ({ key: elementKey(p.item.kind, p.item.key) }));
+                        const kind = variant("events", { marks });
+                        return i === 0 ? ({ ...one, kind } as unknown as PlanWireRow) : row(entry(`${series}.${draw.type}`, ...path), kind);
+                    });
+                }),
+            }));
+        };
+
+        /** The keys of the marks a joined row draws, by its id. */
+        const marksOn = (blocks: readonly PlanWireBlock[], id: PlanRowId): readonly string[] => {
+            const found = blocks.flatMap((b) => b.rows).find((one) => rowIdEqual(one.id, id));
+            return found?.kind.type === "events" ? found.kind.value.marks.map((m) => m.key) : [];
+        };
+
+        /**
+         * The root's wrapper over a source that gives the same blocks at each read, as the kept layer does while they hold
+         * (`kept.ts`), and a `place` that joins row by row: the ids of the rows each join is given, and a read of the window.
+         */
+        function joining(blocks: PlanWireBlock[], landings: readonly PlanLandingValue[]) {
+            const given: string[][] = [];
+            const src = { id: "window", page: () => some({ rows: blocks, entries: [] }), total: () => some(40n), seek: none, revision: () => some("R1"), refresh: () => null };
+            const root = rootOf(variant("pinned", src));
+            const events: PlanEventRows = { seam: seamOf(() => none, rowByRow(landings, given)), landings: [...landings], paged: true };
+            const { result, rerender } = renderHook(({ lead, hidden }) => usePlanEventRoot(root, root, lead, events, hidden),
+                { initialProps: { lead: leadAt(1), hidden: [] as readonly string[] } });
+            const read = (): PlanWireBlock[] => {
+                const page = sourceOf(result.current.data).page(0n, 200n);
+                return page.type === "some" ? page.value.rows : [];
+            };
+            return { given, read, rerender };
+        }
+
+        /** Presses P-01 … P-40 in two blocks, each a landing row drawing marks and tiles, then a row of its notes no event lands on. */
+        const PRESSES = Array.from({ length: 40 }, (_x, i) => `P-${i < 9 ? "0" : ""}${i + 1}`);
+        const WINDOW = [PRESSES.slice(0, 20), PRESSES.slice(20)].map((presses) => ({
+            fixed: false, parent: none, charts: none,
+            rows: presses.flatMap((press) => [row(entry("presses", press), spanKind), row(entry("notes", press), spanKind)]),
+        })) as unknown as PlanWireBlock[];
+        const ON_PRESSES = [landing("presses", ["marks", "buckets"])];
+
+        test("events that move for two resources of a window of many join those resources' rows alone, every other row the object it was — and none, read again with nothing moved", () => {
+            const { given, read, rerender } = joining(WINDOW, ON_PRESSES);
+            rerender({ lead: leadAt(2, placedOn([["presses", "marks", "P-03", "job", "J-1"], ["presses", "marks", "P-07", "job", "J-2"]])), hidden: [] });
+            const before = read();
+            // The first read joins every row: 40 presses and their notes.
+            expect(given.map((ids) => ids.length)).toEqual([80]);
+            // J-2 moves to P-12 and J-3 comes to P-07; P-03 holds J-1, read again as an equal list.
+            const now = placedOn([["presses", "marks", "P-03", "job", "J-1"], ["presses", "marks", "P-07", "job", "J-3"], ["presses", "marks", "P-12", "job", "J-2"]]);
+            rerender({ lead: leadAt(3, now), hidden: [] });
+            const after = read();
+            expect(new Set(given[1])).toEqual(new Set([entry("presses", "P-07"), entry("presses", "P-12")].map((id) => printRowId(id))));
+            const remade = after.flatMap((b, i) => b.rows.filter((one, j) => !Object.is(one, before[i]!.rows[j])).map((one) => printRowId(one.id)));
+            expect(new Set(remade)).toEqual(new Set(
+                [entry("presses", "P-07"), entry("presses.buckets", "P-07"), entry("presses", "P-12"), entry("presses.buckets", "P-12")].map((id) => printRowId(id))));
+            // What a join of the whole window gives.
+            expect(after).toEqual(rowByRow(ON_PRESSES, [])(WINDOW, now, NO_SHADING_HERE, [], false));
+            expect([marksOn(after, entry("presses", "P-07")), marksOn(after, entry("presses", "P-12"))]).toEqual([[elementKey("job", "J-3")], [elementKey("job", "J-2")]]);
+            read();
+            expect(given).toHaveLength(2);
+        });
+
+        test("a resource whose events leave, and one whose events arrive, are both joined again", () => {
+            const { given, read, rerender } = joining(WINDOW, ON_PRESSES);
+            rerender({ lead: leadAt(2, placedOn([["presses", "marks", "P-03", "job", "J-1"]])), hidden: [] });
+            read();
+            rerender({ lead: leadAt(3, placedOn([["presses", "marks", "P-05", "job", "J-1"]])), hidden: [] });
+            const after = read();
+            expect(new Set(given[1])).toEqual(new Set([entry("presses", "P-03"), entry("presses", "P-05")].map((id) => printRowId(id))));
+            expect([marksOn(after, entry("presses", "P-03")), marksOn(after, entry("presses", "P-05"))]).toEqual([[], [elementKey("job", "J-1")]]);
+        });
+
+        test("the shading moving, or what the viewer hides, joins the window whole; new events after it, their rows alone", () => {
+            const { given, read, rerender } = joining(WINDOW, ON_PRESSES);
+            const placed = placedOn([["presses", "marks", "P-03", "job", "J-1"]]);
+            rerender({ lead: leadAt(2, placed), hidden: [] });
+            read();
+            // A bucket of P-03's shaded past the cap: the shading's scale is every row's.
+            const shading = new SortedMap([["presses.marks", new SortedMap([["P-03", [{ at: utcAt("2026-10-05T00:00:00"), value: some(1) }]]], compareString)]], compareString) as unknown as PlanEventLead["shading"];
+            rerender({ lead: leadAt(3, placed, shading), hidden: [] });
+            read();
+            // The jobs hidden in the Series tab: how many rows each landing row makes.
+            const hidden = [planHideId.events("job")];
+            rerender({ lead: leadAt(4, placed, shading), hidden });
+            read();
+            rerender({ lead: leadAt(5, placedOn([["presses", "marks", "P-04", "job", "J-1"]]), shading), hidden });
+            read();
+            expect(given.map((ids) => ids.length)).toEqual([80, 80, 80, 2]);
+        });
+
+        test("rows a step beneath their resource's are found by the pair's key — the same child's key beneath another resource another row — and each further row keeps its place", () => {
+            // Presses whose tasks the jobs land on, a step beneath each press's row.
+            const onTasks = [landing("presses", []), landing("tasks", ["marks", "buckets"], false, "presses")];
+            const blocks = [{
+                fixed: false, parent: none, charts: none,
+                rows: ["P-01", "P-02"].flatMap((press) => [row(entry("presses", press), spanKind), ...["T-1", "T-2"].map((task) => row(entry("tasks", press, task), spanKind))]),
+            }] as unknown as PlanWireBlock[];
+            const { given, read, rerender } = joining(blocks, onTasks);
+            rerender({ lead: leadAt(2, placedOn([["tasks", "marks", planChildRowKey("P-01", "T-2"), "job", "J-1"]])), hidden: [] });
+            const before = read();
+            // J-1 moves to P-02's T-1, and J-2 comes to P-01's T-1.
+            const now = placedOn([["tasks", "marks", planChildRowKey("P-02", "T-1"), "job", "J-1"], ["tasks", "marks", planChildRowKey("P-01", "T-1"), "job", "J-2"]]);
+            rerender({ lead: leadAt(3, now), hidden: [] });
+            const after = read();
+            expect(new Set(given[1])).toEqual(new Set([entry("tasks", "P-01", "T-1"), entry("tasks", "P-01", "T-2"), entry("tasks", "P-02", "T-1")].map((id) => printRowId(id))));
+            expect(after[0]!.rows.map((one) => printRowId(one.id))).toEqual(before[0]!.rows.map((one) => printRowId(one.id)));
+            expect(after).toEqual(rowByRow(onTasks, [])(blocks, now, NO_SHADING_HERE, [], false));
+            expect(marksOn(after, entry("tasks", "P-02", "T-1"))).toEqual([elementKey("job", "J-1")]);
+        });
     });
 });
