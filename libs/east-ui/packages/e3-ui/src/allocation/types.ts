@@ -689,7 +689,7 @@ export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> 
  * what a Save sends.
  *
  * @typeParam D - The bins' record type
- * @param bins - The bins' record type, `DictType(StringType, Bin)`
+ * @param bins - The bins' record type, `DictType(K, Bin)` at the bins' own key type
  * @returns `StructType({ bins })`
  * @throws {Error} When given a type that is no Dict of bins by key
  *
@@ -697,6 +697,6 @@ export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> 
  */
 export function AllocationOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(bins: D): AllocationOptimiseResultType<D> {
     const record = optimisedRecordType(bins as EastType, (given) =>
-        `Allocation.Types.OptimiseResult: is given ${given} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`);
+        `Allocation.Types.OptimiseResult: is given ${given} — it takes the bins' record type, a Dict of bins by their key: DictType(StringType, Bin), or DictType(IntegerType, Bin) for bins keyed by number`);
     return StructType({ bins: PatchType(record) }) as unknown as AllocationOptimiseResultType<D>;
 }

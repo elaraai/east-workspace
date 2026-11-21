@@ -659,6 +659,6 @@ export type RosterOptimiseResultType<D extends DictType<EastType, EastType> = Di
  */
 export function RosterOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(duties: D): RosterOptimiseResultType<D> {
     const record = optimisedRecordType(duties as EastType, (given) =>
-        `Roster.Types.OptimiseResult: is given ${given} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`);
+        `Roster.Types.OptimiseResult: is given ${given} — it takes the duties' record type, a Dict of duties by their key: DictType(StringType, Duty), or DictType(IntegerType, Duty) for duties keyed by number`);
     return StructType({ duties: PatchType(record) }) as unknown as RosterOptimiseResultType<D>;
 }

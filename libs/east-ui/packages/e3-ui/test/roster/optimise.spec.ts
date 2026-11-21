@@ -123,7 +123,7 @@ describe("the types (#1622)", () => {
             message: "Roster.Types.OptimiseRequest: takes nothing, or { edges: true } for an optimiser that may change the duties at the week's edges",
         });
         assert.throws(() => Roster.Types.OptimiseResult(WarehouseDuty as unknown as DictType<EastType, EastType>), {
-            message: `Roster.Types.OptimiseResult: is given ${printType(WarehouseDuty)} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`,
+            message: `Roster.Types.OptimiseResult: is given ${printType(WarehouseDuty)} — it takes the duties' record type, a Dict of duties by their key: DictType(StringType, Duty), or DictType(IntegerType, Duty) for duties keyed by number`,
         });
     });
 
