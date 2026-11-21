@@ -235,6 +235,8 @@ export type SchematicKeyRefusal =
     | { readonly refusal: "taken"; readonly ref: SchematicRef }
     /** Its kind's keys are of a type the form can't type — by the type's name — and its kind builds none: by the kind's slot. */
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
+    /** No key could be made for the row it adds (east-workspace#1709): its kind's `key`, or the app's `newKey`, failed — by the kind's slot. */
+    | { readonly refusal: "unkeyed"; readonly kind: string }
     /**
      * An item whose key the gesture moves, which a link or a net kind that writes may name, the Schematic not holding every
      * row of that kind — by its slot, and why (#1580): what names the item there would keep naming its old key; or rows of
@@ -256,6 +258,7 @@ export function keyedRow(slot: string, keyed: SchematicNewKey | undefined): { re
     if (keyed === undefined) return undefined;
     if ("taken" in keyed) return { refused: { refusal: "taken", ref: { kind: slot, key: keyed.taken } } };
     if ("untyped" in keyed) return { refused: { refusal: "untyped", kind: slot, type: keyed.untyped } };
+    if ("failed" in keyed) return { refused: { refusal: "unkeyed", kind: slot } };
     return keyed;
 }
 

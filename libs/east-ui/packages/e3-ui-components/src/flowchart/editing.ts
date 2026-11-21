@@ -84,6 +84,7 @@ import {
     type ScheduleRowRead,
 } from "../shared/schedule/editing.js";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -152,16 +153,8 @@ export interface FlowchartKeyCheckWords {
     readonly placeholder: (p: { sort: FlowchartSort }) => string;
 }
 
-/** A new row's key, as its kind makes it (#1549). */
-export type FlowchartNewKey =
-    /** Its key: built from its row, made up, one past the largest, or a placeholder until the viewer types its key. */
-    | { readonly key: string }
-    /** None: the key its row builds is held already, by the row of that key. */
-    | { readonly taken: string }
-    /** None: its kind's keys are of a type the form can't type — by the type's name — and its kind builds none. */
-    | { readonly untyped: string }
-    /** None: no key could be made — its kind's `key` failed as it built one from the row, or the app's `newKey` failed. */
-    | { readonly failed: true };
+/** A new row's key, as its kind makes it (#1549): every builder's (`shared/schedule/new-row-key.ts`). */
+export type FlowchartNewKey = NewRowKey;
 
 /** A row a gesture moves under the key its fields build once the gesture writes them (#1549). */
 export interface FlowchartMove {
@@ -386,7 +379,8 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
             const app = someOf(kind.ready);
             const keyed = kindKeys(kind.keyType);
             // A new row held under a placeholder, its key the viewer's to type: its kind makes none of its own (#1549).
-            const placeholders = !keyed.text && kind.keyType.type !== "Integer" && builderOf(kind) === undefined && kind.newKey.type !== "some";
+            const rule = newRowKeyRule(kind, builderOf(kind) !== undefined);
+            const placeholders = rule === "placeholder" || rule === "none";
             // The app's check over rows each under a key, and the key check where the narrowing hides rows (D3).
             const keyedReady = (batch: { id: string; entry: Uint8Array }[]): Readiness[] => {
                 const verdicts = app === undefined ? batch.map(() => READY) : app(batch);
@@ -637,36 +631,10 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
         minted: ReadonlySet<string> = NO_MINTED): FlowchartNewKey | undefined => {
         const { value: payload, schedule: editing } = latest.current;
         const kind = kindOf(payload, sort);
-        if (kind === undefined) return undefined;
-        const keys = kindKeys(kind.keyType);
-        const holds = (key: string): boolean => minted.has(key) || taken(sort, key);
-        // Built from the row the edit makes: refused where a row stands under it.
-        const build = builderOf(kind);
-        if (build !== undefined) {
-            const change = changesOf([made])?.[0];
-            const row = change !== undefined && "row" in change ? change.row : undefined;
-            if (row === undefined) return undefined;
-            let key: string;
-            try {
-                key = build(row);
-            } catch (err) {
-                console.error(`[Flowchart] ${kind.name}'s key could not be built from a new row:`, err);
-                return { failed: true };
-            }
-            return minted.has(key) || stands(sort, key) ? { taken: key } : { key };
-        }
-        // By the app's own rule, or one past the largest Integer: each its session's to make. Where the app's rule gives
-        // a key a row holds, or fails, no row is added, and the gesture says which.
-        if (kind.newKey.type === "some" || kind.keyType.type === "Integer") {
-            const key = editing.mint(sort, "", minted);
-            if (key !== undefined) return { key };
-            const why = editing.keyRefusal()?.why;
-            return why === undefined ? undefined : "taken" in why ? { taken: why.taken } : { failed: true };
-        }
-        if (keys.text) return { key: madeUp(holds) };
-        // A placeholder: a text made up that no key prints as, until the viewer types its key.
-        if (keys.typed) return { key: madeUp((key) => keys.isKey(key) || holds(key)) };
-        return { untyped: kind.keyType.type };
+        return kind === undefined ? undefined : newRowKey({
+            builder: "Flowchart", kind, slot: sort, build: builderOf(kind), editing, made: () => changesOf([made])?.[0], minted,
+            taken: (key) => taken(sort, key), stands: (key) => stands(sort, key), madeUp,
+        });
     }, [changesOf, taken, stands]);
     const moves = useCallback((edits: readonly FlowchartEdit[]): FlowchartMove[] => {
         const { value: payload, schedule: editing, held: read } = latest.current;
@@ -719,9 +687,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
     const builds = useCallback((sort: FlowchartSort): boolean => builderOf(kindOf(latest.current.value, sort)) !== undefined, []);
     const untyped = useCallback((sort: FlowchartSort): string | undefined => {
         const kind = kindOf(latest.current.value, sort);
-        if (kind === undefined || builderOf(kind) !== undefined || kind.newKey.type === "some") return undefined;
-        const keys = kindKeys(kind.keyType);
-        return keys.text || kind.keyType.type === "Integer" || keys.typed ? undefined : kind.keyType.type;
+        return kind !== undefined && newRowKeyRule(kind, builderOf(kind) !== undefined) === "none" ? kind.keyType.type : undefined;
     }, []);
     const unqueues = getSomeorUndefined(value.decisions)?.unqueue.type === "some";
     // An Integer order takes a whole number alone: its create gives none for another, over the type's defaults — never

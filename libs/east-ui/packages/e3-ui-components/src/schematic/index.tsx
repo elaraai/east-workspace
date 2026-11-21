@@ -942,6 +942,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const said = ((): string => {
             switch (refusal.refusal) {
                 case "untyped": return words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type });
+                case "unkeyed": return words.m.keyRefused({ refusal: "unkeyed", kind: named(refusal.kind) });
                 case "taken": return words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
                 case "unheld": return words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why });
                 case "details": return words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });

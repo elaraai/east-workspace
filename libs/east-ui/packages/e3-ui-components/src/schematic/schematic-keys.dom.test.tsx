@@ -448,6 +448,58 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.sidedLines.type)(new SortedMap([["L-1", { supply: new SortedSet([11n, 200n], compareNumber), fed: ["10B"], name: "" }]], compareText)));
     });
 
+    test("ruling 1 — where the app's rule gives a key a row holds, or fails, no row is added and the footer says why: a card's ⏎ an oven whose key Deck 11 holds, Connect a hose no key could be made for", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.unkeyed", {
+                floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+            }));
+            const ovensBound = $.let(Record.bind(fx.keyedOvens));
+            const mixers = $.let(Data.bind(fx.keyedMixers));
+            const hosesBound = $.let(Record.bind(fx.keyedHoses));
+            const cards = $.let(Data.bind(fx.floorCards));
+            // The ovens' rule gives Deck 11's own key; the hoses' fails.
+            const eleven = $.const(East.function([SetType(IntegerType)], IntegerType, (_$2, _taken) => 11n));
+            const noHose = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+                $2.if(taken.has(2n), ($3) => { $3.error("no hose numbers left"); });
+                return 0n;
+            }));
+            return Schematic({
+                id: "keyedUnkeyed",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    ovens: Schematic.items(ovensBound, {
+                        name: "Oven", icon: "server", x: "x", y: "y", label: "name", newKey: eleven,
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+                    }),
+                    mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }),
+                },
+                links: {
+                    hoses: Schematic.links(hosesBound, {
+                        name: "Hose", icon: "link", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: { oven: "ovens", mixer: "mixers" } },
+                        newKey: noHose,
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) });
+        // The card's ⏎: the rule gives 11, which Deck 11 holds — refused, naming it, and nothing recorded.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "ovens", key: "spare" })));
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "taken", kind: "oven", name: "Deck 11" }));
+        expect(refused(c)).toBe("An oven Deck 11 is there already");
+        expect(unsaved(c)).toBe(false);
+        // Oven 11 to M1: the hoses' rule fails — refused, saying no key can be made, and nothing recorded.
+        const canvas = canvasOf(c);
+        hits(c, [["ovens", "11", 4, 4], ["mixers", "M1", 10, 3]]);
+        await tool(c, "Connect");
+        await drag(canvas, [4, 4], [10, 3]);
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "unkeyed", kind: "hose" }));
+        expect(refused(c)).toBe("No key can be made for this hose");
+        expect(unsaved(c)).toBe(false);
+        expect(h.requests("mutate")).toEqual([]);
+    });
+
     test("keyed by row and column, as the spots' `key` builds them: a card building a key a spot holds is refused, naming it; one building a new key adds the spot under it; a column edited moves a spot under its new key, still selected, its rope with it; one building a key a spot holds is refused, naming it, the form showing the row again; and Save writes each under its key", async () => {
         const spots = await h.read(fx.placedSpots), ropes = await h.read(fx.keyedRopes);
         const spot = printFor(fx.SpotKey);
