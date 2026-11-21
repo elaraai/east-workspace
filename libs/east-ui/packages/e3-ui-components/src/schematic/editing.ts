@@ -81,18 +81,25 @@ import type { EditHistory, LandedEntry, Origin } from "@elaraai/east-ui-componen
 import { draftedOf, type DraftedRows, type DraftedRowsKind } from "../shared/schedule/drafted-rows.js";
 import {
     useScheduleEditing,
-    type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
-    type ScheduleStandingRows,
+    type ScheduleChange, type ScheduleDrawnRows, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef,
+    type ScheduleRowRead, type ScheduleStandingRows,
 } from "../shared/schedule/editing.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
-import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec, windowRead } from "../shared/schedule/records.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
 import { NO_LANDED, type LandedRow, type SchematicDrafts, type SchematicLanded, type SortDrafts, type SortLanded } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
+import type { KindRows } from "./kind-rows.js";
 import { detailsKey } from "./record-keys.js";
+
+/**
+ * The rows of the kinds read by area that the paged Backlog's pages and the Index read outside their windows
+ * (`kind-rows.ts`), each at the revision it was read at: a row by the kind's slot and its key, and the keys of a kind's.
+ */
+export type SchematicPagedRows = Pick<KindRows<unknown>, "rowOf" | "keysOf">;
 
 const stringEqual = equalFor(StringType);
 
@@ -299,14 +306,15 @@ const NO_MINTED: ReadonlySet<string> = new Set<string>();
  * @param areas - The kinds read by area, by slot: never read whole, nor their narrowing complete
  * @param windows - The rows each kind read by area holds in its window, at the revision they were read at
  * @param words - What the editing says of a new row's key
- * @param paged - A row of a kind read by area the paged Backlog's pages read, by the kind's slot and the row's key, and the
- *   revision they read it at (#1393): asked as a gesture reads it, for a row the window does not hold
+ * @param paged - The rows of the kinds read by area the paged Backlog's pages and the Index read, at the revision they read
+ *   them at (#1393): a row the window does not hold is asked of them as a gesture reads it, and their keys are among those
+ *   a new row's key is made past, which its rule is told
  * @param retained - Whether what the canvas draws is retained (#1398, CL8): no record takes an edit while it is
  * @returns The editing
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
     held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows, words: SchematicKeyWords,
-    paged?: (slot: string, key: string) => { readonly revision: string; readonly row: Uint8Array } | undefined, retained = false): SchematicEditing {
+    paged?: SchematicPagedRows, retained = false): SchematicEditing {
     const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // The words as they stand when the history's check is made.
@@ -377,39 +385,56 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             if (!kind.editable || kind.entries.type !== "some") continue;
             const entries = kind.entries.value;
             if (areas.has(kind.key)) {
-                out[kind.key] = (key) => {
-                    const at = entries.revision();
-                    if (at.type !== "some") return undefined;
-                    const window = windowsNow.current.get(kind.key);
-                    const inWindow = window === undefined || !stringEqual(window.revision, at.value) ? undefined : heldInWindow(some(window.rows), key);
-                    if (inWindow !== undefined) return inWindow;
-                    // A row the window doesn't hold, a page of the Backlog read at the revision: a drop placing it (#1393).
-                    const page = pagedNow.current?.(kind.key, key);
-                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                out[kind.key] = {
+                    row: (key) => {
+                        const at = entries.revision();
+                        if (at.type !== "some") return undefined;
+                        const window = windowsNow.current.get(kind.key);
+                        const inWindow = window === undefined || !stringEqual(window.revision, at.value) ? undefined : heldInWindow(some(window.rows), key);
+                        if (inWindow !== undefined) return inWindow;
+                        // A row the window doesn't hold, a page of the Backlog read at the revision: a drop placing it (#1393).
+                        const page = pagedNow.current?.rowOf(kind.key, key);
+                        return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                    },
+                    ids: function* () {
+                        const at = entries.revision();
+                        if (at.type !== "some") return;
+                        const window = windowsNow.current.get(kind.key);
+                        if (window !== undefined && stringEqual(window.revision, at.value)) yield* window.rows.keys();
+                        const page = pagedNow.current?.keysOf(kind.key);
+                        if (page !== undefined && stringEqual(page.revision, at.value)) yield* page.keys;
+                    },
                 };
                 continue;
             }
             const rows = keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows());
-            out[kind.key] = (key) => {
+            out[kind.key] = windowRead(() => {
                 const read = rows();
                 // The rows last read stand on the canvas while the record's revision now is read.
                 if (read.type === "some") lastRows.current.set(kind.key, read.value);
-                return heldInWindow(read, key);
-            };
+                return read;
+            });
         }
         return out;
     }, [kinds, areas]);
     // What the canvas draws of each kind's rows now, at whatever revision they were read (`ScheduleStandingRows`): a kind
     // read by area, its window's rows and the Backlog's pages; one read through its source, the rows its read last held.
     // A gesture begins from them — the row its person sees — so one made while a window is read again, after a Save or
-    // another session's write, is taken at once (a Save never stops the editing).
+    // another session's write, is taken at once (a Save never stops the editing); and a new row's key is made past their
+    // keys, which its rule is told.
     const standing = useMemo((): { current: ScheduleStandingRows } => {
-        const out: Record<string, (id: string) => Uint8Array | undefined> = {};
+        const out: Record<string, ScheduleDrawnRows> = {};
         for (const kind of kinds) {
             if (!kind.editable || kind.entries.type !== "some") continue;
             out[kind.key] = areas.has(kind.key)
-                ? (id) => windowsNow.current.get(kind.key)?.rows.get(id)?.row ?? pagedNow.current?.(kind.key, id)?.row
-                : (id) => lastRows.current.get(kind.key)?.get(id)?.row;
+                ? {
+                    row: (id) => windowsNow.current.get(kind.key)?.rows.get(id)?.row ?? pagedNow.current?.rowOf(kind.key, id)?.row,
+                    ids: function* () {
+                        yield* windowsNow.current.get(kind.key)?.rows.keys() ?? [];
+                        yield* pagedNow.current?.keysOf(kind.key)?.keys ?? [];
+                    },
+                }
+                : { row: (id) => lastRows.current.get(kind.key)?.get(id)?.row, ids: () => lastRows.current.get(kind.key)?.keys() ?? [] };
         }
         return { current: out };
     }, [kinds, areas]);
@@ -501,7 +526,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         }
         let read: option<option<Uint8Array>>;
         try {
-            read = own[record]?.(id) ?? side.entries.value.entry(id);
+            read = own[record]?.row(id) ?? side.entries.value.entry(id);
         } catch (err) {
             console.error(`[Schematic] ${record}'s row ${id} could not be read:`, err);
             return READING_ROW;

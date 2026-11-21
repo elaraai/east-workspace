@@ -89,6 +89,17 @@ export class KindRows<R> {
         return kept === undefined || row === undefined ? undefined : { revision: kept.revision, row: row.row };
     }
 
+    /**
+     * The keys of a kind's rows made at the revision they were read at.
+     *
+     * @param slot - The kind's slot
+     * @returns Their keys and that revision; `undefined` for a kind none of whose rows are made
+     */
+    keysOf(slot: string): { readonly revision: string; readonly keys: Iterable<string> } | undefined {
+        const kept = this.kept.get(slot);
+        return kept === undefined ? undefined : { revision: kept.revision, keys: kept.rows.keys() };
+    }
+
     /** A kind's encoder of the rows it reads, made once per kind. */
     private encoderOf(kind: ItemKind): RowsEncoder {
         let encode = this.encoders.get(kind);

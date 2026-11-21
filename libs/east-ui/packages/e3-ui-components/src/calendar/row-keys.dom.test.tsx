@@ -10,12 +10,13 @@
  * the app's own rule (`newKey`), by the key its row builds (`key`), or holds
  * the key its session makes in its own field (`keyField`); and Save writes it
  * so. Where the app's rule gives a key a booking holds, the copy is refused,
- * and its Details say which key.
+ * and its Details say which key; over a record read a window at a time, the
+ * rule is told the key of every booking the day shows.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, DictType, East, SetType, StringType, StructType, equalFor } from "@elaraai/east";
+import { DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, equalFor } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
@@ -39,7 +40,23 @@ const bookings = e3.record("calendar_keyed_bookings", DictType(StringType, Booki
     }),
 });
 
-const h = e3Harness({ "calendar/row-keys": { bookings } }, { main: "data-calendar-main" });
+const NOON = new Date("2026-10-01T12:00:00Z"), ONE = new Date("2026-10-01T13:00:00Z"), TWO = new Date("2026-10-01T14:00:00Z");
+/** The desk's bookings B-1, B-3 and B-7 on the one day, in its own scheme: those numbered between were let go. */
+const numbered = e3.record("calendar_numbered_bookings", DictType(StringType, Booking), {
+    initial: new Map([
+        ["B-1", { ref: "B-1", title: "Safety check", start: NINE, end: TEN }],
+        ["B-3", { ref: "B-3", title: "Calibration", start: ELEVEN, end: NOON }],
+        ["B-7", { ref: "B-7", title: "Handover", start: ONE, end: TWO }],
+    ]),
+    indexes: (index) => ({
+        calendar_numbered_bookings_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "calendar/row-keys": { bookings, numbered } }, { main: "data-calendar-main" });
 const sameBooking = equalFor(Booking);
 
 /** The bookings' day, under the app's own rule for a new booking's key: B-1, B-2, … */
@@ -87,6 +104,26 @@ const byKey = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     const next = $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`B-${taken.size().add(1n)}`));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, newKey: next }) } });
+}))) };
+
+/**
+ * The numbered bookings' day, their record read a window at a time as `byKey`'s are, under the app's own rule: one past
+ * the largest number of the keys taken.
+ */
+const numberedByKey = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(numbered, ["patch"]));
+    const entries = $.let(Data.bindPaged(numbered));
+    const indexed = $.let(Data.bindPaged(numbered, { indexes: ["calendar_numbered_bookings_by_time"] }));
+    const slice = $.let(Slice.bindRecords("test.calendar.numberedKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
+    const past = $.const(East.function([SetType(StringType)], StringType, ($2, taken) => {
+        const most = $2.let(0n);
+        $2.for(taken, ($3, key) => {
+            $3.assign(most, East.max(most, key.substring(2n, key.length()).parse(IntegerType)));
+        });
+        return East.str`B-${most.add(1n)}`;
+    }));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, newKey: past }) } });
 }))) };
 
 /** The keys of the bookings the day draws. */
@@ -152,6 +189,19 @@ describe("a Calendar's new event under each of the three key options (east-works
         expect(event(c, "booking", "B-2")).not.toBeNull();
         const rows = await saved(c);
         expect([[...rows.keys()], sameBooking(rows.get("B-2")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })]).toEqual([["B-1", "B-2"], true]);
+    });
+
+    test("ruling 9 — over a record read a window at a time, the app's rule is told the key of every booking the day shows: a copy one past the largest is B-8 — never B-2, past only the booking it first runs into — and Save writes it there", async () => {
+        const { container: c } = await h.mount(numberedByKey);
+        await waitFor(() => expect(drawn(c)).toHaveLength(3));
+        await duplicate(c);
+        expect(within(slot(c, "end")).queryByRole("alert")).toBeNull();
+        expect(event(c, "booking", "B-8")).not.toBeNull();
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await waitFor(async () => expect((await h.read(numbered)).size).toBe(4), { timeout: 8_000 });
+        const rows = await h.read(numbered);
+        expect([[...rows.keys()], sameBooking(rows.get("B-8")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })])
+            .toEqual([["B-1", "B-3", "B-7", "B-8"], true]);
     });
 });
 

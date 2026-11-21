@@ -85,7 +85,7 @@ import {
 } from "../shared/schedule/editing.js";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
-import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, keptAtRevision, madeFromValues, mintKey, rowCodec, windowRead } from "../shared/schedule/records.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { NONE_LANDED, NO_DRAFTS, NO_LANDED, type FlowchartDrafts, type FlowchartLanded, type KindDrafts, type KindLanded, type LandedRow } from "./drafted.js";
@@ -426,14 +426,14 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
         return out;
     }, [value]);
     // A kind read through its source: the rows its source's read holds, kept at the revision they were read at — a
-    // gesture's original, and what a Save confirms its entries by; any other row is read by its key.
+    // gesture's original, what a Save confirms its entries by, and keys a new row's key is made past, which its rule is
+    // told; any other row is read by its key.
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const out: Record<string, ScheduleRowRead> = {};
         for (const sort of FLOWCHART_SORTS) {
             const kind = kindOf(value, sort);
             if (kind === undefined || !kind.editable || kind.entries.type !== "some") continue;
-            const rows = keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows());
-            out[sort] = (key) => heldInWindow(rows(), key);
+            out[sort] = windowRead(keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows()));
         }
         return out;
     }, [value]);

@@ -18,25 +18,29 @@
  * the next, and its field follows. And tickets whose kind gives the app's own
  * rule for a new key (`newKey`, east-workspace#1709): a new ticket takes the
  * key the rule gives, and the rule is asked again where another session's
- * Save takes it first. And visits whose kind builds each one's key from its
- * row (`key`): a new visit stands under the key its row builds, an edit of
- * what the key reads moves it, and a key another visit holds refuses the
- * gesture, saying which. Over records deployed to e3 itself.
+ * Save takes it first; over tickets read a window at a time, the rule is told
+ * the keys of the rows the page shows — what the builder draws, what its own
+ * reads hold, or what its cells hold — beside those the session holds. And visits
+ * whose kind builds each one's key from its row (`key`): a new visit stands
+ * under the key its row builds, an edit of what the key reads moves it, and a
+ * key another visit holds refuses the gesture, saying which. Over records
+ * deployed to e3 itself.
  */
 
 import { useMemo } from "react";
 import { describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import {
-    DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, printFor,
+    DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, printFor, some,
     type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
 import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHistoryJoined } from "@elaraai/east-ui-components";
-import { KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
+import { Data, KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef } from "./editing.js";
+import { windowRead } from "./records.js";
 
 /** A rack: its code, which is its key too, and the bay it stands in. */
 const Rack = StructType({ code: StringType, bay: IntegerType });
@@ -79,7 +83,19 @@ const visits = e3.record("built_key_visits", DictType(StringType, Job), {
     }),
 });
 
-const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets, visits } }, { measure: false });
+/** The desk's tickets T-1, T-3 and T-7, which its page shows: a record read a window at a time. */
+const shownTickets = e3.record("shown_key_tickets", DictType(StringType, Job), {
+    initial: new Map([
+        ["T-1", { ref: "", title: "Reset a password", start: DAY, end: LATER }],
+        ["T-3", { ref: "", title: "Replace a badge", start: DAY, end: LATER }],
+        ["T-7", { ref: "", title: "Move a desk", start: DAY, end: LATER }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets, visits, shownTickets } }, { measure: false });
 /** The visits' kind, which builds a visit's key from its row: its reference. */
 const visitsKind = East.function([], Schedule.Types.Kind, ($) => {
     const handle = $.let(Record.bind(visits));
@@ -108,6 +124,24 @@ const racksSide = East.function([], RackSide, ($) => {
     const handle = $.let(Record.bind(racks));
     const bound: KindBinding = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: StringType, rowType: Rack };
     return recordSide(bound, undefined, undefined, { keyField: "code" } as never, [], "Spec.racks") as never;
+});
+/**
+ * The shown tickets' side of a kind, read by key through a paged read of the record's own entries — its session holds
+ * none of the record's keys but those it meets — and told the app's rule for a new ticket's key: one past the largest
+ * number of the keys taken.
+ */
+const shownSide = East.function([], StructType({ ...KindSideFields }), ($) => {
+    const handle = $.let(Record.bind(shownTickets));
+    const entries = $.let(Data.bindPaged(shownTickets));
+    const newKey = $.const(East.function([SetType(StringType)], StringType, ($2, taken) => {
+        const most = $2.let(0n);
+        $2.for(taken, ($3, key) => {
+            $3.assign(most, East.max(most, key.substring(2n, key.length()).parse(IntegerType)));
+        });
+        return East.str`T-${most.add(1n)}`;
+    }));
+    const bound: KindBinding = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: StringType, rowType: Job };
+    return recordSide(bound, entries as unknown as ExprType<EastType>, entries as unknown as ExprType<EastType>, { newKey } as never, [], "Spec.shown") as never;
 });
 
 const NO_KINDS: readonly ScheduleEditingKind[] = [];
@@ -157,6 +191,25 @@ const drafted = (id: string) => {
     const bytes = editing().draftsOf("racks").get(id);
     return bytes === undefined ? undefined : decodeDraft(bytes);
 };
+
+/** How a builder hands the shared editing the rows its page shows: as what it draws, as its own reads, or as its cells'. */
+type ShownBy = "standing" | "reads" | "held";
+
+/** The shown tickets as a record a builder writes under the shared editing, its builder handing it the rows its page shows — T-1, T-3 and T-7 — as the test says. */
+function ShownProbe({ by }: { readonly by: ShownBy }) {
+    const run = useMemo(() => shownSide.toIR().compile(getRegisteredPlatformImplementations()), []);
+    const { result } = useTrackedEvaluation(run);
+    if (!result.ok) throw result.error;
+    const side = result.value;
+    const records = useMemo(() => (side.editing.type !== "some" ? []
+        : [{ key: "shown", name: "Tickets", editing: side.editing.value, entries: side.entries, newKey: side.newKey }]), [side]);
+    const shown = useMemo(() => new Map(["T-1", "T-3", "T-7"].map((id) => [id, { row: encodeJob({ ref: "", title: id, start: DAY, end: LATER }) }] as const)), []);
+    const standing = useMemo(() => (by !== "standing" ? undefined : { current: { shown: { row: (id: string) => shown.get(id)?.row, ids: () => shown.keys() } } }), [by, shown]);
+    const reads = useMemo(() => (by !== "reads" ? undefined : { shown: windowRead(() => some(shown)) }), [by, shown]);
+    const held = useMemo(() => (by !== "held" ? undefined : { current: new Map([["shown", shown]]) }), [by, shown]);
+    probe.editing = useScheduleEditing({ kinds: NO_KINDS, records, reads, standing, held, storageKey: `schedule-shown-${by}`, joined: NO_JOINED, autosave: false });
+    return null;
+}
 
 describe("the shared editing over a record whose rows hold their own key in a field", () => {
     test("a rack a gesture adds holds its key in the field from the first, whatever its row was given there, and is saved with it; a rack whose field never held its key keeps what it holds through a change of its bay", async () => {
@@ -233,6 +286,14 @@ describe("the shared editing over an event kind told the app's rule for a new ke
         await waitFor(async () => expect((await h.read(tickets)).has("T-3")).toBe(true));
         const saved = await h.read(tickets);
         expect([jobEqual(saved.get("T-2")!, theirs), jobEqual(saved.get("T-3")!, copy)], printFor(tickets.type)(saved)).toEqual([true, true]);
+    });
+});
+
+describe("the shared editing over a record read a window at a time, told the app's rule for a new key", () => {
+    test.each<ShownBy>(["standing", "reads", "held"])("ruling 9 — the app's rule is told the keys of the rows the page shows (%s) beside those its session holds: one past the largest, a new ticket is T-8 — never T-2, past only the key it first runs into", async (by) => {
+        await h.mount({ fn: shownSide }, { view: <ShownProbe by={by} /> });
+        await waitFor(() => expect(editing().available("shown")).toBe(true));
+        expect(editing().mint("shown", "", new Set())).toBe("T-8");
     });
 });
 

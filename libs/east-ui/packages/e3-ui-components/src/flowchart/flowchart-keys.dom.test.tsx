@@ -28,7 +28,8 @@
  *   inspector; and by Blob, which no form types, none: + LANE, + STATE,
  *   Duplicate and the Steps' cards off, each saying why. A kind told the app's
  *   own rule (`newKey`, east-workspace#1709) keys each new row by it, whatever
- *   its key type would make.
+ *   its key type would make — read through the rail, the rule told the key of
+ *   every row the rail's read holds.
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
  *   it is refused, saying why, and records nothing; its choices cleared, the
@@ -387,6 +388,32 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
         expect(footer(c)).toBe(m.gestureRefused({ refusal: "unkeyed", sort: "states" }));
         expect(footer(c)).toBe("No key can be made for this state");
+    });
+
+    test("ruling 9 — read through the rail, Duplicate keys a step by the steps' `newKey` told the key of every step the rail's read holds — one past the largest, 12, never 1 — and Save writes it under it", async () => {
+        const steps = await h.read(fx.keyedSteps);
+        const c = await open(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.keyed.ruled", {
+                states: { source: Data.bindPaged(fx.keyedSteps, { indexes: ["flowchart_keyed_steps_by_station"] }) },
+            }));
+            const stepsBound = $.let(Record.bind(fx.keyedSteps));
+            const stepEntries = $.let(Data.bindPaged(fx.keyedSteps));
+            const stations = $.let(Data.bind(fx.keyedStations));
+            // The steps numbered one past the largest the app is told is taken.
+            const nextStep = $.const(East.function([SetType(IntegerType)], IntegerType, (_$, taken) =>
+                taken.reduce((_$2, most, key) => East.max(most, key), 0n).add(1n)));
+            return {
+                slice: { slice },
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", entries: stepEntries, newKey: nextStep }),
+                lanes: Flowchart.lanes(stations, { label: "label" }),
+            };
+        });
+        await gesture(() => { fireEvent.click(node(c, "9")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect([node(c, "12")?.hasAttribute("data-selected"), node(c, "1")]).toEqual([true, null]);
+        expect(await save()).toEqual([fx.keyedSteps.name]);
+        expect(printFor(fx.keyedSteps.type)(await h.read(fx.keyedSteps)))
+            .toBe(printFor(fx.keyedSteps.type)(withRows(steps, compareFor(IntegerType), [[12n, { name: "Proof", station: 2n }]])));
     });
 
     test("ruling 1 — holding its key in a field (`keyField`), a station + LANE adds holds its own key in its code from the first, and Save writes it so", async () => {

@@ -361,11 +361,18 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         for (const kind of value.events) {
             if (!paged.has(kind.key) || kind.entries.type !== "some") continue;
             const entries = kind.entries.value;
-            out[kind.key] = (id) => {
-                const at = entries.revision();
-                if (at.type !== "some") return undefined;
-                const page = backlogNow.current?.servedRow(kind.key, id);
-                return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+            out[kind.key] = {
+                row: (id) => {
+                    const at = entries.revision();
+                    if (at.type !== "some") return undefined;
+                    const page = backlogNow.current?.servedRow(kind.key, id);
+                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                },
+                // The events the Backlog lists at the revision: keys a new event's is made past, which its rule is told.
+                ids: () => {
+                    const at = entries.revision();
+                    return at.type !== "some" ? [] : backlogNow.current?.servedIds(kind.key, at.value) ?? [];
+                },
             };
         }
         return out;

@@ -197,20 +197,50 @@ export interface ScheduleEditingRecord {
 }
 
 /**
- * A row as a builder's own reads hold it, by its key's text (#1369): `undefined`
- * for one they do not hold, which is read by its key; `none` while they are
- * read; `some(none)` for one they hold the record has none of; else its bytes.
- * Every read of a record is pinned to one revision, so a builder's window
- * holds its rows at the revision a Save committed once it lands: the Save
- * confirms what the window holds from it, and reads by key only the rest.
+ * A record's rows as a builder's own reads hold them (#1369): each by its key's
+ * text, and the keys of them all. Every read of a record is pinned to one
+ * revision, so a builder's window holds its rows at the revision a Save
+ * committed once it lands: the Save confirms what the window holds from it,
+ * and reads by key only the rest.
  */
-export type ScheduleRowRead = (id: string) => option<option<Uint8Array>> | undefined;
+export interface ScheduleRowRead {
+    /**
+     * A row, by its key's text.
+     *
+     * @param id - The row's key's text
+     * @returns `undefined` for one they do not hold, which is read by its key; `none` while they are read; `some(none)`
+     *   for one they hold the record has none of; else its bytes
+     */
+    row(id: string): option<option<Uint8Array>> | undefined;
+    /**
+     * The keys of the rows they hold, as their texts: what a new row's key is made past, and what the app's rule for one
+     * is told (east-workspace#1709).
+     *
+     * @returns The keys, in no order; none while they are read
+     */
+    ids(): Iterable<string>;
+}
 
-/**
- * Each kind's or record's rows as its builder draws them now, by its slot or key, then by the row's key's text: its
- * bytes, or `undefined` for one the builder draws none of ({@link ScheduleEditingArgs.standing}).
- */
-export type ScheduleStandingRows = Readonly<Record<string, (id: string) => Uint8Array | undefined>>;
+/** One kind's or record's rows as its builder draws them now ({@link ScheduleEditingArgs.standing}): each by its key's text, and the keys of them all. */
+export interface ScheduleDrawnRows {
+    /**
+     * A row, by its key's text.
+     *
+     * @param id - The row's key's text
+     * @returns Its bytes; `undefined` for one the builder draws none of
+     */
+    row(id: string): Uint8Array | undefined;
+    /**
+     * The keys of the rows it draws, as their texts: what a new row's key is made past, and what the app's rule for one
+     * is told (east-workspace#1709).
+     *
+     * @returns The keys, in no order
+     */
+    ids(): Iterable<string>;
+}
+
+/** Each kind's or record's rows as its builder draws them now, by its slot or key ({@link ScheduleDrawnRows}). */
+export type ScheduleStandingRows = Readonly<Record<string, ScheduleDrawnRows>>;
 
 /** An event a confirmed Save landed, as it left it ({@link ScheduleLandedRows}). */
 export interface ScheduleLandedRow {
@@ -432,7 +462,8 @@ export interface ScheduleEditing<I extends Item = Item> {
      * (`key`), one made up to stand for the row until the gesture is recorded,
      * which moves it under the key its row builds ({@link ScheduleEditing.renumbered});
      * by the app's own rule where its kind gives one
-     * (`newKey`), given every key known taken; else a text key from an event's key or a template's,
+     * (`newKey`), given every key known taken — of a record read a window at
+     * a time, the keys of the rows its builder shows among them; else a text key from an event's key or a template's,
      * else made up — the next in a row (`J-1001-2`) for a kind whose record
      * its session holds whole, and with a suffix drawn at random
      * (`J-1001-5f3a9c2e`) for one read a window at a time, whose earlier
@@ -494,7 +525,8 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
     records?: readonly ScheduleEditingRecord[] | undefined;
     /**
      * Each kind's or record's rows as the builder's own reads hold them, by its slot or key (#1369): what a gesture
-     * finds an entry as before it, and what a Save confirms its entries by, before any is read by its key.
+     * finds an entry as before it, and what a Save confirms its entries by, before any is read by its key — and, of a
+     * record read a window at a time, among the keys a new row's key is made past, which its rule is told.
      */
     reads?: Readonly<Record<string, ScheduleRowRead>> | undefined;
     /**
@@ -505,7 +537,9 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * stops the editing). Never a Save's confirmation, which reads the revision it committed. A row drawn may have been
      * read at the revision before: where another write changed the same part of it since, the source refuses the Save
      * that sends it, and the session carries its drafts over at its own revision (`EditSession.nameConflicts`), the
-     * part both changed a conflict to choose. Read as a gesture is recorded, so rows moving make no new session.
+     * part both changed a conflict to choose. Of a record read a window at a time, its keys are among those a new row's
+     * key is made past, which its rule is told. Read as a gesture is recorded and as a key is made, so rows moving make
+     * no new session.
      */
     standing?: RefObject<ScheduleStandingRows | undefined> | undefined;
     /** The canvas's storage key: the sessions and their history are kept under it. */
@@ -783,15 +817,24 @@ export function useScheduleEditing<I extends Item = Item>({
         const once = rule === undefined || kind.rekeys ? rule : onceKeys(rule);
         // Read a window at a time, its session knows none of its record's keys but those it has met: each key is made
         // past those its builder shows a row under — what it draws, what its own reads and its cells hold — so a new row
-        // is never drawn over one on the page. One the record holds out of view is refused at Save, and made another.
+        // is never drawn over one on the page; and its rule is told them beside those its session holds, as the Sheet's is
+        // told the rows it has read, so the app's own rule makes its key from every key the page shows, never only from
+        // those it runs into. One the record holds out of view is refused at Save, and made another.
         const shows = (id: string): boolean => {
-            if (standing?.current?.[kind.key]?.(id) !== undefined) return true;
-            const own = kind.read?.(id);
+            if (standing?.current?.[kind.key]?.row(id) !== undefined) return true;
+            const own = kind.read?.row(id);
             if (own !== undefined && own.type === "some" && own.value.type === "some") return true;
             const held = heldRowOf(cellRows?.current, kind.key, id);
             return held.type === "some" && held.value.type === "some";
         };
-        const made = once === undefined || !windowed ? once : pastKeys(once, shows);
+        const shown = function* (): Iterable<string> {
+            yield* standing?.current?.[kind.key]?.ids() ?? [];
+            yield* kind.read?.ids() ?? [];
+            for (const [id] of cellRows?.current?.get(kind.key) ?? []) yield id;
+        };
+        const made = once === undefined || !windowed ? once : pastKeys({
+            make: (known, from, taken) => once.make({ has: (id) => known.has(id), ids: function* () { yield* shown(); yield* known.ids(); } }, from, taken),
+        }, shows);
         // An entry's projection is its id: under another key, that key's — and its row's key field, where its record's
         // rows hold their key in one.
         const underKey = (id: string, entry: EntryVersion<ScheduleEntryRef>): EntryVersion<ScheduleEntryRef> => {
@@ -805,7 +848,7 @@ export function useScheduleEditing<I extends Item = Item>({
         // Where the builder's own reads hold an entry, at the revision every read of the record is pinned to: read with no
         // request, so a Save's confirmation judges every one of them at once.
         const heldRow = own === undefined ? undefined : (id: string): option<option<unknown>> | undefined => {
-            const held = own(id);
+            const held = own.row(id);
             if (held === undefined) return undefined;
             return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
         };
@@ -983,10 +1026,10 @@ export function useScheduleEditing<I extends Item = Item>({
         if (("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true)) return ABSENT;
         const codec = codecs[indexOf(part.key)]!;
         // The row as the builder draws it now, where it draws one: what its person sees and acts on.
-        const drawn = standing?.current?.[part.key]?.(change.id);
+        const drawn = standing?.current?.[part.key]?.row(change.id);
         if (drawn !== undefined) return { draft: variant("value", codec.decodeRow(drawn)), wire: undefined, place: KEY_ORDER };
         // Where the builder's own reads hold it: in flight, absent, or its row.
-        const held = part.read?.(change.id);
+        const held = part.read?.row(change.id);
         if (held !== undefined) {
             if (held.type !== "some") return undefined;
             return held.value.type === "some" ? { draft: variant("value", codec.decodeRow(held.value.value)), wire: undefined, place: KEY_ORDER } : ABSENT;
@@ -1172,7 +1215,7 @@ export function useScheduleEditing<I extends Item = Item>({
                     shown: (id) => {
                         if (part.entries.type !== "some") return false;
                         const cell = heldRowOf(cellRows?.current, part.key, id);
-                        return standing?.current?.[part.key]?.(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
+                        return standing?.current?.[part.key]?.row(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
                     },
                     underKey: (id, version) => ({ draft: variant("value", codec.underKey(id, rowOf(version))), wire: { id }, place: KEY_ORDER }),
                 });
@@ -1253,7 +1296,7 @@ export function useScheduleEditing<I extends Item = Item>({
             if (event === undefined) return undefined;
             const at = rangeRef.current ?? NO_RANGE;
             // Where the builder's own reads hold its row — a page of the Calendar's Backlog (#1424) — from them, read no more.
-            const own = parts[i]!.read?.(id);
+            const own = parts[i]!.read?.row(id);
             const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(cellRows?.current, kind, id);
             const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, held);
             return got.type === "some" ? got.value : undefined;
@@ -1270,10 +1313,10 @@ export function useScheduleEditing<I extends Item = Item>({
                 return row === undefined ? none : some(row);
             }
             // Read a window at a time, and its session holds none of it: as its builder draws it now.
-            const drawn = standing?.current?.[part.key]?.(id);
+            const drawn = standing?.current?.[part.key]?.row(id);
             if (drawn !== undefined) return some(codec.decodeRow(drawn));
             // Where the builder's own reads hold it: in flight, absent, or its row.
-            const own = part.read?.(id);
+            const own = part.read?.row(id);
             if (own !== undefined) {
                 if (own.type !== "some") return undefined;
                 return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;

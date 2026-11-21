@@ -19,13 +19,13 @@
  */
 
 import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
-import { DateTimeType, parseFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
 import {
     useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead, type ScheduleStandingRows,
 } from "../shared/schedule/editing.js";
-import { draftedRow, heldInWindow, keptAtRevision, periodRowsRead, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, keptAtRevision, periodRowsRead, rowCodec, windowRead } from "../shared/schedule/records.js";
 import type { RosterData } from "./data.js";
 import { rosterDomain, spanWindow, type DraftedDuty, type RosterSpan, type RosterValue, type StoredTarget } from "./model.js";
 
@@ -57,12 +57,13 @@ export interface RosterEditing {
 
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const parseInstant = parseFor(DateTimeType);
+const printInstant = printFor(DateTimeType);
 
 /**
  * Says what the board draws of each record now ({@link RosterEditing.standing}): the span's duties and the week
  * before's, its targets, and each period's own row by its start — as the frame holds them, at whatever revision they
- * were read. None while the board draws no read of the span in view. Said as the frame commits, so a gesture reads
- * what the page shows.
+ * were read — and the keys of them all. None while the board draws no read of the span in view. Said as the frame
+ * commits, so a gesture, and a new row's key, read what the page shows.
  *
  * @param editing - The Roster's editing; none for a Roster read only
  * @param drawn - The read the frame draws, while it is the span's own
@@ -73,11 +74,17 @@ export function useRosterStanding(editing: RosterEditing | undefined, drawn: Pic
     useLayoutEffect(() => {
         if (standing === undefined || duty === undefined) return undefined;
         standing.current = drawn === undefined ? undefined : {
-            [duty]: id => (drawn.duties.get(id) ?? drawn.previous?.get(id))?.bytes,
-            [TARGETS]: id => drawn.targets.get(id)?.bytes,
-            [PERIODS]: (id) => {
-                const at = parseInstant(id);
-                return at.success ? drawn.periods.get(at.value) : undefined;
+            [duty]: {
+                row: id => (drawn.duties.get(id) ?? drawn.previous?.get(id))?.bytes,
+                ids: function* () { yield* drawn.duties.keys(); yield* drawn.previous?.keys() ?? []; },
+            },
+            [TARGETS]: { row: id => drawn.targets.get(id)?.bytes, ids: () => drawn.targets.keys() },
+            [PERIODS]: {
+                row: (id) => {
+                    const at = parseInstant(id);
+                    return at.success ? drawn.periods.get(at.value) : undefined;
+                },
+                ids: () => [...drawn.periods.keys()].map((at) => printInstant(at)),
             },
         };
         return () => { standing.current = undefined; };
@@ -110,13 +117,12 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const window = spanWindow(span);
         const duties = keptAtRevision(value.duty.kind.entries, () => value.duty.rows(window.from, window.to));
-        const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: key => heldInWindow(duties(), key) };
+        const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: windowRead(duties) };
         // Each week's own row, by its start: the span's read holds none of another week's.
         if (value.periods.type === "some") out[PERIODS] = periodRowsRead(value.periods.value, span.from, span.to);
         if (value.targets.type === "some") {
             const targets = value.targets.value;
-            const read = keptAtRevision(targets.entries, () => targets.rows(span.from, span.to));
-            out[TARGETS] = key => heldInWindow(read(), key);
+            out[TARGETS] = windowRead(keptAtRevision(targets.entries, () => targets.rows(span.from, span.to)));
         }
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
