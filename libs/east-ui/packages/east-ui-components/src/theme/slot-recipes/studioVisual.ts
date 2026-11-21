@@ -69,23 +69,29 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
            stands 6px under the strip's top edge and its words 12px. Centred in the 35px over the rule, as the mock
            draws it, each stood half a pixel off, and a page painted it a row higher or lower by where it stood the tile. */
         head: {
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.3}",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.1}",
             height: "36px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingTop: "1px", flexShrink: "0", minWidth: "0",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
         },
-        /* Its name: mono 10 / 600, tracked 0.14em, uppercase, `--ink`, cut with an ellipsis; on a whole, even line. */
+        /* Its name: mono 10 / 600, tracked 0.14em, uppercase, `--ink`, cut with an ellipsis; on a whole, even line; 12 before
+           what follows it. */
         name: {
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: centredLine(HEAD_ROOM, 12),
-            color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: "0",
+            color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: "0", marginInlineEnd: "{spacing.2}",
         },
-        /* Its meta and its menu, at the end. */
-        end: { display: "flex", alignItems: "center", gap: "{spacing.1}", flexShrink: "0" },
-        /* Its meta: mono 9.5, `--ink-4`, on the name's line. */
-        meta: { fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap" },
+        /* Its meta and its menu, at the end, 4 apart. It draws no box of its own, so each of its parts is the strip's own:
+           where the strip is short its words give way before its name (#1692) — its meta, or what it follows, cut first,
+           then its name — and its controls never. */
+        end: { display: "contents", "& > :first-child": { marginInlineStart: "auto" } },
+        /* Its meta: mono 9.5, `--ink-4`, on the name's line; cut with an ellipsis, its whole on hover. */
+        meta: {
+            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle",
+            flexShrink: "100", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        },
         /* What it follows (LNK-4): the 10px link icon, 6 before the selected value, as its meta is set — in `--brand-d`
            while it is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
         follow: {
-            display: "inline-flex", alignItems: "center", gap: "6px", minWidth: "0", maxWidth: "160px",
+            display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: "100", minWidth: "0", maxWidth: "160px",
             fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap",
             "& > span": { overflow: "hidden", textOverflow: "ellipsis" },
             "& svg": { fontSize: "10px", flexShrink: "0" },
@@ -154,22 +160,23 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A pivot's heat legend (TBL-4): under the grid on the tile's own surface, over a `--rule`, padded 12 20 16 —
            its ramp over its steps' lower edges, 4 apart. */
         heat: {
-            display: "flex", flexDirection: "column", gap: "{spacing.1}", flexShrink: "0", padding: "12px 20px 16px",
+            display: "flex", flexDirection: "column", gap: "{spacing.1}", flexShrink: "0", minWidth: "0", padding: "12px 20px 16px",
             borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
         },
-        heatRamp: { display: "flex", width: "max-content", borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle" },
+        /* Its five steps, 40 each inside its `--rule`; in a tile too narrow for them, each an equal share of its room (#1692). */
+        heatRamp: { display: "flex", width: "100%", maxWidth: "202px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle" },
         heatSwatch: {
-            width: "40px", height: "12px",
+            flex: "1 1 0", minWidth: "0", height: "12px",
             "&[data-step='1']": { background: "heat.1" },
             "&[data-step='2']": { background: "heat.2" },
             "&[data-step='3']": { background: "heat.3" },
             "&[data-step='4']": { background: "heat.4" },
             "&[data-step='5']": { background: "heat.5" },
         },
-        /* The steps' lower edges, each at its swatch's start; the ramp's two rules wide. */
+        /* The steps' lower edges, each at its swatch's start; as wide as the ramp. */
         heatTicks: {
-            display: "flex", width: "202px", justifyContent: "space-between", fontFamily: "mono", fontSize: "label.xs", lineHeight: "11px", color: "fg.subtle",
-            fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+            display: "flex", width: "100%", maxWidth: "202px", columnGap: "{spacing.1}", justifyContent: "space-between",
+            fontFamily: "mono", fontSize: "label.xs", lineHeight: "11px", color: "fg.subtle", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
         },
         /* A state that stands in for the visual's own drawing (TIL-3) — `no data` where its value would be, the blocks in its
            shape while it is awaited — where the drawing would stand. A table's or a list's body runs edge to edge: its state

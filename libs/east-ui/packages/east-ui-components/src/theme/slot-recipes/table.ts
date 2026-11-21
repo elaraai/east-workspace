@@ -37,7 +37,9 @@
  *     range mono 10.5 and its ‹ › 44 ghosts, listing the columns in place; a
  *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
  *     it, the last in view's 16 after it; values wrapping, numbers and dates mono 13/500,
- *     an absent value `no data` in mono italic `--ink-4`.
+ *     an absent value `no data` in mono italic `--ink-4`. A tile's (`data-table-tile`,
+ *     #1692): its words wrap at their spaces only, a word or a head too wide for its
+ *     column ended in an ellipsis; a number or a date on one line, whole.
  *   - In a tile (`tile`, #1671) — the design system's Table running edge to
  *     edge in a Frame: its header on the surface over a `--rule`, each head its
  *     label alone, the whole of it the button that sorts, the sorted one in
@@ -301,6 +303,9 @@ export const tableSlotRecipe = defineSlotRecipe({
             "tr[data-row-head] &": { fontSize: "label.sm" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
             "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric], &[data-date]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
+            /* A tile's at a phone's width (#1692): its words wrap at their spaces, never inside one, and a word too wide for its
+               column ends in an ellipsis, its whole on hover; a number or a date stands whole on its line, its column as wide as it. */
+            "[data-table-phone][data-table-tile] &": { overflow: "hidden", overflowWrap: "normal", textOverflow: "ellipsis", "&[data-numeric], &[data-date]": { whiteSpace: "nowrap" } },
         },
         /* A negative cell's mark: the exclamation before its value, in `--neg`, so colour is never its only sign. */
         cellMark: { display: "inline-flex", alignItems: "center", flexShrink: 0, marginInlineEnd: "6px", color: "status.neg", "& svg": fontAwesomeSize("10px") },
@@ -389,6 +394,8 @@ export const tableSlotRecipe = defineSlotRecipe({
             "&:disabled": { cursor: "default" },
             "& svg": { width: "8px", height: "8px", flex: "none" },
             _focusVisible: { boxShadow: "focusInset" },
+            /* A tile's (#1692): a label too wide for its column on one line, ended in an ellipsis, its whole on hover. */
+            "[data-table-tile] &": { "& > span": { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
         },
         phoneBar: { height: "12px", borderRadius: "0", background: "bg.subtle", animation: "none" },
         phoneAbsent: { fontFamily: "mono", fontSize: "label.md", fontStyle: "italic", fontWeight: "400", color: "fg.subtle", whiteSpace: "nowrap" },

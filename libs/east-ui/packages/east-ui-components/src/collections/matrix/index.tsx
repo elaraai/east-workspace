@@ -29,7 +29,7 @@ import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 import { followPointer } from "../../pointer/follow-pointer.js";
-import { measureText, themeFont } from "../table/phone-fit.js";
+import { measureLabel, measureText, themeFont } from "../table/phone-fit.js";
 import { TILE_EDGE, TILE_PAD } from "../table/tile.js";
 
 const matrixRootEqual = equivalentFor(Matrix.Types.Root);
@@ -56,7 +56,8 @@ export interface EastChakraMatrixProps {
      * Whether it is a tile's grid (#1671) — a Studio pivot's heat blocks, edge
      * to edge in a Frame: its header on the surface, its rows unruled around
      * 30px blocks, its row names' column as wide as the names need and never
-     * resized, its value columns sharing the rest.
+     * resized, its value columns sharing the rest, each as wide as its widest
+     * head at the least (#1692), the grid scrolling inside its tile past them.
      */
     tile?: boolean | undefined;
 }
@@ -505,13 +506,22 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
         if (!tile || typeof document === "undefined") return undefined;
         const mono = themeFont("mono", document.body, "monospace");
         const widest = value.rows.reduce((most, row) => Math.max(most, measureText(row.value, `400 11px ${mono}`)),
-            measureText(rowHeaderLabel.toUpperCase(), `600 10px ${mono}`) + rowHeaderLabel.length * 1.6);
+            measureLabel(rowHeaderLabel, `600 10px ${mono}`, 1.6));
         return `${Math.ceil(widest) + 2 + TILE_PAD + TILE_EDGE}px`;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
     }, [tile, value.rows, rowHeaderLabel, fontsIn]);
     const leftPaneWidth = tileLeft ?? `${table.getTotalSize()}px`;
-    // A tile's blocks may stand narrower than a bar's 90 before its grid scrolls.
-    const colMinPx = tile ? 44 : 90;
+    // A tile's blocks may stand narrower than a bar's 90 before its grid scrolls, but never narrower than their widest
+    // head (#1692) — the label voice, tracked, in the 2 either side of it — so no head is cut; past them the grid
+    // scrolls inside its tile (TBL-5).
+    const tileHead = useMemo(() => {
+        if (!tile || typeof document === "undefined") return 0;
+        const mono = themeFont("mono", document.body, "monospace");
+        const widest = cols.reduce((most, c) => Math.max(most, measureLabel(c.label, `600 10px ${mono}`, 1.6)), 0);
+        return Math.ceil(widest) + 2 + 4;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
+    }, [tile, cols, fontsIn]);
+    const colMinPx = tile ? Math.max(44, tileHead) : 90;
     const colMin = `${colMinPx}px`;
     const slotTemplate = `repeat(${nCols}, minmax(${colMin}, 1fr))`;
     const gridMinWidth = `calc(${leftPaneWidth} + ${nCols * colMinPx}px)`;

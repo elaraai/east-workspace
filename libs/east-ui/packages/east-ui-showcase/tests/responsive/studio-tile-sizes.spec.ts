@@ -14,16 +14,19 @@
  * thousand pixels, aside). From 960px the grid gives a tile its span — a
  * narrow one 153px wide at 960 — and under it half the grid or all of it,
  * then under 480px all of it: every width a tile can be drawn at on a page is
- * read. Its pages: every KPI configuration, and every kind of donut — its
- * legend of values, of names or none, Other among its slices — at a narrow, a
+ * read. Its pages: every KPI configuration; every kind of donut — its legend
+ * of values, of names or none, Other among its slices; every list
+ * configuration; and records, summaries and pivots — each at a narrow, a
  * small, a mid and a wide span. In every tile, every part:
  *
  *  - T1 lies inside its tile's frame;
  *  - T2 lies over no other part;
  *  - T3 stands on one line, its words whole, or ended in an ellipsis with
- *    the whole on hover;
+ *    the whole on hover — a phone table's words wrapping at their spaces
+ *    (QP11), none split;
  *  - T4 a number stands whole: never cut, never ended in an ellipsis;
- *  - T5 neither the tile nor anything in it scrolls sideways;
+ *  - T5 neither the tile nor anything in it scrolls sideways, but a table's
+ *    body, inside which a wide table scrolls (TBL-5);
  *  - D1 a donut's total and its caption lie inside its hole (#1692), as its
  *    plot says the hole's radius.
  *
@@ -92,8 +95,10 @@ interface TilePage {
     readonly parts: Readonly<Record<string, string>>;
     readonly numbers: readonly string[];
     readonly drawings: readonly string[];
-    /** The one body that scrolls sideways, where its kind is a grid of columns (a records table's): T5 lets it, and what it scrolls across is read as it shows. */
+    /** The one body that scrolls sideways, where its kind is a grid of columns (a table's): T5 lets it, and what it scrolls across is read as it shows. */
     readonly sideways?: string | undefined;
+    /** The parts whose words may run onto lines at their spaces — a phone table's (QP11): T3 reads that none is split. */
+    readonly wraps?: readonly string[] | undefined;
 }
 
 /** Every KPI configuration, each at a narrow, a small and a wide span, over the page of visuals' orders. */
@@ -184,6 +189,48 @@ const LIST_SIZES: TilePage = {
 };
 
 /**
+ * Each table the spec's page places, on a row of its own: the latest orders in six columns, and in two; the regions
+ * summed with their total, and over their categories with a goal; the regions over the categories on the heat ramp,
+ * and over two years of months.
+ */
+const TABLES = {
+    records: vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true }),
+    pair: vis.records({ columns: ["customer", "revenue"] }),
+    summary: vis.summary({ rows: [vis.group("region", { sort: "high" })], values: [vis.sum("revenue"), vis.count()], total: true }),
+    nested: vis.summary({ rows: [vis.group("region", { sort: "high" }), vis.group("category")], values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 13.5 })], total: true }),
+    pivot: vis.pivot({ rows: vis.group("region"), columns: vis.group("category"), value: vis.sum("revenue"), heat: true }),
+    months: vis.pivot({ rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true }),
+};
+
+/** Every table, each at a narrow, a small, a mid and a wide span, 300 tall, over the page of visuals' orders. */
+const TABLE_CELLS: Cells = Object.entries(TABLES).flatMap(([name, table]) => [2n, 3n, 4n, 7n].map((span) => ({
+    key: `table-${name}-${span}`, row: `r-${name}`, span, height: some(300n), align: variant("stretch", null), title: none,
+    content: vis.of("orders", table),
+})));
+const TABLE_SIZES: TilePage = {
+    cells: TABLE_CELLS, tiles: TABLE_CELLS.length, drawn: "[data-studio-records=''], [data-studio-summary], [data-studio-pivot]",
+    parts: {
+        ...EYEBROW,
+        head: "th span",
+        text: "td p:not([data-numeric]):not([data-date])",
+        date: "td [data-date]",
+        number: "td [data-numeric]",
+        columns: "[data-slot='colHeader'] > span, [data-slot='headerCell'] > span",
+        rows: "[data-slot='rowHeaderName']",
+        cell: "[data-slot='segLabel']",
+        heat: "[data-studio-heat]",
+        tick: "[data-studio-heat-tick]",
+        note: "[data-studio-visual-note]",
+        pages: "[data-scope='pagination'] button",
+    },
+    numbers: ["number", "cell", "tick"],
+    drawings: ["menu", "heat", "pages"],
+    // A table is a grid of columns: a wide one scrolls sideways inside its tile, its body alone (TBL-5).
+    sideways: "[data-studio-pivot] [data-virtual-rows], [data-table-scroll]",
+    wraps: ["text"],
+};
+
+/**
  * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
  * rest: the page's tiles alone, with no starting filter.
  *
@@ -217,7 +264,7 @@ async function openTiles(page: Page, at: TilePage): Promise<Locator> {
  * @returns The faults
  */
 function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]> {
-    return grid.evaluate((root, { parts, numbers, drawings, width, sideways }) => {
+    return grid.evaluate((root, { parts, numbers, drawings, width, sideways, wraps }) => {
         const bad: string[] = [];
         const r = (n: number) => Math.round(n * 10) / 10;
         const box = (b: DOMRect) => `${r(b.left)},${r(b.top)} ${r(b.width)}×${r(b.height)}`;
@@ -241,6 +288,20 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                 } else foot = Math.max(foot, rect.bottom);
             }
             return count;
+        };
+        /** A word of a part's that stands on two lines: split, as a run onto lines at its spaces never splits one. */
+        const split = (el: HTMLElement): string | undefined => {
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                for (const word of (node.textContent ?? "").matchAll(/\S+/gu)) {
+                    const range = document.createRange();
+                    range.setStart(node, word.index);
+                    range.setEnd(node, word.index + word[0].length);
+                    const tops = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)));
+                    if (tops.size > 1) return word[0];
+                }
+            }
+            return undefined;
         };
         /** A box between a part and its tile, by its tag and its first marks. */
         const named = (el: Element) => `${el.tagName.toLowerCase()}${[...el.attributes].filter((a) => a.name.startsWith("data-")).slice(0, 2).map((a) => `[${a.name}]`).join("")}`;
@@ -279,9 +340,12 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                     if (at.left < by.left - 0.5 || at.right > by.right + 0.5) bad.push(`${tile}: T1 ${name} at ${box(at)} cut by ${named(clip)} at ${box(by)}`);
                 }
                 if (drawings.includes(name) || (el.textContent ?? "").trim() === "") continue;
-                // T3, T4: its words on one line, whole — or, words not a number, ended in an ellipsis with the whole on hover.
+                // T3, T4: its words on one line, whole — or, words not a number, ended in an ellipsis with the whole on hover; a
+                // part that wraps, on lines at its spaces.
                 const n = lines(el);
-                if (n > 1) bad.push(`${tile}: T3 ${name} “${el.textContent}” on ${n} lines`);
+                const torn = n > 1 && wraps.includes(name) ? split(el) : undefined;
+                if (torn !== undefined) bad.push(`${tile}: T3 ${name} “${el.textContent}” splits “${torn}” across lines`);
+                else if (n > 1 && !wraps.includes(name)) bad.push(`${tile}: T3 ${name} “${el.textContent}” on ${n} lines`);
                 // An SVG text's scroll and client widths are no box's: a donut's words are D1's to read.
                 if (!(el instanceof SVGElement) && el.scrollWidth > el.clientWidth + 0.5) {
                     const look = getComputedStyle(el);
@@ -301,7 +365,7 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                     if (w > 0.5 && h > 0.5) bad.push(`${tile}: T2 ${a.name} at ${box(a.at)} over ${b.name} at ${box(b.at)}`);
                 }
             }
-            // T5: nothing scrolls sideways — the tile, or anything in it — but a records table's body.
+            // T5: nothing scrolls sideways — the tile, or anything in it — but a table's body.
             for (const el of [cell, ...cell.querySelectorAll<HTMLElement>("*")]) {
                 if (sideways !== undefined && el.matches(sideways)) continue;
                 const look = getComputedStyle(el);
@@ -324,7 +388,7 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
             }
         }
         return bad;
-    }, { parts: at.parts, numbers: at.numbers, drawings: at.drawings, width, sideways: at.sideways });
+    }, { parts: at.parts, numbers: at.numbers, drawings: at.drawings, width, sideways: at.sideways, wraps: at.wraps ?? [] });
 }
 
 /**
@@ -359,5 +423,9 @@ test.describe("Studio tiles at every size (#1692)", () => {
 
     test("Lists: every configuration at every span and grid width — the same rules over its rows, its bars and its foot", async ({ page }) => {
         expect(await readEveryWidth(page, LIST_SIZES)).toEqual([]);
+    });
+
+    test("Tables: records, summaries and pivots at every span and grid width — the same rules over their heads, cells, legends and feet, a pivot's grid alone scrolling sideways", async ({ page }) => {
+        expect(await readEveryWidth(page, TABLE_SIZES)).toEqual([]);
     });
 });

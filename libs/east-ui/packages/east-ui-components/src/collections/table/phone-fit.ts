@@ -8,7 +8,12 @@
  * Spec.md` QP10, QP11, automatic in every Table, ruled 4 Nov 2026): the pinned
  * column, then as many of the others as fit whole beside it, the spare room
  * shared between them equally. A column wider than the room left has it to
- * itself, its values wrapping. A pure function, as `fitTabs` and `fitFooter` are.
+ * itself, its values wrapping. A tile's Table (#1692) gives each column a least
+ * width — a number's or a date's whole, which is never cut — and where the
+ * column in view needs more than the room left, the pinned column gives it
+ * room, down to its own least; past that the columns need more than the room,
+ * and the table scrolls inside its tile (TBL-5). A pure function, as `fitTabs`
+ * and `fitFooter` are.
  *
  * @packageDocumentation
  */
@@ -29,6 +34,14 @@ export interface PhoneColumns {
     readonly widths: readonly number[];
     /** The last first column the window can have: past it, the last page holds no more. */
     readonly lastFirst: number;
+    /** Whether the columns in view need more than the room at their least: the table scrolls sideways inside its tile. */
+    readonly scrolls: boolean;
+}
+
+/** The least width each column stands at, px — the pinned one's, then each other's in order — where the room is short. */
+export interface PhoneLeast {
+    readonly pinned: number;
+    readonly others: readonly number[];
 }
 
 /**
@@ -38,11 +51,13 @@ export interface PhoneColumns {
  * @param pinned - The pinned column's natural width, px
  * @param others - The natural width of each other column, px, in order
  * @param first - The first column asked for
+ * @param least - Each column's least width, where the room is short; none lets a column stand as narrow as its room leaves it
  * @returns The window
  */
-export function fitPhoneColumns(room: number, pinned: number, others: readonly number[], first: number): PhoneColumns {
-    if (others.length === 0) return { pinned: room, first: 0, widths: [], lastFirst: 0 };
-    const pinnedWidth = Math.min(pinned, Math.round(room * PINNED_SHARE));
+export function fitPhoneColumns(room: number, pinned: number, others: readonly number[], first: number, least?: PhoneLeast): PhoneColumns {
+    const pinnedLeast = least?.pinned ?? 0;
+    if (others.length === 0) return { pinned: Math.max(room, pinnedLeast), first: 0, widths: [], lastFirst: 0, scrolls: pinnedLeast > room };
+    const pinnedWidth = Math.max(pinnedLeast, Math.min(pinned, Math.round(room * PINNED_SHARE)));
     const left = room - pinnedWidth;
     // The most that fit whole from a first column, at least the one.
     const countFrom = (from: number): number => {
@@ -62,9 +77,16 @@ export function fitPhoneColumns(room: number, pinned: number, others: readonly n
     const count = countFrom(at);
     const natural = others.slice(at, at + count).map((w, i) => (i === count - 1 ? w + LAST_EXTRA : w));
     const used = natural.reduce((sum, w) => sum + w, 0);
-    if (used >= left) return { pinned: pinnedWidth, first: at, widths: count === 1 ? [left] : natural, lastFirst };
+    if (used >= left && count > 1) return { pinned: pinnedWidth, first: at, widths: natural, lastFirst, scrolls: false };
+    if (used >= left) {
+        // The one in view, wider than the room left: that room, or its least and the last column's 4 where that is more —
+        // the pinned column giving it room, down to its own least.
+        const width = least === undefined ? left : Math.max(left, (least.others[at] ?? 0) + LAST_EXTRA);
+        const given = Math.max(pinnedLeast, Math.min(pinnedWidth, room - width));
+        return { pinned: given, first: at, widths: [width], lastFirst, scrolls: given + width > room };
+    }
     const spare = (left - used) / count;
-    return { pinned: pinnedWidth, first: at, widths: natural.map((w) => w + spare), lastFirst };
+    return { pinned: pinnedWidth, first: at, widths: natural.map((w) => w + spare), lastFirst, scrolls: false };
 }
 
 /**
@@ -111,3 +133,17 @@ export const measureText: MeasureText = (text, font) => {
     context.font = font;
     return context.measureText(text.replace(/f(?=[fil])/gu, "f\u200C")).width;
 };
+
+/**
+ * Measures a label as the label voice draws it \u2014 uppercase, tracked: a
+ * Table's or a Matrix's head (mono 10/600, 1.6 a letter), a head's note, a
+ * total's word.
+ *
+ * @param text - The label, as its value says it
+ * @param font - The CSS font it is drawn in
+ * @param tracking - What each letter takes past its own width, px
+ * @returns Its width, px
+ */
+export function measureLabel(text: string, font: string, tracking: number): number {
+    return measureText(text.toUpperCase(), font) + text.length * tracking;
+}
