@@ -119,9 +119,16 @@ export function settleBuiltKeys<W>(entries: Map<string, TouchedEntry<W>>, rule: 
         let to: string;
         try {
             to = rule.build(id, after);
-            if (stringEqual(to, id) || (rule.holds(before) && stringEqual(rule.build(id, before), to))) continue;
         } catch (error) {
             return { refused: { id: made(before) ? "" : id, why: { failed: error } } };
+        }
+        if (stringEqual(to, id)) continue;
+        if (rule.holds(before)) {
+            // The key its row built before the gesture. One its `key` failed on built none: the edit that gives it a key
+            // moves it, and is never refused for what the row held before.
+            let was: string | undefined;
+            try { was = rule.build(id, before); } catch { was = undefined; }
+            if (was !== undefined && stringEqual(was, to)) continue;
         }
         going.push({ from: id, to, before, after });
     }
