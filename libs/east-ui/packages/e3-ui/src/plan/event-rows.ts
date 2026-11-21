@@ -45,7 +45,7 @@
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
-    StringType, StructType, none, some, variant,
+    StringType, StructType, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
 import { IconType, PickStateType } from "@elaraai/east-ui";
@@ -245,6 +245,22 @@ const childRowKey = East.function([StringType, StringType], StringType, ($, reso
     const pair = $.let([resource, child], ArrayType(StringType));
     return East.print(pair);
 });
+
+/** East's printer of a pair of keys, as {@link childRowKey} prints one. */
+const printKeyPair = printFor(ArrayType(StringType));
+
+/**
+ * The key a row beneath a resource files its events under, printed outside East (#1712): the text {@link childRowKey}
+ * gives the resource's key and the child's inside the seam. A reader of the events placed finds by it the row a key's
+ * list is for.
+ *
+ * @param resource - The resource's key: the step of the row's path before the last
+ * @param child - The row's own key: its path's last step
+ * @returns The pair, as East prints it
+ */
+export function planChildRowKey(resource: string, child: string): string {
+    return printKeyPair([resource, child]);
+}
 
 // ============================================================================
 // Elements — one event as each way of drawing shows it

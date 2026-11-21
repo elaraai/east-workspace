@@ -362,10 +362,12 @@ export {
 // How a Plan's event kinds' events join its rows (#1192, #1541): the seam its
 // payload carries, made inside the payload's assembly, the series they land on,
 // the drafts it reads, by kind, and what a reader read of a kind by its series
-// index's cells, and the resources' shading past the budget (#1039).
+// index's cells, and the resources' shading past the budget (#1039) — and the
+// key a row beneath a resource is filed under, by which a reader of the events
+// placed finds the row a list is for (#1712).
 export {
-    createEventSeam, eventDrawsOf, landingsOnWire, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType,
-    PlanEventShadeType, PlanEventShadingType, PlanLandingType,
+    createEventSeam, eventDrawsOf, landingsOnWire, planChildRowKey, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType,
+    PlanEventSeamType, PlanEventShadeType, PlanEventShadingType, PlanLandingType,
 } from './plan/event-rows.js';
 // What a Plan over paged rows reads of their nested series index (#1438): the
 // seam on its root, what each series reads of the index, and the rows'

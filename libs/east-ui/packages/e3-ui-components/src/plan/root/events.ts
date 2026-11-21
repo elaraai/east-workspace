@@ -38,7 +38,14 @@
  * that places each window the source serves — and a window standing in, as
  * the canvas's editing redraws it (#1599) — and names a new revision when the
  * events move, so the driver reads its windows again and keeps the rows it
- * has standing in until they land (#821). Until the first read answers the
+ * has standing in until they land (#821). A window read again over new events
+ * alone — the same blocks from the source under the wrapper, which the kept
+ * layer gives while they hold (`kept.ts`) — is joined again only in the rows
+ * whose events moved (#1712): a landing row's rows depend on the row, the list
+ * filed under its key, the shading and what the viewer hides, so the rows filed
+ * under a key whose list moved are joined in one `place`, each written over its
+ * place, and every other row is the object it was. New blocks, new shading or
+ * another set hidden join the window whole. Until the first read answers the
  * rows draw with no events. The wrapper names the snapshot of the source's own
  * data apart from that revision (`snapshot`, #1199): new events over the same
  * data read the windows again and are no new snapshot of it, so a key search
@@ -68,7 +75,7 @@ import {
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
-    planHideId,
+    planChildRowKey, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { printEventRef } from "../../shared/schedule/event-ref.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -148,6 +155,11 @@ const NOTHING_PLACED: PlanEventPlacedValue = { on: new SortedMap([], compareStri
 const NONE_HIDDEN: readonly string[] = [];
 const placedEqual = equalFor(PlanEventPlacedType);
 const shadingEqual = equalFor(PlanEventShadingType);
+/** Whether two lists of the events filed for a row, one way of drawing, are one: what a landing row's join reads. */
+const listEqual = equalFor(PlanEventPlacedType.fields.on.value.value.value);
+const rowIdEqual = equalFor(Plan.Types.RowId);
+/** No series the event kinds land on. */
+const NO_LANDINGS: readonly PlanLandingValue[] = [];
 /** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
 const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): PlanPagedSourceValue | undefined => source;
 
@@ -169,7 +181,7 @@ const NO_KIND_DRAFTS: KindDrafts = new SortedMap([], compareString);
 const NO_KINDS_FAILED: readonly string[] = [];
 /** No event kinds: a reader given none names no kind a failure is of. */
 const NO_EVENT_KINDS: PlanEventKinds = [];
-const slotEqual = equalFor(StringType);
+const stringEqual = equalFor(StringType);
 
 /**
  * What a read of the event kinds' events throws when it fails (#1398): what it
@@ -217,9 +229,9 @@ function failedKinds(kinds: PlanEventKinds, from: Date, to: Date, drafts: ValueT
     return out;
 }
 
-/** Whether two failures name the same kinds, in the same order. */
-function sameKinds(a: readonly string[], b: readonly string[]): boolean {
-    return a.length === b.length && a.every((slot, i) => slotEqual(slot, b[i]!));
+/** Whether two lists hold the same texts in the same order: the kinds two failures name, or the ids the viewer hides. */
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((text, i) => stringEqual(text, b[i]!));
 }
 
 /** The range the canvas reads its event kinds' events over. */
@@ -310,7 +322,7 @@ export function usePlanEventPlaced(
             };
         }
         const was = failed.current;
-        if (was !== undefined && was.reason === next.reason && sameKinds(was.kinds, next.kinds)) return was;
+        if (was !== undefined && was.reason === next.reason && sameTexts(was.kinds, next.kinds)) return was;
         failed.current = next;
         return next;
     }, [result, cellsFailure]);
@@ -399,6 +411,160 @@ export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, p
     return null;
 }
 
+/** What a window is joined with: the events placed, which a join again follows row by row, and what else moving joins it whole. */
+interface PlacedWith {
+    /** The seam that joined it. */
+    readonly seam: PlanEventSeamValue;
+    /** The events placed. */
+    readonly placed: PlanEventPlacedValue;
+    /** The resources' shading: its scale is every row's, so it moving joins the window whole. */
+    readonly shading: PlanEventShadingValue;
+    /** The ids the viewer hides: how many rows each landing row makes. */
+    readonly hidden: readonly string[];
+}
+
+/**
+ * A window as the wrapper last joined it (#1712), kept by the blocks the source under the wrapper gave: where each of
+ * its rows went, and what it was joined with, so that new events alone join again only the rows whose events moved.
+ */
+interface PlacedWindow {
+    /** Each landing row's place among the window's blocks, by its landing series' key, then the key its events are filed under. */
+    readonly rowsOf: ReadonlyMap<string, ReadonlyMap<string, readonly (readonly [block: number, row: number])[]>>;
+    /** Each row's place among its block's joined rows: its own first, the rows of its further ways of drawing after it. */
+    readonly places: readonly (readonly number[])[];
+    /** The window as last joined. */
+    joined: PlanWireBlock[];
+    /** What it was joined with. */
+    with: PlacedWith;
+}
+
+/**
+ * Where each row of a window went when it was joined whole (#1712), and the landing rows each key's events are on: the
+ * index a join of the moved rows alone writes through. Each row's own comes first of the rows it makes — a landing row
+ * keeps its id, and every other row is as it was — and the rows of its further ways of drawing follow it.
+ *
+ * @param blocks - The window's blocks, as the source gave them
+ * @param joined - The same, the events joined in
+ * @param landings - The series the event kinds land on
+ * @returns The index; `undefined` where the joined blocks hold some row's own out of its order, which no join row by row keeps
+ */
+function placedIndex(blocks: readonly PlanWireBlock[], joined: readonly PlanWireBlock[], landings: readonly PlanLandingValue[]):
+    Pick<PlacedWindow, "rowsOf" | "places"> | undefined {
+    if (joined.length !== blocks.length) return undefined;
+    const rowsOf = new Map<string, Map<string, [number, number][]>>();
+    const places: number[][] = [];
+    for (let b = 0; b < blocks.length; b++) {
+        const rows = blocks[b]!.rows;
+        const out = joined[b]!.rows;
+        const at: number[] = [];
+        let j = 0;
+        for (let r = 0; r < rows.length; r++) {
+            const row = rows[r]!;
+            while (j < out.length && !Object.is(out[j]!.id, row.id) && !rowIdEqual(out[j]!.id, row.id)) j += 1;
+            if (j === out.length) return undefined;
+            at.push(j);
+            j += 1;
+            if (row.id.type !== "entry") continue;
+            const { series, path } = row.id.value;
+            const landing = landings.find((one) => one.draws.length > 0 && stringEqual(one.key, series));
+            if (landing === undefined) continue;
+            // Filed by its resource's key, as `place` reads it — a row a step beneath a resource's by the pair.
+            const key = landing.under.type === "some" ? planChildRowKey(path[path.length - 2]!, path[path.length - 1]!) : path[path.length - 1]!;
+            let filed = rowsOf.get(series);
+            if (filed === undefined) rowsOf.set(series, (filed = new Map()));
+            const held = filed.get(key);
+            if (held === undefined) filed.set(key, [[b, r]]);
+            else held.push([b, r]);
+        }
+        places.push(at);
+    }
+    return { rowsOf, places };
+}
+
+/**
+ * The keys whose events moved between two placings (#1712), by landing series: a list against a list by East's
+ * equality, in every way of drawing — events arrived, changed or left.
+ *
+ * @param was - The events a window was joined with
+ * @param now - The events it is joined with now
+ * @returns The keys, by landing series
+ */
+function movedKeys(was: PlanEventPlacedValue, now: PlanEventPlacedValue): Map<string, Set<string>> {
+    const moved = new Map<string, Set<string>>();
+    const mark = (series: string, key: string): void => {
+        const keys = moved.get(series);
+        if (keys === undefined) moved.set(series, new Set([key]));
+        else keys.add(key);
+    };
+    for (const [series, byDraw] of now.on) {
+        for (const [draw, byKey] of byDraw) {
+            const then = was.on.get(series)?.get(draw);
+            for (const [key, list] of byKey) {
+                const before = then?.get(key);
+                if (before === undefined || !listEqual(before, list)) mark(series, key);
+            }
+        }
+    }
+    for (const [series, byDraw] of was.on) {
+        for (const [draw, byKey] of byDraw) {
+            const next = now.on.get(series)?.get(draw);
+            for (const key of byKey.keys()) if (next?.has(key) !== true) mark(series, key);
+        }
+    }
+    return moved;
+}
+
+/**
+ * A window joined again over new events alone (#1712): the rows filed under a key whose events moved joined in one
+ * `place`, each written over its place, every other row the object it was. Each row makes as many rows as it did: that
+ * is a matter of what the viewer hides, which has not moved.
+ *
+ * @param blocks - The window's blocks, as the source under the wrapper gave them
+ * @param was - The window as last joined: kept as joined now
+ * @param now - What it is joined with now, which differs from what it was joined with only in the events placed
+ * @returns The window's blocks joined, in new arrays; `undefined` where the join gives some row other rows than its
+ *   places hold, which only a join of the whole window places
+ */
+function rejoined(blocks: readonly PlanWireBlock[], was: PlacedWindow, now: PlacedWith): PlanWireBlock[] | undefined {
+    // The rows whose events moved, by their block, as each block's index holds them.
+    const moving = new Map<number, number[]>();
+    if (!Object.is(was.with.placed, now.placed)) {
+        for (const [series, keys] of movedKeys(was.with.placed, now.placed)) {
+            const filed = was.rowsOf.get(series);
+            for (const key of keys) {
+                for (const [b, r] of filed?.get(key) ?? []) {
+                    const rows = moving.get(b);
+                    if (rows === undefined) moving.set(b, [r]);
+                    else rows.push(r);
+                }
+            }
+        }
+    }
+    const joined = [...was.joined];
+    if (moving.size > 0) {
+        const at = [...moving.keys()];
+        const made = now.seam.place(at.map((b) => ({ ...blocks[b]!, rows: moving.get(b)!.map((r) => blocks[b]!.rows[r]!) })),
+            now.placed, now.shading, [...now.hidden], false);
+        if (made.length !== at.length) return undefined;
+        for (let i = 0; i < at.length; i++) {
+            const b = at[i]!;
+            const places = was.places[b]!;
+            const into = [...joined[b]!.rows];
+            const out = made[i]!.rows;
+            let k = 0;
+            for (const r of moving.get(b)!) {
+                const end = r + 1 < places.length ? places[r + 1]! : into.length;
+                for (let j = places[r]!; j < end; j++) into[j] = out[k++]!;
+            }
+            if (k !== out.length) return undefined;
+            joined[b] = { ...joined[b]!, rows: into };
+        }
+    }
+    was.joined = joined;
+    was.with = now;
+    return joined;
+}
+
 /**
  * The root with the event kinds' events joined into its rows, and its links'
  * event ends named where the events draw (see the module docs).
@@ -424,8 +590,9 @@ export function usePlanEventRoot(
         [seam, data.rows, placed, shading, hidden]);
     // Paged: one wrapper per source, placing each window it serves with the latest events.
     const paged = seam !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const latest = useRef({ src: paged, seam, placed, shading, hidden, version: lead?.version ?? 0 });
-    latest.current = { src: paged, seam, placed, shading, hidden, version: lead?.version ?? 0 };
+    const landings = events?.landings;
+    const latest = useRef({ src: paged, seam, placed, shading, hidden, landings, version: lead?.version ?? 0 });
+    latest.current = { src: paged, seam, placed, shading, hidden, landings, version: lead?.version ?? 0 };
     const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
     const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
         if (paged === undefined) return undefined;
@@ -437,6 +604,23 @@ export function usePlanEventRoot(
             const l = latest.current;
             return l.seam === undefined ? [...blocks] : l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
         };
+        // Each window as last joined, by the blocks the source under this one gave: the same while they hold, which the
+        // kept layer gives (`kept.ts`), so new events alone join again only the rows whose events moved (#1712).
+        const windows = new WeakMap<readonly PlanWireBlock[], PlacedWindow>();
+        const joinedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
+            const l = latest.current;
+            if (l.seam === undefined) return [...blocks];
+            const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden };
+            const was = windows.get(blocks);
+            const again = was !== undefined && Object.is(was.with.seam, now.seam) && shadingEqual(was.with.shading, now.shading)
+                && sameTexts(was.with.hidden, now.hidden) ? rejoined(blocks, was, now) : undefined;
+            if (again !== undefined) return again;
+            const joined = l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
+            const index = placedIndex(blocks, joined, l.landings ?? NO_LANDINGS);
+            if (index === undefined) windows.delete(blocks);
+            else windows.set(blocks, { ...index, joined, with: now });
+            return joined;
+        };
         const next: PlanPagedSourceValue = {
             id: paged.id,
             page: (offset, limit) => {
@@ -444,7 +628,7 @@ export function usePlanEventRoot(
                 if (l.src === undefined) return none;
                 const read = l.src.page(offset, limit);
                 // The window's own entries stay beside its blocks.
-                return read.type === "some" ? some({ rows: placedIn(read.value.rows), entries: read.value.entries }) : read;
+                return read.type === "some" ? some({ rows: joinedIn(read.value.rows), entries: read.value.entries }) : read;
             },
             total: () => latest.current.src?.total() ?? none,
             // New events are a new revision: the driver reads its windows again, the rows it has standing in until they land.
@@ -481,7 +665,6 @@ export function usePlanEventRoot(
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
     }, [paged]);
-    const landings = events?.landings;
     const links = useMemo(
         () => (seam === undefined ? data.links
             : inline !== undefined ? resolveEventLinks(data.links, inline)
