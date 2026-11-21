@@ -108,10 +108,24 @@ const press = async (el: HTMLElement) => { await act(async () => { fireEvent.cli
 /** Esc, as the open popover hears it. */
 const escape = async () => { await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); await Promise.resolve(); }); };
 /** A pointer pressed or released somewhere on the page, as the window hears it. */
-const pointer = async (type: "pointerdown" | "pointerup") => {
+const pointerEvent = (type: "pointerdown" | "pointerup") =>
+    new PointerEvent(type, { pointerId: 1, pointerType: "mouse", buttons: type === "pointerdown" ? 1 : 0, bubbles: true });
+/** A pointer pressed somewhere on the page. */
+const pointerDown = async () => {
     await act(async () => {
-        document.body.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: "mouse", buttons: type === "pointerdown" ? 1 : 0, bubbles: true }));
+        document.body.dispatchEvent(pointerEvent("pointerdown"));
         await Promise.resolve();
+    });
+};
+/**
+ * The press's release, and its click where it makes one: in one task, as a browser dispatches them. A step that waits
+ * out the press runs in a task after the release — one an async `act` may reach before it returns, as it waits a task
+ * of its own: so the release is sent, and read, in a synchronous `act`.
+ */
+const release = (click?: HTMLElement) => {
+    act(() => {
+        document.body.dispatchEvent(pointerEvent("pointerup"));
+        if (click !== undefined) fireEvent.click(click);
     });
 };
 /** The task after this one: where a release's click has landed. */
@@ -160,19 +174,18 @@ describe("a row held still while an editor is open (#1673)", () => {
         render(<LiveRow hold={(holding) => told.push(holding)} />);
         await press(chipAt(0));
         await press(screen.getByRole("button", { name: "Edit" }));
-        // A press: the editor shuts before it clicks.
-        await pointer("pointerdown");
+        // A press: the editor shuts before it clicks — and its click lands on the other chip, where the row stood. That
+        // chip's editor opens, the row held, then and in the task after.
+        await pointerDown();
         await escape();
-        await pointer("pointerup");
+        release(chipAt(1));
         expect([told, words()]).toEqual([[true], ["Region: SA", "Units: more than 1"]]);
-        // Its click lands on the other chip, where the row stood: that chip's editor opens, the row held.
-        await press(chipAt(1));
         await nextTask();
         expect([told, words()]).toEqual([[true], ["Region: SA", "Units: more than 1"]]);
-        // A press that clicks nothing lets go once its click would have landed.
-        await pointer("pointerdown");
+        // A press that clicks nothing: the row still held in its release's task, and let go in the task after.
+        await pointerDown();
         await escape();
-        await pointer("pointerup");
+        release();
         expect(told).toEqual([true]);
         await nextTask();
         expect([told, words()]).toEqual([[true, false], ["Region: SA +1", "Units: more than 1"]]);

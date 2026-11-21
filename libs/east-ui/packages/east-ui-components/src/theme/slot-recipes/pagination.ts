@@ -33,6 +33,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { oneLineBox } from "../one-line-box.js";
 
 /** A button the pointer is over that it can press: a disabled one never hovers. */
 const HOVER = "&:hover:not(:disabled, [data-disabled])";
@@ -79,13 +80,15 @@ const subtleCurrent = { ...current, borderColor: "transparent" };
 
 /**
  * A size's parts: a page button its height and at least a square of it, padded
- * across, in its text; a trigger a square of it, its chevron in the middle —
- * whatever width the chevron is drawn; a gap its height.
+ * across, in its text — its one line as tall as the room inside its edge, so
+ * its number starts a whole pixel under the edge (#1638); a trigger a square
+ * of it, its chevron in the middle — whatever width the chevron is drawn; a
+ * gap its height.
  */
 function sized(side: number, paddingX: string, text: string, icon: string) {
     const trigger = { width: `${side}px`, height: `${side}px`, padding: "0", fontSize: icon };
     return {
-        item: { minWidth: `${side}px`, height: `${side}px`, paddingX, fontSize: text },
+        item: { minWidth: `${side}px`, ...oneLineBox(side), paddingX, fontSize: text },
         ellipsis: { height: `${side}px`, fontSize: text },
         prevTrigger: trigger,
         nextTrigger: trigger,
