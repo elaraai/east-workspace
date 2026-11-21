@@ -44,6 +44,8 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         // Its form, as every kind's payload carries one: no field of it held to a bound.
         fields: [],
         entries: some({ revision: () => some("r1"), refresh: () => null, entry: () => some(none), last: () => last, paged: "unbound" }),
+        // The app gives no rule for a new key: its session counts one on.
+        newKey: none,
         planEvent: () => none,
         write: () => [],
         // Its fields' roles, as every kind names them: a conflict at its start or end is one of its dates.
