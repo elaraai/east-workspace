@@ -26,9 +26,10 @@
  * the canvas reads and its scale's buckets. And it keeps the span store the
  * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
- * never the overscan, the span standing while it shows only rows not read
- * ({@link shownCellSpan}); the rows' ids name a resource by the last step of
- * their path.
+ * never the overscan, the span standing while it shows only rows not read, or
+ * only rows that stand for no resource ({@link shownCellSpan}). A row names its
+ * resource by the last step of the path it is read by (`readPathOf`), and a
+ * group's own row, whose path is none, names none (#1711).
  *
  * A kind read a window at a time — through its source's interval index, or a
  * day index, one event by its key — gives the reader the stored rows its
@@ -368,9 +369,11 @@ export function createCellSpanStore(): PlanCellSpanStore {
 /**
  * The paged rows in view among the canvas's items: the first and the last row
  * a paged window placed, each by its window and its resource's key — the last
- * step of its path — under the narrowing their windows are.
+ * step of its path — under the narrowing their windows are. A row that stands
+ * for no resource, its path none — a group's own row — is passed over wherever
+ * it is: an end is always a resource its window lists (#1711).
  *
- * @param items - The rows in view, in order: each its key and its id
+ * @param items - The rows in view, in order: each its key and the path its events are read by (`readPathOf`)
  * @param origin - Which window each paged row came from
  * @param narrowing - The narrowing the windows belong to, as the source names it (#1344); `undefined` for one it names none of
  * @returns The span; `undefined` when no paged row is in view
@@ -401,17 +404,26 @@ export function cellSpanOf(
  * never the opening's first block, a view away — and the run's rows report
  * their own once they are drawn.
  *
- * @param rows - The rows the view shows, in order: each its key and its id's path
+ * A view of paged rows none of which stands for a resource — group rows alone,
+ * every group folded — reads no row's events: the span standing stays while it
+ * is of the narrowing the windows are now (#1711). Under another narrowing it
+ * is none: no row of the view will report one, and the reader would wait on the
+ * last narrowing's rows.
+ *
+ * @param rows - The rows the view shows, in order: each its key and the path its events are read by (`readPathOf`)
  * @param unread - Whether the view shows a run of rows not read yet, or a window whose read failed
  * @param standing - The span reported last
  * @param origin - Which window each paged row came from
  * @param narrowing - The narrowing the windows belong to, as the source names it (#1344)
- * @returns The span to report; `standing` while the view shows rows not read alone
+ * @returns The span to report; `standing` while the view shows rows not read alone, or of the same narrowing rows that stand for no resource alone
  */
 export function shownCellSpan(
     rows: readonly { readonly key: string; readonly path: readonly string[] }[], unread: boolean, standing: ScheduleCellSpan | undefined,
     origin: ReadonlyMap<string, { readonly w: number }>, narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
     const span = cellSpanOf(rows, origin, narrowing);
-    return span === undefined && unread ? standing : span;
+    if (span !== undefined) return span;
+    if (unread) return standing;
+    const paged = rows.some((row) => origin.has(row.key));
+    return paged && standing !== undefined && sameNarrowing(standing.narrowing, narrowing) ? standing : undefined;
 }

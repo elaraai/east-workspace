@@ -68,6 +68,28 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         expect(shownCellSpan([], false, standing, origin, "status: Ready")).toBeUndefined();
     });
 
+    test("a row that stands for no resource — a group's own row, its path none — is passed over, first, last or between (#1711)", () => {
+        const origin = new Map([["h1", { w: 0 }], ["p1", { w: 0 }], ["h2", { w: 0 }], ["p2", { w: 0 }], ["h3", { w: 0 }]]);
+        const items = [
+            { key: "h1", path: [] },
+            { key: "p1", path: ["H-1", "P-11"] },
+            { key: "h2", path: [] },
+            { key: "p2", path: ["H-2", "P-21"] },
+            { key: "h3", path: [] },
+        ];
+        expect(cellSpanOf(items, origin, undefined)).toEqual({ first: { w: 0, key: "P-11" }, last: { w: 0, key: "P-21" }, narrowing: undefined });
+    });
+
+    test("at rest over paged rows none of which stands for a resource — every group folded: the span standing while it is of the narrowing the windows are now, and none under another (#1711)", () => {
+        const origin = new Map([["h1", { w: 0 }], ["h2", { w: 0 }]]);
+        const standing = { first: { w: 0, key: "P-11" }, last: { w: 0, key: "P-21" }, narrowing: "status: Ready" };
+        const halls = [{ key: "h1", path: [] }, { key: "h2", path: [] }];
+        expect(shownCellSpan(halls, false, standing, origin, "status: Ready")).toBe(standing);
+        // Under another narrowing no row of the view reports one: none, or the reader waits on the last narrowing's rows.
+        expect(shownCellSpan(halls, false, standing, origin, "status: Done")).toBeUndefined();
+        expect(shownCellSpan(halls, false, undefined, origin, "status: Ready")).toBeUndefined();
+    });
+
     test("the store holds the span reported last, and tells its listeners only of one that moves — its rows or its narrowing", () => {
         const store = createCellSpanStore();
         const heard = vi.fn();
@@ -118,8 +140,29 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
         // a further step down (#1660's review).
         expect(pathOf("kind-heat")).toEqual(["P03"]);
         expect(pathOf("kind-part")).toEqual(["P03"]);
-        // A row of no landing beneath the press — a series of its own — keeps its path, which ends in the press's key.
+        // A row of no landing beneath the press — a series of its own — is read by the press.
         expect(pathOf("temperature")).toEqual(["P03"]);
+    });
+
+    test("a row with no landing row at or above it stands for no resource, and a row of another series beneath a resource's row is read by the resource (#1711)", () => {
+        // Halls, each its presses, each press its tasks: every kind lands on a task, a step beneath its press.
+        const press: PlanLandingValue = { key: "press", name: "Presses", draws: [], kinds: [], series: [], top: false, under: none };
+        const tasks: PlanLandingValue = { key: "tasks", name: "Tasks", draws: [variant("marks", null)], kinds: ["job"], series: [], top: false, under: some("press") };
+        const rows = new Map([
+            ["hall", { id: entry("halls", "H-1"), parent: none }],
+            ["note", { id: entry("notes", "H-1", "n-1"), parent: some("hall") }],
+            ["press", { id: entry("press", "H-1", "P-11"), parent: some("hall") }],
+            ["task", { id: entry("tasks", "H-1", "P-11", "t-1"), parent: some("press") }],
+            ["measure", { id: entry("measures", "H-1", "P-11", "m-1"), parent: some("press") }],
+        ]);
+        const pathOf = (key: string) => readPathOf(rows.get(key)!, [press, tasks], (k) => rows.get(k));
+        // A group's own row, and a row beneath it of a series no kind lands on: no resource.
+        expect(pathOf("hall")).toEqual([]);
+        expect(pathOf("note")).toEqual([]);
+        // A resource's own row, though every kind lands a step beneath it; and every row beneath it, the press's.
+        expect(pathOf("press")).toEqual(["H-1", "P-11"]);
+        expect(pathOf("task")).toEqual(["H-1", "P-11"]);
+        expect(pathOf("measure")).toEqual(["H-1", "P-11"]);
     });
 
     test("a resource's own row and the rows beneath it name it once, in the order the rows draw them", () => {
