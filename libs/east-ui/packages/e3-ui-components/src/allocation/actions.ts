@@ -17,7 +17,9 @@
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
  * status of the period holding the day — the day's, or its week's (#1550) —
- * once every record reads back as saved (B7, `publishPeriod`).
+ * once every record reads back as saved (B7, `publishPeriod`). A gesture a
+ * bin's key refuses (east-workspace#1709) — the key its fields build is
+ * another bin's, or its kind's rule makes none — records nothing, and says why.
  *
  * @packageDocumentation
  */
@@ -26,6 +28,7 @@ import { SortedMap, none, some, variant, type option } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
 import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
 import { one } from "./nouns.js";
 import {
@@ -194,9 +197,11 @@ export interface AllocationCommands {
  * @param state - The day, its rows and the editing
  * @param select - Sets what is selected, keeping the panes as they are
  * @param publish - Publishes the period holding the day: Save, then its status
+ * @param refused - Told why a gesture a bin's key refuses recorded nothing; nothing unless given
  * @returns The commands
  */
-export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void): AllocationCommands {
+export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void,
+    refused: (why: string) => void = () => undefined): AllocationCommands {
     const { value, domain, day, plan, held, editing } = state;
     const schedule = editing?.schedule;
     const bins = value.bin.kind.key;
@@ -204,7 +209,17 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         && editableStatus(state.heldPeriod.status) && editableStatus(state.period.status) && schedule.available(bins);
     // Retained, the board keeps its controls and takes no gesture (#1398, CL8).
     const takes = available && state.retained !== true;
-    const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
+    /** Says why the key just asked for, or the gesture just refused, made no row: its key's refusal, in the shared words. */
+    const sayKeyRefused = (): void => {
+        const refusal = schedule?.keyRefusal();
+        if (refusal !== undefined) refused(keyRefusedText(refusal.name, refusal.why));
+    };
+    const record = (changes: readonly ScheduleChange[], origin: Origin, label: string): boolean => {
+        if (schedule === undefined || changes.length === 0) return false;
+        if (schedule.record(changes, origin, label)) return true;
+        sayKeyRefused();
+        return false;
+    };
     /**
      * The rows a day as it leaves a gesture changes, from the day as drafted: each bin gone removed; each new or changed one's
      * row written through the kind's `write` over its own row, every field no role maps as it was (B1) — a bin back as the day
@@ -241,7 +256,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         const bin = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
         if (bin.type !== "some") return undefined;
         const id = schedule?.mint(bins, "", minted);
-        if (id === undefined) return undefined;
+        if (id === undefined) { sayKeyRefused(); return undefined; }
         minted.add(id);
         return { id, bin: bin.value };
     };

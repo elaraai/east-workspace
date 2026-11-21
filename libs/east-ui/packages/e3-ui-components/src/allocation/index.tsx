@@ -29,7 +29,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent, AllocationIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
@@ -202,6 +202,17 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         setChooser(undefined);
         if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
     }, []);
+    // A bin that goes on under another key — one a gesture moved under the key its fields build (east-workspace#1709), a
+    // new one's from the key made for it — stays selected under it, its link with it: each move followed once.
+    const selectionNow = useRef(selection); selectionNow.current = selection;
+    const renumbered = editing?.schedule.renumbered, binSlot = value.bin.kind.key;
+    useLayoutEffect(() => {
+        const under = renumbered?.get(binSlot);
+        const held = selectionNow.current;
+        const to = held?.type === "bin" ? under?.get(held.id) : undefined;
+        if (to !== undefined) setSelection({ type: "bin", id: to });
+        setLink(was => { const bin = was === undefined ? undefined : under?.get(was.bin); return was === undefined || bin === undefined ? was : { ...was, bin }; });
+    }, [renumbered, binSlot]);
     // The inspector's open tab (A55): an explicit inspection opens Details; a selection a command makes keeps it (A8).
     const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${key}.inspector.tab`, { tab: "details" }, readTab);
     const inspect = useCallback((next: Selection | undefined, soft = false) => {
@@ -356,7 +367,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const stale = current && (data.filtering || narrowingLoading);
     const retained = stale || narrowingLoading || narrowingFailed;
     // Commands update what is selected without changing the panes or their tabs.
-    const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish);
+    const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish, setError);
     // The app's optimiser (#1409, #1420, east-workspace#1622): one run over the day in view — asked the day and the rail's
     // narrowing, the board's unsaved edits sent as drafts — its answer's patch landed on the bins as one edit, and what it
     // left on them until Apply — the landing and the highlight over the whole frame.

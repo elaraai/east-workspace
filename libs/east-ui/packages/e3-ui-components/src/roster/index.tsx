@@ -247,6 +247,15 @@ function RosterFrame(props: FrameProps) {
         setSelection(next); setTab("details");
     }, []);
     const select = useCallback((next: Selection | undefined) => { choose(next); if (next !== undefined) panes.current?.reveal("end"); }, [choose]);
+    // A duty that goes on under another key — one a gesture moved under the key its fields build (east-workspace#1709), a
+    // new one's from the key made for it — stays selected under it, its Details open on it still: each move followed once.
+    const selectionNow = useRef(selection); selectionNow.current = selection;
+    const renumbered = editing?.schedule.renumbered, dutySlot = source.duty.kind.key;
+    useLayoutEffect(() => {
+        const held = selectionNow.current;
+        const to = held?.type === "assignment" ? renumbered?.get(dutySlot)?.get(held.key) : undefined;
+        if (to !== undefined) setSelection({ type: "assignment", key: to });
+    }, [renumbered, dutySlot]);
     // A press whose whole purpose is to look at what it selects — a phone's lane line — opens the inspector's view, where
     // a tap that selects leaves main in view (the strip's tab saying what is selected).
     const inspect = useCallback((next: Selection) => { choose(next); panes.current?.open("end"); }, [choose]);

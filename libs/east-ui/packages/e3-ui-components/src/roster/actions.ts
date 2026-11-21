@@ -17,7 +17,10 @@
  * (#1583, east-ui-components' `keys.ts`, through `ScheduleEditing.mint`): made
  * up at random, past every key its drafts and its record are known to hold —
  * a key a record read a window at a time holds unread is its Save's own
- * conflict, never an overwrite. A duty's own form or a library card that
+ * conflict, never an overwrite. A gesture a duty's or a target's key refuses
+ * (east-workspace#1709) — the key its fields build is another's, or its
+ * kind's rule makes none — is answered with why, as any other refusal is. A
+ * duty's own form or a library card that
  * changes its shift or its team carries what it leaves as it was, as a move
  * does: its times move with the shift, so it stays on its day, and its
  * activity clears across teams. A find edits nothing: it asks the app's fit
@@ -37,6 +40,7 @@ import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
 import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
@@ -208,6 +212,16 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const newDuty = (minted: ReadonlySet<string>): string | undefined => schedule?.mint(duty, "", minted);
     const newTarget = (): string | undefined => schedule?.mint(TARGETS, "", NONE_MADE);
     const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
+    /** Why a gesture's rows' keys refuse it, in the shared words, asked before it is recorded; `undefined` where its keys stand. */
+    const keyed = (changes: readonly ScheduleChange[]): string | undefined => {
+        const refusal = schedule?.keyRefusalOf(changes);
+        return refusal === undefined ? undefined : keyRefusedText(refusal.name, refusal.why);
+    };
+    /** Why no key was made for a new row: its kind's rule's refusal, in the shared words, else the words given. */
+    const unkeyed = (otherwise: string): string => {
+        const refusal = schedule?.keyRefusal();
+        return refusal === undefined ? otherwise : keyRefusedText(refusal.name, refusal.why);
+    };
     const rowOf = (id: string) => state.duties.rows.get(id);
     const personDay = (person: string, day: bigint, except?: string) => [...week.assignments].find(([key, a]) =>
         key !== except && a.who.type === "person" && a.who.value === person && a.place.day === day);
@@ -267,7 +281,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         if (bytes === undefined) return NO_DUTY;
         if (bytes.type !== "some") return who.type === "request" ? "This roster takes no agency requests." : "This roster takes no people.";
         const id = newDuty(minted);
-        if (id === undefined) return NO_DUTY;
+        if (id === undefined) return unkeyed(NO_DUTY);
         minted.add(id);
         return { id, bytes: bytes.value };
     };
@@ -357,6 +371,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 const match = proposal ?? proposals().find(p => p.person === person && samePlace(placeOf(p.slot), place));
                 accepted = match === undefined ? undefined : { key: match.key, day: match.slot.day };
             }
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
             if (checkOnly) return undefined;
             // An accepted proposal is dismissed on its own day's period — the week's, or the day's (#1550).
             if (accepted !== undefined) {
@@ -377,7 +392,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
             const written = value.duty.write(row.bytes, roles);
             if (written.type !== "some") return "This duty cannot take that.";
-            if (!checkOnly) record([{ kind: duty, id, row: written.value }], origin, "Edit duty");
+            const changes: ScheduleChange[] = [{ kind: duty, id, row: written.value }];
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
+            if (!checkOnly) record(changes, origin, "Edit duty");
             return undefined;
         },
         activity(id, activity, checkOnly = false) {
@@ -400,7 +417,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (!sameResource(read.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
             const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
             const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
-            if (!checkOnly && !sameBytes(next.bytes, row.bytes)) record([{ kind: duty, id, row: next.bytes }], "drop", "Update duty");
+            const changes: ScheduleChange[] = [{ kind: duty, id, row: next.bytes }];
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
+            if (!checkOnly && !sameBytes(next.bytes, row.bytes)) record(changes, "drop", "Update duty");
             return undefined;
         },
         field(id, path, next) {
@@ -410,6 +429,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const change = fieldChange(value.duty.kind, id, path, next);
             if (change === undefined) return "This field cannot be edited.";
+            const unkeyable = keyed([change]); if (unkeyable !== undefined) return unkeyable;
             record([change], "typed", "Edit duty");
             return undefined;
         },
@@ -422,7 +442,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (!sameResource(read.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
             const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
             const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
-            record([{ kind: duty, id, row: next.bytes }], "typed", "Edit duty");
+            const changes: ScheduleChange[] = [{ kind: duty, id, row: next.bytes }];
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
+            record(changes, "typed", "Edit duty");
             return undefined;
         },
         remove(id) {
@@ -448,14 +470,13 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const hours = new Map([...target.hours].filter(([, h]) => h > 0));
             const roles = { day: dayOfSlot(start, slot), group: slot.group, shift: slot.shift, positions: target.positions, hours };
             const row = state.targets.rows.get(slot);
-            if (row !== undefined) {
-                record([{ kind: TARGETS, id: row.key, row: targets.write(row.bytes, roles) }], "typed", "Edit shift targets");
-                return undefined;
-            }
-            const made = madeFromValues("Roster", "a new shift's targets", () => targets.create(roles));
-            const id = made === undefined ? undefined : newTarget();
-            if (made === undefined || id === undefined) return NO_TARGETS;
-            record([{ kind: TARGETS, id, row: made, created: true }], "typed", "Edit shift targets");
+            const made = row !== undefined ? undefined : madeFromValues("Roster", "a new shift's targets", () => targets.create(roles));
+            if (row === undefined && made === undefined) return NO_TARGETS;
+            const id = row !== undefined ? row.key : newTarget();
+            if (id === undefined) return unkeyed(NO_TARGETS);
+            const changes: ScheduleChange[] = [row !== undefined ? { kind: TARGETS, id, row: targets.write(row.bytes, roles) } : { kind: TARGETS, id, row: made!, created: true }];
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
+            record(changes, "typed", "Edit shift targets");
             return undefined;
         },
         targetRow(slot, bytes) {
@@ -463,13 +484,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (value.targets.type !== "some") return "This roster has no targets.";
             const closed = blocked(slot.day); if (closed !== undefined) return closed;
             const row = state.targets.rows.get(slot);
-            if (row !== undefined) {
-                record([{ kind: TARGETS, id: row.key, row: bytes }], "typed", "Edit shift targets");
-                return undefined;
-            }
-            const id = newTarget();
-            if (id === undefined) return NO_TARGETS;
-            record([{ kind: TARGETS, id, row: bytes, created: true }], "typed", "Edit shift targets");
+            const id = row !== undefined ? row.key : newTarget();
+            if (id === undefined) return unkeyed(NO_TARGETS);
+            const changes: ScheduleChange[] = [row !== undefined ? { kind: TARGETS, id, row: bytes } : { kind: TARGETS, id, row: bytes, created: true }];
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
+            record(changes, "typed", "Edit shift targets");
             return undefined;
         },
         accept(key) {
@@ -586,13 +605,14 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 if (bytes === undefined) return NO_DUTY;
                 if (bytes.type !== "some") return "This roster takes no people.";
                 const id = newDuty(minted);
-                if (id === undefined) return NO_DUTY;
+                if (id === undefined) return unkeyed(NO_DUTY);
                 minted.add(id);
                 changes.push({ kind: duty, id, row: bytes.value, created: true });
                 candidates.set(id, { place, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
                     start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) });
                 days.push({ day, shift: target.value, kind: "set" });
             }
+            const unkeyable = keyed(changes); if (unkeyable !== undefined) return unkeyable;
             return { pattern, person: who, start: at, days, changes, candidates, removed };
         },
         applyPattern(person, at, key, checkOnly = false) {
