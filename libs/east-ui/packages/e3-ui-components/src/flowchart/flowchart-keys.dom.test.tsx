@@ -53,8 +53,10 @@ import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    BlobType, DateTimeType, East, FloatType, IntegerType, SetType, SortedMap, StringType, compareFor, equalFor, printFor, variant, type BlockBuilder,
+    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, printFor, variant,
+    type BlockBuilder,
 } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
@@ -65,7 +67,15 @@ import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps 
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessages, flowchartMessagesOf } from "./messages.js";
 
-const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx });
+/** A station holding its key in its code (`keyField`), beside its label. */
+const CodedStation = StructType({ code: StringType, label: StringType });
+/** The stations the labelled steps stand at, each its code its key: the Bench and the Oven. */
+const codedStations = e3.record("flowchart_coded_stations", DictType(StringType, CodedStation), {
+    initial: new SortedMap([["Bench", { code: "Bench", label: "Bench" }], ["Oven", { code: "Oven", label: "Oven" }]], compareFor(StringType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx, "flowchart/key-field": { codedStations } });
 // The trays' Steps tab lays its cards out: each Library alone measured, the canvas as jsdom has it.
 measureLibrary();
 
@@ -377,6 +387,23 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
         expect(footer(c)).toBe(m.gestureRefused({ refusal: "unkeyed", sort: "states" }));
         expect(footer(c)).toBe("No key can be made for this state");
+    });
+
+    test("ruling 1 — holding its key in a field (`keyField`), a station + LANE adds holds its own key in its code from the first, and Save writes it so", async () => {
+        const stations = await h.read(codedStations);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(codedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", keyField: "code" }),
+            };
+        }, "1");
+        await addLane(c);
+        expect(laneKeys(c)).toEqual(["Bench", "Oven", "lane-3"]);
+        expect(await save()).toEqual([codedStations.name]);
+        expect(printFor(codedStations.type)(await h.read(codedStations)))
+            .toBe(printFor(codedStations.type)(withRows(stations, compareText, [["lane-3", { code: "lane-3", label: m.newLane({ n: 3, count: "3" }) }]])));
     });
 
     test("keyed by their ends, Connect keys a move as the transitions' `key` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {

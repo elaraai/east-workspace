@@ -52,8 +52,10 @@ import { describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    BlobType, DateTimeType, DictType, East, IntegerType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
+    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, SortedMap, SortedSet, StringType, StructType, compareFor, equalFor, parseFor, printFor,
+    some, variant,
 } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { stubScrollIntoView } from "@elaraai/east-ui-components/testing";
@@ -65,7 +67,23 @@ import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } fro
 import { schematicMessages } from "./messages.js";
 import "./index.js";
 
-const h = e3Harness({ "schematic/schematic-keys.fixtures": fx }, { main: "data-schematic-canvas" });
+/** A bench: its code, which its key is held in too (`keyField`), its name, and where its centre stands. */
+const Bench = StructType({ code: StringType, name: StringType, x: FloatType, y: FloatType });
+/** The floor's benches: one, which a new bench stands beside. */
+const benches = e3.record("schematic_coded_benches", DictType(StringType, Bench), {
+    initial: new SortedMap([["B-1", { code: "B-1", name: "Bench 1", x: 4.0, y: 4.0 }]], compareFor(StringType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A bench's card: its name, and a value for every field of a bench but where it stands. */
+const BenchCard = StructType({ name: StringType, values: StructType({ code: StringType, name: StringType }) });
+/** The benches' one card, and the index the rail reads it through, by name: Spare. */
+const benchCards = e3.record("schematic_bench_cards", DictType(StringType, BenchCard), {
+    initial: new SortedMap([["spare", { name: "Spare", values: { code: "", name: "Spare" } }]], compareFor(StringType)),
+    indexes: (index) => ({ schematic_bench_cards_by_name: index.on(["name"]) }),
+});
+
+const h = e3Harness({ "schematic/schematic-keys.fixtures": fx, "schematic/key-field": { benches, benchCards } }, { main: "data-schematic-canvas" });
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
@@ -498,6 +516,36 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         expect(refused(c)).toBe("No key can be made for this hose");
         expect(unsaved(c)).toBe(false);
         expect(h.requests("mutate")).toEqual([]);
+    });
+
+    test("ruling 1 — holding its key in a field (`keyField`), a bench a card's ⏎ adds holds its own key in its code from the first, and Save writes it so", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.field", {
+                benchCards: { source: Data.bindPaged(benchCards, { indexes: ["schematic_bench_cards_by_name"] }) },
+            }));
+            const benchesBound = $.let(Record.bind(benches));
+            const cards = $.let(Data.bind(benchCards));
+            return Schematic({
+                id: "keyedField",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    benches: Schematic.items(benchesBound, {
+                        name: "Bench", icon: "server", x: "x", y: "y", label: "name", keyField: "code",
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "benchCards" }),
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) }, "benches", "B-1");
+        // The card's ⏎: a bench at the view's centre, under a key made for it, which its code holds.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "benches", key: "spare" })));
+        const made = await selectedItem(c);
+        expect(await save(c)).toEqual([benches.name]);
+        expect(printFor(benches.type)(await h.read(benches))).toBe(printFor(benches.type)(new SortedMap([
+            ["B-1", { code: "B-1", name: "Bench 1", x: 4.0, y: 4.0 }], [made.key, { code: made.key, name: "Spare", x: 14.0, y: 7.0 }],
+        ], compareText)));
     });
 
     test("keyed by row and column, as the spots' `key` builds them: a card building a key a spot holds is refused, naming it; one building a new key adds the spot under it; a column edited moves a spot under its new key, still selected, its rope with it; one building a key a spot holds is refused, naming it, the form showing the row again; and Save writes each under its key", async () => {
