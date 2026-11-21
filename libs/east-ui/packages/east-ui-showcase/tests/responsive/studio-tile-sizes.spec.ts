@@ -92,6 +92,8 @@ interface TilePage {
     readonly parts: Readonly<Record<string, string>>;
     readonly numbers: readonly string[];
     readonly drawings: readonly string[];
+    /** The one body that scrolls sideways, where its kind is a grid of columns (a records table's): T5 lets it, and what it scrolls across is read as it shows. */
+    readonly sideways?: string | undefined;
 }
 
 /** Every KPI configuration, each at a narrow, a small and a wide span, over the page of visuals' orders. */
@@ -148,6 +150,40 @@ const DONUT_SIZES: TilePage = {
 };
 
 /**
+ * Each list the spec's page places, on a row of its own, with its ranking bar: the customers by revenue, one value
+ * with its unit; under their regions, with a second value; the regions by revenue a unit and their margin, a ratio's
+ * long unit beside a percentage; the days, more than a page of them; and the first four customers, the rest in Other.
+ */
+const LISTS = {
+    revenue: vis.list({ item: vis.group("customer", { sort: "high" }), values: [vis.sum("revenue")], bar: true }),
+    captioned: vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true }),
+    ratio: vis.list({ item: vis.group("region", { sort: "high" }), values: [vis.ratio("revenue", "units"), vis.mean("margin")], bar: true }),
+    days: vis.list({ item: vis.group("ordered_at", { bucket: "day" }), values: [vis.sum("revenue")], bar: true }),
+    top: vis.list({ item: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")], bar: true }),
+};
+
+/** Every list, each at a narrow, a small, a mid and a wide span, 240 tall, over the page of visuals' orders. */
+const LIST_CELLS: Cells = Object.entries(LISTS).flatMap(([name, list]) => [2n, 3n, 4n, 7n].map((span) => ({
+    key: `list-${name}-${span}`, row: `r-${name}`, span, height: some(240n), align: variant("stretch", null), title: none,
+    content: vis.of("orders", list),
+})));
+const LIST_SIZES: TilePage = {
+    cells: LIST_CELLS, tiles: LIST_CELLS.length, drawn: "[data-studio-list]",
+    parts: {
+        ...EYEBROW,
+        item: "[data-studio-list-name]",
+        caption: "[data-studio-list-caption]",
+        value: "[data-studio-list-value]",
+        unit: "[data-studio-list-unit]",
+        bar: "[data-studio-list-bar]",
+        note: "[data-studio-visual-note]",
+        pages: "[data-scope='pagination'] button",
+    },
+    numbers: ["value"],
+    drawings: ["menu", "bar", "pages"],
+};
+
+/**
  * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
  * rest: the page's tiles alone, with no starting filter.
  *
@@ -181,7 +217,7 @@ async function openTiles(page: Page, at: TilePage): Promise<Locator> {
  * @returns The faults
  */
 function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]> {
-    return grid.evaluate((root, { parts, numbers, drawings, width }) => {
+    return grid.evaluate((root, { parts, numbers, drawings, width, sideways }) => {
         const bad: string[] = [];
         const r = (n: number) => Math.round(n * 10) / 10;
         const box = (b: DOMRect) => `${r(b.left)},${r(b.top)} ${r(b.width)}×${r(b.height)}`;
@@ -206,17 +242,41 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
             }
             return count;
         };
+        /** A box between a part and its tile, by its tag and its first marks. */
+        const named = (el: Element) => `${el.tagName.toLowerCase()}${[...el.attributes].filter((a) => a.name.startsWith("data-")).slice(0, 2).map((a) => `[${a.name}]`).join("")}`;
+        /**
+         * What of a part shows, and the boxes that clip it sideways: its box, cut where its rows scroll up and down — a
+         * list's rows past its foot lie under it, scrolled out of view — and, at the one kind of body that scrolls
+         * sideways (`sideways`, a records table's), where it scrolls across; never cut by a box that only clips it,
+         * which T1 holds it inside.
+         */
+        const shown = (el: Element, cell: Element) => {
+            let { left, top, right, bottom } = el.getBoundingClientRect();
+            const clips: Element[] = [];
+            for (let up = el.parentElement; up !== null && up !== cell; up = up.parentElement) {
+                const look = getComputedStyle(up);
+                const at = up.getBoundingClientRect();
+                if (look.overflowY === "auto" || look.overflowY === "scroll") [top, bottom] = [Math.max(top, at.top), Math.min(bottom, at.bottom)];
+                if (sideways !== undefined && up.matches(sideways)) [left, right] = [Math.max(left, at.left), Math.min(right, at.right)];
+                else if (look.overflowX !== "visible") clips.push(up);
+            }
+            return { at: new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top)), clips };
+        };
         for (const cell of root.querySelectorAll<HTMLElement>("[data-snap-grid-cell]")) {
             const tile = `${cell.getAttribute("data-snap-grid-cell")} (${r(cell.getBoundingClientRect().width)}px) in a ${width}px grid`;
             const frame = cell.getBoundingClientRect();
             const found = Object.entries(parts).flatMap(([name, selector]) => [...cell.querySelectorAll<HTMLElement>(selector)]
-                .map((el) => ({ name, el, at: el.getBoundingClientRect() })))
+                .map((el) => ({ name, el, ...shown(el, cell) })))
                 .filter((part) => part.at.width > 0 && part.at.height > 0);
             for (const part of found) {
                 const { name, el, at } = part;
-                // T1: inside the tile's frame.
+                // T1: inside the tile's frame, and across inside every box between that clips it.
                 if (at.left < frame.left - 0.5 || at.right > frame.right + 0.5 || at.top < frame.top - 0.5 || at.bottom > frame.bottom + 0.5) {
                     bad.push(`${tile}: T1 ${name} at ${box(at)} past the tile at ${box(frame)}`);
+                }
+                for (const clip of part.clips) {
+                    const by = clip.getBoundingClientRect();
+                    if (at.left < by.left - 0.5 || at.right > by.right + 0.5) bad.push(`${tile}: T1 ${name} at ${box(at)} cut by ${named(clip)} at ${box(by)}`);
                 }
                 if (drawings.includes(name) || (el.textContent ?? "").trim() === "") continue;
                 // T3, T4: its words on one line, whole — or, words not a number, ended in an ellipsis with the whole on hover.
@@ -241,8 +301,9 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                     if (w > 0.5 && h > 0.5) bad.push(`${tile}: T2 ${a.name} at ${box(a.at)} over ${b.name} at ${box(b.at)}`);
                 }
             }
-            // T5: nothing scrolls sideways — the tile, or anything in it.
+            // T5: nothing scrolls sideways — the tile, or anything in it — but a records table's body.
             for (const el of [cell, ...cell.querySelectorAll<HTMLElement>("*")]) {
+                if (sideways !== undefined && el.matches(sideways)) continue;
                 const look = getComputedStyle(el);
                 const scrolls = el === cell || look.overflowX === "auto" || look.overflowX === "scroll";
                 if (scrolls && el.scrollWidth > el.clientWidth + 0.5) {
@@ -263,7 +324,7 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
             }
         }
         return bad;
-    }, { parts: at.parts, numbers: at.numbers, drawings: at.drawings, width });
+    }, { parts: at.parts, numbers: at.numbers, drawings: at.drawings, width, sideways: at.sideways });
 }
 
 /**
@@ -294,5 +355,9 @@ test.describe("Studio tiles at every size (#1692)", () => {
 
     test("Donuts: every kind at every span and grid width — the same rules, and its total and caption inside its hole", async ({ page }) => {
         expect(await readEveryWidth(page, DONUT_SIZES)).toEqual([]);
+    });
+
+    test("Lists: every configuration at every span and grid width — the same rules over its rows, its bars and its foot", async ({ page }) => {
+        expect(await readEveryWidth(page, LIST_SIZES)).toEqual([]);
     });
 });

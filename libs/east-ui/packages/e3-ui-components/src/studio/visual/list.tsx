@@ -7,7 +7,10 @@
  * A list's tile (#1671, LST-1, LST-2): {@link listModel}'s rows, each a
  * two-line row — its name, its caption under it, its values with their units
  * at the end — and, with the ranking bar on, a square 4px bar under its
- * line, its first value against the largest of every item; a page of its
+ * line, its first value against the largest of every item. Where a row has no
+ * room for its words beside its values, its values take a line of their own
+ * under them, each value kept beside its unit, and a name or a caption cut
+ * ends in an ellipsis, its whole on hover (#1692); a page of its
  * items at a time (#1667), with where the page stands and the Pagination in
  * its foot past one page; and, when its first N holds fewer items than its
  * source has, a line that says how many of how many. Where its visual's
@@ -17,7 +20,7 @@
  * @packageDocumentation
  */
 
-import { Fragment, useCallback } from "react";
+import { useCallback } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
@@ -74,15 +77,19 @@ export function ListVisual({ visual, list, source, read, state, storageKey }: Li
                         {...rowClickProps(clicks, row.clicked)}>
                         <Box css={styles.listLine}>
                             <Box css={styles.listText}>
-                                <Box as="span" css={styles.listName} data-studio-list-name="">{row.name}</Box>
-                                {row.caption !== undefined && <Box as="span" css={styles.listCaption} data-studio-list-caption="">{row.caption}</Box>}
+                                <Box as="span" css={styles.listName} title={row.name} data-studio-list-name="">{row.name}</Box>
+                                {row.caption !== undefined && <Box as="span" css={styles.listCaption} title={row.caption} data-studio-list-caption="">{row.caption}</Box>}
                             </Box>
-                            {row.values.map((value, v) => (
-                                <Fragment key={v}>
-                                    <Box as="span" css={styles.listValue} data-studio-list-value="">{value.text}</Box>
-                                    {value.unit !== undefined && <Box as="span" css={styles.listUnit}>{value.unit}</Box>}
-                                </Fragment>
-                            ))}
+                            {row.values.length > 0 && (
+                                <Box css={styles.listValues}>
+                                    {row.values.map((value, v) => (
+                                        <Box key={v} as="span" css={styles.listPair}>
+                                            <Box as="span" css={styles.listValue} data-studio-list-value="">{value.text}</Box>
+                                            {value.unit !== undefined && <Box as="span" css={styles.listUnit} data-studio-list-unit="">{value.unit}</Box>}
+                                        </Box>
+                                    ))}
+                                </Box>
+                            )}
                         </Box>
                         {drawn.bar && (
                             <Box css={styles.listBar} data-studio-list-bar="">

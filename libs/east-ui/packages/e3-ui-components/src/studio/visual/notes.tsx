@@ -13,7 +13,6 @@
  * @packageDocumentation
  */
 
-import type { ReactNode } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { BannerView, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
@@ -35,14 +34,16 @@ export function problemOf(answer: Extract<VisualAnswer, { kind: "problem" }>, m:
 }
 
 /**
- * The line under a visual that says what it shows of how many, in its words.
+ * The line under a visual that says what it shows of how many, in its words:
+ * one line, ended in an ellipsis where its tile is too narrow for it, its
+ * whole on hover (#1692).
  *
  * @param props - Its words
  * @returns The line
  */
-export function VisualNote({ children }: { readonly children: ReactNode }) {
+export function VisualNote({ children }: { readonly children: string }) {
     const styles = useSlotStyles("studioVisual");
-    return <Box as="span" css={styles.note} data-studio-visual-note="">{children}</Box>;
+    return <Box as="span" css={styles.note} title={children} data-studio-visual-note="">{children}</Box>;
 }
 
 /**
