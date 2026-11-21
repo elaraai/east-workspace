@@ -355,6 +355,30 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[102n, { name: "Weigh", station: "Bench" }]])));
     });
 
+    test("ruling 1 — where the app's rule gives a key a row holds, or fails, no row is added and the footer says why: + LANE a station whose key the oven holds, Duplicate a step no key could be made for", async () => {
+        const stations = await h.read(fx.labelledStations);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(fx.labelledStations));
+            // The stations' rule gives the oven's own key; the steps' fails.
+            const ovens = $.const(East.function([SetType(StringType)], StringType, (_$, _taken) => "Oven"));
+            const none = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+                $2.if(taken.has(1n), ($3) => { $3.error("no step numbers left"); });
+                return 0n;
+            }));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", newKey: none }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", newKey: ovens }),
+            };
+        }, "1");
+        await addLane(c);
+        expect([laneKeys(c), footer(c)]).toEqual([["Bench", "Oven"], m.gestureRefused({ refusal: "taken", sort: "lanes", name: stations.get("Oven")!.label })]);
+        await gesture(() => { fireEvent.click(node(c, "1")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect(footer(c)).toBe(m.gestureRefused({ refusal: "unkeyed", sort: "states" }));
+        expect(footer(c)).toBe("No key can be made for this state");
+    });
+
     test("keyed by their ends, Connect keys a move as the transitions' `key` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {
         const moves = await h.read(fx.joinedMoves);
         const ends = printFor(fx.MoveEnds);

@@ -260,7 +260,7 @@ interface FlowchartFrameProps extends FlowchartFollowsProps {
  * @returns Its words
  */
 function refusalWord(refusal: FlowchartRefusal, holding: FlowchartHolding): FlowchartRefusalWord {
-    if (refusal.refusal === "placeholder" || refusal.refusal === "untyped") return refusal;
+    if (refusal.refusal === "placeholder" || refusal.refusal === "untyped" || refusal.refusal === "unkeyed") return refusal;
     const { model, rows } = holding;
     const key = refusal.key;
     const waiting = holding.waiting.find((row) => row.sort === refusal.sort && stringEqual(row.key, key));

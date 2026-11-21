@@ -159,7 +159,9 @@ export type FlowchartNewKey =
     /** None: the key its row builds is held already, by the row of that key. */
     | { readonly taken: string }
     /** None: its kind's keys are of a type the form can't type — by the type's name — and its kind builds none. */
-    | { readonly untyped: string };
+    | { readonly untyped: string }
+    /** None: no key could be made — its kind's `key` failed as it built one from the row, or the app's `newKey` failed. */
+    | { readonly failed: true };
 
 /** A row a gesture moves under the key its fields build once the gesture writes them (#1549). */
 export interface FlowchartMove {
@@ -257,8 +259,9 @@ export interface FlowchartEditing {
      * @param made - The edit making the row, under any key: what the kind's `key` builds its key from
      * @param madeUp - The text the gesture makes up, unique by what it is told is taken: `lane-<n>`, `state-<n>`, a UUID
      * @param minted - The keys the gesture has made already
-     * @returns The key, or why there is none; `undefined` while a kind read through its source asks its record for its
-     *   largest, where the app's rule gives a key that is taken or fails, or where the kind makes no row of the edit
+     * @returns The key, or why there is none — the app's rule giving a key a row holds, or failing, among them;
+     *   `undefined` while a kind read through its source asks its record for its largest, or where the kind makes no row
+     *   of the edit
      */
     newKey(sort: FlowchartSort, made: FlowchartEdit, madeUp: (taken: (key: string) => boolean) => string, minted?: ReadonlySet<string>): FlowchartNewKey | undefined;
     /**
@@ -648,14 +651,17 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                 key = build(row);
             } catch (err) {
                 console.error(`[Flowchart] ${kind.name}'s key could not be built from a new row:`, err);
-                return undefined;
+                return { failed: true };
             }
             return minted.has(key) || stands(sort, key) ? { taken: key } : { key };
         }
-        // By the app's own rule, or one past the largest Integer: each its session's to make.
+        // By the app's own rule, or one past the largest Integer: each its session's to make. Where the app's rule gives
+        // a key a row holds, or fails, no row is added, and the gesture says which.
         if (kind.newKey.type === "some" || kind.keyType.type === "Integer") {
             const key = editing.mint(sort, "", minted);
-            return key === undefined ? undefined : { key };
+            if (key !== undefined) return { key };
+            const why = editing.keyRefusal()?.why;
+            return why === undefined ? undefined : "taken" in why ? { taken: why.taken } : { failed: true };
         }
         if (keys.text) return { key: madeUp(holds) };
         // A placeholder: a text made up that no key prints as, until the viewer types its key.
