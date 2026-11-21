@@ -456,21 +456,28 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // what a free slot's Reserve list and a free Table row's resource Chooser ask the fit (A48, A60). Over bins keyed by
     // String it stands under a text no bin holds. Over bins keyed by any other type it stands under the key Reserve there
     // would make (east-workspace#1709, ruling 13), so the fit answers for it as for any bin: the key its row builds, where
-    // the bins' kind builds keys from rows; else the one the kind's rule makes now, made at each asking — a record read a
-    // window at a time makes its first once its largest key is read. None made yet, it is asked once one is; none to be
-    // made — the rule refuses, the key its row builds fails or is another bin's of the day, or the board is read only — the
-    // lists say so. The drafts are the cache's key: new drafts, a new cache.
+    // the bins' kind builds keys from rows; else the one the kind's rule makes, made once for the drafts, however often a
+    // list draws — a record read a window at a time makes its first once its largest key is read. None made yet, it is
+    // asked once one is; none to be made — the rule refuses, the key its row builds fails or is another bin's of the day,
+    // or the board is read only — the lists say so. The drafts are the caches' key: new drafts, new caches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const reservings = useMemo(() => new Map<string, ReserveProbe>(), [plan]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const probeKeys = useMemo((): { made?: { readonly id: string | undefined } } => ({}), [plan]);
     const reservation = value.labels.reservation;
     const unkeyed = useMemo(() => ({ unkeyed: `${a(reservation)} here has no key until it is made` }), [reservation]);
     const reserving = (lane: string, at: Date): ReserveProbe => {
         const kind = value.bin.kind;
         let id: string | undefined = binKeyType.type === "String" ? RESERVE_PROBE : undefined;
         if (id === undefined && kind.rowKey.type !== "some") {
-            const schedule = editing?.schedule;
-            id = schedule?.mint(kind.key, "", NONE_MINTED);
-            if (id === undefined) return schedule !== undefined && schedule.keyRefusal() === undefined ? undefined : unkeyed;
+            if (probeKeys.made === undefined) {
+                const schedule = editing?.schedule;
+                const minted = schedule?.mint(kind.key, "", NONE_MINTED);
+                if (minted === undefined && schedule !== undefined && schedule.keyRefusal() === undefined) return undefined;
+                probeKeys.made = { id: minted };
+            }
+            id = probeKeys.made.id;
+            if (id === undefined) return unkeyed;
         }
         const slot = `${lane}|${dayKey(at)}|${id ?? ""}`;
         const kept = reservings.get(slot);

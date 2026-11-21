@@ -18,9 +18,10 @@
  * number (ruling 12). A free slot's Reserve list asks it of a reservation under
  * the key Reserve there would make — the next number, or the number its row
  * builds — the day with it a draft of the bins under that number, and says so
- * where the bins' rule makes none (ruling 13).
+ * where the bins' rule makes none (ruling 13): the key made once for the
+ * drafts, however often the list draws.
  */
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { waitFor, within } from "@testing-library/react";
 import { DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -277,6 +278,28 @@ test("ruling 13 — over bins keyed by number whose rule gives a key a bin holds
     const reserve = () => details(c).querySelector<HTMLElement>("[data-allocation-reserve]")?.textContent ?? "";
     await waitFor(() => expect(reserve()).toContain("fits unavailable · a reservation here has no key until it is made"));
     expect([firstReserve(c), latestCall("place")]).toEqual([null, undefined]);
+});
+
+test("ruling 13 — over bins keyed by number, the key a free slot's reservation stands under is made once for the drafts, however often its Details draw: a rule that fails is asked once, and said once", async () => {
+    const [first, second] = [...(await h.read(fx.moistureBins)).values()];
+    await h.patch(numberedBins, new SortedMap([[3n, first!], [7n, second!]], compareFor(IntegerType)));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+        const { container: c } = await h.mount(yardKeyed({ numbered: { newKey: East.function([SetType(IntegerType)], IntegerType, ($, _taken) => {
+            $.error("no number is free");
+            return 0n;
+        }) } }, "table", { bins: numberedBins, fit: numberedFit }));
+        await selectSlot(c);
+        const reserve = () => details(c).querySelector<HTMLElement>("[data-allocation-reserve]")?.textContent ?? "";
+        await waitFor(() => expect(reserve()).toContain("a reservation here has no key until it is made"));
+        const failures = () => logged.mock.calls.filter((call) => sameKey(call[0] as string, "[Schedule] Bin's newKey failed: nothing was added:")).length;
+        const asked = failures();
+        // Its Details drawn again and again: the slot pressed once more, three times.
+        for (let i = 0; i < 3; i++) await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
+        expect([asked, failures()]).toEqual([1, 1]);
+    } finally {
+        logged.mockRestore();
+    }
 });
 
 test("ruling 1 — a bin unlinked moves under the key its bay and its links then build, still selected; a second bin of the bay, which would build that key too, is refused, the board saying whose key it is; and Save writes the bin under its new key", async () => {
