@@ -8,7 +8,8 @@
  * needs one as it loads.
  *
  * What a schedule's cells' reader wants and decides, worked out with no read
- * (#1039): the blocks of a paged kind's resources around the rows in view, the
+ * (#1039): the blocks of a paged kind's resources around the rows in view — an
+ * end of them its window does not hold read as the other end (#1711) — the
  * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
  * within the cap, and a window of the paged rows — the resources it draws, in
@@ -29,8 +30,8 @@ import { none, some, type option } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, scheduleWindowKeys,
-    scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, schedulePagedBlocks,
+    scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged, type ScheduleCellSpan,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -54,6 +55,51 @@ describe("the blocks a reader wants (#1039)", () => {
         expect(wantedBlocks({ first: 1_990, last: 1_999 }, 2_000)).toEqual([39]);
         expect(wantedBlocks({ first: 10, last: 12 }, 30)).toEqual([0]);
         expect(wantedBlocks({ first: 0, last: 0 }, 0)).toEqual([]);
+    });
+});
+
+describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
+    /** Presses by their place among the rows, `P-0000` on. */
+    const presses = (from: number, n: number): ScheduleCellKey[] =>
+        Array.from({ length: n }, (_x, i) => ({ slot: "presses", key: `P-${String(from + i).padStart(4, "0")}` }));
+    /** Paged rows of 200 a window: each window's resources, or `undefined` for one in flight. */
+    const pagedOf = (windows: readonly (readonly ScheduleCellKey[] | undefined)[], narrowing?: string): ScheduleCellPaged => ({
+        kinds: ["presses"], window: 200, hidden: false,
+        keys: (offset) => {
+            const keys = windows[Number(offset) / 200];
+            return keys === undefined ? none : some(keys);
+        },
+        total: () => some(BigInt(windows.length * 200)),
+        narrowing: () => narrowing,
+    });
+    const two = pagedOf([presses(0, 200), presses(200, 200)]);
+    /** The rows in view, each end by its window and its key. */
+    const span = (first: readonly [number, string], last: readonly [number, string], narrowing?: string): ScheduleCellSpan =>
+        ({ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] }, narrowing });
+    /** The blocks a view wants, by their names: each its window and its place there. */
+    const named = (blocks: readonly { readonly id: string }[] | undefined) => blocks?.map((block) => block.id);
+
+    test("the first block before any row in view is reported, where a view opens; then those meeting the rows in view and the margin either side", () => {
+        expect(schedulePagedBlocks(two, undefined)).toEqual([{ slot: "presses", id: "0.0", keys: presses(0, 50).map((press) => press.key) }]);
+        expect(named(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"])))).toEqual(["0.1", "0.2"]);
+        // The margin reaches into the next window.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0190"])))).toEqual(["0.3", "1.0"]);
+    });
+
+    test("an end whose key its window does not hold — a group's own row, a row the window draws no more — is read as the other end, never as its window's start", () => {
+        // The first end: the blocks around the last, and not every block from the window's start.
+        expect(named(schedulePagedBlocks(two, span([0, "H-07"], [0, "P-0120"])))).toEqual(["0.1", "0.2"]);
+        // The last end: the blocks around the first, and not none.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0120"], [0, "H-09"])))).toEqual(["0.1", "0.2"]);
+        // In a window before the other end's: nothing of that window.
+        expect(named(schedulePagedBlocks(two, span([0, "H-07"], [1, "P-0260"])))).toEqual(["1.0", "1.1"]);
+        // Neither held: where the first end's window opens, the margin reaching into the window before it.
+        expect(named(schedulePagedBlocks(two, span([1, "H-07"], [1, "H-09"])))).toEqual(["0.3", "1.0"]);
+    });
+
+    test("none while a window of them is in flight, nor while the rows in view are another narrowing's", () => {
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200), undefined]), span([1, "P-0210"], [1, "P-0220"]))).toBeUndefined();
+        expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 1"))).toBeUndefined();
     });
 });
 

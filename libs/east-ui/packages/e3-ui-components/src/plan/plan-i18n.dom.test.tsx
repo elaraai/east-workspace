@@ -90,6 +90,7 @@ function planRoot(rows: PlanWireRow[], opts: {
     const window = opts.window === null ? none : some(opts.window ?? { min: W27, max: W39 });
     return {
         rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts.links ?? [],
         axis: variant("time", {
             window, resolution: variant(opts.resolution ?? "week", null),

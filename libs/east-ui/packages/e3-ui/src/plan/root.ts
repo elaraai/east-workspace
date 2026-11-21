@@ -232,6 +232,20 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  A positional collection is refused — key it at the call site with
      *  `rows.toDict((_$, r) => r.id)`, which makes the choice explicit. */
     data: SubtypeExprOrValue<DictType<EastType, EastType>> | PlanBindHandle | PagedSourceLike;
+    /**
+     * How the canvas pages its rows (#1714): `entries`, how many of the rows' entries it reads, and makes rows for, at
+     * a time — {@link PLAN_PAGE_SIZE} (200) without it. Rows held whole are not paged, so it changes nothing for them.
+     *
+     * @remarks
+     * Under `Plan.series.group` an entry is a group with every row it nests: where each holds hundreds of rows, give 1
+     * or a few, and the canvas makes rows only for the groups near the view. Every other group stands as a band of its
+     * height, estimated from the windows read, until the view nears it — so a group far off shows no header row until
+     * then, and the scroll bar moves as groups of very different sizes are read. A whole number of 1 or more.
+     */
+    paging?: {
+        /** How many of the rows' entries a window holds: a whole number of 1 or more. */
+        entries?: number;
+    };
     /** The row series over `data` — `Plan.series.*` values, a TS array or an
      *  East expression of `ArrayType(Plan.Types.Series(R))`.
      *
@@ -484,6 +498,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             "A canvas never fits its axis to the data, so it reads the same inline and paged.",
         );
     }
+    // How many of the rows' entries a paged canvas reads, and makes rows for, at a time (#1714).
+    const windowEntries = planWindowEntries(config.paging);
     // Over a record's paged rows, each series is held to the rows' nested series index first (#1435): where its slice's
     // `rows` source gives them, or `data` is the record's indexed binding, whose type carries its nested part. Rows paged
     // whole (`Data.bindPaged(dataset)`) are read as #1436 reads them.
@@ -503,7 +519,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined, undefined);
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined, undefined, windowEntries);
     // The canvas applies the list it was given, leaving out what is hidden (#1541, U3): the pick's state where the
     // series are picked, read wherever rows are made, or the keys `hidden` names. A gesture writes the data whichever
     // series show (#1440): the session's writer is built over the whole list, so a number written as its series is
@@ -583,7 +599,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         const unnarrowed = every === undefined ? undefined
             : buildCarriedRowSource(every, PlanBlocksType, (source) => (everyOrdered === undefined ? apply(source) : everyOrdered.make(apply, source)),
                 undefined) as unknown as ExprType<PlanRowsType>;
-        const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, apply, config.editing, planNestedIndex(nested));
+        const editing = config.editing === undefined ? undefined
+            : buildPlanEditing(resolved, seriesInput, apply, config.editing, windowEntries, planNestedIndex(nested));
         // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
         // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
         const index = planNestedIndex(nested);
@@ -597,8 +614,27 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             uses,
             rows: ordered.nestedRows(apply, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
         } as never, PlanNestedType) as ExprType<PlanNestedType>;
-        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick, unnarrowed);
+        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick,
+            unnarrowed, windowEntries);
     }) as ExprType<PlanRootType>;
+}
+
+/**
+ * How many of the rows' entries a paged canvas reads, and makes rows for, at a time (#1714): its `paging.entries`, or
+ * {@link PLAN_PAGE_SIZE}.
+ *
+ * @param paging - The canvas's `paging`
+ * @returns The window's size, in entries
+ * @throws {Error} Naming the option, for anything but a whole number of 1 or more
+ */
+function planWindowEntries(paging: PlanConfig["paging"]): number {
+    const entries = paging?.entries;
+    if (entries === undefined) return PLAN_PAGE_SIZE;
+    if (typeof entries !== "number" || !Number.isInteger(entries) || entries < 1) {
+        throw new Error(`Plan: \`paging.entries\` is how many of the rows' entries the canvas reads, and makes rows for, at a time — ` +
+            `a whole number of 1 or more, and this one is ${typeof entries === "number" ? `${entries}` : typeof entries}`);
+    }
+    return entries;
 }
 
 /**
@@ -611,11 +647,12 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
  * @param nested - What its paged rows' reader reads of their nested series index, if it reads it (#1438)
  * @param pick - The pick over `data`'s series, where they are picked (#1541, U3)
  * @param unnarrowed - Every row the Slice's `rows` source narrows, where it gives the canvas its rows (#1541)
+ * @param windowEntries - How many of the rows' entries a paged canvas reads at a time (#1714)
  * @returns An East expression of {@link PlanRootType}
  */
 function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
     chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined,
-    pick: ExprType<PickBindType> | undefined, unnarrowed: ExprType<PlanRowsType> | undefined): ExprType<PlanRootType> {
+    pick: ExprType<PickBindType> | undefined, unnarrowed: ExprType<PlanRowsType> | undefined, windowEntries: number): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -628,6 +665,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
     return East.value({
         rows:     rowsValue,
         unnarrowed: unnarrowed !== undefined ? some(unnarrowed) : none,
+        windowEntries: BigInt(windowEntries),
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
         axis:     config.axis as SubtypeExprOrValue<PlanAxisType>,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,
@@ -735,12 +773,13 @@ function planRecordApply(record: PlanRecordHandle, sourceType: DictType<EastType
  * @param apply - The canvas's series over a collection of its rows, what it leaves out left out (#1541, U3): a draft
  *   draws as the canvas does
  * @param input - The author's editing declaration
+ * @param windowEntries - How many entries a window of the canvas's holds (#1714): an entry is read back from its window
  * @param nested - The rows' nested series index, where they are read beside it (#1438)
  * @returns The editing declaration, on the wire
  * @throws {Error} When the declaration is inconsistent, or a callback has another signature
  */
 function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, apply: PlanSeriesApply, input: PlanEditingConfig,
-    nested?: PlanNestedIndex): ExprType<PlanEditingType> {
+    windowEntries: number, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
     if (input.onApply !== undefined && input.record !== undefined) {
         throw new Error("Plan: editing takes `record`, whose patch door commits each batch, or `onApply`, the commit itself — not both");
     }
@@ -752,7 +791,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     // once where the session is made, its apply the session's Save and its draft form the session's. A Save of the
     // host's own is a function, and carries none.
     return withEditingSave(save, PlanEditingType, (commit, draftForm) => planEditing(
-        resolved, series, apply, commit === undefined ? { ...input, onApply: undefined } : { ...input, onApply: commit }, draftForm, nested));
+        resolved, series, apply, commit === undefined ? { ...input, onApply: undefined } : { ...input, onApply: commit }, draftForm, windowEntries, nested));
 }
 
 /** A Plan's editing declaration, its commit a function of the batch: the record's, or the seam's own. */
@@ -762,9 +801,10 @@ type PlanEditingInput = Omit<PlanEditingConfig, "onApply" | "record"> & { onAppl
  * {@link buildPlanEditing}, over an `onApply` that is a function of the batch.
  *
  * @param draftForm - The Save's draft form, over the batch the Save takes; `undefined` for a Save of the host's own
+ * @param windowEntries - How many entries a window of the canvas's holds (#1714)
  */
 function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, apply: PlanSeriesApply, input: PlanEditingInput,
-    draftForm: ExprType<EastType> | undefined, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
+    draftForm: ExprType<EastType> | undefined, windowEntries: number, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
     const sourceType = resolved.collectionType as DictType<EastType, EastType>;
     const entryType = sourceType.value;
     const keyType = sourceType.key;
@@ -792,10 +832,10 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, apply
     const window = resolved.kind === "paged"
         ? buildPagedWindow(resolved) as unknown as ExprType<FunctionType<[IntegerType, IntegerType], OptionType<DictType<EastType, EastType>>>>
         : undefined;
-    const pageSize = BigInt(PLAN_PAGE_SIZE);
+    const pageSize = BigInt(windowEntries);
 
     // One entry, read back: inline by key; paged from the window it came from
-    // (aligned to the canvas's page), the very request the canvas made.
+    // (aligned to the canvas's windows, #1714), the very request the canvas made.
     const readEntry = East.function([StringType, IntegerType], OptionType(BlobType), ($, id, offset) => {
         const parse = $.const(keyOf);
         const key = $.let(parse(id));

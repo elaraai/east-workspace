@@ -20,7 +20,6 @@ import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanController, PlanNavAlign, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
 import type { PlanPagedBlock, PlanRowOrigin } from "../controller/paging.js";
-import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 
 /** The body items, and what the frame measures and keys them by. */
 export interface PlanBody {
@@ -292,9 +291,12 @@ export function usePlanScrollTarget(
  * @param items - The body items
  * @param controller - Where the viewport is reported
  * @param origin - Which block and window each paged row came from
+ * @param windowEntries - How many of the source's entries each of those windows holds, the paging snapshot's (#1714)
  * @returns The frame's `onRangeChange`
  */
-export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: PlanController, origin: ReadonlyMap<string, PlanRowOrigin>) {
+export function usePlanRangeReport(
+    items: readonly PlanBodyItem[], controller: PlanController, origin: ReadonlyMap<string, PlanRowOrigin>, windowEntries: number,
+) {
     return useCallback((
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
@@ -307,7 +309,7 @@ export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: P
         for (let i = range.startIndex; i <= range.endIndex; i++) {
             const it = items[i];
             const w = it?.kind === "row" ? origin.get(it.row.row.key)?.w
-                : it?.kind === "band" ? Math.floor((it.band.at === "head" ? it.band.to : it.band.from) / PLAN_PAGE_SIZE)
+                : it?.kind === "band" ? Math.floor((it.band.at === "head" ? it.band.to : it.band.from) / windowEntries)
                     : it?.kind === "failed" ? it.failure.w : undefined;
             if (w !== undefined && !shows.includes(w)) shows.push(w);
         }
@@ -323,5 +325,5 @@ export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: P
             controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w, shows }, isScrolling);
         }
         // A links focus's band names no window — the demand stays where it is.
-    }, [items, controller, origin]);
+    }, [items, controller, origin, windowEntries]);
 }

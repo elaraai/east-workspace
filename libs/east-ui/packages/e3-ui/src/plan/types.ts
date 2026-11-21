@@ -1141,9 +1141,10 @@ export const PlanRowEditsType = StructType({
 export type PlanRowEditsType = typeof PlanRowEditsType;
 
 /**
- * The entries in one window a paged canvas reads — it pages its source at
- * `w × PLAN_PAGE_SIZE`, and the editing session takes an entry from the very
- * window it came in, so a gesture never waits on a request (#880, #1599).
+ * The entries in one window a paged canvas reads unless its `paging.entries`
+ * says otherwise (#1714) — it pages its source at `w × entries`, and the
+ * editing session takes an entry from the very window it came in, so a gesture
+ * never waits on a request (#880, #1599).
  */
 export const PLAN_PAGE_SIZE = 200;
 

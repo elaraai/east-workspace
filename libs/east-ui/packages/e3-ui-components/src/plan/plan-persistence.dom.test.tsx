@@ -29,6 +29,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type RailChrome } from "./rail.test-utils.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 e3Harness(RAIL_MODULES, { measure: false });
@@ -113,6 +114,7 @@ const rows = () => [
 function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknown; resolutions?: unknown[] }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(body)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

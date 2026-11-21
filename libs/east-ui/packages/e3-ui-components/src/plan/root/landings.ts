@@ -193,26 +193,31 @@ export function landingResourceOf(target: { readonly landing: PlanLandingValue; 
 /** A row as {@link readPathOf} walks it: its id, and its parent's key. */
 type PathRow = Pick<PlanRowValue, "id" | "parent">;
 
+/** The path of a row that stands for no resource. */
+const NO_PATH: readonly string[] = [];
+
 /**
- * A row's path to the resource its events are read by ({@link readResourceOf}): its own, which ends in its resource's
- * key — or, for a row a step beneath a resource, and any row beneath one (#1541, U1), the resource's path: the path
- * of the nearest landing row at or above it, less its last step. A row beneath no landing row keeps its path.
+ * A row's path to the resource its events are read by ({@link readResourceOf}): the path of the nearest landing row at
+ * or above it — a row of a landing's own series, or of a further way its kinds draw — which ends in its resource's key,
+ * less its last step for a landing standing beneath another (#1541, U1). So a landing row's path is its own, and any
+ * row beneath one, a row a step beneath a resource's among them, has the resource's. A row with no landing row at or
+ * above it stands for no resource: a group's own row, or a row of a series no kind lands on. Its path is none, as a row
+ * of no entry's is, and its events are read by no resource (#1711).
  *
  * @param row - The row: its id and its parent's key
  * @param landings - The series the event kinds land on
  * @param rowOf - A row by its key: what its parents are found by
- * @returns The path, the resource's key last
+ * @returns The path, the resource's key last; empty for a row that stands for no resource
  */
 export function readPathOf(row: PathRow, landings: readonly PlanLandingValue[], rowOf: (key: string) => PathRow | undefined): readonly string[] {
-    if (row.id.type !== "entry") return [];
-    const own = row.id.value.path;
     for (let at: PathRow | undefined = row; at !== undefined && at.id.type === "entry";) {
         const { series, path } = at.id.value;
-        const landing = landings.find((l) => l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
-        if (landing !== undefined) return landing.under.type === "some" ? path.slice(0, -1) : own;
+        // A landing's own series is its rows', whether or not a kind draws on them: every kind may land a step beneath.
+        const landing = landings.find((l) => stringEqual(l.key, series) || l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
+        if (landing !== undefined) return landing.under.type === "some" ? path.slice(0, -1) : path;
         at = at.parent.type === "some" ? rowOf(at.parent.value) : undefined;
     }
-    return own;
+    return NO_PATH;
 }
 
 /**

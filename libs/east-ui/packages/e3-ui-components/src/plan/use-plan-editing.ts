@@ -51,7 +51,7 @@ import {
 import { type EditSource, kindOfIssue, standingBeforeSave, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
-import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
+import { windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
@@ -315,6 +315,8 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         };
     }, [declared, recordSlice, whole]);
     const paged = windowedSourceOf(value.rows);
+    // How many entries each window of the root's holds (#1714): an entry's position is its window's start and its place in it.
+    const windowEntries = Number(value.windowEntries);
     const entryTypeValue = editing?.entryType;
     const codec = useMemo(() => (entryTypeValue === undefined ? undefined : {
         encode: encodeBeast2For(entryTypeValue),
@@ -345,15 +347,15 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             let at = placeIn.get(w);
             if (at === undefined) {
                 let read: ReturnType<PlanEditingValue["entryIds"]> = none;
-                try { read = editing.entryIds(BigInt(w * PLAN_PAGE_SIZE), BigInt(PLAN_PAGE_SIZE)); }
+                try { read = editing.entryIds(BigInt(w * windowEntries), BigInt(windowEntries)); }
                 catch (err) { console.error("[Plan] a window's entries could not be read:", err); }
                 at = new Map(read.type === "some" ? read.value.map((x, i) => [x, i] as const) : []);
                 placeIn.set(w, at);
             }
-            return w * PLAN_PAGE_SIZE + (at.get(id) ?? 0);
+            return w * windowEntries + (at.get(id) ?? 0);
         };
         return { refs: ids.map((id): PlanEntryRef => ({ id })), positions: ids.map(positionOf) };
-    }, [rows, origin, editing, paged]);
+    }, [rows, origin, editing, paged, windowEntries]);
 
     // ── The author's check, over the entries a draft changed ─────────────
     const sessionRef = useRef<EditSession<PlanEntryRef> | undefined>(undefined);
