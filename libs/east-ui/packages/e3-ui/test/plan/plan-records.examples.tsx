@@ -4,9 +4,9 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Box, EventStateType, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from "../sheet/sheet-records.examples.js";
@@ -231,6 +231,90 @@ export const planRecordIndexesMobile = example({
                         resource: { field: "work", of: "orders" }, entries: operationEntries,
                     }),
                 }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** A job on a press: what it makes, when it runs, and its state. */
+export const PlanHallJob = StructType({ product: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+/** A press of a hall: its name, and its jobs by key. */
+export const PlanHallPress = StructType({ label: StringType, jobs: DictType(StringType, PlanHallJob) });
+/** A hall: its name, and its presses by key. */
+export const PlanHall = StructType({ name: StringType, presses: DictType(StringType, PlanHallPress) });
+/** The halls, by key. */
+export const PlanHalls = DictType(StringType, PlanHall);
+
+/**
+ * `halls` halls of `presses` presses each, keyed `H-101` on and each press `P-101` on within its hall, so their keys
+ * hold their order: a press's two jobs a week apart in October 2026, a day and two days long, each press at its own
+ * offset so no two presses' jobs line up. A function of the counts alone.
+ */
+export const generatePlanHalls = East.function([IntegerType, IntegerType], PlanHalls, ($, halls, presses) => {
+    const start = $.const(new Date("2026-10-05T00:00:00Z"));
+    const products = $.const(["cap", "lid", "tub", "jar"], ArrayType(StringType));
+    const confirmed = $.const(variant("confirmed", null), EventStateType);
+    return East.Array.range(0n, halls).toDict(
+        (_$2, h) => East.str`H-${h.add(101n)}`,
+        (_$2, h) => ({
+            name: East.str`Hall ${h.add(1n)}`,
+            presses: East.Array.range(0n, presses).toDict(
+                (_$3, p) => East.str`P-${p.add(101n)}`,
+                ($3, p) => {
+                    const offset = $3.const(h.multiply(7n).add(p).remainder(10n));
+                    return {
+                        label: East.str`Press ${p.add(1n)}`,
+                        jobs: East.Array.range(0n, 2n).toDict(
+                            (_$4, j) => East.str`J-${j.add(1n)}`,
+                            ($4, j) => {
+                                const begins = $4.const(start.addDays(offset.add(j.multiply(7n))));
+                                return { product: products.get(h.add(p).add(j).remainder(4n)), start: begins, end: begins.addDays(j.add(1n)), state: confirmed };
+                            },
+                        ),
+                    };
+                },
+            ),
+        }),
+    );
+});
+
+/** Forty halls of 75 presses each, 3,000 presses: read a hall at a time, never whole. */
+export const planHalls = e3.record("plan_halls", PlanHalls, {
+    initial: () => East.compile(generatePlanHalls, [])(40n, 75n),
+});
+
+/**
+ * Forty halls of 75 presses each on a Plan, a group each with its presses'
+ * rows beneath it, read a hall at a time (#1714). A window of the rows is 200
+ * of their entries unless the Plan says otherwise, and under
+ * `Plan.series.group` an entry is a group with every row it nests: these forty
+ * would be one window, and the canvas would make all 3,000 presses' rows as it
+ * opened. `paging={{ entries: 1 }}` makes a window one hall: the canvas reads
+ * and makes the halls near the view, and every other hall stands as a band of
+ * its height until the view nears it.
+ */
+export const planGroupWindows = example({
+    keywords: [
+        "Plan", "Plan.series.group", "Plan.children", "Plan.series.span", "groups", "paging", "entries", "window", "windows",
+        "paged", "Data.bindPaged", "large groups", "rows near the view", "bands", "#1714",
+    ],
+    description: "Forty halls of 75 presses each on a Plan, a group each with its presses' rows beneath it, read a hall at a time: paging={{ entries: 1 }} makes a window of the rows one of their entries, so the canvas makes rows only for the halls near the view, every other hall a band of its height until the view nears it, where a window of 200 entries would make all 3,000 presses' rows as it opened",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const halls = $.let(Data.bindPaged(planHalls));
+            return <Box width="100%" height="760px"><Plan id="planGroupWindows" data={halls}
+                // A window of the rows is one hall: the canvas makes the rows of the halls near the view alone.
+                paging={{ entries: 1 }}
+                axis={Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-26T00:00:00Z") }, resolution: "day", resolutions: ["week", "day"] })}
+                series={[Plan.series.group(PlanHall, {
+                    key: "halls", title: "Halls", label: (hall) => hall.name,
+                    children: Plan.children("presses", [Plan.series.span(PlanHallPress, {
+                        key: "presses", title: "Press", label: (press) => press.label,
+                        runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                    })]),
+                })]}
                 style={{ height: "fill" }} />
             </Box>;
         }}</Reactive>

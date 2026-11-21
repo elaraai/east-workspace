@@ -92,7 +92,7 @@ import {
     type PlanEvent, type PlanGrain, type PlanStore, type PlanUiState, type RowKey,
 } from "../plan-state.js";
 import { type ResidencyOptions, windowedSourceOf } from "@elaraai/east-ui-components/internal";
-import { PLAN_PAGE_SIZE, type PlanViewport } from "../use-plan-paging.js";
+import type { PlanViewport } from "../use-plan-paging.js";
 import type { PlanSearch } from "../use-seek.js";
 import {
     NOT_PERSISTED, sameAnchor, sameKey, sameList, sameOwnWindow, sameToggle,
@@ -470,7 +470,7 @@ export function elementRowsOf(p: PlanPagingSnapshot): readonly PlanRowValue[] {
  * @returns The window opened for it
  */
 function openedWindow(p: PlanPagingSnapshot, w: number): number {
-    const windows = p.total !== undefined ? Math.ceil(p.total / PLAN_PAGE_SIZE) : 0;
+    const windows = p.total !== undefined ? Math.ceil(p.total / p.windowEntries) : 0;
     return windows > 0 ? Math.min(w, windows - 1) : w;
 }
 
@@ -679,8 +679,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
 
     /** Whether the window holding source element `row` has landed in a block. */
     function landedAt(p: PlanPagingSnapshot, row: number): boolean {
-        const windows = p.total !== undefined ? Math.max(1, Math.ceil(p.total / PLAN_PAGE_SIZE)) : undefined;
-        const w = Math.floor(Math.max(0, row) / PLAN_PAGE_SIZE);
+        const windows = p.total !== undefined ? Math.max(1, Math.ceil(p.total / p.windowEntries)) : undefined;
+        const w = Math.floor(Math.max(0, row) / p.windowEntries);
         // An answer past the end (a key after every element) is the last window.
         const at = windows !== undefined ? Math.min(w, windows - 1) : w;
         for (const o of p.origin.values()) if (o.w === at) return true;
@@ -992,7 +992,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const seen = paging.seenAt(req.key);
                 if (seen !== undefined) {
                     focusRequest = { ...req, phase: "opening" };
-                    paging.openAt(seen.w * PLAN_PAGE_SIZE, seen.block);
+                    paging.openAt(seen.w * paging.getSnapshot().windowEntries, seen.block);
                     return;
                 }
                 // Never seen — sought by the key of the element it comes from: a String key by its literal, a key of any
@@ -1102,7 +1102,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const before = prev === undefined ? undefined : planPart(planSlices(prev), ROWS_SOURCE);
                 const after = planPart(planSlices(next), ROWS_SOURCE);
                 const keep = before !== undefined && after !== undefined && sameSource(before.sourceId, after.sourceId);
-                paging.setSource(src, keep);
+                // Its windows hold as many entries as the root says (#1714).
+                paging.setSource(src, keep, Number(next.windowEntries));
                 // Which rows draw as diagnostics is the axis kind's to say:
                 // the windows take their skeletons again.
                 if (prev !== undefined && src !== undefined && prev.axis.type !== next.axis.type) paging.reskeleton();
@@ -1383,7 +1384,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     }
                     const snap = paging.getSnapshot();
                     // An element past the end — saved against a longer source — is in the last window, as `openAt` reads it.
-                    const savedW = Math.floor(saved.element / PLAN_PAGE_SIZE);
+                    const savedW = Math.floor(saved.element / snap.windowEntries);
                     const w = openedWindow(snap, savedW);
                     const ours = (b: number) => block === undefined || b === block;
                     const first = items.findIndex((it) => {
@@ -1412,7 +1413,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(saved.window * PLAN_PAGE_SIZE, block);
+                        paging.openAt(saved.window * paging.getSnapshot().windowEntries, block);
                         return;
                     }
                     // On its way still. Once the jump has settled — the window opened for it in and drawn: its last, past
@@ -1448,7 +1449,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     key: bodyItemKey(item),
                     offset: unread.px,
                     index: at.index,
-                    window: Math.floor(unread.element / PLAN_PAGE_SIZE),
+                    window: Math.floor(unread.element / paging.getSnapshot().windowEntries),
                     block: band.block,
                     element: unread.element,
                 }

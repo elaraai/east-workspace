@@ -18,12 +18,17 @@
  *   nested series index, in their keys' order without it. Their names run
  *   against their keys, so a hall's presses mount where the view looks for
  *   them only in that order (#1713).
+ * - Read a hall at a time (`paging: { entries: 1 }`, #1714), the open reads
+ *   the first hall's window and the two read ahead of it, a hall each, and no
+ *   other; the end of the page reads the last hall's window and the few beside
+ *   it, never the halls between.
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
  * `SCALE_NESTED=0` to bind the halls without their nested series index, and
  * `SCALE_LOG=1` to print what each step asked, the processor time it took, and
- * the rows and marks it left drawn — the same with the index and without.
+ * the rows and marks it left drawn — the same with the index and without, and
+ * read a hall at a time.
  */
 
 import { createHash } from "node:crypto";
@@ -187,6 +192,48 @@ const page = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East
     });
 }))) };
 
+/**
+ * The same page read a hall at a time (#1714): a window of the rows one hall, each with every press it holds, where a
+ * window of 200 holds every hall here.
+ */
+const byHall = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.let(Record.bind(scaleJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(scaleJobs));
+    const slice = $.let(Slice.bindRecords("plan.grouped.scale.byHall", {
+        rows: {
+            source: NESTED
+                ? Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name", "scale_halls_in_time"] })
+                : Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name"] }),
+            fields: { name: { label: "Hall" } },
+        },
+        job: {
+            source: Data.bindPaged(scaleJobs, { indexes: ["scale_jobs_by_time", "scale_jobs_by_press_week", "scale_jobs_by_press_day"] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", resolutions: ["day", "week"] }),
+        slice: { slice },
+        paging: { entries: 1 },
+        series: [Plan.series.group(Hall, {
+            key: "halls", title: "Halls", label: (hall, key) => hall.name.match({ some: (_$2, name) => name, none: () => key }),
+            children: Plan.children("presses", [Plan.series.kinds(Press, "what", {
+                press: {
+                    title: "Presses", icon: "print", label: (_press, code) => code,
+                    children: Plan.children("tasks", [Plan.series.resources(Task, { key: "tasks", title: "Tasks", label: (_task, key) => key })]),
+                },
+            })]),
+        })],
+        events: {
+            job: Schedule.events(record, {
+                name: "Job", icon: "list-check", draw: "marks", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "press" }, child: { field: "task", of: "tasks" },
+                overlaps: "allow", locked: () => true, entries,
+            }),
+        },
+    });
+}))) };
+
 // ── What the Plan asked ──────────────────────────────────────────────────────
 
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
@@ -203,6 +250,14 @@ const findsOf = (index: string, from: number): E3Request[] => h.requests().slice
 
 /** The searches the series index was asked since `from`: each a press's jobs at a level. */
 const searchesOf = (from: number): number => findsOf(SERIES, from).reduce((n, request) => n + request.searches.length, 0);
+
+/** The windows of the halls read since `from`: each by the hall it starts at and how many halls it holds. */
+const hallPages = (from: number): { offset: number; limit: number }[] => h.requests().slice(from)
+    .filter((request) => request.kind === "page" && request.dataset === HALLS_AT)
+    .map((request) => ({ offset: Number(request.query.get("offset")), limit: Number(request.query.get("limit")) }));
+
+/** The halls whose windows were read since `from`, each once, ascending. */
+const hallWindows = (from: number): number[] => [...new Set(hallPages(from).map((read) => read.offset))].sort((a, b) => a - b);
 
 /** The rows mounted now, in document order: those in view and the overscan beside them. */
 const mounted = (container: HTMLElement): string[] =>
@@ -283,6 +338,57 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             // Its jobs drawn, never its presses' shading from the summary.
             expect(findsOf(SUMMARY, from)).toEqual([]);
             expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
+
+            // Nothing failed to read on the way.
+            const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
+            expect(failed).toEqual([]);
+        } finally {
+            errors.mockRestore();
+            restore();
+        }
+    }, 1_800_000);
+
+    test("read a hall at a time, the open reads the first halls' windows alone, a hall each, and the end of the page the last hall's (#1714)", async () => {
+        const restore = emulateWindowScroll();
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            if (LOG) process.stdout.write(`\n### sizes, a hall a window: ${JSON.stringify({ nested: NESTED, halls: HALLS, presses: PRESSES, tasks: TASKS, jobs: PRESSES * JOBS, sizes: SIZES })}\n`);
+            let from = h.requests().length;
+            let cpu0 = cpu();
+            const { container } = await h.mount(byHall);
+            await waitFor(() => expect(container.querySelectorAll("[data-plan-row]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await settle();
+            report("open, a hall a window", from, cpu0, container);
+            // The first hall's window and the two the driver reads ahead of it, a hall each: no other hall is read, nor made.
+            expect(hallPages(from).every((read) => read.limit === 1)).toBe(true);
+            expect(hallWindows(from)).toEqual([0, 1, 2]);
+            // The first hall's presses' jobs and, where the margin past the view reaches beyond its presses, the next
+            // hall's first block: a block is a window's own.
+            expect(searchesOf(from)).toBeLessThanOrEqual(2 * SCHEDULE_CELL_BLOCK * LEVELS);
+
+            // The end of the page, where the last hall drawn sits whatever the halls not read are estimated at: the
+            // canvas's height moves as their windows land, and the view goes with it until the hall is drawn.
+            from = h.requests().length;
+            cpu0 = cpu();
+            const extent = () => Number(container.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? "0");
+            const last = DRAWN[DRAWN.length - 1]!;
+            act(() => { window.scrollTo({ top: Math.max(0, extent() - window.innerHeight) }); });
+            await waitFor(() => {
+                act(() => { window.scrollTo({ top: Math.max(0, extent() - window.innerHeight) }); });
+                expect(mounted(container).some((key) => key.includes(`P${pad(last, 2)}`))).toBe(true);
+            }, { timeout: 600_000 });
+            await settle();
+            report(`the end, hall ${last}`, from, cpu0, container);
+            // The last hall's window, with the few the driver keeps beside the view as the halls estimated above it settle
+            // at the heights their windows land at — each in the page's second half: the view goes to the end, never
+            // through the halls between.
+            expect(hallPages(from).every((read) => read.limit === 1)).toBe(true);
+            expect(hallWindows(from)).toContain(HALLS - 1);
+            for (const w of hallWindows(from)) expect(w).toBeGreaterThanOrEqual(Math.floor(HALLS / 2));
+            // Its presses' jobs, at most the blocks meeting the view and its margin.
+            expect(searchesOf(from)).toBeGreaterThan(0);
+            expect(searchesOf(from)).toBeLessThanOrEqual(3 * SCHEDULE_CELL_BLOCK * LEVELS);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Nothing failed to read on the way.
             const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));

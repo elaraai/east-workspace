@@ -106,7 +106,7 @@ import {
     rowHeight, rowItemKey, rowKeyOf, rowKeyWords, visibleRows,
     type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
-import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
+import { bandElements } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
@@ -1268,7 +1268,9 @@ export function usePlanCanvas({
     // leaves the span standing (`shownCellSpan`).
     const pagingOrigin = paging.origin;
     const pagingNarrowing = paging.narrowing;
-    const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin);
+    // How many entries each of those windows holds (#1714): the root's, as the driver pages by it.
+    const pagingWindowEntries = paging.windowEntries;
+    const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin, pagingWindowEntries);
     const onRangeChange = useCallback((
         range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
         shown?: { startIndex: number; endIndex: number },
@@ -1889,7 +1891,7 @@ export function usePlanCanvas({
             // The run's own rows: rows of its block, from a window its elements covered.
             const ofRun = band === undefined ? [] : rows.filter((it) => {
                 const o = it.kind === "row" ? paging.origin.get(it.row.row.key) : undefined;
-                return o !== undefined && o.block === band.block && o.w * PLAN_PAGE_SIZE <= band.to && (o.w + 1) * PLAN_PAGE_SIZE - 1 >= band.from;
+                return o !== undefined && o.block === band.block && o.w * paging.windowEntries <= band.to && (o.w + 1) * paging.windowEntries - 1 >= band.from;
             });
             const candidates = ofRun.length > 0 ? ofRun : rows;
             // Nothing read in view yet: still owed.
@@ -2090,7 +2092,7 @@ export function usePlanCanvas({
     const eventsReader = events !== undefined
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
-                kinds={kinds} rows={kept.data.rows.type === "inline" ? kept.data.rows : kept.value.rows} parts={eventParts}
+                kinds={kinds} rows={kept.data.rows.type === "inline" ? kept.data.rows : kept.value.rows} windowEntries={pagingWindowEntries} parts={eventParts}
                 links={linked.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
         )
         : null;
