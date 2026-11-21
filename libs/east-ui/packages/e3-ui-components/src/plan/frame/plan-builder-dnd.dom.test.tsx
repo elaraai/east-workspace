@@ -27,8 +27,8 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import {
-    ArrayType, DateTimeType, DictType, East, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none,
-    printFor, some, variant,
+    ArrayType, DateTimeType, DictType, East, OptionType, SetType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    none, printFor, some, variant,
 } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -1206,6 +1206,24 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         expect(draftLine(c)).toBe("loose");
         await release();
         expect(pending(c)).toBe("0 pending");
+    });
+
+    test("ruling 1 — told the app's rule (east-workspace#1709), Connect keys a flow by the flows' `newKey` — FL-18, the next of its scheme, never a key made up — and Save writes it under it", async () => {
+        const held = await h.read(ex.planLinkFlows);
+        const ruled = flowsPlan({ newKey: () => East.function([SetType(StringType)], StringType, (_$, taken) => East.str`FL-${taken.size().add(1n)}`) });
+        const { container: c } = await h.mount(ruled, DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
+        expect(caption()).toBe("Flow · Catalogue covers → Price lists");
+        await release();
+        expect(pending(c)).toBe("1 pending");
+        await press(historyButton(c, SAVE));
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        // The record's seventeen flows, and the one Connect drew, under the rule's key.
+        const made = [...(await h.read(ex.planLinkFlows)).keys()].filter((key) => !held.has(key));
+        expect([held.size, made]).toEqual([17, ["FL-18"]]);
     });
 
     test("a `key` that fails for the two events makes no link: the ghost says no key can be made, and the drop draws nothing", async () => {

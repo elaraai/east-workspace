@@ -124,7 +124,8 @@ export interface PlanConnectMade {
 
 /**
  * The link a Connect would draw between two events (#1541, U10): a new row of the kind's record, its ends their keys
- * and every other field its type's default, under a key its row builds (`rowKey`) or its session makes.
+ * and every other field its type's default, under a key its row builds (`rowKey`) or its session makes — by the app's
+ * own rule where the kind gives one (`newKey`).
  *
  * @param kind - The link kind Connect draws
  * @param ends - The event it runs from, and the one it runs to
@@ -235,14 +236,15 @@ export function editableLinkKinds(kinds: readonly PlanLinkKindValue[]): readonly
 }
 
 /**
- * The link kinds edited here, as records of the shared editing: a session each, named by its slot.
+ * The link kinds edited here, as records of the shared editing: a session each, named by its slot, with the app's rule
+ * for a new link's key where its kind gives one.
  *
  * @param kinds - The link kinds
  * @returns The records
  */
 export function linkKindRecords(kinds: readonly PlanLinkKindValue[]): ScheduleEditingRecord[] {
     return editableLinkKinds(kinds).flatMap((kind) => (kind.editing.type === "some"
-        ? [{ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, fields: kind.fields }]
+        ? [{ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, newKey: kind.newKey, fields: kind.fields }]
         : []));
 }
 

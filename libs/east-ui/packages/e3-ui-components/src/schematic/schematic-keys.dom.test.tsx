@@ -52,7 +52,7 @@ import { describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    BlobType, DateTimeType, DictType, East, IntegerType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
+    BlobType, DateTimeType, DictType, East, IntegerType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
 } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
@@ -385,6 +385,67 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.keyedHoses.type)(withRows(hoses, compareNumber, [[11n, { from: variant("oven", 11n), to: variant("mixer", "M1"), bore: 0.0 }]])));
         expect(printFor(fx.keyedFeeds.type)(await h.read(fx.keyedFeeds)))
             .toBe(printFor(fx.keyedFeeds.type)(withRows(feeds, compareNumber, [[11n, { supply: new SortedSet([11n, 101n], compareNumber), fed: ["10B"], name: "" }]])));
+    });
+
+    test("ruling 1 — told the app's rule (east-workspace#1709), a card's ⏎ adds oven 200 by the ovens' `newKey` — a hundred past the largest, never the next number — Connect a hose 110 by the hoses', and a Shift-drag a line L-1 by the lines', never a key made up; and Save writes each under its key", async () => {
+        const ovens = await h.read(fx.keyedOvens), hoses = await h.read(fx.keyedHoses);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.ruled", {
+                floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+            }));
+            const ovensBound = $.let(Record.bind(fx.keyedOvens));
+            const mixers = $.let(Data.bind(fx.keyedMixers));
+            const hosesBound = $.let(Record.bind(fx.keyedHoses));
+            const linesBound = $.let(Record.bind(fx.sidedLines));
+            const cards = $.let(Data.bind(fx.floorCards));
+            // The bakehouse's own schemes: its ovens and its hoses numbered in hundreds, its lines L-1, L-2, …
+            const inHundreds = $.const(East.function([SetType(IntegerType)], IntegerType, (_$2, taken) =>
+                taken.reduce((_$3, most, key) => East.max(most, key), 0n).add(100n)));
+            const nextLine = $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`L-${taken.size().add(1n)}`));
+            return Schematic({
+                id: "keyedRuled",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    ovens: Schematic.items(ovensBound, {
+                        name: "Oven", icon: "server", x: "x", y: "y", label: "name", newKey: inHundreds,
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+                    }),
+                    mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }),
+                },
+                links: {
+                    hoses: Schematic.links(hosesBound, {
+                        name: "Hose", icon: "link", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: { oven: "ovens", mixer: "mixers" } },
+                        newKey: inHundreds,
+                    }),
+                },
+                nets: {
+                    lines: Schematic.nets(linesBound, {
+                        name: "Line", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "mixers" }, newKey: nextLine,
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) });
+        // The card's ⏎: an oven at the view's centre, under a hundred past 100.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "ovens", key: "spare" })));
+        await waitFor(() => expect(isSelected(c, "ovens", "200")).toBe(true));
+        // Oven 11 to M1: hose 110, a hundred past the hoses' 10. Oven 200 to 10B: hose 210 — and Shift-dragged on from
+        // oven 11 to 10B, the session grows into line L-1, absorbing hose 210.
+        const canvas = canvasOf(c);
+        hits(c, [["ovens", "11", 4, 4], ["ovens", "200", 14, 7], ["mixers", "10B", 8, 10], ["mixers", "M1", 10, 3]]);
+        await tool(c, "Connect");
+        await drag(canvas, [4, 4], [10, 3]);
+        await drag(canvas, [14, 7], [8, 10]);
+        await drag(canvas, [4, 4], [8, 10], true);
+        expect(await save(c)).toEqual([fx.keyedHoses.name, fx.keyedOvens.name, fx.sidedLines.name].sort(compareText));
+        expect(printFor(fx.keyedOvens.type)(await h.read(fx.keyedOvens)))
+            .toBe(printFor(fx.keyedOvens.type)(withRows(ovens, compareNumber, [[200n, { name: "Spare", x: some(14.0), y: some(7.0) }]])));
+        expect(printFor(fx.keyedHoses.type)(await h.read(fx.keyedHoses)))
+            .toBe(printFor(fx.keyedHoses.type)(withRows(hoses, compareNumber, [[110n, { from: variant("oven", 11n), to: variant("mixer", "M1"), bore: 0.0 }]])));
+        expect(printFor(fx.sidedLines.type)(await h.read(fx.sidedLines)))
+            .toBe(printFor(fx.sidedLines.type)(new SortedMap([["L-1", { supply: new SortedSet([11n, 200n], compareNumber), fed: ["10B"], name: "" }]], compareText)));
     });
 
     test("keyed by row and column, as the spots' `key` builds them: a card building a key a spot holds is refused, naming it; one building a new key adds the spot under it; a column edited moves a spot under its new key, still selected, its rope with it; one building a key a spot holds is refused, naming it, the form showing the row again; and Save writes each under its key", async () => {

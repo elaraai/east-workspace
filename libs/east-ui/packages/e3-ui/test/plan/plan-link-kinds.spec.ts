@@ -222,7 +222,7 @@ describe("a link's quantity, and its key", () => {
             ...(key === undefined ? {} : { key: key as never }),
         });
         assert.match(refusal(($) => declare($ as never)),
-            /^Plan\.links: "Step": the links are keyed by .*, and Connect makes one with no key typed — give `key`, building one's key from its row, or key them by String or Integer$/);
+            /^Plan\.links: "Step": the links are keyed by .*, and Connect makes one with no key typed — give `key`, building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer$/);
         const kind = kindOf(($) => declare($, (step) => ({ from: step.from, to: step.to })).build("step"));
         if (kind.rowKey.type !== "some") assert.fail("its `key` is on the wire");
         // Its ends hold the jobs' keys at their own type, an Integer, read back from their text.

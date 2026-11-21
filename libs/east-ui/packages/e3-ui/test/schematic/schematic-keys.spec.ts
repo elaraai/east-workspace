@@ -803,7 +803,7 @@ describe("a new row's key: a kind's `key` builds it from its row (#1549)", () =>
                 links: { ducts: Schematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
             });
         }), `Schematic.links: "Duct": the links are keyed by ${printType(DuctKey)}, and Connect makes one with no key typed — give \`key\`, ` +
-            "building one's key from its row, or key them by String or Integer");
+            "building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer");
         refused(() => East.function([], UIComponentType, ($) => {
             const ovens = $.let(Data.bind(lineOvens));
             const feeds = $.let(Record.bind(datedFeeds));
@@ -813,7 +813,7 @@ describe("a new row's key: a kind's `key` builds it from its row (#1549)", () =>
                 nets: { feeds: Schematic.nets(feeds, { name: "Feed", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "ovens" } }) },
             });
         }), `Schematic.nets: "Feed": the nets are keyed by ${printType(DateTimeType)}, and Connect's Shift session makes one with no key typed — ` +
-            "give `key`, building one's key from its row, or key them by String or Integer");
+            "give `key`, building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer");
         // Given `key`, they build; read only, they need none.
         assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
             const ovens = $.let(Data.bind(lineOvens));

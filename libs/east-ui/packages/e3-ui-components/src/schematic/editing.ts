@@ -36,7 +36,9 @@
  *   hands back, whole. A gesture any of whose rows its kind refuses records
  *   nothing.
  * - **A new row's key (#1549)** is its kind's to make (`newKey`): built from
- *   the row by the kind's `key`; else, keyed by String, minted unique among
+ *   the row by the kind's `key`; else by the app's own rule, the kind's
+ *   `newKey`, given the keys taken — its session's to ask; else, keyed by
+ *   String, minted unique among
  *   every key the Schematic has read and drafted (`mintKey`, SC7); by Integer,
  *   one past the largest the record, the drafts and the gesture hold — a kind
  *   read by key asking its record for its largest; by any type the form types,
@@ -179,14 +181,14 @@ export interface SchematicEditing {
     edited(record: string): boolean;
     /**
      * A new row's key, as its kind makes one (#1549; the module docs): built from the row the edit makes, by the kind's
-     * `key`, refused where a row stands under it; else, keyed by String, minted unique (SC7); by Integer, one past the
-     * largest; by a type the form types, a placeholder; by any other, none.
+     * `key`, refused where a row stands under it; else by the app's rule, the kind's `newKey`; else, keyed by String,
+     * minted unique (SC7); by Integer, one past the largest; by a type the form types, a placeholder; by any other, none.
      *
      * @param made - The edit making the row — an item's, a link's or a net's — under any key: its kind's, and the row the
      *   kind's `key` builds a key from
      * @param minted - The keys the gesture has made already
-     * @returns The key, or why there is none; `undefined` while a kind read by key asks its record for its largest, or
-     *   where the kind makes no row of the edit
+     * @returns The key, or why there is none; `undefined` while a kind read by key asks its record for its largest, where
+     *   the app's rule gives a key that is taken or fails, or where the kind makes no row of the edit
      */
     newKey(made: SchematicEdit, minted?: ReadonlySet<string>): SchematicNewKey | undefined;
     /**
@@ -221,7 +223,8 @@ export interface SchematicEditing {
      */
     builds(slot: string): boolean;
     /**
-     * Why a kind adds no row (#1549): its keys are of a type the form can't type, and it builds none.
+     * Why a kind adds no row (#1549): its keys are of a type the form can't type, and it neither builds one nor is given
+     * the app's rule for one.
      *
      * @param slot - The kind's slot
      * @returns The key type's name; `undefined` for a kind that keys the rows it adds
@@ -229,7 +232,8 @@ export interface SchematicEditing {
     untyped(slot: string): string | undefined;
     /**
      * Whether the viewer types a kind's new rows' keys (#1549): it makes none of its own — keyed by neither String nor
-     * Integer, and building none — and the form types its key type. A new row waits under a placeholder until it is typed.
+     * Integer, building none and given no rule for one — and the form types its key type. A new row waits under a
+     * placeholder until it is typed.
      *
      * @param slot - The kind's slot
      */
@@ -266,7 +270,7 @@ function builderOf(kind: AnyKind | undefined): ((row: Uint8Array) => string) | u
 
 /** Whether a kind's new rows wait under a placeholder for the viewer to type their keys (#1549): it makes none of its own. */
 function placeholdersOf(kind: AnyKind): boolean {
-    return !kindKeys(kind.keyType).text && kind.keyType.type !== "Integer" && builderOf(kind) === undefined;
+    return !kindKeys(kind.keyType).text && kind.keyType.type !== "Integer" && builderOf(kind) === undefined && kind.newKey.type !== "some";
 }
 
 /** A record a change names, as a row is found in it: its row type, its read by key, and its keys — a details record's its kind's. */
@@ -335,7 +339,10 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                 const ready = waiting(kind.ready, () => variant("incomplete", [{ field: "", message: wordsNow.current.placeholder({ name: kind.name }) }]));
                 // A kind read by area draws its rows from its window, which a Save's confirmation doesn't read: its session
                 // keeps what each Save landed, drawn until the window is read again.
-                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields, drawsLanded: areas.has(kind.key) });
+                out.push({
+                    key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, newKey: kind.newKey, ready, fields: kind.fields,
+                    drawsLanded: areas.has(kind.key),
+                });
             }
             const details = someOf(kind.details);
             if (details !== undefined && details.editable && details.editing.type === "some") {
@@ -650,11 +657,12 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             }
             return minted.has(key) || stands(slot, key) ? { taken: key } : { key };
         }
-        if (keys.text) return { key: mintKey(holds) };
-        if (kind.keyType.type === "Integer") {
+        // By the app's own rule, or one past the largest Integer: each its session's to make.
+        if (kind.newKey.type === "some" || kind.keyType.type === "Integer") {
             const key = editing.mint(slot, "", minted);
             return key === undefined ? undefined : { key };
         }
+        if (keys.text) return { key: mintKey(holds) };
         // A placeholder: a text minted that no key prints as, until the viewer types its key.
         if (keys.typed) return { key: mintKey((key) => keys.isKey(key) || holds(key)) };
         return { untyped: kind.keyType.type };
@@ -710,7 +718,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     const builds = useCallback((slot: string): boolean => builderOf(kindOf(latest.current.value, slot)) !== undefined, []);
     const untyped = useCallback((slot: string): string | undefined => {
         const kind = kindOf(latest.current.value, slot);
-        if (kind === undefined || builderOf(kind) !== undefined) return undefined;
+        if (kind === undefined || builderOf(kind) !== undefined || kind.newKey.type === "some") return undefined;
         const keys = kindKeys(kind.keyType);
         return keys.text || kind.keyType.type === "Integer" || keys.typed ? undefined : kind.keyType.type;
     }, []);

@@ -97,7 +97,7 @@ export { recordSources, sliceSourceNames, tabSource, templatesSource, type Recor
 // accessors and its record's side, each at the record's key type, its keys on the wire as their text (#1549).
 export {
     KindSideFields, accessorRole, kindBinding, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
-    type KindAccessor, type KindBinding, type KindBindingWords, type KindRowsRead, type RecordSide,
+    type KindAccessor, type KindBinding, type KindBindingWords, type KindRowKeys, type KindRowsRead, type RecordSide,
 } from './utils/record-kind.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer;
 // and what an answer does to a record, key by key, which every builder lands it through (#1622).

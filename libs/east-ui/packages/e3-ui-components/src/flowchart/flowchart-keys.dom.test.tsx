@@ -26,7 +26,9 @@
  *   DateTime, a placeholder — Save waiting, Issues listing it at its key field,
  *   no row named in its place — until the viewer types its key in the
  *   inspector; and by Blob, which no form types, none: + LANE, + STATE,
- *   Duplicate and the Steps' cards off, each saying why.
+ *   Duplicate and the Steps' cards off, each saying why. A kind told the app's
+ *   own rule (`newKey`, east-workspace#1709) keys each new row by it, whatever
+ *   its key type would make.
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
  *   it is refused, saying why, and records nothing; its choices cleared, the
@@ -50,7 +52,9 @@
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, variant, type BlockBuilder } from "@elaraai/east";
+import {
+    BlobType, DateTimeType, East, FloatType, IntegerType, SetType, SortedMap, StringType, compareFor, equalFor, printFor, variant, type BlockBuilder,
+} from "@elaraai/east";
 import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
@@ -323,6 +327,32 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.keyedStations.type)(withRows(stations, compareNumber, [[11n, { label: m.newLane({ n: 4, count: "4" }) }]])));
         expect(printFor(fx.keyedSteps.type)(await h.read(fx.keyedSteps))).toBe(printFor(fx.keyedSteps.type)(withRows(steps, compareNumber, [[12n, { name: "Proof", station: 2n }]])));
         expect(printFor(fx.keyedMoves.type)(await h.read(fx.keyedMoves))).toBe(printFor(fx.keyedMoves.type)(withRows(moves, compareNumber, [[11n, { from: 2n, to: 11n }]])));
+    });
+
+    test("ruling 1 — told the app's rule, + LANE keys a station by the stations' `newKey` — S-3, never a name made up — and Duplicate a step by the steps' — a hundred past the largest, never the next number — and Save writes each under it", async () => {
+        const stations = await h.read(fx.labelledStations), steps = await h.read(fx.labelledSteps);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(fx.labelledStations));
+            // The stations in the bakery's own scheme, S-1, S-2, …; the steps numbered in hundreds.
+            const nextStation = $.const(East.function([SetType(StringType)], StringType, (_$, taken) => East.str`S-${taken.size().add(1n)}`));
+            const nextStep = $.const(East.function([SetType(IntegerType)], IntegerType, (_$, taken) =>
+                taken.reduce((_$2, most, key) => East.max(most, key), 0n).add(100n)));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", newKey: nextStep }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", newKey: nextStation }),
+            };
+        }, "1");
+        await addLane(c);
+        expect(laneKeys(c)).toEqual(["Bench", "Oven", "S-3"]);
+        await gesture(() => { fireEvent.click(node(c, "1")!); });
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-action='duplicate']")!); });
+        expect(node(c, "102")?.hasAttribute("data-selected")).toBe(true);
+        expect(await save()).toEqual([fx.labelledStations.name, fx.labelledSteps.name].sort(compareText));
+        expect(printFor(fx.labelledStations.type)(await h.read(fx.labelledStations)))
+            .toBe(printFor(fx.labelledStations.type)(withRows(stations, compareText, [["S-3", { label: m.newLane({ n: 3, count: "3" }) }]])));
+        expect(printFor(fx.labelledSteps.type)(await h.read(fx.labelledSteps)))
+            .toBe(printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[102n, { name: "Weigh", station: "Bench" }]])));
     });
 
     test("keyed by their ends, Connect keys a move as the transitions' `key` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {

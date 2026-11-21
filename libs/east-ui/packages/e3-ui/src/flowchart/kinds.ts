@@ -26,10 +26,11 @@
  *   its type's defaults.
  * - **A new row's key** (#1549): a state's, a transition's and a lane's `key`
  *   builds it from the row, held at build to the record's key type, and the
- *   row moves with it as an edit changes what it reads. Without one the
- *   renderer makes a String key up and counts an Integer one on from the
- *   largest. A transition's key is never typed, so an editable kind keyed by
- *   any other type is refused without `key`.
+ *   row moves with it as an edit changes what it reads; or its `newKey`, the
+ *   app's own rule, makes it from the keys taken. A kind gives one or neither.
+ *   With neither the renderer makes a String key up and counts an Integer one
+ *   on from the largest. A transition's key is never typed, so an editable
+ *   kind keyed by any other type is refused without `key` or `newKey`.
  * - **A row that holds its own key**: where a state's, a transition's or a
  *   lane's row holds its key in a field too, `keyField` names it, and a row
  *   the Flowchart adds holds its key there, and is saved with it.
@@ -71,14 +72,13 @@ import {
     type BlockBuilder, type DictType, type EastType, type ExprType, type FunctionType, type ImmutableType, type StructType,
 } from "@elaraai/east";
 import type { FieldHints } from "@elaraai/east-ui/internal";
-import type { RecordKeyField } from "../bind/record.js";
 import { fieldOf, type FieldName, type FieldsOf } from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, typeText } from "../schedule/window.js";
 import {
     accessorRole, called, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf,
     storedRows, valuesTypeOf,
-    type KindAccessor as Accessor, type KindBinding, type KindKeyBuilder, type KindRowInspector as RowInspector, type RecordSide,
+    type KindAccessor as Accessor, type KindBinding, type KindKeyBuilder, type KindRowInspector as RowInspector, type KindRowKeys, type RecordSide,
 } from "../utils/record-kind.js";
 import { isFlowchartDetails, type FlowchartDetails, type FlowchartDetailsSpec, type FlowchartTransitionDetailsSpec } from "./details.js";
 import { checkedFlowchartTemplates, type FlowchartTemplates } from "./templates.js";
@@ -495,7 +495,8 @@ function detailsOf(details: unknown, where: string, noun: "states" | "transition
  * @typeParam O - The `order` field
  * @typeParam K - The record's key type
  */
-export interface FlowchartStatesSpec<R extends StructType, L extends string, O extends string, K extends EastType = StringType> extends RecordSide<R, K> {
+export interface FlowchartStatesSpec<R extends StructType, L extends string, O extends string, K extends EastType = StringType>
+    extends RecordSide<R, K>, KindRowKeys<R, K> {
     /** What one is called: in the inspector, Issues and the library; "State" unless given. */
     name?: string;
     /** Its Font Awesome solid icon; "square" unless given. */
@@ -524,8 +525,9 @@ export interface FlowchartStatesSpec<R extends StructType, L extends string, O e
     values?: (made: ExprType<typeof FlowchartStateWriteType>) => ScheduleNewValues<R>;
     /**
      * A new state's key, built from its row (#1549): what a drop, Duplicate and "+ STATE" make one under, and what a
-     * state moves to as an edit changes the fields it reads — refused when another state holds it. Omitted, a String
-     * key is made up, an Integer one is one past the largest, and any other the viewer types in the inspector.
+     * state moves to as an edit changes the fields it reads — refused when another state holds it. Omitted, with no
+     * `newKey`, a String key is made up, an Integer one is one past the largest, and any other the viewer types in the
+     * inspector.
      */
     key?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
@@ -551,7 +553,8 @@ export interface FlowchartStatesSpec<R extends StructType, L extends string, O e
  *   a `lane` of a type no Dict is keyed by among them; `label` and `lane`, or `lane` and `order`, naming one field; an accessor returning
  *   another type; cards written in the code, or giving other fields than every field but `lane` and `order`; a
  *   `values` giving other fields than every field but `label`, `lane` and `order`, or one of another type, naming it;
- *   a `key` building another type than the states' key, naming both; details keyed by another type than the states;
+ *   a `key` building another type than the states' key, naming both; a `newKey` that is no East function from a Set of
+ *   the states' keys to one, or one beside `key`; details keyed by another type than the states;
  *   and a record that is no binding of a record of structs, a `Record.bind` without its patch door, or `entries`
  *   beside a read-only binding
  *
@@ -806,7 +809,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
  * @typeParam K - The record's key type
  */
 export interface FlowchartTransitionsSpec<R extends StructType, F extends string, T extends string, D extends string, K extends EastType = StringType>
-    extends RecordSide<R, K> {
+    extends RecordSide<R, K>, KindRowKeys<R, K> {
     /** What one is called; "Transition" unless given. */
     name?: string;
     /** Its Font Awesome solid icon; "arrow-right" unless given. */
@@ -842,8 +845,8 @@ export interface FlowchartTransitionsSpec<R extends StructType, F extends string
     /**
      * A new transition's key, built from its row (#1549) — `(move) => ({ from: move.from, to: move.to })`: what Connect
      * makes one under, and what a transition moves to as an edit of its ends changes the fields it reads — refused when
-     * another transition holds it. Omitted, a String key is made up and an Integer one is one past the largest; an
-     * editable kind keyed by any other type needs it.
+     * another transition holds it. Omitted, with no `newKey`, a String key is made up and an Integer one is one past
+     * the largest; an editable kind keyed by any other type needs one of the two.
      */
     key?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
@@ -897,7 +900,7 @@ function decisionOf(rowType: StructType, where: string, name: unknown): Decision
  * @throws {Error} Naming the role or the binding, as `Flowchart.states` does: `from` and `to` of a type no Dict is keyed
  *   by, or of two types; a `decision` holding neither an Option of a key nor a String; `from`, `to` and `decision`
  *   naming one field; a `key` building another type than the transitions' key, naming both; and an editable record
- *   keyed by neither String nor Integer given no `key`, whose new transitions nothing would key
+ *   keyed by neither String nor Integer given neither `key` nor `newKey`, whose new transitions nothing would key
  */
 export function flowchartTransitions<R extends StructType, F extends FlowchartKeyField<R>, T extends FieldsOf<R, R["fields"][F & keyof R["fields"]]>,
     D extends FlowchartKeyField<R, true> = never, K extends EastType = StringType>(
@@ -940,7 +943,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
     const valuesOf = scheduleNewValues(FlowchartTransitionWriteType, rowType, valuesTypeOf(rowType, roles), spec.values, where);
     // A new transition's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
     const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a transition", spec.key);
-    checkMadeKeys(bound, keyBuilt, where, "transitions", "Connect makes one");
+    checkMadeKeys(bound, keyBuilt !== undefined || spec.newKey !== undefined, where, "transitions", "Connect makes one");
 
     // A state's key as its text and read back at the ends' type; a decision's at its key's (#1549).
     const endText = keyTextOf(from.type);
@@ -1066,7 +1069,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
  * @typeParam O - The `order` field
  * @typeParam K - The record's key type
  */
-export interface FlowchartLanesSpec<R extends StructType, O extends string, K extends EastType = StringType> {
+export interface FlowchartLanesSpec<R extends StructType, O extends string, K extends EastType = StringType> extends KindRowKeys<R, K> {
     /** What one is called; "Lane" unless given. */
     name?: string;
     /** The field its header is: a String, or an Option of one. + LANE and a rename write it. */
@@ -1083,17 +1086,11 @@ export interface FlowchartLanesSpec<R extends StructType, O extends string, K ex
     values?: (made: ExprType<typeof FlowchartLaneWriteType>) => ScheduleNewValues<R>;
     /**
      * A new lane's key, built from its row (#1549): what + LANE and a card dropped on the band row make one under, and
-     * what a lane moves to as an edit changes the fields it reads — refused when another lane holds it. Omitted, a String
-     * key is made up, an Integer one is one past the largest, and any other the viewer types in the inspector.
+     * what a lane moves to as an edit changes the fields it reads — refused when another lane holds it. Omitted, with no
+     * `newKey`, a String key is made up, an Integer one is one past the largest, and any other the viewer types in the
+     * inspector.
      */
     key?: KindKeyBuilder<R, K>;
-    /**
-     * The field of a lane's row that holds its key, for a record whose rows carry their own. A lane the Flowchart adds
-     * holds its key there, whatever a card's values or `values` give the field, and is saved with it; a lane the record
-     * holds already keeps what its field holds. The form shows the field read only, and no role names it. The field is
-     * of the record's key type.
-     */
-    keyField?: RecordKeyField<K, R>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -1113,8 +1110,9 @@ export interface FlowchartLanesSpec<R extends StructType, O extends string, K ex
  * @returns The lanes, for the Flowchart's `lanes`
  * @throws {Error} Naming the role or the binding, as `Flowchart.states` does: a paged read, and `entries`, among them —
  *   the lanes are read whole — a `values` giving other fields than every field but `label` and `order`, or one of
- *   another type, naming it, a `key` building another type than the lanes' key, naming both, and a `keyField` that is no
- *   field of the row of the lanes' key type, or that a role names
+ *   another type, naming it, a `key` building another type than the lanes' key, naming both, a `newKey` that is no East
+ *   function from a Set of the lanes' keys to one, or one beside `key`, and a `keyField` that is no field of the row of
+ *   the lanes' key type, or that a role names
  */
 export function flowchartLanes<R extends StructType, O extends FlowchartOrderField<R, IntegerType | FloatType> = never, K extends EastType = StringType>(
     binding: FlowchartWholeBinding<R, K>, spec: FlowchartLanesSpec<R, O, K>,
