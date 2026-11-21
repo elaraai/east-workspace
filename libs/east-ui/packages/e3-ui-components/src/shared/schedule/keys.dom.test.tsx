@@ -254,7 +254,7 @@ describe("the shared editing over an event kind that builds each event's key fro
         await settle();
         const held = visitDraft("V-2");
         if (held?.type !== "value") throw new Error("expected the visit drafted under the key its row builds");
-        expect([jobEqual(held.value, added), visitDraft(made), editing().moved.get("visits")?.get(made)]).toEqual([true, undefined, "V-2"]);
+        expect([jobEqual(held.value, added), visitDraft(made), editing().renumbered.get("visits")?.get(made)]).toEqual([true, undefined, "V-2"]);
         // Another whose row builds V-2 too: nothing is recorded, and the editing says the key is taken.
         const again = editing().mint("visits", "", new Set());
         if (again === undefined) throw new Error("expected a key made for the second visit");
@@ -274,7 +274,7 @@ describe("the shared editing over an event kind that builds each event's key fro
         await settle();
         const moved = visitDraft("V-5");
         if (moved?.type !== "value") throw new Error("expected the visit drafted under its new key");
-        expect([jobEqual(moved.value, renamed), visitDraft("V-1")?.type, editing().moved.get("visits")?.get("V-1")]).toEqual([true, "missing", "V-5"]);
+        expect([jobEqual(moved.value, renamed), visitDraft("V-1")?.type, editing().renumbered.get("visits")?.get("V-1")]).toEqual([true, "missing", "V-5"]);
         // Its reference typed as the key another visit stands under: refused whole, the visit where it was.
         act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...renamed, ref: "legacy" }) }], "typed", "Edit a visit")).toBe(false); });
         expect([editing().keyRefusal(), visitDraft("V-5")?.type]).toEqual([{ kind: "visits", id: "V-5", why: { taken: "legacy" } }, "value"]);

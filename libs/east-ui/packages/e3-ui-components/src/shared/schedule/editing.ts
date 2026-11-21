@@ -236,8 +236,10 @@ export interface ScheduleLandedRows {
 export type ScheduleLanded = ReadonlyMap<string, ScheduleLandedRows>;
 
 /**
- * The new events the last carry-over of each kind's drafts gave another key (#1583), by the kind's slot, then by the key
- * the event had (`EditSession.renumbered`): the key made for each was taken by another Save's own new event.
+ * The entries that last went on under another key, by the kind's slot or the record's key, then by the key each had:
+ * the new events a carry-over of a kind's drafts gave another key (#1583, `EditSession.renumbered`) — the key made for
+ * each was taken by another Save's own new event — or the rows a gesture moved under the key their fields build
+ * (east-workspace#1709), a new row's from the key made for it.
  */
 export type ScheduleRenumbered = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
@@ -284,17 +286,13 @@ export interface ScheduleEditing<I extends Item = Item> {
      */
     readonly landed: ScheduleLanded;
     /**
-     * The new events the last carry-over of each kind's drafts gave another key ({@link ScheduleEditingArgs.rekeys}):
-     * what a builder moves on to the new key with them — its selection. The same object until a carry-over gives an
-     * event another key; one empty object while none has.
+     * The entries that last went on under another key — whichever came last: the new events a carry-over of each
+     * kind's drafts gave another key ({@link ScheduleEditingArgs.rekeys}), or the rows a gesture moved under the key
+     * their fields build (east-workspace#1709) — what a builder moves on to the new key with them: its selection. The
+     * same object until a carry-over or a gesture gives an entry another key, so a builder follows each once; one
+     * empty object while none has.
      */
     readonly renumbered: ScheduleRenumbered;
-    /**
-     * The rows the last gesture moved under the key their fields build (east-workspace#1709), by the kind's slot or the
-     * record's key, then by the key each had — a new row's the one made for it: what a builder moves on to the new key
-     * with them, its selection. The same object until a gesture moves a row; one empty object while none has.
-     */
-    readonly moved: ScheduleRenumbered;
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
     /**
@@ -414,7 +412,7 @@ export interface ScheduleEditing<I extends Item = Item> {
      * A new event's key, as its text — its kind's session's to make
      * (`EditSession.mint`): for a kind that builds its keys from its rows
      * (`key`), one made up to stand for the row until the gesture is recorded,
-     * which moves it under the key its row builds ({@link ScheduleEditing.moved});
+     * which moves it under the key its row builds ({@link ScheduleEditing.renumbered});
      * by the app's own rule where its kind gives one
      * (`newKey`), given every key known taken; else a text key from an event's key or a template's,
      * else made up — the next in a row (`J-1001-2`) for a kind whose record
@@ -443,7 +441,7 @@ export interface ScheduleEditing<I extends Item = Item> {
      *
      * A kind that builds its keys from its rows (`key`) has each row stand under the key its row builds: a row the
      * gesture makes, under whatever key it was made, and a row whose edit changes the key its row builds
-     * ({@link ScheduleEditing.moved}). Where another row stands under that key, or building it fails, nothing of the
+     * ({@link ScheduleEditing.renumbered}). Where another row stands under that key, or building it fails, nothing of the
      * gesture is recorded, and {@link ScheduleEditing.keyRefusal} says why.
      *
      * @param changes - Each event or row it changes, and how; one changed twice composes, in order
@@ -902,10 +900,11 @@ export function useScheduleEditing<I extends Item = Item>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, codecs, keys, history, version]);
 
-    // ── The new events a carry-over gave another key ─────────────────────────
-    // Each kind's session says them once, a new map at each carry-over: handed on as one object, the same until one moves.
+    // ── The entries that last went on under another key ──────────────────────
+    // The new events a carry-over gave another key: each kind's session says them once, a new map at each carry-over,
+    // handed on as one object, the same until one moves.
     const heldRenumbered = useRef<ScheduleRenumbered>(NO_RENUMBERED);
-    const renumbered = useMemo((): ScheduleRenumbered => {
+    const carried = useMemo((): ScheduleRenumbered => {
         const was = heldRenumbered.current;
         const out = new Map<string, ReadonlyMap<string, string>>();
         parts.forEach((part, i) => {
@@ -919,8 +918,14 @@ export function useScheduleEditing<I extends Item = Item>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, keys, history, version]);
 
-    // ── The rows a gesture moved under the key their fields build ────────────
+    // The rows a gesture moved under the key their fields build, and whichever of the two came last: a builder follows
+    // each once, so one it has followed is never met again beside the other — the key a carry-over left may since be
+    // another session's event's.
     const [moved, setMoved] = useState<ScheduleRenumbered>(NO_RENUMBERED);
+    const lastUnder = useRef({ carried, moved, last: NO_RENUMBERED });
+    if (lastUnder.current.carried !== carried) lastUnder.current = { carried, moved, last: carried };
+    else if (lastUnder.current.moved !== moved) lastUnder.current = { carried, moved, last: moved };
+    const renumbered = lastUnder.current.last;
 
     // ── The gestures ─────────────────────────────────────────────────────────
     /**
@@ -1275,8 +1280,8 @@ export function useScheduleEditing<I extends Item = Item>({
     const keyRefusal = useCallback(() => latest.current.keyRefusal(), []);
 
     return useMemo(() => ({
-        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, moved, version,
+        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
         shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal,
-    }), [history, sessions, drafts, landed, renumbered, moved, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey,
+    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey,
         mint, record, keyRefusal]);
 }

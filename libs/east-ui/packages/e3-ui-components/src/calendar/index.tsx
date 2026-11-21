@@ -719,20 +719,17 @@ function CalendarFrame(props: HostProps) {
     // An event that goes on under another key stays selected under it — the inspector open on it still, before the frame is
     // drawn without it: a new event whose made key another Save took, under the next its kind makes (#1583); and one a
     // gesture moved under the key its fields build (east-workspace#1709), a new event's from the key made for it.
-    const follow = useCallback((under: ScheduleEditing["renumbered"] | undefined) => {
-        if (under === undefined || under.size === 0) return;
+    const renumbered = editing?.renumbered;
+    useLayoutEffect(() => {
+        if (renumbered === undefined || renumbered.size === 0) return;
         const now = picked.current;
         const next = now.map((ref): CalendarRef => {
-            const to = under.get(ref.kind)?.get(ref.key);
+            const to = renumbered.get(ref.kind)?.get(ref.key);
             return to === undefined ? ref : { kind: ref.kind, key: to };
         });
         // One moved is another object: the rest are the very refs held.
         if (next.some((ref, i) => !Object.is(ref, now[i]))) select(next);
-    }, [select]);
-    const renumbered = editing?.renumbered;
-    useLayoutEffect(() => follow(renumbered), [renumbered, follow]);
-    const moved = editing?.moved;
-    useLayoutEffect(() => follow(moved), [moved, follow]);
+    }, [renumbered, select]);
     // A followed source not yet resolved holds the frame's cold load, as an event kind's window does — and a paged kind's
     // first window.
     const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined)
