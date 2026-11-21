@@ -67,6 +67,11 @@
  *  - F12 two starting filters written in the builder, the first taken out:
  *    the second stands — its chip, and the canvas narrowed by it alone — and
  *    one Undo puts the first back where it stood.
+ *  - F13 low on the screen — the rail's top at 800 of 1100, too little room
+ *    under its chip for the editor — the editor opens above the chip and holds
+ *    there: inside the screen, its body never scrolling, the picker whole in
+ *    it (F2) and the list the one thing that may scroll (F8), over a field's
+ *    list and then its values (#1701).
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -141,6 +146,28 @@ async function openBuilder(page: Page): Promise<Locator> {
 async function railOnTop(page: Page, rail: Locator): Promise<void> {
     await rail.evaluate((el) => el.scrollIntoView({ block: "start" }));
     await settled(page);
+}
+
+/**
+ * Scrolls the showcase's list of examples so a page's rail stands with its top at a height of the screen — low on it,
+ * where an editor opened from the rail has less room under its chip than over it (#1701).
+ *
+ * @param page - The browser's page
+ * @param rail - The page's rail
+ * @param top - Where the rail's top stands, from the screen's top
+ */
+async function railAt(page: Page, rail: Locator, top: number): Promise<void> {
+    await railOnTop(page, rail);
+    await rail.evaluate((el, at) => {
+        // Its scroller: the nearest box that scrolls, or the page.
+        let scroller: Element | null = el.parentElement;
+        while (scroller !== null && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+        const by = at - el.getBoundingClientRect().top;
+        if (scroller === null) window.scrollBy(0, -by);
+        else scroller.scrollTop -= by;
+    }, top);
+    await settled(page);
+    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().top)), "the rail's top").toBe(top);
 }
 
 /**
@@ -685,5 +712,44 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await builder.getByRole("button", { name: "Undo" }).click();
         await expect(chips).toHaveText(["Region: North", "Reason: Damaged"]);
         await expect(regions).toHaveCount(1, { timeout: 60_000 });
+    });
+
+    test("F13: low on the screen, its top at 800 of 1100, the rail's editor opens above its chip and holds there — inside the screen, its body never scrolling, the picker whole in it, a field's list and then its values (#1701)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        const grid = await openVisuals(page, "light");
+        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        await railAt(page, rail, 800);
+        await rail.locator("[data-slice-add=filter]").click();
+        const rows = page.locator("[data-studio-filter-rows]");
+        const chooser = rows.locator("[data-chooser]");
+        await expect(chooser).toBeVisible();
+        await settled(page);
+        /**
+         * The editor by its chip: whether it stands above the chip and inside the screen, whether the picker stands whole
+         * in it, and what in it scrolls but the list (F8's one scroller).
+         */
+        const read = () => rows.evaluate((el) => {
+            const content = el.closest("[data-scope='popover'][data-part='content']")!;
+            const box = content.getBoundingClientRect();
+            const chip = document.querySelector("[data-studio-filters] [data-slice-add=filter]")!.getBoundingClientRect();
+            const picker = el.querySelector("[data-chooser]")!.getBoundingClientRect();
+            const scrolls = [...content.querySelectorAll("*")].filter((node) => {
+                const look = getComputedStyle(node);
+                return (look.overflowY === "auto" || look.overflowY === "scroll") && node.scrollHeight > node.clientHeight + 1 && node.getAttribute("role") !== "listbox";
+            }).map((node) => node.tagName.toLowerCase());
+            return { above: box.bottom <= chip.top, inside: box.top >= 0, whole: picker.top >= box.top && picker.bottom <= box.bottom + 0.5, scrolls };
+        });
+        const HELD = { above: true, inside: true, whole: true, scrolls: [] };
+        expect(await read(), "a field's list").toEqual(HELD);
+        // A field picked: its values, the editor still above its chip.
+        await chooser.locator("[role=option]", { hasText: "region" }).first().click();
+        await expect(chooser.locator("[role=option]", { hasText: "SA" })).toBeVisible({ timeout: 20_000 });
+        await settled(page);
+        expect(await read(), "its values").toEqual(HELD);
+        // The list takes the first Esc; the second shuts the editor.
+        await page.keyboard.press("Escape");
+        await expect(chooser).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 });
