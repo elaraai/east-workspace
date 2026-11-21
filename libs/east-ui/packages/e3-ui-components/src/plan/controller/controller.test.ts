@@ -64,6 +64,7 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
     const src = opts.source as object | undefined;
     return {
         rows: src !== undefined ? variant("revision" in src ? "pinned" : "paged", blocksSource(src)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

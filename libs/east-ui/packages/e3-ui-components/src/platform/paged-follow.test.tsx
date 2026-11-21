@@ -25,6 +25,7 @@ import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
+import { PLAN_PAGE_SIZE } from "../plan/use-plan-paging.js";
 import { EastChakraSheet } from "../sheet/frame/index.js";
 import { boundFrame } from "../sheet/frame.test-utils.js";
 import { getReactiveDatasetCache } from "./bind-runtime.js";
@@ -112,6 +113,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
     };
     return {
         rows: variant("pinned", source),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

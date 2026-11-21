@@ -31,6 +31,7 @@ import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 const h = e3Harness(RAIL_MODULES, { measure: false });
 
@@ -96,6 +97,7 @@ const plainGroup = (): PlanWireRow["kind"] => variant("group", { summary: varian
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {

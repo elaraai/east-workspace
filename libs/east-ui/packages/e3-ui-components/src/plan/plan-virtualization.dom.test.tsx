@@ -25,6 +25,7 @@ import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, keySurface, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 // Every re-measure the row frame makes is counted, through its probe: the
 // frame and the TanStack it drives are east-ui-components' bundle, which no
@@ -125,6 +126,7 @@ const pad = (i: number, width: number) => String(i).padStart(width, "0");
 function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknown; expandRender?: boolean; links?: unknown[] }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts?.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
