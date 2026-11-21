@@ -64,6 +64,27 @@ the text a kind prints, the editor a kind mounts) is fine. Before every
 commit, grep the diff for `kind === "` and justify each hit. See
 [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
 
+## HARD RULE: behaviour lives in shared, tested layers — components render
+
+A component — a builder, a tag's renderer or its factory — keeps what it
+draws and its own words. Every rule it follows is a call into a shared,
+exhaustively tested layer: a data change, an edit, a record's read or write,
+narrowing and filtering, search, paging, keys, a requery or latest-wins
+token, a run layout. **Before writing any code**, find the layer that already
+does it, lowest first, and reuse or extend it there: East's utilities
+(`libs/east`); east-ui's `src/runtime/`, `src/contracts/` and its key-search
+grammar (`src/collections/value-tree/key-search.ts`); east-ui-components'
+`src/platform/`, `src/editing/` (proved by the `proof:editing` harness),
+`src/pointer/` and `src/collections/key-search/`; e3-ui's `src/schedule/`,
+`src/bind/` and `src/utils/`; e3-ui-components' `src/shared/`. A change that
+reaches more than one component is written once, in the layer, with its
+tests, before any component calls it: the same adaptation made in sibling
+components side by side is the fault itself, even with a helper beside them.
+Grep the siblings for the same thing hand-rolled and move each copy onto the
+layer in the same change. The editing core's proof sets the bar for this
+machinery: exhaustive tests of the layer, not a component's examples. A pull
+request names the layer it changed and what runs on it.
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all
