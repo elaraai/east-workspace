@@ -66,7 +66,7 @@ export function ChartVisual({ chart, asks, answers, source }: ChartVisualProps) 
     return (
         <Box css={styles.root} data-studio-chart={chart.type} onClickCapture={onClickCapture}>
             <VisualMeta view={variant("chart", chart)} source={source} shown={model.shown} />
-            {model.caption !== undefined && <Box css={styles.caption} data-studio-chart-caption="">{model.caption}</Box>}
+            {model.caption !== undefined && <Box css={styles.caption} title={model.caption} data-studio-chart-caption="">{model.caption}</Box>}
             <EastVisxChart value={model.spec} numberText={numberText} {...(onMark !== undefined ? { onMark } : {})} {...(marked !== undefined ? { marked } : {})} />
             {model.shown !== undefined && <ShownNote shown={model.shown} />}
         </Box>

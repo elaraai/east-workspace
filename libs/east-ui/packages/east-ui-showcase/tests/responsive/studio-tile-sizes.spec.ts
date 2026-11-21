@@ -16,8 +16,10 @@
  * then under 480px all of it: every width a tile can be drawn at on a page is
  * read. Its pages: every KPI configuration; every kind of donut — its legend
  * of values, of names or none, Other among its slices; every list
- * configuration; and records, summaries and pivots — each at a narrow, a
- * small, a mid and a wide span. In every tile, every part:
+ * configuration; records, summaries and pivots; and every kind of chart, its
+ * legend of few series and of many long names, its value axis over small
+ * numbers and large — each at a narrow, a small, a mid and a wide span. In
+ * every tile, every part:
  *
  *  - T1 lies inside its tile's frame;
  *  - T2 lies over no other part;
@@ -27,6 +29,8 @@
  *  - T4 a number stands whole: never cut, never ended in an ellipsis;
  *  - T5 neither the tile nor anything in it scrolls sideways, but a table's
  *    body, inside which a wide table scrolls (TBL-5);
+ *  - C1 a chart's plot keeps a third of its chart's width at the least: its
+ *    axes' labels never crowd it out;
  *  - D1 a donut's total and its caption lie inside its hole (#1692), as its
  *    plot says the hole's radius.
  *
@@ -231,6 +235,46 @@ const TABLE_SIZES: TilePage = {
 };
 
 /**
+ * Each chart the spec's page places, on a row of its own: revenue's months stacked by its six regions, a legend of
+ * six; its months by each of its fourteen customers, a legend of many long names; a margin's weeks, the small numbers
+ * of a percentage on its value axis; every customer's revenue as bars, the large numbers of two years beside long
+ * names; a month's revenue under its goal; the regions' revenue beside their margin on a second axis; each customer's
+ * units against their revenue, by region; and a pie of the categories.
+ */
+const CHARTS = {
+    stacked: vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" }),
+    customers: vis.line({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "customer" }),
+    small: vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.mean("margin")] }),
+    large: vis.bar({ x: vis.group("customer", { sort: "high" }), values: [vis.sum("revenue")] }),
+    goal: vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 130000 })] }),
+    combo: vis.combo({ x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))] }),
+    scatter: vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" }),
+    pie: vis.pie({ slice: vis.group("category"), value: vis.sum("revenue") }),
+};
+
+/** Every chart, each at a narrow, a small, a mid and a wide span, 240 tall, over the page of visuals' orders. */
+const CHART_CELLS: Cells = Object.entries(CHARTS).flatMap(([name, chart]) => [2n, 3n, 4n, 7n].map((span) => ({
+    key: `chart-${name}-${span}`, row: `r-${name}`, span, height: some(240n), align: variant("stretch", null), title: none,
+    content: vis.of("orders", chart),
+})));
+const CHART_SIZES: TilePage = {
+    cells: CHART_CELLS, tiles: CHART_CELLS.length, drawn: "[data-studio-chart]",
+    parts: {
+        ...EYEBROW,
+        caption: "[data-studio-chart-caption]",
+        legend: "[data-chart-legend-entry] > span:nth-of-type(2)",
+        tick: ".visx-axis-tick text",
+        rule: "[data-chart-rule-label]",
+        label: "[data-chart-slice-entry] > span:nth-of-type(2)",
+        value: "[data-chart-slice-entry] > span:nth-of-type(3)",
+        share: "[data-chart-slice-entry] > span:nth-of-type(4)",
+        note: "[data-studio-visual-note]",
+    },
+    numbers: ["value", "share"],
+    drawings: ["menu"],
+};
+
+/**
  * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
  * rest: the page's tiles alone, with no starting filter.
  *
@@ -331,13 +375,16 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                 .filter((part) => part.at.width > 0 && part.at.height > 0);
             for (const part of found) {
                 const { name, el, at } = part;
-                // T1: inside the tile's frame, and across inside every box between that clips it.
+                // T1: inside the tile's frame, and inside every box between that clips it — a legend row's entry past its
+                // line is hidden, as one past its end is cut.
                 if (at.left < frame.left - 0.5 || at.right > frame.right + 0.5 || at.top < frame.top - 0.5 || at.bottom > frame.bottom + 0.5) {
                     bad.push(`${tile}: T1 ${name} at ${box(at)} past the tile at ${box(frame)}`);
                 }
                 for (const clip of part.clips) {
                     const by = clip.getBoundingClientRect();
-                    if (at.left < by.left - 0.5 || at.right > by.right + 0.5) bad.push(`${tile}: T1 ${name} at ${box(at)} cut by ${named(clip)} at ${box(by)}`);
+                    if (at.left < by.left - 0.5 || at.right > by.right + 0.5 || at.top < by.top - 0.5 || at.bottom > by.bottom + 0.5) {
+                        bad.push(`${tile}: T1 ${name} at ${box(at)} cut by ${named(clip)} at ${box(by)}`);
+                    }
                 }
                 if (drawings.includes(name) || (el.textContent ?? "").trim() === "") continue;
                 // T3, T4: its words on one line, whole — or, words not a number, ended in an ellipsis with the whole on hover; a
@@ -373,6 +420,13 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                 if (scrolls && el.scrollWidth > el.clientWidth + 0.5) {
                     bad.push(`${tile}: T5 ${el === cell ? "the tile" : el.tagName.toLowerCase()} scrolls sideways, ${r(el.scrollWidth)} in ${r(el.clientWidth)}`);
                 }
+            }
+            // C1: a chart's plot keeps a third of its chart's width at the least, as its plot says its box (#1692): its axes'
+            // labels never crowd it out.
+            for (const plot of cell.querySelectorAll<SVGElement>("svg[data-chart-plot]")) {
+                const room = Number(plot.getAttribute("data-chart-plot")!.split(" ")[2]);
+                const whole = plot.getBoundingClientRect().width;
+                if (room < whole / 3 - 0.5) bad.push(`${tile}: C1 the plot ${r(room)} wide in a ${r(whole)}px chart`);
             }
             // D1: a donut's total and caption inside its hole, every corner of each within the radius its plot says.
             for (const plot of cell.querySelectorAll<SVGElement>("svg[data-chart-pie-hole]")) {
@@ -425,7 +479,11 @@ test.describe("Studio tiles at every size (#1692)", () => {
         expect(await readEveryWidth(page, LIST_SIZES)).toEqual([]);
     });
 
-    test("Tables: records, summaries and pivots at every span and grid width — the same rules over their heads, cells, legends and feet, a pivot's grid alone scrolling sideways", async ({ page }) => {
+    test("Tables: records, summaries and pivots at every span and grid width — the same rules over their heads, cells, legends and feet, a table's body alone scrolling sideways", async ({ page }) => {
         expect(await readEveryWidth(page, TABLE_SIZES)).toEqual([]);
+    });
+
+    test("Charts: every kind at every span and grid width — the same rules over their legends, their axes' labels and their goals", async ({ page }) => {
+        expect(await readEveryWidth(page, CHART_SIZES)).toEqual([]);
     });
 });
