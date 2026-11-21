@@ -24,7 +24,7 @@ import type { SheetSavedView, SheetNarrowing, SheetRootValue, SheetRowValue } fr
 import type { SheetDecode } from "./use-decode.js";
 import type { SheetSession } from "./use-session.js";
 import type { SheetBody } from "./use-body.js";
-import { followRows, type RowSlot, slotOf } from "./items.js";
+import { followRows, rekeyedSlots, type RowSlot, slotOf } from "./items.js";
 
 /**
  * The machine's East values, by their types' names: a value's inferred type carries East's variant brand, which the
@@ -255,7 +255,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
         const rekeyed = seenKeyMoves.current !== keyMoves;
         seenKeyMoves.current = keyMoves;
         const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots)
-            : rekeyed ? followRows(seen.slots.map((slot) => (slot !== undefined && "id" in slot ? { id: keyMoves.get(slot.id) ?? slot.id } : undefined)), rowSpaceSlots)
+            : rekeyed ? followRows(rekeyedSlots(seen.slots, keyMoves), rowSpaceSlots)
             : undefined;
         dispatch({ t: "rows.changed", moved });
     }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch, keyMoves]);
