@@ -83,7 +83,7 @@ export function PivotVisual({ visual, pivot, source, read, state, storageKey }: 
                         {drawn.heat.map((step, i) => <Box key={i} as="span" css={styles.heatSwatch} data-step={i + 1} role="img" aria-label={step.name} />)}
                     </Box>
                     <Box css={styles.heatTicks} aria-hidden>
-                        {drawn.heat.map((step, i) => <span key={i}>{step.label}</span>)}
+                        {drawn.heat.map((step, i) => <span key={i} data-studio-heat-tick="">{step.label}</span>)}
                     </Box>
                 </Box>
             )}

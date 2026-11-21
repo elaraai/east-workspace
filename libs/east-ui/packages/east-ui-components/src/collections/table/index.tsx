@@ -54,7 +54,7 @@ import { windowedSourceOf } from "../windowed-source.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
-import { fitPhoneColumns, measureText, themeFont } from "./phone-fit.js";
+import { fitPhoneColumns, measureLabel, measureText, themeFont } from "./phone-fit.js";
 import { fitTileColumns, tileDate, TILE_CARET, TILE_EDGE, TILE_GAP, TILE_MARK, TILE_PAD, TILE_TREE_STEP } from "./tile.js";
 import { TileHeaderCell, nextTileSort, type TileSorted } from "./tile-header.js";
 import { asFloat, compareDrawn, isNumberCell, pathKey, subtotalsOf, treeOf, type TableCellValue, type TableCellVariant, type TreeRow } from "./tree.js";
@@ -257,7 +257,12 @@ export interface EastChakraTableProps {
      * table scrolling inside its tile only when they need more; its cells
      * padded 0 12, 20 at the Frame's edges, and ruled over; a date printed to
      * its day, and to its minute when it has a time of day (`tileDate`). At a
-     * phone's width it draws its phone form, as every Table does.
+     * phone's width it draws its phone form, as every Table does, its dates
+     * still to their day (#1692): its words wrap at their spaces, never inside
+     * a word, and a word too wide for its column ends in an ellipsis, its whole
+     * on hover, as does a head too wide for its column; a number or a date is
+     * never cut — the pinned column gives its column room — and where even
+     * that cannot stand, the table scrolls inside its tile (TBL-5).
      */
     tile?: boolean | undefined;
     /**
@@ -375,6 +380,8 @@ const PHONE_SAMPLE = 500;
 const PHONE_TREE_STEP = 20;
 /** What a measured word gets past its measure: the page lays text on subpixels a canvas rounds, and an exact fit breaks the word. */
 const PHONE_SLACK = 2;
+/** What a tile's text column keeps of its words at the least (#1692): a letter or two and the ellipsis after them. */
+const PHONE_LEAST = 24;
 /** A review's Decision column at a phone's width: its two 44 targets, and the room for its status dot. */
 const PHONE_DECISION = 100;
 
@@ -471,11 +478,11 @@ const TableCore = function TableCore({
     const phone = containerWidth > 0 && containerWidth <= NARROW_FRAME && !gutterActive;
     // A tile's form (#1671), at any wider width.
     const tile = tileProp && !phone && !gutterActive;
-    // A cell's text: a number as its host prints it, a tile's date to its day, else through its column's format.
+    // A cell's text: a number as its host prints it, a tile's date to its day in either form, else through its column's format.
     const printed = useCallback((cell: TableCellVariant, columnKey: string, format: TickFormatOpt): string => {
-        if (tile && cell.type === "DateTime") return tileDate(printDateTime(cell.value));
+        if (tileProp && cell.type === "DateTime") return tileDate(printDateTime(cell.value));
         return (numberText !== undefined && isNumberCell(cell) ? numberText(asFloat(cell), columnKey) : undefined) ?? cellText(cell, format, words);
-    }, [numberText, words, tile]);
+    }, [numberText, words, tileProp]);
 
     // Column-resize gating — IR `value.columnResize` takes precedence
     // over the JS-side prop. When neither is defined, default to true
@@ -868,54 +875,61 @@ const TableCore = function TableCore({
     const fontsIn = useFontsIn(phone || tile);
     // Each column's natural width: its widest label or value, over a sample of its rows; a column that renders its own
     // cells at its declared width. Measured as the recipe's type draws them — a phone's and a tile's (#1671) print in
-    // the same faces. A tile's adds what stands beside a cell's text: its head's note and the room its sort's caret
-    // takes, a toned cell's mark, a head row's count, a total's word, and the Frame's edge at its first and last.
-    const phoneNaturals = useMemo(() => {
-        if (!phone && !tile) return new Map<string, number>();
+    // the same faces. Each adds what stands beside a cell's text where it is drawn — a toned cell's mark, a head row's
+    // count, a total's word — and a tile's its head's note and the room its sort's caret takes, and the Frame's edge at
+    // its first and last. And a tile's least (#1692), at a phone's width: a column that prints numbers or dates, or
+    // renders its own cells, its natural width, since none of it is cut; any other its padding, what stands beside its
+    // words, and a letter or two of them.
+    const phoneSizes = useMemo(() => {
+        const natural = new Map<string, number>();
+        const least = new Map<string, number>();
+        if (!phone && !tile) return { natural, least };
         const body = themeFont("body", tableContainerRef.current, "sans-serif");
         const mono = themeFont("mono", tableContainerRef.current, "monospace");
         const sample = tree.all.slice(0, PHONE_SAMPLE);
         const step = tile ? TILE_TREE_STEP : PHONE_TREE_STEP;
         const depth = nested ? sample.reduce((most, r) => Math.max(most, r.depth), 0) * step + step : 0;
-        // A label as the label voice draws it: uppercase, tracked.
-        const labelled = (text: string, font: string, tracking: number) => measureText(text.toUpperCase(), font) + text.length * tracking;
         const firstKey = value.columns[0]?.key;
         const lastKey = value.columns[value.columns.length - 1]?.key;
-        const out = new Map<string, number>();
+        // The column a nested row's indent, caret and count lead: the pinned one at a phone's width.
+        const treeKey = phone ? phonePin : firstKey;
         for (const col of value.columns) {
             const header = getSomeorUndefined(col.header) ?? col.key;
             const note = tile ? headerNote?.(col.key) : undefined;
-            const label = labelled(header, `600 10px ${mono}`, 1.6)
-                + (tile ? TILE_CARET + (note === undefined ? 0 : TILE_GAP + labelled(note, `500 10px ${mono}`, 0.6)) : 0);
+            const label = measureLabel(header, `600 10px ${mono}`, 1.6)
+                + (tile ? TILE_CARET + (note === undefined ? 0 : TILE_GAP + measureLabel(note, `500 10px ${mono}`, 0.6)) : 0);
             const numeric = col.valueType.type === "Integer" || col.valueType.type === "Float";
             // A column that renders its own cells holds at least its declared width, and its value as it prints, so a
             // narrow declared width never cuts a word.
             const declared = getSomeorUndefined(col.render) === undefined ? 0 : parseSize(getSomeorUndefined(col.width), 150);
             const format = getSomeorUndefined(col.format);
             let widest = Math.max(declared, label);
+            // The widest of what stands beside a cell's words: its mark and its count.
+            let beside = 0;
             const font = numeric || col.valueType.type === "DateTime" ? `500 13px ${mono}` : `400 13px ${body}`;
             for (const row of sample) {
                 const cell = subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key);
                 if (cell === undefined) continue;
-                const count = tile && col.key === firstKey ? rowHead?.(row.index)?.count : undefined;
-                widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : printed(cell, col.key, format), font)
-                    + (tile && cellTone?.(row.index, col.key) !== undefined ? TILE_MARK : 0)
-                    + (count === undefined ? 0 : TILE_GAP + Math.max(16, measureText(words.number(count), `500 9.5px ${mono}`) + 8)));
+                const count = nested && col.key === treeKey ? rowHead?.(row.index)?.count : undefined;
+                const by = (cellTone?.(row.index, col.key) !== undefined ? TILE_MARK : 0)
+                    + (count === undefined ? 0 : TILE_GAP + Math.max(16, measureText(words.number(count), `500 9.5px ${mono}`) + 8));
+                beside = Math.max(beside, by);
+                widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : printed(cell, col.key, format), font) + by);
             }
-            if (tile) {
-                for (const total of totals ?? []) {
-                    const cell = total.get(col.key);
-                    if (cell === undefined) continue;
-                    widest = Math.max(widest, measureText(printed(cell.value, col.key, format), `600 13px ${mono}`)
-                        + (cell.label === undefined ? 0 : TILE_GAP + labelled(cell.label, `400 9.5px ${mono}`, 0.95))
-                        + (cell.tone === undefined ? 0 : TILE_MARK));
-                }
+            for (const total of totals ?? []) {
+                const cell = total.get(col.key);
+                if (cell === undefined) continue;
+                const by = (cell.label === undefined ? 0 : TILE_GAP + measureLabel(cell.label, `400 9.5px ${mono}`, 0.95)) + (cell.tone === undefined ? 0 : TILE_MARK);
+                beside = Math.max(beside, by);
+                widest = Math.max(widest, measureText(printed(cell.value, col.key, format), `600 13px ${mono}`) + by);
             }
             const pad = tile ? TILE_PAD + (col.key === firstKey ? TILE_EDGE + depth : 0) + (col.key === lastKey ? TILE_EDGE : 0)
                 : col.key === phonePin ? PHONE_PIN_PAD + depth : PHONE_PAD;
-            out.set(col.key, Math.ceil(Math.max(widest, label)) + PHONE_SLACK + pad);
+            const whole = Math.ceil(Math.max(widest, label)) + PHONE_SLACK + pad;
+            natural.set(col.key, whole);
+            least.set(col.key, numeric || col.valueType.type === "DateTime" || declared > 0 ? whole : Math.min(whole, Math.ceil(beside) + PHONE_LEAST + pad));
         }
-        return out;
+        return { natural, least };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
     }, [phone, tile, value.columns, tree, subtotals, words, phonePin, nested, fontsIn, printed, headerNote, cellTone, rowHead, totals]);
     // A tile's columns (#1671): as wide as their content needs, sharing the room past it. The room is the scroll
@@ -931,13 +945,13 @@ const TableCore = function TableCore({
         const taken = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0)
             + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
             + (getSomeorUndefined(value.review) !== undefined ? parseInt(DECISION_WIDTH, 10) : 0);
-        const fitted = fitTileColumns(tileRoom - taken, value.columns.map(c => phoneNaturals.get(c.key) ?? 0));
+        const fitted = fitTileColumns(tileRoom - taken, value.columns.map(c => phoneSizes.natural.get(c.key) ?? 0));
         return {
             widths: new Map(value.columns.map((c, i): [string, number] => [c.key, fitted.widths[i]!])),
             // What the table is no narrower than: its columns' own widths, once they need more than the room.
             floor: fitted.scrolls ? fitted.widths.reduce((sum, w) => sum + w, taken) : 0,
         };
-    }, [tile, tileRoom, value.columns, phoneNaturals, value.expandedContent, value.selection, value.review]);
+    }, [tile, tileRoom, value.columns, phoneSizes, value.expandedContent, value.selection, value.review]);
     // A column that renders its own cells prints what its value does not say: each column at least as wide as the
     // widest word its mounted cells draw, so none is split. It only grows, so it settles.
     const [phoneWords, setPhoneWords] = useState<Record<string, number>>({});
@@ -972,10 +986,13 @@ const TableCore = function TableCore({
         const table = tableContainerRef.current?.querySelector<HTMLElement>(":scope > table");
         const edges = table == null ? 0 : (look => (Number.parseFloat(look.borderLeftWidth) || 0) + (Number.parseFloat(look.borderRightWidth) || 0))(getComputedStyle(table));
         const room = (tableContainerRef.current?.clientWidth ?? containerWidth) - edges;
-        const natural = (key: string) => Math.max(phoneNaturals.get(key) ?? 0, phoneWords[key] ?? 0);
+        const natural = (key: string) => Math.max(phoneSizes.natural.get(key) ?? 0, phoneWords[key] ?? 0);
+        // A tile's least (#1692): a column stood whole stays whole as its words do.
+        const least = (key: string) => ((phoneSizes.least.get(key) ?? 0) >= (phoneSizes.natural.get(key) ?? 0) ? natural(key) : phoneSizes.least.get(key) ?? 0);
         return fitPhoneColumns(room - taken, phonePin === undefined ? 0 : natural(phonePin),
-            phoneOthers.map(c => natural(c.key)), phoneFirst);
-    }, [phone, containerWidth, phonePin, phoneNaturals, phoneWords, phoneOthers, phoneFirst, value.expandedContent, value.selection, value.review]);
+            phoneOthers.map(c => natural(c.key)), phoneFirst,
+            tileProp ? { pinned: phonePin === undefined ? 0 : least(phonePin), others: phoneOthers.map(c => least(c.key)) } : undefined);
+    }, [phone, containerWidth, phonePin, phoneSizes, phoneWords, phoneOthers, phoneFirst, tileProp, value.expandedContent, value.selection, value.review]);
     const phoneInView = useMemo(() => {
         const out = new Map<string, number>();
         if (phoneFit === undefined) return out;
@@ -989,6 +1006,18 @@ const TableCore = function TableCore({
         return hidden;
     }, [phone, value.columns, phoneInView]);
     const phoneLastInView = phoneFit === undefined || phoneFit.widths.length === 0 ? undefined : phoneOthers[phoneFit.first + phoneFit.widths.length - 1]?.key;
+    /** Whether a tile's column at a phone's width stands narrower than its widest value or head (#1692): its words then end in an ellipsis, their whole on hover. */
+    const phoneCut = (key: string): boolean => tileProp && phone && (phoneInView.get(key) ?? Infinity) < Math.max(phoneSizes.natural.get(key) ?? 0, phoneWords[key] ?? 0);
+    /** A column's head, as its header says it: what a cut one says on hover. */
+    const headerText = (key: string): string => {
+        const col = value.columns.find(c => c.key === key);
+        return col === undefined ? key : getSomeorUndefined(col.header) ?? col.key;
+    };
+    // Where a tile's columns need more than its room at their least, the table scrolls inside its tile (TBL-5): no narrower than they are.
+    const phoneScrolls = phoneFit?.scrolls === true;
+    const phoneFloor = phoneFit === undefined ? 0 : phoneFit.pinned + phoneFit.widths.reduce((sum, w) => sum + w, 0)
+        + (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0) + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
+        + (getSomeorUndefined(value.review) !== undefined ? PHONE_DECISION : 0);
     /** A column's place at a phone's width and in a tile, over whatever its cell would otherwise take. */
     const phonePlace = (id: string): CSSProperties => {
         const width = tile ? tileFit?.widths.get(id) : phoneInView.get(id);
@@ -1309,9 +1338,11 @@ const TableCore = function TableCore({
             overflowY="auto"
             // Horizontal containment (#351): a wide table pans inside its own
             // scroll container instead of squeezing columns / overflowing the
-            // page — frozen or not (gutter mode still owns clipping).
-            overflowX={gutterActive || phone ? 'hidden' : 'auto'}
+            // page — frozen or not (gutter mode still owns clipping); at a
+            // phone's width only a tile's whose columns cannot stand in it.
+            overflowX={gutterActive || (phone && !phoneScrolls) ? 'hidden' : 'auto'}
             overscrollBehaviorX="contain"
+            data-table-scroll=""
             // Reserved-gutter bar only when the author bounded the table — an
             // unbounded (content-sized) table must not reserve a dead gutter.
             // A tile's rows run to its edge: its bar takes its room only while there is one.
@@ -1387,10 +1418,12 @@ const TableCore = function TableCore({
                 {...props}
                 size={tableSize}
                 data-table-phone={phone ? "" : undefined}
+                data-table-tile={tileProp ? "" : undefined}
                 style={{
                     ...columnSizeVars,
                     width: gutterActive || phone ? '100%' : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%'),
-                    minWidth: gutterActive || phone ? 0 : tile ? (tileFit?.floor ?? 0) : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
+                    minWidth: gutterActive ? 0 : phone ? (phoneScrolls ? phoneFloor : 0)
+                        : tile ? (tileFit?.floor ?? 0) : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
                     tableLayout: 'fixed',
                 }}
             >
@@ -1577,7 +1610,7 @@ const TableCore = function TableCore({
                                             <chakra.button type="button" css={tableCustomSlots.phoneHeaderSort} disabled={!canSort}
                                                 data-align={header.column.columnDef.meta?.numeric ? "end" : undefined}
                                                 onClick={() => header.column.toggleSorting(undefined, false)}>
-                                                <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                                                <span title={phoneCut(header.id) ? headerText(header.id) : undefined}>{flexRender(header.column.columnDef.header, header.getContext())}</span>
                                                 {isSorted && <FontAwesomeIcon icon={icon} />}
                                             </chakra.button>
                                         </ChakraTable.ColumnHeader>
@@ -2055,6 +2088,7 @@ const TableCore = function TableCore({
                                     // first cell with its count (#1671).
                                     const tone = cellTone?.(node.index, columnKey);
                                     const count = lead !== null ? head?.count : undefined;
+                                    const text = isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : printed(cellValue, columnKey, meta?.format);
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
@@ -2068,8 +2102,9 @@ const TableCore = function TableCore({
                                             {tone !== undefined && <ToneMark tone={tone} css={tableCustomSlots.cellMark} />}
                                             {phone && cellValue.type === "Null"
                                                 ? <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>
-                                                : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined} data-date={meta?.date ? "" : undefined}>
-                                                {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : printed(cellValue, columnKey, meta?.format)}
+                                                : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined} data-date={meta?.date ? "" : undefined}
+                                                    title={phoneCut(cell.column.id) ? text : undefined}>
+                                                {text}
                                             </Text>}
                                             {count !== undefined && <Box as="span" css={tableCustomSlots.rowCount} data-row-count="">{words.number(count)}</Box>}
                                         </ChakraTable.Cell>
