@@ -20,10 +20,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type BlockBuilder, type ValueTypeOf,
+    DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType, VariantType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui";
+import { Editing, EventStateType, TimeStepType } from "@elaraai/east-ui";
 import { FuncDraftType, Record } from "@elaraai/e3-ui";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
@@ -95,6 +95,45 @@ describe("an event kind told its record's key field", () => {
             /Schedule\.events: "Job": `keyField` names the field of an entry that holds its key, a \.String as the key is — "crew" is a \.Integer field of \.Struct/);
         assert.throws(() => jobsKind({ keyField: "title" }),
             /Schedule\.events: "Job": `keyField` names "title", which `title` writes — an event's key is kept in its key field by the builder, and nothing else writes it/);
+    });
+
+    test("refuses a key field whichever role of the kind writes it — the Calendar's, Plan's, the Roster's or the Allocation's — naming the role", () => {
+        // What the kind says of rows whose field `k` is of the record's key type, `k` their key field and a role's field too.
+        const said = (keyType: EastType, options: object): string => {
+            const Row = StructType({ k: keyType, title: StringType, start: DateTimeType, end: DateTimeType, person: StringType });
+            const handle = recordHandle(DictType(keyType, Row), new SortedMap([], compareFor(keyType)) as never, "spec_roles");
+            try {
+                East.function([], Schedule.Types.Kind, ($) => Schedule.events($.let(handle()) as never,
+                    { name: "Row", icon: "wrench", title: "title", start: "start", end: "end", keyField: "k", ...options } as never).build("rows"));
+            } catch (error) {
+                return error instanceof Error ? error.message : "";
+            }
+            return "";
+        };
+        const Stage = VariantType({ open: NullType, done: NullType });
+        const stages = { open: { label: "Open", tone: variant("neutral", null), ring: true }, done: { label: "Done", tone: variant("success", null), ring: false } };
+        // Every role that names a field, but a bin's `parts`: its field is a Dict, which no record is keyed by.
+        const roles: readonly (readonly [role: string, keyType: EastType, options: object])[] = [
+            ["title", StringType, { title: "k" }],
+            ["start", DateTimeType, { start: "k" }],
+            ["end", DateTimeType, { end: "k" }],
+            ["at", DateTimeType, { at: "k", start: undefined, end: undefined }],
+            ["resource.field", StringType, { resource: { field: "k", of: "people" } }],
+            ["status.field", Stage, { status: { field: "k", cases: stages } }],
+            ["state", EventStateType, { state: "k" }],
+            ["quantity.field", FloatType, { quantity: { field: "k" } }],
+            ["lane", StringType, { lane: "k" }],
+            ["child.field", StringType, { resource: { field: "person", of: "people" }, child: { field: "k", of: "bays" } }],
+            ["shift", StringType, { shift: "k" }],
+            ["group", StringType, { group: "k" }],
+            ["position", StringType, { position: "k" }],
+            ["activity", OptionType(StringType), { activity: "k" }],
+            ["arrival", OptionType(StringType), { arrival: "k" }],
+            ["hold", TimeStepType, { hold: "k" }],
+            ["kind", OptionType(StringType), { kind: "k" }],
+        ];
+        assert.deepEqual(roles.map(([, keyType, options]) => said(keyType, options)), roles.map(([role]) =>
+            `Schedule.events: "Row": \`keyField\` names "k", which \`${role}\` writes — an event's key is kept in its key field by the builder, and nothing else writes it`));
     });
 });
 

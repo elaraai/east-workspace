@@ -721,6 +721,9 @@ const ROSTER_ROLES = ["shift", "group", "position", "activity", "hours"] as cons
 /** The Allocation's roles, as a kind's options name them. */
 const ALLOCATION_ROLES = ["arrival", "parts", "hold", "kind"] as const;
 
+/** The field one of a kind's roles names, under the name of the option that names it; `undefined` for a role the kind is not given. */
+type RoleField = readonly [option: string, field: string | undefined];
+
 /** The ways a kind draws. */
 const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
 
@@ -1011,10 +1014,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     }
     const holdField = role("hold", config.hold, TimeStepType, "a TimeStep field");
     const kindField = role("kind", config.kind, OptionType(StringType), "an Option of a String field");
+    // The fields the kind's roles name, each under its option's name, said once: every check of a role's field reads
+    // these, so a role named here is held to all of them. A drop places an event's times and its resource; the Roster
+    // writes a duty's roles beside those, and the Allocation a bin's — its quantity Plan's too.
+    const timeRoles: readonly RoleField[] = instantKind ? [["at", startField]] : [["start", startField], ["end", endField]];
+    const placedRoles: readonly RoleField[] = [...timeRoles, ["resource.field", resource?.field]];
+    const rosterRoles: readonly RoleField[] = [...placedRoles, ["shift", shiftField], ["group", groupField], ["position", positionField], ["activity", activityField]];
+    const allocationRoles: readonly RoleField[] = [...placedRoles, ["arrival", arrivalField], ["quantity.field", quantityField], ["parts.field", partsField],
+        ["hold", holdField], ["kind", kindField]];
+    // Every role's field: the two builders' — what a drop places in each of them — and the Calendar's and Plan's own.
+    const roleFields: readonly RoleField[] = [["title", titleField], ...rosterRoles, ...allocationRoles, ["status.field", config.status?.field],
+        ["state", stateField], ["lane", laneField], ["child.field", child?.field]];
     // The fields none of the Allocation's roles maps (#1371): what an arrival's values give a booked bin (B13) — every
     // field but its time, its lane and its roles' fields — which the Allocation reads at build, and `buildAllocation` writes.
-    const allocationMapped = new Set([startField, endField, ...[resource?.field, arrivalField, quantityField, partsField, holdField, kindField]
-        .filter((name): name is string => name !== undefined)]);
+    const allocationMapped = new Set(allocationRoles.flatMap(([, field]) => field ?? []));
     const allocationValues = StructType(Object.entries(fields).filter(([name]) => !allocationMapped.has(name)));
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
@@ -1033,7 +1046,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
 
     // The templates: unique keys, a span kind's duration, and values of the row less what a drop places.
-    const placed = new Set([startField, endField, ...(resource === undefined ? [] : [resource.field])]);
+    const placed = new Set(placedRoles.flatMap(([, field]) => field ?? []));
     const valuesType = StructType(Object.entries(fields).filter(([name]) => !placed.has(name)));
     const boundTemplates = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates
         ? checkedTemplates(config.templates, valuesType, where) : undefined;
@@ -1091,11 +1104,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // writes that field, and the form shows it read only.
     const keyField = config.keyField;
     if (keyField !== undefined) {
-        const writes = ([["title", titleField], ["start", instantKind ? undefined : startField], ["end", instantKind ? undefined : endField],
-            ["at", instantKind ? startField : undefined], ["resource.field", resource?.field], ["status.field", config.status?.field], ["state", stateField],
-            ["quantity.field", quantityField], ["lane", laneField], ["child.field", child?.field], ["shift", shiftField], ["group", groupField],
-            ["position", positionField], ["activity", activityField], ["arrival", arrivalField], ["parts.field", partsField], ["hold", holdField],
-            ["kind", kindField]] as const).find(([, name]) => name === keyField);
+        const writes = roleFields.find(([, field]) => field === keyField);
         if (writes !== undefined) {
             throw new Error(`${where}: \`keyField\` names "${keyField}", which \`${writes[0]}\` writes — an event's key is kept in its key field by the builder, and nothing else writes it`);
         }
@@ -2003,7 +2012,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
     };
     /** Refuses two of a builder's roles naming one field: a builder writes each of its roles into a field of its own (B1). */
-    const oneFieldEach = (builder: string, named: readonly (readonly [string, string | undefined])[]): void => {
+    const oneFieldEach = (builder: string, named: readonly RoleField[]): void => {
         const seen = new Map<string, string>();
         for (const [prop, name] of named) {
             if (name === undefined) continue;
@@ -2058,13 +2067,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 if (resource === undefined || resourceValue === undefined) {
                     throw new Error(`${where}: the Roster rosters each duty to a person or an agency, its \`resource\` — give it, resource: { field, of: "people" }`);
                 }
-                oneFieldEach("Roster", [["start", startField], ["end", endField], ["resource.field", resource.field], ["shift", shiftField],
-                    ["group", groupField], ["position", positionField], ["activity", activityField]]);
+                oneFieldEach("Roster", rosterRoles);
                 const shift = shiftField;
                 const group = groupField;
                 const who = resource.field;
                 const whoOf = resourceValue;
-                const mapped = [startField, endField, who, shift, group, positionField, activityField];
+                const mapped = rosterRoles.map(([, field]) => field);
                 const parts = kindParts(once, slot, part, formOver(mapped));
                 // A new duty's own fields, the ones no role maps (#1526): the kind's `values` of what the Roster decided of it.
                 const own = StructType(Object.entries(fields).filter(([name]) => !mapped.includes(name)));
@@ -2186,8 +2194,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 if (quantityField === undefined) throw new Error(`${where}: the Allocation reads a bin's \`quantity\` — give it`);
                 if (partsField === undefined || config.parts === undefined) throw new Error(`${where}: the Allocation allocates a bin's \`parts\` — give it`);
                 if (holdField === undefined) throw new Error(`${where}: the Allocation holds a bin for its \`hold\` — give it`);
-                oneFieldEach("Allocation", [["at", startField], ["resource.field", resource.field], ["arrival", arrivalField], ["quantity.field", quantityField],
-                    ["parts.field", partsField], ["hold", holdField], ["kind", kindField]]);
+                oneFieldEach("Allocation", allocationRoles);
                 const lane = resource.field;
                 const arrival = arrivalField;
                 const quantity = quantityField;
