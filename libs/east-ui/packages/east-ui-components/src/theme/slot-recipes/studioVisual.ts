@@ -105,8 +105,12 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A visual's body: its part, then its note. */
         root: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0", minHeight: "0", height: "100%" },
         /* A line over a chart's plot that says what its axes are, where a legend would sit: mono 10.5 / 500 `--ink-4` on
-           the legend's 13px line, 12 over the plot with the body's gap. */
-        caption: { fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}" },
+           the legend's 13px line, 12 over the plot with the body's gap; one line, as the legend's is, ended in an ellipsis
+           where its tile is too narrow for it, its whole on hover (#1692). */
+        caption: {
+            fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}",
+            minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        },
         /* What it holds of how many — `Showing 500 of 1,240 groups`: mono 10 `--ink-4`, on a whole 12px line; one line, ended in
            an ellipsis where its tile is too narrow for it, its whole on hover (#1692). */
         note: {

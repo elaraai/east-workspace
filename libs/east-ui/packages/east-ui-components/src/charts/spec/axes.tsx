@@ -19,8 +19,47 @@ import { GridRows, GridColumns } from "@visx/grid";
 import { useFormatters } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { T, useScales, type Axis } from "./context.js";
-import { labelWidth, tickPx, tickTextCss, ticksThatFit, titleTextCss } from "./labels.js";
+import { cutLabel, labelLine, labelWidth, tickPx, tickTextCss, ticksThatFit, titleTextCss } from "./labels.js";
 import { domainReach, measureFormatter, tickFormatter } from "./tick-format.js";
+
+/** An axis's scale, as its ticks read it: a position for a value, its domain, and a linear's or a time's ticks or a band's width. */
+type TickScale = { (v: unknown): number; domain: () => unknown[]; ticks?: (count: number) => unknown[]; bandwidth?: () => number };
+
+/**
+ * A count's ticks over a scale: a continuous scale's own; a band's categories sampled to the count, as visx samples them.
+ *
+ * @param scale - The axis's scale
+ * @param count - How many ticks it asks for
+ * @returns The ticks
+ */
+function ticksOf(scale: TickScale, count: number): unknown[] {
+    if (scale.ticks !== undefined) return scale.ticks(count);
+    const all = scale.domain();
+    const stride = Math.max(1, Math.round((all.length - 1) / count));
+    return all.length <= count ? all : all.filter((_, i) => i % stride === 0);
+}
+
+/**
+ * The ticks an axis beside the plot labels (the chart rules; #1671, #1692): its own tick values, else its scale's for
+ * its count — every category of a band given none — and of them, those whose labels clear one another, each a line of
+ * its size centred on its tick: as many as fit keep theirs, the first and the last among them.
+ *
+ * @param scale - The axis's scale
+ * @param own - The author's own tick values; `undefined` for none
+ * @param count - The tick count it asks for; `undefined` for its default
+ * @param line - A label's line, px
+ * @returns The ticks that keep their labels
+ */
+function sideTicks(scale: TickScale, own: readonly unknown[] | undefined, count: number | undefined, line: number): unknown[] {
+    const wanted = own !== undefined ? [...own] : count === undefined && scale.ticks === undefined ? scale.domain() : ticksOf(scale, count ?? 4);
+    const placed = wanted.map((v) => {
+        const at = Number(scale(v)) + (scale.bandwidth?.() ?? 0) / 2;
+        return { value: v, at, from: at - line / 2, to: at + line / 2 };
+    });
+    // Read down the axis, as they stand; kept in the order they were asked for.
+    const kept = ticksThatFit(placed.sort((a, b) => a.at - b.at));
+    return wanted.filter(v => kept.includes(v));
+}
 
 // Axis labels carry their font via inline `style` (visx forwards it) so the mono
 // size wins over the CSS cascade; tick text is formatted per the axis node.
@@ -50,20 +89,15 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
     // The ticks the axis would label: the author's as given; a tick count's
     // from the scale (a band's categories sampled to it, as visx samples
     // them); else every data point of a continuous x, or every category.
-    const scale = xAxisScale as unknown as { (v: unknown): number; domain: () => unknown[]; ticks?: (count: number) => unknown[]; bandwidth?: () => number };
-    const counted = (count: number): unknown[] => {
-        if (scale.ticks !== undefined) return scale.ticks(count);
-        const all = scale.domain();
-        const stride = Math.max(1, Math.round((all.length - 1) / count));
-        return all.length <= count ? all : all.filter((_, i) => i % stride === 0);
-    };
+    const scale = xAxisScale as unknown as TickScale;
     const wanted: unknown[] = explicitTicks !== undefined ? [...explicitTicks.value]
-        : numTicks !== undefined ? counted(Number(numTicks))
+        : numTicks !== undefined ? ticksOf(scale, Number(numTicks))
             : xTickValues ?? scale.domain();
     // The chart rules (#1671): no two labels overlap — as many as fit side by
     // side keep theirs, the first and the last among them, whatever their
     // length and the plot's width (#354 thinned only compact plots, by a fixed
-    // 64px a label). The author's own tick values stand as given.
+    // 64px a label) — the author's own tick values too, where the plot is too
+    // narrow for every one of them (#1692).
     // A label that would cross the chart's edge is drawn from that edge in:
     // the first from its tick on, the last up to its tick. So is a date at
     // the plot's own edge — a time axis that runs edge to edge — whose label
@@ -76,7 +110,7 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
         const from = anchor === "start" ? at : anchor === "end" ? at - width : at - width / 2;
         return { value: v, at, from, to: from + width, anchor };
     };
-    const tickValues = explicitTicks !== undefined ? wanted : ticksThatFit(wanted.map(placed));
+    const tickValues = ticksThatFit(wanted.map(placed));
     const anchorOf = (v: unknown): "start" | "middle" | "end" => placed(v).anchor;
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
@@ -99,33 +133,35 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
     );
 }
 export function AxisLMark({ value }: { value: Axis }): ReactNode {
-    const { y, yAxisScale, horizontal, innerH, yTitleX, numberText, style } = useScales();
+    const { y, yAxisScale, horizontal, innerH, yTitleX, numberText, style, nameRoom } = useScales();
     const locale = useFormatters().locale;
     // Horizontal frames (#249): the left axis is the category band — format
-    // as band labels, show every category (visx subsamples only past its
-    // default tick budget, mirroring the vertical band x-axis), and keep the
+    // as band labels, as many of its categories as fit (#1692), and keep the
     // baseline rule (the categorical baseline the bars sit on).
     const fmt = horizontal
         ? tickFormatter(getSomeorUndefined(value.tickFormat), "band", locale)
         : measureFormatter(numberText, getSomeorUndefined(value.tickFormat), domainReach(y), locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
-    const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const numTicks = getSomeorUndefined(value.numTicks);
-    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickStyle = getSomeorUndefined(value.tickStyle);
+    const px = tickPx(style, tickStyle);
+    // Its labels never overlap: a band's categories and the author's own ticks thinned as a measure's are (#1692).
+    const tickValues = sideTicks((horizontal ? yAxisScale : y) as unknown as TickScale, explicitTicks?.value,
+        numTicks === undefined ? (horizontal ? undefined : 4) : Number(numTicks), labelLine(px));
+    // A band's names beside a plot too narrow for them are cut, their whole in the plot's tooltip (#1692).
+    const tickText = (v: unknown): string => (horizontal ? cutLabel(fmt(v), nameRoom, px) : fmt(v));
+    const tickCss = tickTextCss(style, tickStyle);
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
             <AxisLeft
                 scale={horizontal ? yAxisScale : y}
-                {...(horizontal
-                    ? (numTicks !== undefined ? { numTicks: Number(numTicks) } : {})
-                    : { numTicks: Number(numTicks ?? 4) })}
                 hideAxisLine={getSomeorUndefined(value.hideLine) ?? !horizontal}
                 hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
                 {...(horizontal ? { stroke: style.axisStroke } : {})}
-                {...(tickValues ? { tickValues } : {})}
-                tickFormat={v => fmt(v)}
+                tickValues={tickValues as never[]}
+                tickFormat={v => tickText(v)}
                 tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: tickCss })}
             />
             {label && <text transform={`translate(${yTitleX}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={titleCss}>{label}</text>}
@@ -138,18 +174,19 @@ export function AxisRMark({ value }: { value: Axis }): ReactNode {
     const fmt = measureFormatter(numberText, getSomeorUndefined(value.tickFormat), domainReach(scale), useFormatters().locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
-    const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
-    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickStyle = getSomeorUndefined(value.tickStyle);
+    // Its labels never overlap, as the left axis's (#1692).
+    const tickValues = sideTicks(scale as unknown as TickScale, explicitTicks?.value, Number(getSomeorUndefined(value.numTicks) ?? 4), labelLine(tickPx(style, tickStyle)));
+    const tickCss = tickTextCss(style, tickStyle);
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
             <AxisRight
                 left={innerW}
                 scale={scale}
-                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
                 hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
                 hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
-                {...(tickValues ? { tickValues } : {})}
+                tickValues={tickValues as never[]}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: tickCss })}
             />

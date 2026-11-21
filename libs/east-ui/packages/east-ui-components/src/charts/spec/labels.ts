@@ -6,8 +6,9 @@
 /**
  * A chart's label text: how an axis's tick and title text resolve over the
  * chrome (#315, #327), how wide a mono label draws, which ticks of an axis
- * keep their labels so no two overlap, and the chart rules' margins that
- * hold them (`guidelines/charts.md`; #1671).
+ * keep their labels so no two overlap, what a legend's entries take on its
+ * line (#1692), and the chart rules' margins that hold them
+ * (`guidelines/charts.md`; #1671).
  *
  * @packageDocumentation
  */
@@ -36,6 +37,91 @@ export const RIGHT_AXIS_ROOM = 44;
 
 /** The legend's block over the plot: its 13px line and the 12px under it. */
 export const LEGEND_HEIGHT = 25;
+
+/** A legend entry's words' size, px: mono 10.5 (`chartLegend`). */
+export const LEGEND_PX = 10.5;
+
+/** What a legend entry takes beside its words, px: its 14px swatch and the 6 after it (`chartLegend`). */
+export const LEGEND_SWATCH = 20;
+
+/** The room between two legend entries, px (`chartLegend`). */
+export const LEGEND_GAP = 16;
+
+/** A label's line, px: the 1.2 of its size a browser lays a mono face on, at whole pixels. */
+export function labelLine(px: number): number {
+    return Math.ceil(px * 1.2);
+}
+
+/** The least of a chart's width its plot keeps (#1692): a third; its axes' labels and margins the rest. */
+const PLOT_SHARE = 1 / 3;
+
+/**
+ * The least a chart's plot keeps of its width, px (#1692): a third, in whole pixels.
+ *
+ * @param width - The chart's width, px
+ * @returns The plot's least width, px
+ */
+export function plotLeast(width: number): number {
+    return Math.ceil(width * PLOT_SHARE);
+}
+
+/** The size an axis's labels step down to where the plot would keep less than its share (#1692): the chart rules' own 10px. */
+export const SMALL_LABEL = "10px";
+
+/** What a side keeps past the plot where nothing labels it: a mark at the plot's end, whole. */
+export const PLOT_EDGE = 8;
+
+/** A side's margin: what its labels need — their glyphs and their room — and the least the chart rules keep there. */
+export interface SideMargin {
+    readonly need: number;
+    readonly floor: number;
+}
+
+/**
+ * A chart's left and right margins at its width (the chart rules; #1692):
+ * each side the more of what its labels need and the chart rules' own
+ * margin, while the plot keeps its share of the chart's width. Where they
+ * would leave it less, they give way — the right's room past its labels
+ * first, then the left's; then, where the left holds a band's names and
+ * `names` says how far they may give, those names, cut — down to what leaves
+ * the plot its share.
+ *
+ * @param width - The chart's width, px
+ * @param left - The left side's need and floor
+ * @param right - The right side's need and floor
+ * @param names - The least the left keeps where its band's names may be cut; `undefined` where they may not
+ * @returns The margins, px
+ */
+export function marginsThatFit(width: number, left: SideMargin, right: SideMargin, names: number | undefined): { readonly left: number; readonly right: number } {
+    let l = Math.max(left.need, left.floor);
+    let r = Math.max(right.need, right.floor);
+    let over = l + r - (width - plotLeast(width));
+    // Takes up to `by` of what the margins are over.
+    const give = (by: number): number => {
+        const took = Math.max(0, Math.min(over, by));
+        over -= took;
+        return took;
+    };
+    r -= give(r - right.need);
+    l -= give(l - left.need);
+    if (names !== undefined) l -= give(l - names);
+    return { left: l, right: r };
+}
+
+/**
+ * A label in the room it has (#1692): whole where it fits, else its first
+ * letters and an ellipsis — a band's name beside a plot too narrow for it,
+ * its whole in the plot's tooltip.
+ *
+ * @param text - The label
+ * @param room - The room it has, px; `undefined` for as much as it needs
+ * @param px - Its size, px
+ * @returns The label as it draws
+ */
+export function cutLabel(text: string, room: number | undefined, px: number): string {
+    if (room === undefined || labelWidth(text, px) <= room) return text;
+    return `${text.slice(0, Math.max(1, Math.floor(room / Math.ceil(px * MONO_ADVANCE)) - 1))}…`;
+}
 
 /** How far a label stands clear of what it labels: a bar's end, a rule's line and the plot's start. */
 export const MARK_LABEL_GAP = 6;

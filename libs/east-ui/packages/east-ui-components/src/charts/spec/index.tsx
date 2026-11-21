@@ -43,7 +43,11 @@ import {
     type XCoord, type YScale,
 } from "./context.js";
 import { markAt, type PlotGeometry } from "./hit.js";
-import { LEFT_LABEL_ROOM, LEGEND_HEIGHT, MARK_LABEL_GAP, RIGHT_AXIS_ROOM, RULE_MARGIN, labelWidth, tickPx } from "./labels.js";
+import { fitTabs } from "../../layout/dock/fold.js";
+import {
+    LEFT_LABEL_ROOM, LEGEND_GAP, LEGEND_HEIGHT, LEGEND_PX, LEGEND_SWATCH, MARK_LABEL_GAP, PLOT_EDGE, RIGHT_AXIS_ROOM, RULE_MARGIN, SMALL_LABEL,
+    labelWidth, marginsThatFit, plotLeast, tickPx,
+} from "./labels.js";
 import { chartMarking, markAttributes } from "./marking.js";
 import { AreaMark, BandAreaMark, BarsMark, LinePathMark, PointsMark, RefAreaMark, RefDotMark, RuleMark, SeriesMarks, TextMark } from "./marks.js";
 import { measuredFrame } from "./measured.js";
@@ -210,8 +214,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
             // a category's name, a value in its format — so the margin that
             // holds them grows to the widest, and a parent that clips never
             // cuts one. A label is mono: its width is its glyphs at their advance.
-            const widestOf = (labels: readonly string[], axis: Axis): number => {
-                const px = tickPx(style, getSomeorUndefined(axis.tickStyle));
+            const widestOf = (labels: readonly string[], axis: Axis, s: ChartStyle): number => {
+                const px = tickPx(s, getSomeorUndefined(axis.tickStyle));
                 return labels.reduce((widest, label) => Math.max(widest, labelWidth(label, px)), 0);
             };
             // The labels a measure axis draws: its own tick values, else the
@@ -230,38 +234,50 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
             };
             const leftTicks = horizontal ? undefined : ownTicks(axes.left);
             const bottomTicks = horizontal ? ownTicks(axes.bottom) : undefined;
-            let leftBase = base.left;
-            if (axes.left !== undefined) {
-                const labels = horizontal
-                    ? xDomain.map(tickFormatter(getSomeorUndefined(axes.left.tickFormat), "band", words.locale))
-                    : measureLabels(axes.left, leftDomain, yMin, yMax);
-                leftBase = Math.max(base.left, Math.ceil(widestOf(labels, axes.left) + LEFT_LABEL_ROOM));
-            }
-            let rightBase = Math.max(base.right, hasY2 ? RIGHT_AXIS_ROOM : 0);
-            if (!horizontal && hasY2 && axes.right !== undefined) {
-                rightBase = Math.max(rightBase, Math.ceil(widestOf(measureLabels(axes.right, rightDomain, y2Min, y2Max), axes.right) + LEFT_LABEL_ROOM));
-            }
-            // A horizontal frame's measure ends at the plot's end, where its
-            // last label is centred: half of it is past the plot.
-            if (horizontal && axes.bottom !== undefined) {
-                rightBase = Math.max(rightBase, Math.ceil(widestOf(measureLabels(axes.bottom, bottomDomain, yMin, yMax), axes.bottom) / 2) + 2);
-            }
+            const leftLabels = axes.left === undefined ? undefined : horizontal
+                ? xDomain.map(tickFormatter(getSomeorUndefined(axes.left.tickFormat), "band", words.locale))
+                : measureLabels(axes.left, leftDomain, yMin, yMax);
+            const rightLabels = !horizontal && hasY2 && axes.right !== undefined ? measureLabels(axes.right, rightDomain, y2Min, y2Max) : undefined;
+            const bottomLabels = horizontal && axes.bottom !== undefined ? measureLabels(axes.bottom, bottomDomain, yMin, yMax) : undefined;
             // A horizontal frame's labels at its bars' ends stand after the bars: the margin after the plot holds the widest.
-            if (horizontal) {
-                const ends = f.children.flatMap(c => match(c, {
-                    text: (label: ValueTypeOf<typeof T.Text>): number[] => {
-                        const anchor = getSomeorUndefined(label.anchor);
-                        const after = anchor === undefined || match(anchor, { start: () => true, middle: () => false, end: () => false });
-                        return after ? [labelWidth(label.text, getSomeorUndefined(label.fontSize) ?? tickPx(style, undefined))] : [];
-                    },
-                }, []));
-                if (ends.length > 0) rightBase = Math.max(rightBase, Math.ceil(Math.max(...ends)) + MARK_LABEL_GAP + 2);
-            }
-            const margin: Margin = {
-                top: base.top,
-                right: gutterRight ?? (rightBase + (y2Label ? 14 + y2TitleGap : 0)),
-                bottom: base.bottom + (xLabel ? 16 + xTitleGap : 0),
-                left: gutterLeft ?? (leftBase + (yLabel ? 14 + yTitleGap : 0)),
+            const endLabels = horizontal ? f.children.flatMap(c => match(c, {
+                text: (label: ValueTypeOf<typeof T.Text>): ValueTypeOf<typeof T.Text>[] => {
+                    const anchor = getSomeorUndefined(label.anchor);
+                    const after = anchor === undefined || match(anchor, { start: () => true, middle: () => false, end: () => false });
+                    return after ? [label] : [];
+                },
+            }, [])) : [];
+            // What each side's labels need in a chrome — their glyphs and their room — beside the least the chart rules
+            // keep there, which `marginsThatFit` weighs at the chart's width (#1692).
+            const needsAt = (s: ChartStyle): { left: number; right: number } => {
+                let right = PLOT_EDGE;
+                if (rightLabels !== undefined && axes.right !== undefined) right = Math.max(right, Math.ceil(widestOf(rightLabels, axes.right, s) + LEFT_LABEL_ROOM));
+                // A horizontal frame's measure ends at the plot's end, where its last label is centred: half of it is past the plot.
+                if (bottomLabels !== undefined && axes.bottom !== undefined) right = Math.max(right, Math.ceil(widestOf(bottomLabels, axes.bottom, s) / 2) + 2);
+                const ends = endLabels.map(label => labelWidth(label.text, getSomeorUndefined(label.fontSize) ?? tickPx(s, undefined)));
+                if (ends.length > 0) right = Math.max(right, Math.ceil(Math.max(...ends)) + MARK_LABEL_GAP + 2);
+                const left = leftLabels === undefined || axes.left === undefined ? 0 : Math.ceil(widestOf(leftLabels, axes.left, s) + LEFT_LABEL_ROOM);
+                return { left, right };
+            };
+            const yTitle = yLabel ? 14 + yTitleGap : 0;
+            const y2Title = y2Label ? 14 + y2TitleGap : 0;
+            const rightFloor = Math.max(base.right, hasY2 ? RIGHT_AXIS_ROOM : 0);
+            /**
+             * The frame's sides at a width (#1692): in the chart rules' chrome while the plot keeps its share of it; else
+             * a size smaller — a number steps down before a word is cut — and a band's names beside the plot then cut,
+             * down to that share. Returns the chrome its axes draw in, the sides, and the room a cut name has.
+             */
+            const sidesAt = (w: number) => {
+                const fitAt = (s: ChartStyle, names: number | undefined) => {
+                    const need = needsAt(s);
+                    const sides = marginsThatFit(w, { need: need.left + yTitle, floor: base.left + yTitle }, { need: need.right + y2Title, floor: rightFloor + y2Title }, names);
+                    return { chrome: s, sides, cut: horizontal && sides.left < need.left + yTitle ? sides.left - yTitle - LEFT_LABEL_ROOM : undefined };
+                };
+                const at = fitAt(style, undefined);
+                if (w - at.sides.left - at.sides.right >= plotLeast(w) || style.labelSize === SMALL_LABEL) return at;
+                const small: ChartStyle = { ...style, labelSize: SMALL_LABEL };
+                const letter = axes.left === undefined ? 0 : 2 * labelWidth("x", tickPx(small, getSomeorUndefined(axes.left.tickStyle)));
+                return fitAt(small, horizontal ? yTitle + LEFT_LABEL_ROOM + letter : undefined);
             };
 
             // The legend sits over the plot, from the chart's start (the chart
@@ -295,14 +311,22 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
             const sizeR = sizeScale ? (v: number) => Math.max(3, sizeScale(v) ?? 3) : undefined;
 
             const render = (w: number, hOverride?: number) => {
+                // Its margins at its width, and the chrome its axes draw in (#1692); a shared gutter pins the sides (#147).
+                const fit = sidesAt(w);
+                const margin: Margin = {
+                    top: base.top,
+                    right: gutterRight ?? fit.sides.right,
+                    bottom: base.bottom + (xLabel ? 16 + xTitleGap : 0),
+                    left: gutterLeft ?? fit.sides.left,
+                };
                 const svgH = (hOverride ?? f.height) - legendH;
                 const innerW = Math.max(0, w - margin.left - margin.right);
                 const innerH = Math.max(0, svgH - margin.top - margin.bottom);
                 // Axis-title x at the NATURAL margin (just past the tick labels), not
                 // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
                 // the rotated y / y2 titles by their axis instead of the lane edge (#147).
-                const yTitleX = -((leftBase + (yLabel ? 14 + yTitleGap : 0)) - 11);
-                const y2TitleX = innerW + ((rightBase + (y2Label ? 14 + y2TitleGap : 0)) - 11);
+                const yTitleX = -(fit.sides.left - 11);
+                const y2TitleX = innerW + (fit.sides.right - 11);
 
                 // The measure scale: values → screen y normally; values →
                 // screen x in a horizontal frame (#249). The measure domain
@@ -402,9 +426,20 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                         : xKind === "time" ? words.numericDate(instantOfKey(key))
                             : words.number(numberOfKey(key));
 
+                // The legend's one line (the chart rules; #1692): the entries that fit whole, in order, and where any do not,
+                // `+N more` ends it, naming the rest on hover — a tab row's fold (`fitTabs`); the first stands on a line too
+                // narrow for it, its words ended in an ellipsis, their whole on hover.
+                const moreOf = (n: number) => `+${words.number(n)} more`;
+                const legendFit = fitTabs({
+                    room: w, gap: LEGEND_GAP, counts: legend.map(() => 0),
+                    tabs: legend.map(e => LEGEND_SWATCH + labelWidth(e.key, LEGEND_PX)),
+                    more: LEGEND_GAP + labelWidth(moreOf(legend.length - 1), LEGEND_PX),
+                }, 0);
+                const folded = legend.filter((_, i) => !legendFit.shown.includes(i));
                 const legendRow = showLegend && (
                     <Box css={legendStyles.root} data-chart-legend="" {...(legendBelow ? { "data-below": "" } : {})}>
-                        {legend.map((e, i) => {
+                        {legendFit.shown.map((i) => {
+                            const e = legend[i]!;
                             // A row off while the host marks another: its swatch the muted mark, its words the recipe's (#1673).
                             const state = marking?.({ series: e.key, x: undefined, other: false });
                             return (
@@ -412,16 +447,20 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                                 <Box key={i} css={legendStyles.entry} data-chart-legend-entry={e.key} {...markAttributes(state)}
                                     {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
                                     <Box as="span" css={legendStyles.swatch} background={state === "dimmed" ? style.muted : style.color(e.color)} />
-                                    <Box as="span" css={legendStyles.label}>{e.key}</Box>
+                                    <Box as="span" css={legendStyles.label} title={legendFit.squeezed ? e.key : undefined}>{e.key}</Box>
                                 </Box>
                             );
                         })}
+                        {folded.length > 0 && (
+                            <Box as="span" css={legendStyles.more} data-chart-legend-more="" title={folded.map(e => e.key).join(", ")}>{moreOf(folded.length)}</Box>
+                        )}
                     </Box>
                 );
                 return (
                     <Box position="relative" ref={containerRef}>
                         {!legendBelow && legendRow}
-                        <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
+                        {/* Its plot's box in the chart, `left top width height` (#1692), which a reader of the page measures its room by. */}
+                        <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }} data-chart-plot={`${margin.left} ${margin.top} ${innerW} ${innerH}`}>
                             <Group left={margin.left} top={margin.top}>
                                 {/* #152 — plot-rect clip for the series marks (userSpaceOnUse:
                                     the rect is in this Group's [0,0,innerW,innerH] coords). The
@@ -434,7 +473,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                                         <rect x={0} y={0} width={innerW} height={innerH} />
                                     </clipPath>
                                 </defs>
-                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, yAxisScale, xTickValues, xKind, horizontal, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, numberText, leftTicks, bottomTicks, marking, style }}>
+                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, yAxisScale, xTickValues, xKind, horizontal, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, numberText, leftTicks, bottomTicks, marking, style: fit.chrome, nameRoom: fit.cut }}>
                                     {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
                                 {!brush && tooltipOn && focusX !== undefined && (horizontal

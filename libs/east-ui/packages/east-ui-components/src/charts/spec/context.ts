@@ -239,6 +239,8 @@ interface ScaleCtx {
     /** How each mark is drawn by what the host marks (#1673); `undefined` while it marks none. */
     marking: ChartMarking | undefined;
     style: ChartStyle;
+    /** The room a horizontal frame's band names have beside a plot too narrow for them, px (#1692): past it a name is cut, its whole in the tooltip; `undefined` for as much as they need. */
+    nameRoom: number | undefined;
 }
 export const ScaleContext = createContext<ScaleCtx | null>(null);
 export const useScales = (): ScaleCtx => {
