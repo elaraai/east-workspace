@@ -45,11 +45,14 @@ export const THU = new Date("2027-05-13T00:00:00Z");
 type KilnBinType = typeof ex.kilnBins.type.value;
 /** One of the yard's bins, as its record holds it: the board's roles and the yard's own fields. */
 export type KilnBin = ValueTypeOf<KilnBinType>;
-/** A question to the yard's fit: the day, what is asked and the page's scope, and no row (east-workspace#1624). */
-const FIT_REQUEST = Allocation.Types.FitRequest;
+/**
+ * A question to the yard's fit — the day, what is asked and the page's scope, and no row (east-workspace#1624) — and its
+ * answer, over the yard's bins, keyed by String.
+ */
+const FIT_REQUEST = Allocation.Types.FitRequest(), FIT_RESULT = Allocation.Types.FitResult();
 /** A question to the yard's fit, and its answer, decoded. */
 export type FitRequest = ValueTypeOf<typeof FIT_REQUEST>;
-export type FitResult = ValueTypeOf<typeof Allocation.Types.FitResult>;
+export type FitResult = ValueTypeOf<typeof FIT_RESULT>;
 
 /** The Allocation's harness: e3 with the kiln yard's module deployed, the fits its board asks, and a record's reads made to fail. */
 export interface AllocationHarness extends E3Harness {
@@ -76,7 +79,7 @@ export interface AllocationHarness extends E3Harness {
 export function allocationHarness(): AllocationHarness {
     const h = e3Harness({ "allocation/allocation": ex }, { main: "data-allocation-main" });
     return Object.assign(h, {
-        fits: fitCalls(h, { request: FIT_REQUEST, result: Allocation.Types.FitResult }),
+        fits: fitCalls(h, { request: FIT_REQUEST, result: FIT_RESULT }),
         unavailable(record: E3Dataset) {
             const dataset = record.path.map((step) => step.value).join(".");
             const reads = new Set(["page", "find", "rows", "runs"]);

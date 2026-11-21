@@ -44,8 +44,8 @@ export const moistureBins = e3.record("kiln_moisture_bins", DictType(StringType,
 export const moistureFit = e3.function("yard_moisture_fit", {
     inputs: [e3.index(moistureBins.indexes.kiln_moisture_bins_by_time), moistureBins, kilns, arrivals],
     drafts: [moistureBins],
-    args: [Allocation.Types.FitRequest],
-    output: Allocation.Types.FitResult,
+    args: [Allocation.Types.FitRequest()],
+    output: Allocation.Types.FitResult(),
 }, ($, binsByTime, bins, kilnRows, loadRows, request) => {
     const day = $.let(new Map(), DictType(StringType, Schedule.Types.AllocationRoles));
     binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => {

@@ -373,10 +373,11 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
-    // Its answer's patch is read at the bins' own key type: a number key's as a number.
+    // The bins' own key type: the optimiser's answer's patch is read at it, and the fit asked in it (east-workspace#1709) — a
+    // number key as a number.
     const binKeys = value.bin.kind.editing.keyType;
-    const optimiseTypes = useMemo(() => allocationOptimiseTypes(binKeys.type === "some" ? fromEastTypeValue(binKeys.value) as EastType : StringType, domain.rowType),
-        [binKeys, domain]);
+    const binKeyType = useMemo(() => binKeys.type === "some" ? fromEastTypeValue(binKeys.value) as EastType : StringType, [binKeys]);
+    const optimiseTypes = useMemo(() => allocationOptimiseTypes(binKeyType, domain.rowType), [binKeyType, domain]);
     const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // Whether the day takes edits: its period's status, stored and drafted (rule 11).
@@ -433,7 +434,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     }, [pendingSteps, editing?.schedule.version, editing]);
     // The app's fit (§12, east-workspace#1624): every verdict a drag or a pick shows is its answer — asked the day, the
     // question and the page's scope, the board's unsaved edits sent as drafts.
-    const fit = useAllocationFit(value, domain, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
+    const fit = useAllocationFit(value, domain, binKeyType, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
     const { ask: askFit } = fit;
     // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38). Each derived
     // day goes to the fit as one more draft of the bins' record, laid after the pending Save (rule 10): its change from

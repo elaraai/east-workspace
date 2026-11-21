@@ -101,11 +101,14 @@ export interface AllocationDomain {
     candidates: (preview: FitPreview) => Candidate[];
 }
 
-/** The candidates' rule, over what a function read: the one a fit's function calls, here over the day the board holds. */
+/**
+ * The candidates' rule, over what a function read: the one a fit's function calls, here over the day the board holds —
+ * its bins by the text the board names each by, whatever the bins' key type (east-workspace#1709).
+ */
 type CandidatesOf = (request: FitRequest, read: FitRead) => Candidate[];
 /** The rule compiled the first time a board previews a fit, never as the package loads. */
 let candidatesFn: CandidatesOf | undefined;
-const candidatesOf: CandidatesOf = (request, read) => (candidatesFn ??= East.compile(allocationCandidates, []) as unknown as CandidatesOf)(request, read);
+const candidatesOf: CandidatesOf = (request, read) => (candidatesFn ??= East.compile(allocationCandidates(), []) as unknown as CandidatesOf)(request, read);
 /** A preview asks of no scope: it reads the day the board holds. */
 const NO_SCOPE: FitRequest["scope"] = new SortedMap([], compareFor(StringType));
 

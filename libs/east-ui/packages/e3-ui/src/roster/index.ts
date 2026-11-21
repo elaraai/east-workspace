@@ -282,9 +282,10 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
      * through the duty record's indexes (over `Roster.window`), the people it asks about and the configuration from the app's own
      * records; it lists in its `drafts` each record it reads that the Roster edits — the duties', the targets' and the periods' —
      * and reads them with the Roster's unsaved edits laid over them. `Roster.fit()` is the ready-made rule over one person
-     * against the week (`Roster.Types.Candidate`), and `Roster.answer` maps a rule over every person of what the function read
-     * (`Roster.Types.FitContext`). Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue. The Roster checks
-     * the handle at build, naming what it asks and answers.
+     * against the week (`Roster.Types.Candidate()`), and `Roster.answer()` maps a rule over every person of what the function
+     * read (`Roster.Types.FitContext()`): each made over the duties' key type, `{ key: IntegerType }` for duties keyed by
+     * number (east-workspace#1709). Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue. The Roster
+     * checks the handle at build, naming what it asks and answers.
      */
     fit?: BoundFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType> | BoundDraftsFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType>;
     /**
@@ -852,9 +853,9 @@ export interface RosterNamespace {
     coverage: typeof rosterCoverage;
     /** `check(R)`: computes the built-in warnings without a browser. */
     check: typeof rosterCheck;
-    /** `fit(words?)`: the ready-made fit, one candidate's verdict for a Find fix's need on its slot (east-workspace#1624). */
+    /** `fit({ notALead?, key? })`: the ready-made fit, one candidate's verdict for a Find fix's need on its slot (east-workspace#1624), over the duties' key type. */
     fit: typeof rosterFit;
-    /** A fit's answer from what its function read and a rule per person: `(request, context, fit) → FitResult` (east-workspace#1624). */
+    /** `answer({ key? })`: a fit's answer from what its function read and a rule per person, `(request, context, fit) → FitResult` (east-workspace#1624), over the duties' key type. */
     answer: typeof rosterAnswer;
     /** The window a week's duties are read over, from its first day: the week and the twelve hours either side (east-workspace#1624). */
     window: typeof rosterWindow;
@@ -880,10 +881,10 @@ export interface RosterNamespace {
         Issue: T.RosterIssueType; CheckContext: typeof T.RosterCheckContextTypeFor; Need: T.RosterNeedType;
         /** What the app's fit is asked (east-workspace#1624): the need, the slot, the week's first day and the page's scope, and no row. */
         FitRequest: T.RosterFitRequestType;
-        /** What a fit's function read, which `Roster.answer` answers from (east-workspace#1624): the people, the week's duties as their roles, the configuration. */
-        FitContext: T.RosterFitContextType;
-        /** One person against the week, which a fit's rule is asked about (east-workspace#1624). */
-        Candidate: T.RosterCandidateType;
+        /** `FitContext({ key? })`: what a fit's function read, which `Roster.answer()` answers from (east-workspace#1624) — the people, the week's duties as their roles by the duties' key type, the configuration. */
+        FitContext: typeof T.RosterFitContextTypeFor;
+        /** `Candidate({ key? })`: one person against the week, which a fit's rule is asked about (east-workspace#1624), their duties by the duties' key type. */
+        Candidate: typeof T.RosterCandidateTypeFor;
         FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType; PayRequest: typeof T.RosterPayRequestTypeFor;
         Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType; Pattern: T.RosterPatternType;
         TileTimes: typeof RosterTileTimesType; OptimiseRequest: typeof T.RosterOptimiseRequestTypeFor; OptimiseResult: typeof T.RosterOptimiseResultTypeFor;
@@ -921,7 +922,7 @@ export const Roster: RosterNamespace = Object.assign(
             Agency: T.RosterAgencyType, Person: T.RosterPersonType, Rules: T.RosterRulesType, Context: T.RosterContextType,
             CoverageLine: T.RosterCoverageLineType, Coverage: T.RosterCoverageType, Proposal: T.RosterProposalType, Fix: T.RosterFixType,
             Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextTypeFor, Need: T.RosterNeedType, FitRequest: T.RosterFitRequestType,
-            FitContext: T.RosterFitContextType, Candidate: T.RosterCandidateType, FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
+            FitContext: T.RosterFitContextTypeFor, Candidate: T.RosterCandidateTypeFor, FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
             Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType, Pattern: T.RosterPatternType,
             TileTimes: RosterTileTimesType, OptimiseRequest: T.RosterOptimiseRequestTypeFor, OptimiseResult: T.RosterOptimiseResultTypeFor,
             OptimisePeriod: OptimisePeriodType,

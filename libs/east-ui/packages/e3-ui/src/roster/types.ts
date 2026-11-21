@@ -26,7 +26,7 @@ import {
     ScheduleClockType, ScheduleEntriesType, ScheduleFitType, ScheduleNewKeyType, SchedulePeriodStatusType, ScheduleRefusalType, ScheduleRosterRolesType,
 } from "../schedule/types.js";
 import { ScheduleOptimiseRequestType } from "../schedule/optimise.js";
-import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
+import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType, optionKeyType } from "../utils/optimise.js";
 
 /**
  * One shift of one group on one day of the week.
@@ -402,8 +402,33 @@ export const RosterFitRequestType = StructType({ need: RosterNeedType, slot: Ros
 /** Type representing {@link RosterFitRequestType}. */
 export type RosterFitRequestType = typeof RosterFitRequestType;
 /**
+ * What the Roster's fit's types and its ready-made parts are made over (east-workspace#1709, ruling 12): the duties'
+ * record's key type, which they name a duty by.
+ *
+ * @typeParam K - The duties' key type
+ * @property key - The duties' key type — `IntegerType` for duties keyed by number; omitted, String
+ */
+export interface RosterFitOptions<K extends EastType = StringType> {
+    readonly key?: K;
+}
+/**
+ * Type representing {@link RosterFitContextTypeFor}: what a fit's function read, its duties by keys of type `K`.
+ *
+ * @typeParam K - The duties' key type
+ */
+export type RosterFitContextType<K extends EastType = StringType> = StructType<{
+    people: DictType<StringType, RosterPersonType>; duties: DictType<K, typeof ScheduleRosterRolesType>;
+    shifts: ArrayType<RosterShiftType>; groups: ArrayType<RosterGroupType>; positions: ArrayType<RosterPositionType>;
+    activities: ArrayType<RosterSkillType>; rest: FloatType;
+}>;
+/**
  * What a fit's function read (east-workspace#1624): what `Roster.answer` answers from, which the function makes of the
- * app's own records, in the Roster's types.
+ * app's own records, in the Roster's types — its duties by their keys at the duties' own key type (ruling 12).
+ *
+ * @typeParam K - The duties' key type
+ * @param options - The duties' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ people, duties, shifts, groups, positions, activities, rest })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property people - The people it asks about, by staff key: every one gets a verdict
  * @property duties - The week's duties by key, each its roles: those read over the week's window (`Roster.window`), the
@@ -414,13 +439,14 @@ export type RosterFitRequestType = typeof RosterFitRequestType;
  * @property activities - Every activity: each group's skills and the duties of no group
  * @property rest - The hours of rest the rule holds between a person's duties; zero for none
  */
-export const RosterFitContextType = StructType({
-    people: DictType(StringType, RosterPersonType), duties: DictType(StringType, ScheduleRosterRolesType),
-    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
-    activities: ArrayType(RosterSkillType), rest: FloatType,
-});
-/** Type representing {@link RosterFitContextType}. */
-export type RosterFitContextType = typeof RosterFitContextType;
+export function RosterFitContextTypeFor<K extends EastType = StringType>(options?: RosterFitOptions<K>): RosterFitContextType<K> {
+    const key = optionKeyType(options, "Roster.Types.FitContext", "duties", "{ key: IntegerType }");
+    return StructType({
+        people: DictType(StringType, RosterPersonType), duties: DictType(key, ScheduleRosterRolesType),
+        shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+        activities: ArrayType(RosterSkillType), rest: FloatType,
+    }) as unknown as RosterFitContextType<K>;
+}
 /**
  * One of a candidate's duties of the week (east-workspace#1624): where the Roster places it, and its roles.
  *
@@ -431,7 +457,24 @@ export const RosterCandidateDutyType = StructType({ place: RosterPlaceType, role
 /** Type representing {@link RosterCandidateDutyType}. */
 export type RosterCandidateDutyType = typeof RosterCandidateDutyType;
 /**
- * One person against the week (east-workspace#1624): what a fit's rule is asked about, one at a time.
+ * Type representing {@link RosterCandidateTypeFor}: one person against the week, their duties by keys of type `K`.
+ *
+ * @typeParam K - The duties' key type
+ */
+export type RosterCandidateType<K extends EastType = StringType> = StructType<{
+    need: RosterNeedType; slot: RosterSlotType; start: DateTimeType; person: RosterPersonType;
+    duties: DictType<K, RosterCandidateDutyType>; hours: FloatType;
+    shifts: ArrayType<RosterShiftType>; groups: ArrayType<RosterGroupType>; positions: ArrayType<RosterPositionType>;
+    activities: ArrayType<RosterSkillType>; rest: FloatType;
+}>;
+/**
+ * One person against the week (east-workspace#1624): what a fit's rule is asked about, one at a time — their duties by
+ * their keys at the duties' own key type (ruling 12).
+ *
+ * @typeParam K - The duties' key type
+ * @param options - The duties' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ need, slot, start, person, duties, hours, shifts, groups, positions, activities, rest })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property need - What is looked for
  * @property slot - The slot it is looked for on
@@ -445,14 +488,15 @@ export type RosterCandidateDutyType = typeof RosterCandidateDutyType;
  * @property activities - Every activity
  * @property rest - The hours of rest the rule holds; zero for none
  */
-export const RosterCandidateType = StructType({
-    need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, person: RosterPersonType,
-    duties: DictType(StringType, RosterCandidateDutyType), hours: FloatType,
-    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
-    activities: ArrayType(RosterSkillType), rest: FloatType,
-});
-/** Type representing {@link RosterCandidateType}. */
-export type RosterCandidateType = typeof RosterCandidateType;
+export function RosterCandidateTypeFor<K extends EastType = StringType>(options?: RosterFitOptions<K>): RosterCandidateType<K> {
+    const key = optionKeyType(options, "Roster.Types.Candidate", "duties", "{ key: IntegerType }");
+    return StructType({
+        need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, person: RosterPersonType,
+        duties: DictType(key, RosterCandidateDutyType), hours: FloatType,
+        shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+        activities: ArrayType(RosterSkillType), rest: FloatType,
+    }) as unknown as RosterCandidateType<K>;
+}
 /**
  * Where a duty sits, as the Roster reads it from its roles (§5.5, rules 1 and
  * 8): placed in the week, another week's, or a duty the Roster cannot place —
@@ -590,10 +634,7 @@ export function RosterOptimiseRequestTypeFor(options?: RosterOptimiseOptions<Eas
     if (typeof options !== "object" || options === null || options.edges !== true) {
         throw new Error("Roster.Types.OptimiseRequest: takes nothing, or { edges: true } for an optimiser that may change the duties at the week's edges");
     }
-    const key = options.key ?? StringType;
-    if (typeof key !== "object" || key === null || typeof (key as { readonly type?: unknown }).type !== "string") {
-        throw new Error("Roster.Types.OptimiseRequest: `key` is the duties' key type, an East type — { edges: true, key: IntegerType } for duties keyed by number");
-    }
+    const key = optionKeyType(options, "Roster.Types.OptimiseRequest", "duties", "{ edges: true, key: IntegerType }");
     return StructType({ from: DateTimeType, to: DateTimeType, period: OptimisePeriodType, run: IntegerType, slice: OptimiseSliceType, fixed: SetType(key) });
 }
 /**
