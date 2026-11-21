@@ -33,7 +33,7 @@ import type { Aggregate, ComparisonKind, Condition, PickField, Step, StepQuery, 
 import { cardsFor, firstEmptySlot, outlineOf, sourceCard, type Card, type CardLine, type CardPart } from "./cards.js";
 import type { SlotRef } from "./refs.js";
 import { applyAction, applyInput, applyRemove, applySlot } from "./slot-edits.js";
-import { activeItem, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
+import { activeItem, currentItem, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
 import { SummaryCache, summaryAt, summaryHashes, summaryNeeded, withMinute, type Summary, type SummaryRequest } from "./summaries.js";
 import { parseErrorWords, problemWords } from "./problem-words.js";
 import { DESCRIPTION_MAX, describeQuery } from "./step-words.js";
@@ -500,6 +500,17 @@ describe("P2: slot offers", () => {
         ]);
     });
 
+    test("a field leads with its kind's icon, as the Studio's fields list draws one: a text's letter, a number's hash, a date's calendar; a list's lines, a case's shapes", () => {
+        const icons = (q: StepQuery, slot: SlotRef): string[] => slotItems(q, ROOT, slot, "", { words: W }).map(item => `${item.label} ${item.icon ?? "-"}`);
+        expect(icons(q, { kind: "field", stepId: f0.value.id, condId: conds[1]!.value.id })).toEqual([
+            "customer ID font", "discount hashtag", "ID hashtag", "lines list", "status shapes", "cancelled reason font", "shipped date calendar", "total hashtag",
+        ]);
+        // A lookup table's fields, and a tree's lists, alike.
+        expect(icons(q, { kind: "lookup-add", stepId: f1.value.id })).toEqual(["tier shapes"]);
+        const bom = query("bom", [walk("children")]);
+        expect(icons(bom, { kind: "via", stepId: bom.steps[0]!.value.id })).toEqual(["children list"]);
+    });
+
     test("comparisons by the field's kind", () => {
         expect(at({ kind: "cmp", stepId: f0.value.id, condId: conds[0]!.value.id })).toEqual(["Compare | is", "Compare | is not"]);
         expect(at({ kind: "cmp", stepId: f0.value.id, condId: conds[2]!.value.id })).toEqual([
@@ -623,13 +634,17 @@ describe("P2: slot offers", () => {
         expect(slotItems(q, ROOT, { kind: "add-step", stepId: "", at: 5 }, "", { words: W, saved }).some(i => i.value.kind === "saved")).toBe(false);
     });
 
-    test("the active offer is the slot's own value, else the first that can be picked", () => {
+    test("the active offer is the slot's own value, else the first that can be picked; the current offer is the slot's own value alone", () => {
         const slot: SlotRef = { kind: "field", stepId: f0.value.id, condId: conds[1]!.value.id };
         const items = slotItems(q, ROOT, slot, "", { words: W });
-        expect(items[activeItem(items, q, ROOT, slot)]!.label).toBe("total");
+        expect([items[activeItem(items, q, ROOT, slot)]!.label, items[currentItem(items, q, ROOT, slot)]!.label]).toEqual(["total", "total"]);
         const add: SlotRef = { kind: "add-step", stepId: "", at: 0 };
         const steps = slotItems(query("bom", []), ROOT, add, "", { words: W });
         expect(steps[activeItem(steps, query("bom", []), ROOT, add)]!.label).toBe("List every part in the tree");
+        // A slot that holds nothing an offer sets has no current offer; nor is the value typed one, though it says the same.
+        const value: SlotRef = { kind: "value", stepId: f0.value.id, condId: conds[1]!.value.id };
+        const typed = slotItems(q, ROOT, value, "100", { words: W });
+        expect([currentItem(steps, query("bom", []), ROOT, add), typed.map(i => i.label), currentItem(typed, q, ROOT, value)]).toEqual([-1, ["Use “100”"], -1]);
     });
 
     test("opening a slot fetches a summary only where its offers need one: a field more to group by and a ratio's field it is per too (#1670)", () => {

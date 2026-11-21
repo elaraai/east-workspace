@@ -7,8 +7,8 @@
  * The query builder's slots, driven as a pointer drives them — for the tests
  * of every surface that draws its condition rows: the builder's own, and a
  * Studio page's filters (#1673). A slot is opened by the words it shows, and
- * an offer of its list picked by its label — the builder's autocomplete, or
- * the shared picker the rows in place draw (`[data-chooser]`).
+ * an offer of its list picked by its label, in the one picker every surface
+ * draws (`[data-chooser]`).
  *
  * @packageDocumentation
  */
@@ -38,9 +38,9 @@ export interface SlotActions {
  * @returns The driver
  */
 export function slotActions(act: Act, settle: () => Promise<void>): SlotActions {
-    const popover = () => document.querySelector<HTMLElement>("[data-query-autocomplete], [data-chooser]");
-    /** An offer's label: the autocomplete's, or the picker's. */
-    const labelOf = (option: HTMLElement) => option.querySelector("[data-label], [data-option-label]")!.textContent;
+    const popover = () => document.querySelector<HTMLElement>("[data-chooser]");
+    /** An offer's label. */
+    const labelOf = (option: HTMLElement) => option.querySelector("[data-option-label]")!.textContent;
     const offers = () => [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].map(labelOf);
     return {
         popover,

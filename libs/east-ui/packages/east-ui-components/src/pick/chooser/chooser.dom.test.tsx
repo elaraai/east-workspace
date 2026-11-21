@@ -217,5 +217,17 @@ describe("the Chooser", () => {
             const root = document.querySelector("[data-chooser]")!;
             expect([root.getAttribute("data-surface"), root.textContent!.includes("Enter chooses")]).toEqual(["bare", false]);
         });
+
+        test("a short list its host offers whole draws no search: its options alone, chosen by a click", () => {
+            const onChoose = vi.fn();
+            render(<ChakraProvider value={system}>
+                <Chooser surface="bare" search={false} placeholder="Add a step" onChoose={onChoose} sections={[{ label: "Steps", options: [
+                    { key: "filter", label: "Keep rows", state: "enabled", words: true },
+                ] }]} />
+            </ChakraProvider>);
+            expect(screen.queryByRole("combobox")).toBeNull();
+            fireEvent.click(screen.getByRole("option", { name: /Keep rows/ }));
+            expect(onChoose).toHaveBeenCalledWith("filter");
+        });
     });
 });

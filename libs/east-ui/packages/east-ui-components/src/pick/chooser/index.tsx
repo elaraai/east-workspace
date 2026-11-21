@@ -9,9 +9,11 @@
  * driven by ↑↓ Enter Esc. A host lays it in a `SliceEditPopover` anchored
  * under a cell (`flush`), in a pane under a field (`surface="inline"`), or in a
  * body it frames itself (`surface="bare"`, #1673: no border, no foot, the
- * height the body leaves it down to its first three options); its sections
- * and options are data, and the host runs the choice. It is the one picker: the
- * query builder's slots and a filter's condition rows draw it too.
+ * height the body leaves it down to its first three options); a short list
+ * its host offers whole — a phone's steps — draws no search (`search={false}`).
+ * Its sections and options are data, and the host runs the choice. It is the
+ * one picker: the query builder's slots and a filter's condition rows draw it
+ * too.
  *
  * - Search filters by each option's label and line (or its own `match`); a
  *   section left empty goes, and nothing left says `no match`. A host that
@@ -115,6 +117,8 @@ export interface ChooserProps {
     empty?: string | undefined;
     /** Where the options come from, said in its foot before the keys. */
     hint?: string | undefined;
+    /** Whether it draws its search; a short list its host offers whole — a phone's steps (QP34) — has none. Drawn by default. */
+    search?: boolean | undefined;
 }
 
 /** Whether a choice can take an option. */
@@ -130,7 +134,7 @@ const FLOOR_OPTIONS = 3;
  * @returns The list, its search and its keys
  */
 export const Chooser = memo(function Chooser({
-    sections, placeholder, onChoose, onClose, surface = "popover", autoFocus, query, onQuery, initialKey, label, tabChooses = false, empty, hint,
+    sections, placeholder, onChoose, onClose, surface = "popover", autoFocus, query, onQuery, initialKey, label, tabChooses = false, empty, hint, search = true,
 }: ChooserProps) {
     const styles = useSlotRecipe({ key: "chooser" })({ surface });
     const listId = useId();
@@ -186,17 +190,19 @@ export const Chooser = memo(function Chooser({
         // Given `onClose`, it takes Esc itself, and says so: a frame's overlay pane it is laid in leaves the key to it.
         <Box css={styles.root} data-chooser="" data-surface={surface} data-escape-layer={onClose !== undefined ? "" : undefined}
             style={surface === "bare" ? { "--chooser-floor": Math.min(FLOOR_OPTIONS, shown.reduce((n, s) => n + s.options.length, 0)) } as CSSProperties : undefined}>
-            <Box css={styles.search}>
-                {label !== undefined && <Box as="span" css={styles.searchLabel} data-chooser-label="">{label}</Box>}
-                <chakra.label css={styles.searchBox}>
-                    <Box as="span" css={styles.searchIcon}><FontAwesomeIcon icon={faMagnifyingGlass} /></Box>
-                    <chakra.input ref={inputRef} css={styles.searchInput} type="search" role="combobox" aria-expanded="true"
-                        aria-autocomplete="list" aria-controls={listId} aria-activedescendant={active !== undefined ? optionId(active.key) : undefined}
-                        autoComplete="off" spellCheck={false}
-                        value={text} placeholder={placeholder} aria-label={label ?? placeholder}
-                        onChange={(event) => type(event.currentTarget.value)} onKeyDown={onKeyDown} />
-                </chakra.label>
-            </Box>
+            {search && (
+                <Box css={styles.search}>
+                    {label !== undefined && <Box as="span" css={styles.searchLabel} data-chooser-label="">{label}</Box>}
+                    <chakra.label css={styles.searchBox}>
+                        <Box as="span" css={styles.searchIcon}><FontAwesomeIcon icon={faMagnifyingGlass} /></Box>
+                        <chakra.input ref={inputRef} css={styles.searchInput} type="search" role="combobox" aria-expanded="true"
+                            aria-autocomplete="list" aria-controls={listId} aria-activedescendant={active !== undefined ? optionId(active.key) : undefined}
+                            autoComplete="off" spellCheck={false}
+                            value={text} placeholder={placeholder} aria-label={label ?? placeholder}
+                            onChange={(event) => type(event.currentTarget.value)} onKeyDown={onKeyDown} />
+                    </chakra.label>
+                </Box>
+            )}
             <Box ref={listRef} css={styles.list} id={listId} role="listbox" aria-label={label ?? placeholder}>
                 {shown.map((section, s) => (
                     <Box key={`${s}:${section.label}`} role="group" aria-label={section.label === "" ? undefined : section.label}>
@@ -217,12 +223,12 @@ export const Chooser = memo(function Chooser({
                                         {o.state === "current" && <FontAwesomeIcon icon={faCheck} aria-label="Current" />}
                                         {o.state === "refused" && <FontAwesomeIcon icon={faXmark} aria-label="Doesn't fit" />}
                                     </Box>
-                                    {o.icon !== undefined && <Box as="span" css={styles.icon} aria-hidden="true"><FontAwesomeIcon icon={o.icon} /></Box>}
+                                    {o.icon !== undefined && <Box as="span" css={styles.icon} aria-hidden="true" data-option-icon=""><FontAwesomeIcon icon={o.icon} /></Box>}
                                     <Box as="span" css={styles.text}>
                                         <Box as="span" css={styles.label} data-option-label="" data-words={o.words === true ? "" : undefined}>{o.label}</Box>
-                                        {o.line !== undefined && <Box as="span" css={styles.line}>{o.line}</Box>}
+                                        {o.line !== undefined && <Box as="span" css={styles.line} data-option-line="">{o.line}</Box>}
                                     </Box>
-                                    <Box as="span" css={styles.range}>{o.range}</Box>
+                                    <Box as="span" css={styles.range} data-option-range="">{o.range}</Box>
                                 </chakra.button>
                             );
                         })}

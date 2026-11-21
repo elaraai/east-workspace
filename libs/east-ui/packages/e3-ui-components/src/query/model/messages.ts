@@ -215,8 +215,6 @@ export interface QueryMessages {
     slotHint: (p: { slot: SlotKind }) => string;
     /** What it says with nothing to offer. */
     slotEmpty: (p: { slot: SlotKind }) => string;
-    /** The footer's keys. */
-    slotKeys: () => string;
     /** A group of the rows' own fields. */
     fieldsGroup: () => string;
     /** A group of a variant's payload fields — `Inside status`. */

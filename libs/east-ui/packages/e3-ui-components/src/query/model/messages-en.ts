@@ -317,7 +317,6 @@ export const queryMessages: QueryMessages = {
         : takesField(slot) ? "Fields from the checked type"
         : ""),
     slotEmpty: ({ slot }) => (takesValue(slot) ? "Type a value, then press ⏎." : "Nothing matches."),
-    slotKeys: () => "↑↓ ⏎ esc",
     fieldsGroup: () => "Fields",
     insideGroup: ({ parent }) => `Inside ${parent}`,
     eachGroup: ({ noun }) => `Each ${noun}`,

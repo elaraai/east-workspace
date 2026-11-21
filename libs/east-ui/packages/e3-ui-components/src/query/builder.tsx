@@ -71,6 +71,7 @@ import {
     useQueryCall, useQueryCollection, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
 } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
+import type { SlotItem } from "./model/slots.js";
 import { describeQuery } from "./model/step-words.js";
 import type { QueryWords } from "./model/words.js";
 import type { Card } from "./model/cards.js";
@@ -90,7 +91,7 @@ import {
 } from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
 import { queryToolbarItems, type QueryView } from "./toolbar.js";
-import { useQueryEditor } from "./use-query-editor.js";
+import { useQueryEditor, type SlotPopover } from "./use-query-editor.js";
 import { useQuerySession, type QuerySessionState } from "./use-query-session.js";
 import { useQueryEditingWords, useQueryWords } from "./words.js";
 import { useOpen } from "../shared/open.js";
@@ -627,14 +628,24 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         walk(card.lines);
         return m.conditionContext({ n: step, c: words.formatters.bare(conds.indexOf(ref.condId) + 1) });
     }, [popover, editor.cards, m, words]);
-    const phoneItems = useMemo(() => {
-        if (!phone || popover === undefined || popover.slot.ref.kind !== "add-step") return undefined;
+    // The open slot's picker as a phone shows it (QP34): a field's filter names the fields; Add a step lists Quick add's five
+    // first, each step its name alone, with no "…" after it — one that doesn't fit its reason — over the note on the steps
+    // that don't fit, and opens on the same step in that order.
+    const shownPopover = useMemo((): SlotPopover | undefined => {
+        if (!phone || popover === undefined) return popover;
+        const kind = popover.slot.ref.kind;
+        if (kind === "field") return { ...popover, placeholder: m.filterSlot({ what: "fields" }) };
+        if (kind !== "add-step") return popover;
         const quick = new Set(editor.quick.map((option) => option.icon));
-        const shown = popover.items.map((item) => (item.disabled === true ? item : { ...item, detail: undefined as unknown as string }));
-        return [
-            ...shown.filter((item) => item.icon !== undefined && quick.has(item.icon)).map((item) => ({ ...item, group: m.quickAddGroup() })),
-            ...shown.filter((item) => item.icon === undefined || !quick.has(item.icon)).map((item) => ({ ...item, group: m.moreStepsGroup() })),
-        ];
+        const isQuick = (item: SlotItem) => item.icon !== undefined && quick.has(item.icon);
+        const at = [...popover.items.keys()];
+        const order = [...at.filter((i) => isQuick(popover.items[i]!)), ...at.filter((i) => !isQuick(popover.items[i]!))];
+        const items = order.map((i): SlotItem => {
+            const item = popover.items[i]!;
+            const { detail: _detail, ...named } = item;
+            return { ...(item.disabled === true ? item : named), label: item.label.replace(/…$/, ""), group: isQuick(item) ? m.quickAddGroup() : m.moreStepsGroup() };
+        });
+        return { ...popover, items, initialActive: order.indexOf(popover.initialActive), current: order.indexOf(popover.current), hint: m.stepFitNote() };
     }, [phone, popover, editor.quick, m]);
     return (
         <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
@@ -657,13 +668,10 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                         strips={phoneStrips} />
                 </BuilderFrame>
             </QueryDropTarget>
-            {popover !== undefined && element !== null && (
-                <SlotAutocomplete key={popover.generation} anchor={popover.slot.anchor} bounds={element}
-                    label={popover.label} placeholder={phone && popover.slot.ref.kind === "field" ? m.filterSlot({ what: "fields" }) : popover.placeholder}
-                    hint={phone && popover.slot.ref.kind === "add-step" ? m.stepFitNote() : popover.hint} empty={popover.empty} keys={popover.keys}
-                    items={phoneItems ?? popover.items} text={popover.text} onText={popover.onText} initialActive={popover.initialActive}
-                    onPick={popover.onPick} onClose={popover.onClose}
-                    view={phone ? element.querySelector<HTMLElement>('[data-frame-slot="overlay"]') : undefined} backLabel={m.backToStep()} context={phone ? phoneContext : undefined} noFilter={phone && popover.slot.ref.kind === "add-step"} />
+            {shownPopover !== undefined && element !== null && (
+                <SlotAutocomplete key={shownPopover.generation} popover={shownPopover} bounds={element}
+                    view={phone ? element.querySelector<HTMLElement>('[data-frame-slot="overlay"]') : undefined} backLabel={m.backToStep()}
+                    context={phone ? phoneContext : undefined} search={!phone || shownPopover.slot.ref.kind !== "add-step"} />
             )}
         </Box>
     );

@@ -4,44 +4,38 @@
  */
 
 /**
- * The slot autocomplete (#936) — the popover a step card's slot opens in the
- * query builder (`Query Editor Spec.md` §4.5): its label and a filter, the
- * slot's offers in their groups, as #934's `slotItems` gives them, and a footer
- * naming where the offers come from and the keys.
+ * The slot autocomplete (#936, #1673) — the builder's frames around the one
+ * picker: the shared `Chooser` over the open slot's offers (`SlotChooser`),
+ * which draws its label, its search, the offers in their groups and its keys.
+ * What a step card's slot opens in the query builder (`Query Editor Spec.md`
+ * §4.5).
  *
- * - **Keys**: ↓ and ↑ move over the offers that can be picked, wrapping; ⏎ —
- *   not with ⌘ or Ctrl, which run the query — or Tab picks the active offer;
- *   Esc closes. A click picks; a press outside it and its slot closes it.
- * - **Typing** filters: the host is told the text and gives the offers for
- *   it, and the first offer that can be picked becomes active.
- * - **Placement** ({@link placeAutocomplete}): left-aligned with its slot and
- *   clamped inside the builder; below the slot, or above it when under 280px
- *   remain below and more is above; in the builder's own pixels when the
- *   builder is CSS-scaled.
+ * - **In the builder's pane**: a popover placed by its slot
+ *   ({@link placeAutocomplete}) — left-aligned with it and clamped inside the
+ *   builder; below it, or above it when under 280px remain below and more is
+ *   above; in the builder's own pixels when the builder is CSS-scaled. A press
+ *   outside it and its slot closes it.
+ * - **On a phone** (`Query Builder Phone Spec.md` QP33, QP34): a view over the
+ *   whole builder — ← back, its title and what it is for at its head; the
+ *   picker bare in its body, the slot's value now checked, and a short list
+ *   of steps with no search; where the offers come from at its foot. Esc goes
+ *   back, wherever the focus is.
  *
- * It is the `popover` recipe's chrome around the `combobox` recipe's list,
- * with the `queryAutocomplete` recipe's parts; its measured position is its
- * one inline style.
+ * It is the `popover` recipe's chrome around the picker, with the
+ * `queryAutocomplete` recipe's frame, or the `queryPhone` recipe's view; its
+ * measured position is its one inline style.
  *
  * @packageDocumentation
  */
 
-import {
-    memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
-    type ChangeEvent, type KeyboardEvent, type MouseEvent,
-} from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { Box, Portal, Tooltip, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faArrowLeft, faCheck, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
-import { useValueSync } from "@elaraai/east-ui-components";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import type { SlotItem } from "./model/slots.js";
-
-// An offer's icon is a Font Awesome solid name (e.g. "filter"); register the
-// free-solid set so it resolves by name (idempotent — safe if already added).
-library.add(fas);
+import { SlotChooser } from "./slot-chooser.js";
+import type { SlotPopover } from "./use-query-editor.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -136,279 +130,71 @@ function samePlace(a: AutocompletePlacement, b: AutocompletePlacement): boolean 
     return a.side === "below" ? b.side === "below" && a.top === b.top : b.side === "above" && a.bottom === b.bottom;
 }
 
-// ─── The active offer ────────────────────────────────────────────────────────
-
-/** The active offer: where it was, and which it was. */
-interface Active {
-    /** Its index in the offers it was made active in. */
-    readonly index: number;
-    /** Its group and label ({@link keyOf}). */
-    readonly key: string;
-}
-
-/** An offer's identity across the lists the host recomputes: its group and its label. */
-function keyOf(item: SlotItem): string {
-    return `${item.group}\u0000${item.label}`;
-}
-
-/** Whether an offer is there and can be picked. */
-function pickable(item: SlotItem | undefined): item is SlotItem {
-    return item !== undefined && item.disabled !== true;
-}
-
-/** The offer at an index as the active one, when it can be picked. */
-function activeAt(items: readonly SlotItem[], index: number): Active | undefined {
-    const item = items[index];
-    return pickable(item) ? { index, key: keyOf(item) } : undefined;
-}
-
-/**
- * The active offer's index in the offers shown: where it was when it is still
- * there, else where it moved to, else the first that can be picked; `-1` when
- * none can be.
- */
-function indexOf(items: readonly SlotItem[], active: Active | undefined): number {
-    if (active !== undefined) {
-        const at = items[active.index];
-        if (pickable(at) && keyOf(at) === active.key) return active.index;
-        const moved = items.findIndex(item => pickable(item) && keyOf(item) === active.key);
-        if (moved >= 0) return moved;
-    }
-    return items.findIndex(item => pickable(item));
-}
-
-/** The next offer that can be picked, moving down or up from one and wrapping; from none, the first or the last. */
-function stepFrom(items: readonly SlotItem[], from: number, by: 1 | -1): number {
-    const n = items.length;
-    for (let k = 1; k <= n; k++) {
-        const i = from < 0 ? (by > 0 ? k - 1 : n - k) : (((from + by * k) % n) + n) % n;
-        if (pickable(items[i])) return i;
-    }
-    return -1;
-}
-
-/** A run of offers of one group, in the order they come, each with its index. */
-interface Run {
-    /** The group's heading. */
-    readonly group: string;
-    /** Its offers, each with its index in the list. */
-    readonly offers: { readonly item: SlotItem; readonly index: number }[];
-}
-
-/** The offers in runs of one group: a group's heading starts each run, as the offers come. */
-function runsOf(items: readonly SlotItem[]): Run[] {
-    const runs: Run[] = [];
-    items.forEach((item, index) => {
-        const last = runs[runs.length - 1];
-        if (last !== undefined && last.group === item.group) last.offers.push({ item, index });
-        else runs.push({ group: item.group, offers: [{ item, index }] });
-    });
-    return runs;
-}
-
-/** The re-sync gate of the text the host gives: a change of text. */
-function sameText(a: string, b: string): boolean {
-    return a === b;
-}
-
-// ─── An offer ────────────────────────────────────────────────────────────────
-
-/** A field's glyph in a view, by the kind its sub-line names (QP33's 16 icon column). */
-function kindIcon(detail: string | undefined): string | undefined {
-    if (detail === undefined) return undefined;
-    if (/number/.test(detail)) return "hashtag";
-    if (/^text/.test(detail)) return "font";
-    if (/^date/.test(detail)) return "calendar";
-    if (/^list/.test(detail)) return "list";
-    if (/^one of/.test(detail)) return "shapes";
-    return undefined;
-}
-
-/** Props of {@link AutocompleteOption}. */
-interface AutocompleteOptionProps {
-    /** The offer. */
-    readonly item: SlotItem;
-    /** Its index in the list. */
-    readonly index: number;
-    /** Its element's id, which the filter's `aria-activedescendant` names while it is active. */
-    readonly id: string;
-    /** Whether it is the active offer. */
-    readonly active: boolean;
-    /** The `combobox` recipe's styles. */
-    readonly combobox: Styles;
-    /** The `queryAutocomplete` recipe's styles. */
-    readonly styles: Styles;
-    /** Told it was clicked. */
-    readonly onPick: (item: SlotItem) => void;
-    /** Told the pointer moved over it. */
-    readonly onHover: (index: number) => void;
-    /** A view's: a disabled offer's reason its sub-line, where nothing hovers (QP33). */
-    readonly reasonShown?: boolean | undefined;
-}
-
-/**
- * One offer: its icon, its label (as data when `mono`), its sub-line — its
- * detail, and its note in the warning tone — and its meta at its end. A
- * disabled offer is listed but never picked, and its note, the reason, is its
- * Tooltip.
- *
- * @param props - the offer, its place and state, the recipes' styles and the handlers
- * @returns the option
- */
-function AutocompleteOption({ item, index, id, active, combobox, styles, onPick, onHover, reasonShown = false }: AutocompleteOptionProps) {
-    const disabled = item.disabled === true;
-    const note = disabled && !reasonShown ? undefined : item.note;
-    const option = (
-        <Box
-            id={id}
-            role="option"
-            aria-selected={active}
-            aria-disabled={disabled ? true : undefined}
-            data-highlighted={active ? "" : undefined}
-            data-disabled={disabled ? "" : undefined}
-            css={[combobox.item, styles.item]}
-            onPointerMove={disabled ? undefined : () => onHover(index)}
-            onClick={disabled ? undefined : () => onPick(item)}
-        >
-            {item.icon !== undefined && (
-                <chakra.span css={styles.itemIcon}>
-                    <FontAwesomeIcon icon={item.icon as IconName} />
-                </chakra.span>
-            )}
-            <Box css={[combobox.itemText, styles.itemBody]}>
-                <chakra.span css={styles.itemLabel} data-label="" data-mono={item.mono === true ? "" : undefined} data-typed={item.typed === true ? "" : undefined}>
-                    {item.label}
-                </chakra.span>
-                {(item.detail !== undefined || note !== undefined) && (
-                    <chakra.span css={styles.itemSub}>
-                        {item.detail !== undefined && <span data-detail="">{item.detail}</span>}
-                        {note !== undefined && <chakra.span css={styles.itemNote} data-note="">{note}</chakra.span>}
-                    </chakra.span>
-                )}
-            </Box>
-            {item.meta !== undefined && <chakra.span css={styles.itemMeta} data-meta="">{item.meta}</chakra.span>}
-        </Box>
-    );
-    if (!disabled || item.note === undefined || reasonShown) return option;
-    return (
-        <Tooltip.Root ids={{ trigger: id }} openDelay={250} positioning={{ placement: "right" }}>
-            <Tooltip.Trigger asChild>{option}</Tooltip.Trigger>
-            <Portal>
-                <Tooltip.Positioner>
-                    <Tooltip.Content>{item.note}</Tooltip.Content>
-                </Tooltip.Positioner>
-            </Portal>
-        </Tooltip.Root>
-    );
-}
-
-// ─── The popover ─────────────────────────────────────────────────────────────
+// ─── The frames ──────────────────────────────────────────────────────────────
 
 /** Props of {@link SlotAutocomplete}. */
 export interface SlotAutocompleteProps {
-    /** The slot's element: the popover hangs from it, and a press on it is the host's (it toggles the slot), not a press outside. */
-    anchor: HTMLElement;
+    /**
+     * The open slot's offers, its words and what it is told, as the editor gives them (`SlotPopover`) — with a phone's own
+     * words and offers in their place where it gives them. Its slot's element is where the popover hangs from, and a press
+     * on it is the host's (it toggles the slot), not a press outside.
+     */
+    popover: SlotPopover;
     /**
      * The builder's element: the popover is portaled into it and stays inside
      * it, absolutely positioned in its coordinates — so it is the popover's
      * containing block (positioned, or transformed).
      */
     bounds: HTMLElement;
-    /** Its label — `FIELD` (#934's `slotLabel`). */
-    label: string;
-    /** The filter's placeholder (#934's `slotPlaceholder`). */
-    placeholder: string;
-    /** The footer's hint: where the offers come from (#934's `slotHint`). */
-    hint: string;
-    /** What it says with nothing to offer (#934's `slotEmpty`). */
-    empty: string;
-    /** The keys' hint, `↑↓ ⏎ esc` (#934's `slotKeys`). */
-    keys: string;
-    /**
-     * The offers for the text typed — #934's `slotItems`, which the host
-     * recomputes on each change of text. A new list for the same text (a
-     * summary arrived) keeps the active offer, found by its group and label,
-     * while it is still offered.
-     */
-    items: readonly SlotItem[];
-    /** The text typed; a text the host sets, other than the one typed, replaces it. */
-    text: string;
-    /** Told each change of the text. */
-    onText: (text: string) => void;
-    /**
-     * The offer active when it opens — #934's `activeItem`; `-1` when none can
-     * be picked. Typing makes the first offer that can be picked active.
-     */
-    initialActive: number;
-    /** Told the offer picked: ⏎, Tab or a click. */
-    onPick: (item: SlotItem) => void;
-    /** Told it closes: Esc, or a press outside it and its anchor. */
-    onClose: () => void;
     /**
      * A phone's frame's overlay slot: drawn there, a view over the whole builder (`Query Builder Phone Spec.md` QP33) —
-     * ← back and its label at its head, the filter in a 56 band, its rows at least 44, where the offers come from at its
-     * foot — placed nowhere and floating over nothing. Esc goes back, wherever the focus is.
+     * ← back and its label at its head, the picker bare in its body, where the offers come from at its foot — placed
+     * nowhere and floating over nothing. Esc goes back, wherever the focus is.
      */
     view?: HTMLElement | null | undefined;
     /** The name of the view's ←. */
     backLabel?: string | undefined;
     /** What it is for, beside the view's title: `Step 1 · condition 2`. */
     context?: string | undefined;
-    /** A view with no filter: a short list of steps (QP34). */
-    noFilter?: boolean | undefined;
+    /** Whether the picker draws its search; a view of a short list of steps (QP34) does not. Drawn by default. */
+    search?: boolean | undefined;
 }
 
 /**
- * The slot autocomplete — see the module docs. It opens with `initialActive`
- * active and its filter focused (without scrolling); the active offer stays in
- * view. While it is open it follows its slot as the page scrolls or resizes,
- * and when it closes with the focus in it, the focus returns to its slot.
- * Callbacks reach the host through `queueMicrotask`.
+ * The slot autocomplete — see the module docs. It opens with the slot's offer
+ * active and its search focused (without scrolling); a choice or an Esc hands
+ * the focus back to its slot. While it is open in the builder's pane it
+ * follows its slot as the page scrolls or resizes. A close the frame hears
+ * reaches the host through `queueMicrotask`.
  *
- * @param props - its slot and builder, its words, the offers, the text typed, and the callbacks ({@link SlotAutocompleteProps})
- * @returns the popover, portaled into the builder
+ * @param props - the open slot's offers and words, the builder, and on a phone its view ({@link SlotAutocompleteProps})
+ * @returns the popover, portaled into the builder, or the view, into the phone's overlay slot
  */
-export const SlotAutocomplete = memo(function SlotAutocomplete({
-    anchor, bounds, label, placeholder, hint, empty, keys, items, text, onText, initialActive, onPick, onClose, view, backLabel, context, noFilter = false,
-}: SlotAutocompleteProps) {
+export const SlotAutocomplete = memo(function SlotAutocomplete({ popover, bounds, view, backLabel, context, search }: SlotAutocompleteProps) {
     const phoneStyles = useSlotStyles("queryPhone");
-    const isView = view !== undefined && view !== null;
     const popoverRecipe = useSlotRecipe({ key: "popover" });
-    const comboboxRecipe = useSlotRecipe({ key: "combobox" });
     const recipe = useSlotRecipe({ key: "queryAutocomplete" });
-    const popover = useMemo(() => popoverRecipe() as Styles, [popoverRecipe]);
-    const combobox = useMemo(() => comboboxRecipe() as Styles, [comboboxRecipe]);
-    const styles = useMemo(() => recipe() as Styles, [recipe]);
+    const chrome = popoverRecipe() as Styles;
+    const styles = recipe() as Styles;
+    const isView = view !== undefined && view !== null;
+    const anchor = popover.slot.anchor;
+    const onClose = popover.onClose;
+    const labelId = useId();
 
-    const ids = useId();
-    const inputId = `${ids}-input`;
-    const labelId = `${ids}-label`;
-    const listId = `${ids}-list`;
-    const optionId = useCallback((index: number): string => `${ids}-option-${index}`, [ids]);
-
-    // ── The text typed, and the active offer ────────────────────────────
-    // The filter's own text, told to the host; a text the host sets instead
-    // of the one typed replaces it, and the first offer becomes active.
-    const [typed, setTyped] = useState(text);
-    const [active, setActive] = useState<Active | undefined>(() => activeAt(items, initialActive));
-    useValueSync(text, sameText, () => {
-        if (text === typed) return;
-        setTyped(text);
-        setActive(undefined);
-    });
-    const activeIndex = indexOf(items, active);
-
-    // ── The elements ────────────────────────────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
     const setRoot = useCallback((element: HTMLDivElement | null) => {
         rootRef.current = element;
     }, []);
-    const inputRef = useRef<HTMLInputElement>(null);
-    const listRef = useRef<HTMLDivElement>(null);
     const anchorRef = useRef(anchor);
     useLayoutEffect(() => {
         anchorRef.current = anchor;
     }, [anchor]);
+    // Closing with the focus inside — a view's ←, its Esc — hands it back to the slot; a choice has handed it back already,
+    // and a press outside has moved it.
+    useLayoutEffect(() => () => {
+        const root = rootRef.current;
+        if (root !== null && root.contains(root.ownerDocument.activeElement)) anchorRef.current.focus({ preventScroll: true });
+    }, []);
 
     // ── Placement: on open, and as the page scrolls or the builder resizes ─
     const [place, setPlace] = useState<AutocompletePlacement | undefined>(undefined);
@@ -422,24 +208,25 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
     }, [anchor, bounds, isView]);
     useLayoutEffect(() => {
         measure();
-        const view = bounds.ownerDocument.defaultView;
-        view?.addEventListener("scroll", measure, true);
-        view?.addEventListener("resize", measure);
+        const win = bounds.ownerDocument.defaultView;
+        win?.addEventListener("scroll", measure, true);
+        win?.addEventListener("resize", measure);
         const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => measure()) : undefined;
         observer?.observe(bounds);
         return () => {
-            view?.removeEventListener("scroll", measure, true);
-            view?.removeEventListener("resize", measure);
+            win?.removeEventListener("scroll", measure, true);
+            win?.removeEventListener("resize", measure);
             observer?.disconnect();
         };
     }, [measure, bounds]);
-    const placed = place !== undefined || isView;
+    // Placed, its height is the room its side leaves it: the highlighted option stays in view in the list that room keeps.
+    useLayoutEffect(() => {
+        if (place === undefined) return;
+        const option = rootRef.current?.querySelector<HTMLElement>("[data-highlighted]");
+        if (option != null && typeof option.scrollIntoView === "function") option.scrollIntoView({ block: "nearest" });
+    }, [place]);
 
-    // ── Focus: the filter on open; the slot again on close ──────────────
-    useEffect(() => {
-        inputRef.current?.focus({ preventScroll: true });
-    }, []);
-    // A view hears Esc wherever the focus is, ahead of the pane it lies over.
+    // ── A view hears Esc wherever the focus is, ahead of the pane it lies over ─
     useEffect(() => {
         if (!isView) return undefined;
         const onEscape = (event: globalThis.KeyboardEvent) => {
@@ -451,19 +238,6 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
         document.addEventListener("keydown", onEscape, true);
         return () => document.removeEventListener("keydown", onEscape, true);
     }, [isView, onClose]);
-    useLayoutEffect(() => () => {
-        // Closing with the focus inside — a pick, Esc — hands it back to the
-        // slot; a press outside has already moved it.
-        const root = rootRef.current;
-        if (root !== null && root.contains(root.ownerDocument.activeElement)) anchorRef.current.focus({ preventScroll: true });
-    }, []);
-
-    // ── The active offer stays in view, once the popover is placed ──────
-    useLayoutEffect(() => {
-        if (!placed) return;
-        const option = listRef.current?.querySelector<HTMLElement>("[data-highlighted]");
-        if (option != null && typeof option.scrollIntoView === "function") option.scrollIntoView({ block: "nearest" });
-    }, [placed, activeIndex, items]);
 
     // ── A press outside it and its slot closes it ───────────────────────
     useEffect(() => {
@@ -478,166 +252,33 @@ export const SlotAutocomplete = memo(function SlotAutocomplete({
         return () => doc.removeEventListener("pointerdown", onPointerDown, true);
     }, [anchor, onClose]);
 
-    // ── Handlers ────────────────────────────────────────────────────────
-    const pick = useCallback((item: SlotItem | undefined) => {
-        if (!pickable(item)) return;
-        queueMicrotask(() => onPick(item));
-    }, [onPick]);
-    const onHover = useCallback((index: number) => {
-        if (index !== activeIndex) setActive(activeAt(items, index));
-    }, [activeIndex, items]);
-    const onChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-        const next = event.target.value;
-        setTyped(next);
-        setActive(undefined);
-        queueMicrotask(() => onText(next));
-    }, [onText]);
-    const onKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
-        if (event.nativeEvent.isComposing) return;
-        switch (event.key) {
-            case "ArrowDown":
-            case "ArrowUp":
-                event.preventDefault();
-                setActive(activeAt(items, stepFrom(items, activeIndex, event.key === "ArrowDown" ? 1 : -1)));
-                return;
-            case "Enter":
-                // ⌘⏎ and Ctrl ⏎ run the query: the builder's, not a pick.
-                if (event.metaKey || event.ctrlKey) return;
-                event.preventDefault();
-                pick(items[activeIndex]);
-                return;
-            case "Tab":
-                event.preventDefault();
-                pick(items[activeIndex]);
-                return;
-            case "Escape":
-                event.preventDefault();
-                queueMicrotask(() => onClose());
-                return;
-            default:
-                return;
-        }
-    }, [items, activeIndex, pick, onClose]);
+    // A press on its heads, its foot or its edge keeps the search focused.
     const onMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
-        // A press on an offer, a heading or the footer keeps the filter focused.
-        if (event.target !== inputRef.current) event.preventDefault();
+        if (!(event.target instanceof HTMLInputElement)) event.preventDefault();
     }, []);
 
-    // ── The popover ─────────────────────────────────────────────────────
-    const runs = useMemo(() => runsOf(items), [items]);
-    const position = place === undefined ? undefined
-        : place.side === "below" ? { left: place.left, top: place.top, maxHeight: place.maxHeight }
-        : { left: place.left, bottom: place.bottom, maxHeight: place.maxHeight };
     if (isView) {
         return createPortal(
             <Box ref={setRoot} css={phoneStyles.view} data-query-autocomplete="" data-query-view-picker="" role="dialog" aria-labelledby={labelId}>
                 <Box css={phoneStyles.viewHead}>
                     <chakra.button type="button" css={phoneStyles.viewBack} aria-label={backLabel} onClick={() => onClose()}><FontAwesomeIcon icon={faArrowLeft} aria-hidden /></chakra.button>
-                    <chakra.label id={labelId} htmlFor={inputId} css={phoneStyles.viewTitle}>{label}</chakra.label>
+                    <Box as="span" id={labelId} css={phoneStyles.viewTitle}>{popover.label}</Box>
                     {context !== undefined && <Box as="span" css={phoneStyles.viewContext}>{context}</Box>}
                 </Box>
-                {!noFilter && <Box css={phoneStyles.viewBand}>
-                    <Box as="span" css={phoneStyles.viewFieldIcon} aria-hidden><FontAwesomeIcon icon={faMagnifyingGlass} /></Box>
-                    <chakra.input ref={inputRef} id={inputId} type="text" role="combobox" aria-expanded={true} aria-controls={listId} aria-autocomplete="list"
-                        aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined} autoComplete="off" spellCheck={false} placeholder={placeholder} value={typed}
-                        css={phoneStyles.viewField} onChange={onChange} onKeyDown={onKeyDown} />
-                </Box>}
-                <Box ref={listRef} css={phoneStyles.viewList}>
-                    <Box role="listbox" id={listId} aria-labelledby={labelId}>
-                        {runs.map((run, r) => {
-                            const headingId = `${ids}-group-${r}`;
-                            return (
-                                <Box key={`${r}:${run.group}`} role="group" aria-labelledby={run.group === "" ? undefined : headingId}>
-                                    {run.group !== "" && <Box id={headingId} role="presentation" css={phoneStyles.viewGroup}>{run.group}</Box>}
-                                    {run.offers.map(({ item, index }) => {
-                                        const off = item.disabled === true;
-                                        const sub = (off ? [item.note ?? item.detail] : [item.detail, item.meta, item.note]).filter((part): part is string => part !== undefined && part !== "").join(" · ");
-                                        const icon = item.icon ?? kindIcon(item.detail);
-                                        // The value its slot holds now, by what the slot shows: checked and on the third paper.
-                                        const current = !off && item.label === anchor.querySelector("span")?.textContent;
-                                        return (
-                                            <Box key={`${index}:${keyOf(item)}`} id={optionId(index)} role="option" aria-selected={current} aria-disabled={off ? true : undefined}
-                                                css={phoneStyles.optionRow} data-current={current ? "" : undefined} data-disabled={off ? "" : undefined}
-                                                data-highlighted={index === activeIndex ? "" : undefined} onClick={off ? undefined : () => pick(item)}>
-                                                <chakra.span css={phoneStyles.optionIcon}>{icon !== undefined && <FontAwesomeIcon icon={icon as IconName} />}</chakra.span>
-                                                <Box css={phoneStyles.optionBody}>
-                                                    <chakra.span css={phoneStyles.optionLabel} data-label="" data-mono={item.mono === true ? "" : undefined}>{item.label.replace(/…$/, "")}</chakra.span>
-                                                    {sub !== "" && <chakra.span css={phoneStyles.optionSub}>{sub}</chakra.span>}
-                                                </Box>
-                                                {current && <chakra.span css={phoneStyles.optionCheck}><FontAwesomeIcon icon={faCheck} /></chakra.span>}
-                                            </Box>
-                                        );
-                                    })}
-                                </Box>
-                            );
-                        })}
-                    </Box>
-                    {items.length === 0 && <Box css={[combobox.empty, styles.empty]} data-empty="">{empty}</Box>}
+                <Box css={phoneStyles.viewList}>
+                    <SlotChooser popover={popover} surface="bare" search={search} checked titled />
                 </Box>
-                <Box css={phoneStyles.viewFoot}><span data-hint="">{hint}</span></Box>
+                <Box css={phoneStyles.viewFoot}><span data-hint="">{popover.hint}</span></Box>
             </Box>,
             view,
         );
     }
+    const position = place === undefined ? undefined
+        : place.side === "below" ? { left: place.left, top: place.top, maxHeight: place.maxHeight }
+        : { left: place.left, bottom: place.bottom, maxHeight: place.maxHeight };
     return createPortal(
-        <Box
-            ref={setRoot}
-            css={[popover.content, styles.root]}
-            data-query-autocomplete=""
-            data-side={place?.side}
-            style={position}
-            onMouseDown={onMouseDown}
-        >
-            <Box css={[popover.header, styles.header]}>
-                <chakra.label id={labelId} htmlFor={inputId} css={[popover.title, styles.label]}>{label}</chakra.label>
-                <chakra.input
-                    ref={inputRef}
-                    id={inputId}
-                    type="text"
-                    role="combobox"
-                    aria-expanded={true}
-                    aria-controls={listId}
-                    aria-autocomplete="list"
-                    aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={placeholder}
-                    value={typed}
-                    css={combobox.input}
-                    onChange={onChange}
-                    onKeyDown={onKeyDown}
-                />
-            </Box>
-            <Box ref={listRef} css={[popover.body, styles.body]}>
-                <Box role="listbox" id={listId} aria-labelledby={labelId} css={[combobox.list, styles.list]}>
-                    {runs.map((run, r) => {
-                        const headingId = `${ids}-group-${r}`;
-                        return (
-                            <Box key={`${r}:${run.group}`} role="group" aria-labelledby={run.group === "" ? undefined : headingId} css={combobox.itemGroup}>
-                                {run.group !== "" && <Box id={headingId} role="presentation" css={combobox.itemGroupLabel}>{run.group}</Box>}
-                                {run.offers.map(({ item, index }) => (
-                                    <AutocompleteOption
-                                        key={`${index}:${keyOf(item)}`}
-                                        item={item}
-                                        index={index}
-                                        id={optionId(index)}
-                                        active={index === activeIndex}
-                                        combobox={combobox}
-                                        styles={styles}
-                                        onPick={pick}
-                                        onHover={onHover}
-                                    />
-                                ))}
-                            </Box>
-                        );
-                    })}
-                </Box>
-                {items.length === 0 && <Box css={[combobox.empty, styles.empty]} data-empty="">{empty}</Box>}
-            </Box>
-            <Box css={[popover.footer, styles.footer]}>
-                <span data-hint="">{hint}</span>
-                <span data-keys="">{keys}</span>
-            </Box>
+        <Box ref={setRoot} css={[chrome.content, styles.root]} data-query-autocomplete="" data-side={place?.side} style={position} onMouseDown={onMouseDown}>
+            <SlotChooser popover={popover} surface="popover" search={search} />
         </Box>,
         bounds,
     );
