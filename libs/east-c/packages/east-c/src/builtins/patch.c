@@ -139,13 +139,13 @@ static char *printed(EastValue *v, EastType *type)
 }
 
 /* Whether a `replace` checks its `before` against the value first. The
- * reference compares for every type but a recursive one, whose whole value is
- * the unit of change, and a function, which has no equality. */
+ * reference compares for every type but a function, whose values its equality
+ * calls equal two by two, so there is nothing to check. A recursive value is
+ * checked whole, as its patch replaces it whole. */
 static bool replace_verifies(EastType *type)
 {
     if (!type) return false;
     switch (type->kind) {
-    case EAST_TYPE_RECURSIVE:
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION:
         return false;
@@ -170,6 +170,9 @@ static EastValue *replace_conflict(EastValue *base, EastValue *before, EastType 
         return apply_conflict("Cannot apply replace - base variant does not match expected");
     case EAST_TYPE_REF:
         return apply_conflict("Cannot apply replace - base ref does not match expected");
+    case EAST_TYPE_RECURSIVE:
+        return apply_conflict(
+            "Cannot apply replace - base recursive value does not match expected");
     default: {
         char *expected = printed(before, type);
         char *found = printed(base, type);

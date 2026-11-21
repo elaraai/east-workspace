@@ -360,17 +360,23 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     return ret;
   } else if (t.type === "Recursive") {
-    // Recursive types use replace-only semantics - only unchanged and replace patches
+    // Recursive types use replace-only semantics - only unchanged and replace patches. A replace names the whole value
+    // it replaces, as every other type's does: applied to any other value, it is a conflict, not a write.
+    const equal = equalFor(t, ctx.equal);
     return (base: any, patch: VariantValue) => {
       if (patch.type === "unchanged") {
         return base;
       } else if (patch.type === "replace") {
+        if (!equal(base, patch.value.before)) {
+          throw new ConflictError("Cannot apply replace - base recursive value does not match expected");
+        }
         return patch.value.after;
       } else {
         throw new Error(`Invalid patch type for recursive type: ${patch.type}`);
       }
     };
   } else if (t.type === "Function" || t.type === "AsyncFunction") {
+    // A replace of a function is not checked: equality calls every two functions equal, so there is nothing to check.
     return (base: any, patch: VariantValue) => {
       if (patch.type === "unchanged") {
         return base;

@@ -2464,6 +2464,24 @@ await describe("Patch - Apply conflicts", (test) => {
         const whole = $.const(variant("replace", { before: variant("ok", 1n), after: variant("ok", 2n) }), PatchType(ResultType));
         $(assert.throws(East.applyPatch($.const(variant("ok", 5n), ResultType), whole), /Cannot apply replace - base variant does not match expected/));
     });
+
+    test("a recursive value's replace names the whole value it replaces: applied to another it conflicts, bare and where it lands in a struct", $ => {
+        const TreeType = RecursiveType((self) => StructType({ value: IntegerType, children: ArrayType(self) }));
+        // A change made to the tree as it was read, and the tree another change has made of it since.
+        const read = $.const({ value: 1n, children: [{ value: 2n, children: [] }] }, TreeType);
+        const moved = $.const({ value: 1n, children: [{ value: 3n, children: [] }] }, TreeType);
+        const edited = $.const({ value: 1n, children: [{ value: 4n, children: [] }] }, TreeType);
+        const patch = $.const(East.diff(read, edited));
+        $(assert.throws(East.applyPatch(moved, patch), /Cannot apply replace - base recursive value does not match expected/));
+        // Applied to the tree it was made from, it writes.
+        $(assert.equal(East.equal(East.applyPatch(read, patch), edited), true));
+        // A struct's recursive field, as a filter's condition is: checked where its replace lands.
+        const FilterType = StructType({ source: StringType, where: TreeType });
+        const was = $.const({ source: "sales", where: read }, FilterType);
+        const now = $.const({ source: "sales", where: moved }, FilterType);
+        const field = $.const(East.diff(was, $.const({ source: "sales", where: edited }, FilterType)));
+        $(assert.throws(East.applyPatch(now, field), /Cannot apply replace - base recursive value does not match expected/));
+    });
 });
 
 // =============================================================================
