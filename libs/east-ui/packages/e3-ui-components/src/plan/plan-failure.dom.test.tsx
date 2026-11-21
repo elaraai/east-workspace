@@ -21,6 +21,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -91,6 +92,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         // Keyed by String, as `Plan.Root` says of data keyed so (east-workspace#1696).
         rowsKeyType: some(toEastTypeValue(StringType)),
+        windowEntries: BigInt(PLAN_PAGE_SIZE),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
