@@ -292,4 +292,30 @@ describe("the shared editing over an event kind that builds each event's key fro
         const saved = await h.read(visits);
         expect([jobEqual(saved.get("V-5")!, renamed), saved.has("V-1"), jobEqual(saved.get("legacy")!, titled)], printJobs(saved)).toEqual([true, false, true]);
     });
+
+    test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-chain" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-2", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        // One gesture: the survey takes the fit-out's reference, and the fit-out the next.
+        const survey: ValueTypeOf<typeof Job> = { ref: "V-2", title: "Survey", start: DAY, end: LATER };
+        const fitOut: ValueTypeOf<typeof Job> = { ref: "V-3", title: "Fit-out", start: DAY, end: LATER };
+        act(() => {
+            expect(editing().record([
+                { kind: "visits", id: "V-1", row: encodeJob(survey) },
+                { kind: "visits", id: "V-2", row: encodeJob(fitOut) },
+            ], "typed", "Renumber the visits")).toBe(true);
+        });
+        await settle();
+        const [second, third] = [visitDraft("V-2"), visitDraft("V-3")];
+        if (second?.type !== "value" || third?.type !== "value") throw new Error(`expected both visits drafted, each under the key it builds — V-2 ${second?.type ?? "undrafted"}, V-3 ${third?.type ?? "undrafted"}`);
+        expect([jobEqual(second.value, survey), jobEqual(third.value, fitOut), visitDraft("V-1")?.type]).toEqual([true, true, "missing"]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-3")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-2")!, survey), jobEqual(saved.get("V-3")!, fitOut), saved.has("V-1")], printJobs(saved)).toEqual([true, true, false]);
+    });
 });

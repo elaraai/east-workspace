@@ -1184,7 +1184,7 @@ export function useScheduleEditing<I extends Item = Item>({
                 const arriving = new Set<string>();
                 const byKey = new Map<string, string>();
                 const heldByKey = new Map<string, string>();
-                for (const { from, to, row, before } of going) {
+                for (const { from, to, before } of going) {
                     // Whether a row stands under the key: one the gesture leaves there, the session's own, what its last
                     // Save left, its record's as last read — or one its builder shows, of a record read a window at a time.
                     const there = entries.get(to);
@@ -1200,13 +1200,17 @@ export function useScheduleEditing<I extends Item = Item>({
                     }
                     arriving.add(to);
                     byKey.set(from, to);
-                    // A row the gesture made stood under its made-up key for the gesture alone; one the record holds leaves it.
-                    if (before.draft === undefined) {
-                        entries.delete(from);
-                    } else {
-                        entries.set(from, { before, after: DELETED });
-                        heldByKey.set(from, to);
-                    }
+                    if (before.draft !== undefined) heldByKey.set(from, to);
+                }
+                // Each leaves the key it stood under before any arrives, so a row may take the key another leaves in the
+                // gesture. A row the gesture made stood under its made-up key for the gesture alone; one the record holds
+                // leaves it.
+                for (const { from, before } of going) {
+                    if (before.draft === undefined) entries.delete(from);
+                    else entries.set(from, { before, after: DELETED });
+                }
+                for (const { to, row } of going) {
+                    const stood = entries.get(to)?.before ?? state.original(key, to);
                     entries.set(to, { before: stood ?? ABSENT, after: { draft: variant("value", codec.underKey(to, row)), wire: { id: to }, place: KEY_ORDER } });
                 }
                 now.set(part.key, byKey);
