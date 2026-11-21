@@ -28,13 +28,16 @@
  * function's question and answer are made over the bins' key type, each bin
  * named by its own key, while the board names a bin by its key's text, as its
  * session does: a question goes out with its bin's key read from that text,
- * and an answer comes back with each bin's key printed ({@link allocationFitWire}).
+ * and an answer comes back with each bin's key printed ({@link allocationFitWire});
+ * a derived plan's draft names each bin it changes by its key so too. A free
+ * slot's probe reservation stands under the key Reserve there would make
+ * (ruling 13), so the fit is asked about it as about any bin.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo } from "react";
-import { SortedMap, StringType, printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { SortedMap, printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import {
     AllocationFitAskType, AllocationFitRequestType, AllocationFitRequestTypeFor, AllocationFitResultType, AllocationFitResultTypeFor,
 } from "@elaraai/e3-ui/internal";
@@ -59,6 +62,13 @@ export interface AllocationFitWire {
     /** What it answers. */
     readonly resultType: EastType;
     /**
+     * A bin's key, from the text the board names it by.
+     *
+     * @param id - The bin's key's text
+     * @returns The key, of the bins' key type; `undefined` for a text no key of the type prints as
+     */
+    readonly key: (id: string) => unknown;
+    /**
      * A question as the function takes it, its bin by its key.
      *
      * @param ask - The question, its bin by its key's text
@@ -77,7 +87,7 @@ export interface AllocationFitWire {
 /** Over bins keyed by String, the board's own forms are the function's. */
 const TEXT_WIRE: AllocationFitWire = {
     requestType: AllocationFitRequestType, resultType: AllocationFitResultType,
-    keyed: (ask) => ask, text: (result) => result as FitResult,
+    key: (id) => id, keyed: (ask) => ask, text: (result) => result as FitResult,
 };
 
 /**
@@ -93,6 +103,7 @@ export function allocationFitWire(keyType: EastType): AllocationFitWire {
     const texts = new WeakMap<object, FitResult>();
     return {
         requestType: AllocationFitRequestTypeFor({ key: keyType }), resultType: AllocationFitResultTypeFor({ key: keyType }),
+        key: keyOf,
         keyed: (ask) => {
             if (ask.type !== "place" || ask.value.subject.type !== "bin") return ask;
             const key = keyOf(ask.value.subject.value);
@@ -148,16 +159,17 @@ interface Facts { day: Date; scope: OptimiseSlice; page: Context; drafts: object
 
 /**
  * The change from the day as drafted to a plan derived from it, entry by entry: a bin the derived plan leaves out, one
- * it adds, and one whose row it changes.
+ * it adds, and one whose row it changes — each by its key, of the bins' key type.
  *
  * @param base - The day as drafted
  * @param of - The plan derived from it
+ * @param keyOf - A bin's key, from the text the board names it by ({@link AllocationFitWire.key})
  * @returns Each changed bin's row before and after, by its key
  */
-export function derivedChanges(base: Day, of: Day): EntryChange[] {
+export function derivedChanges(base: Day, of: Day, keyOf: (id: string) => unknown): EntryChange[] {
     const changes: EntryChange[] = [];
-    for (const [id, bin] of base.bins) changes.push({ key: id, before: bin.row, after: of.bins.get(id)?.row });
-    for (const [id, bin] of of.bins) if (!base.bins.has(id)) changes.push({ key: id, before: undefined, after: bin.row });
+    for (const [id, bin] of base.bins) changes.push({ key: keyOf(id), before: bin.row, after: of.bins.get(id)?.row });
+    for (const [id, bin] of of.bins) if (!base.bins.has(id)) changes.push({ key: keyOf(id), before: undefined, after: bin.row });
     return changes;
 }
 
@@ -180,9 +192,10 @@ export function useAllocationFit(value: AllocationValue, domain: AllocationDomai
     const { sessions, drafts } = asked;
     const facts = useMemo<Facts>(() => ({ day: new Date(epoch), scope, page: context, drafts }), [epoch, scope, context, drafts]);
     const wire = useMemo(() => allocationFitWire(keyType), [keyType]);
-    // A derived plan's change, as a draft of the bins' record's patch door — for a function that lists the bins in its drafts.
+    // A derived plan's change, as a draft of the bins' record's patch door at its own key type — for a function that lists the
+    // bins in its drafts.
     const bins = value.bin.kind.editing.sourceId;
-    const patchDraft = useMemo(() => recordPatchDrafts(bins, StringType, domain.rowType), [bins, domain.rowType]);
+    const patchDraft = useMemo(() => recordPatchDrafts(bins, keyType, domain.rowType), [bins, keyType, domain.rowType]);
     const questions = useMemo((): FitQuestions<FitAsk, Day, Facts, WireResult> => ({
         name: value.fit.name, binding: value.fit, sessions,
         requestType: wire.requestType, resultType: wire.resultType,
@@ -191,7 +204,7 @@ export function useAllocationFit(value: AllocationValue, domain: AllocationDomai
         request: (ask, within) => ({ day: within.day, ask: wire.keyed(ask), scope: within.scope }),
         // A question naming a bin by a text no key of the bins' type prints as is asked of no fit over them.
         complete: ask => wire.keyed(ask) !== undefined,
-        further: (of, base) => value.fit.drafts.includes(bins) ? patchDraft(derivedChanges(base, of)) : undefined,
+        further: (of, base) => value.fit.drafts.includes(bins) ? patchDraft(derivedChanges(base, of, wire.key)) : undefined,
     }), [value.fit, sessions, bins, patchDraft, wire]);
     const fit = useFit(questions, plan, facts);
     const { answer: answered } = fit;

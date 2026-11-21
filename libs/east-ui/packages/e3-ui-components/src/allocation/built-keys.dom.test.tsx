@@ -15,14 +15,17 @@
  * bins keyed by number, with neither, one past the largest (ruling 10). Over
  * bins keyed by number, the board asks a fit made over their key type, naming
  * each bin by its number, and reads each verdict its answer gives a bin by its
- * number (ruling 12).
+ * number (ruling 12). A free slot's Reserve list asks it of a reservation under
+ * the key Reserve there would make — the next number, or the number its row
+ * builds — the day with it a draft of the bins under that number, and says so
+ * where the bins' rule makes none (ruling 13).
  */
 import { expect, test } from "vitest";
 import { waitFor, within } from "@testing-library/react";
 import { DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Allocation, Data, Func, Record, Schedule, type KindRowKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import * as fx from "@elaraai/e3-ui/fixtures/allocation/allocation-bounds";
 import { e3Harness } from "../e3-web-mount.test-utils.js";
@@ -75,8 +78,12 @@ const numberedCalls = fitCalls(h, { request: Allocation.Types.FitRequest({ key: 
 const sameBin = equalFor(fx.MoistureBin);
 const sameKey = equalFor(StringType);
 
-/** How a test's board keys its bins: by the key a bin's row builds, or by the app's own rule — the next `N-<n>`. */
-type BinKeys = { readonly key: (bin: ExprType<typeof fx.MoistureBin>) => ExprType<StringType> } | { readonly newKey: true };
+/**
+ * How a test's board keys its bins: by the key a bin's row builds, or by the app's own rule — the next `N-<n>`; or, over
+ * the bins keyed by number, by the options given at their key type.
+ */
+type BinKeys = { readonly key: (bin: ExprType<typeof fx.MoistureBin>) => ExprType<StringType> } | { readonly newKey: true }
+    | { readonly numbered: KindRowKeys<typeof fx.MoistureBin, IntegerType> };
 /** What a test's board is over: the bins and their fit, and whether it has the Library. */
 interface Over {
     readonly bins: typeof fx.moistureBins | typeof numberedBins;
@@ -105,7 +112,9 @@ const yardKeyed = (keys: BinKeys | undefined, layout: "timeline" | "table", over
             name: "Bin", icon: "box",
             at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
             quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
-            ...(keys === undefined ? {} : "newKey" in keys ? { newKey: $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`N-${taken.size().add(1n)}`)) } : keys),
+            ...(keys === undefined ? {} : "newKey" in keys ? { newKey: $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`N-${taken.size().add(1n)}`)) }
+                // The bins keyed by number stand in the moisture bins' binding above: the page holds their options to their own key type.
+                : "numbered" in keys ? keys.numbered as unknown as KindRowKeys<typeof fx.MoistureBin> : keys),
         }) },
         resources: {
             bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
@@ -140,12 +149,34 @@ const codedYard = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     });
 }))) };
 
-/** Books the arrival LD-2235 into bay B-1's free slot at 00:15, from the slot's Details. */
-async function book(c: HTMLElement): Promise<void> {
+/** Selects bay B-1's free slot at 00:15: its Details book an arrival there, and reserve a kiln. */
+async function selectSlot(c: HTMLElement): Promise<void> {
     await waitFor(() => expect(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000")).not.toBeNull());
     await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
+}
+
+/** Books the arrival LD-2235 into bay B-1's free slot at 00:15, from the slot's Details. */
+async function book(c: HTMLElement): Promise<void> {
+    await selectSlot(c);
     await press(button(details(c).querySelector<HTMLElement>('[data-allocation-option="arrival:LD-2235"]')!, "Book"));
 }
+
+/** Two of the yard's bins, numbered 3 and 7, a week before the day the board opens on: the day holds none. */
+async function numberedWeekBefore(): Promise<void> {
+    const [first, second] = [...(await h.read(fx.moistureBins)).values()];
+    const weekBefore = (row: ValueTypeOf<typeof fx.MoistureBin>) => ({ ...row, at: new Date(row.at.getTime() - 7 * 86_400_000) });
+    await h.patch(numberedBins, new SortedMap([[3n, weekBefore(first!)], [7n, weekBefore(second!)]], compareFor(IntegerType)));
+}
+
+/** The numbered bins' fit's latest question of a kind, and the drafts its call carried. */
+function latestCall(type: "place" | "take") {
+    const requests = numberedCalls.requests(numberedFit.name), drafts = numberedCalls.drafts(numberedFit.name);
+    const at = requests.map((request) => request.ask.type).lastIndexOf(type);
+    return at < 0 ? undefined : { ask: requests[at]!.ask, drafts: drafts[at]! };
+}
+
+/** A free slot's Reserve list's first kiln, once the fit's answer has ranked them. */
+const firstReserve = (c: HTMLElement) => details(c).querySelector<HTMLElement>("[data-allocation-reserve] [data-allocation-option]");
 
 test("ruling 1 — told the app's rule (`newKey`), an arrival booked into a free slot is a bin keyed by it — the next N-n, never a key made up — and Save writes it there", async () => {
     const { container: c } = await h.mount(yardKeyed({ newKey: true }, "table"));
@@ -171,10 +202,7 @@ test("ruling 1 — holding its key in a field (`keyField`), an arrival booked in
 });
 
 test("ruling 10 — over bins keyed by number, an arrival booked into a free slot is a bin one past the largest number the record holds — 8, past 3 and 7 a week before, never a key made up — and Save writes it there", async () => {
-    // Two of the yard's bins, numbered 3 and 7, a week before the day the board opens on: the day holds none.
-    const [first, second] = [...(await h.read(fx.moistureBins)).values()];
-    const weekBefore = (row: ValueTypeOf<typeof fx.MoistureBin>) => ({ ...row, at: new Date(row.at.getTime() - 7 * 86_400_000) });
-    await h.patch(numberedBins, new SortedMap([[3n, weekBefore(first!)], [7n, weekBefore(second!)]], compareFor(IntegerType)));
+    await numberedWeekBefore();
     const { container: c } = await h.mount(yardKeyed(undefined, "table", { bins: numberedBins, fit: numberedFit }));
     await book(c);
     expect(tableRow(c, "bin:8")).not.toBeNull();
@@ -211,6 +239,44 @@ test("ruling 12 — over bins keyed by number, the board asks its fit of a bin b
     expect([[...take.bins.keys()], onBin.type]).toEqual([[3n, 7n], "refused"]);
     await waitFor(() => expect(caption()).toBe(onBin.type === "refused" ? onBin.value.reason : undefined));
     await cancel();
+});
+
+test("ruling 13 — over bins keyed by number, a free slot's Reserve list is the fit's answer for a reservation under the key Reserve there would make — 8, past 3 and 7 — the day with it a draft under that number; and the reservation made, its Book list asks of the day without it, a draft under its number", async () => {
+    await numberedWeekBefore();
+    const { container: c } = await h.mount(yardKeyed(undefined, "table", { bins: numberedBins, fit: numberedFit }));
+    const patch = { record: numberedBins.name, mutation: "patch" };
+    // B-1's free slot at 00:15: nothing is unsaved, so the day with the reservation on it is the call's one draft.
+    await selectSlot(c);
+    await waitFor(() => expect(firstReserve(c)).not.toBeNull());
+    expect([latestCall("place")?.ask, latestCall("place")?.drafts]).toEqual([variant("place", { subject: variant("bin", 8n), quantity: 0 }), [patch]]);
+    // Reserved on the first kiln the list ranks: the reservation is bin 8, and what its kiln takes is asked of the day
+    // without it — the pending Save adding it, then the day's change taking it away, each a draft the record takes.
+    await press(button(firstReserve(c)!, "Reserve"));
+    await waitFor(() => expect(tableRow(c, "bin:8")).not.toBeNull());
+    const book = () => details(c).querySelector<HTMLElement>("[data-allocation-book]")?.textContent ?? "";
+    await waitFor(() => expect(latestCall("take")).toBeDefined());
+    await waitFor(() => expect(book()).not.toContain("checking fits…"));
+    expect([latestCall("take")?.drafts, book().includes("fits unavailable")]).toEqual([[patch, patch], false]);
+});
+
+test("ruling 13 — over bins keyed by the number their rows build, a free slot's reservation stands under the number its row builds — 100, on no kiln — as Reserve would make it", async () => {
+    await numberedWeekBefore();
+    const { container: c } = await h.mount(yardKeyed({ numbered: { key: (bin) => bin.kilns.size().add(100n) } }, "table", { bins: numberedBins, fit: numberedFit }));
+    await selectSlot(c);
+    await waitFor(() => expect(firstReserve(c)).not.toBeNull());
+    expect(latestCall("place")?.ask).toEqual(variant("place", { subject: variant("bin", 100n), quantity: 0 }));
+});
+
+test("ruling 13 — over bins keyed by number whose rule gives a key a bin holds, a free slot's Reserve list says a reservation there has no key until it is made, and asks the fit nothing of it", async () => {
+    // Bins 3 and 7 on the plan day, and a rule that gives 3 whatever it is told is taken.
+    const [first, second] = [...(await h.read(fx.moistureBins)).values()];
+    await h.patch(numberedBins, new SortedMap([[3n, first!], [7n, second!]], compareFor(IntegerType)));
+    const { container: c } = await h.mount(yardKeyed({ numbered: { newKey: East.function([SetType(IntegerType)], IntegerType, (_$, _taken) => 3n) } }, "table",
+        { bins: numberedBins, fit: numberedFit }));
+    await selectSlot(c);
+    const reserve = () => details(c).querySelector<HTMLElement>("[data-allocation-reserve]")?.textContent ?? "";
+    await waitFor(() => expect(reserve()).toContain("fits unavailable · a reservation here has no key until it is made"));
+    expect([firstReserve(c), latestCall("place")]).toEqual([null, undefined]);
 });
 
 test("ruling 1 — a bin unlinked moves under the key its bay and its links then build, still selected; a second bin of the bay, which would build that key too, is refused, the board saying whose key it is; and Save writes the bin under its new key", async () => {

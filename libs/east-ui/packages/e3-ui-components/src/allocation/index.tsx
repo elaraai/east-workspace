@@ -82,7 +82,7 @@ import {
     allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
     type AllocationOptimiseRequest, type AllocationOptimiseResult, type AllocationOptimised,
 } from "./optimise.js";
-import { AllocationTable, RESERVE_PROBE } from "./table.js";
+import { AllocationTable, RESERVE_PROBE, type ReserveProbe } from "./table.js";
 import { rowHiding } from "./table-rows.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { ROW_H } from "./timeline-layout.js";
@@ -108,6 +108,8 @@ const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
 /** A board that takes no edit holds no draft: the one object its fit's answers are kept for. */
 const NO_FIT_DRAFTS: object = {};
+/** A probe reservation's key is made past no key a gesture has made. */
+const NONE_MINTED: ReadonlySet<string> = new Set();
 const keyEqual = equalFor(StringType);
 const sameIssues = equalFor(ArrayType(AllocationIssueType));
 /** The Table's view has rested nowhere yet. */
@@ -446,23 +448,49 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (derived === undefined) { derived = domain.copyDay(plan); derived.bins.delete(bin); withouts.set(bin, derived); }
         return derived;
     };
-    // The day with a probe reservation in a free slot, its row made as a reservation's is (B13): what a free Table row's resource
-    // Chooser asks the fit of (A48). The drafts are the cache's key: new drafts, a new cache.
+    // A free slot's question of a probe reservation in it, its row made as a reservation's is (B13), and the day with it on:
+    // what a free slot's Reserve list and a free Table row's resource Chooser ask the fit (A48, A60). Over bins keyed by
+    // String it stands under a text no bin holds. Over bins keyed by any other type it stands under the key Reserve there
+    // would make (east-workspace#1709, ruling 13), so the fit answers for it as for any bin: the key its row builds, where
+    // the bins' kind builds keys from rows; else the one the kind's rule makes now, made at each asking — a record read a
+    // window at a time makes its first once its largest key is read. None made yet, it is asked once one is; none to be
+    // made — the rule refuses, the key its row builds fails or is another bin's of the day, or the board is read only — the
+    // lists say so. The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const reservings = useMemo(() => new Map<string, Day>(), [plan]);
-    const reserving = (lane: string, at: Date) => {
-        const id = `${lane}|${dayKey(at)}`;
-        let derived = reservings.get(id);
-        if (derived === undefined) {
-            derived = domain.copyDay(plan);
-            // A probe the app's `values` fail to make draws none, as the Reserve it stands for makes none.
-            const bytes = madeFromValues("Allocation", `a probe ${one(value.labels.reservation)}`, () => value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none,
-                hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none));
-            const probe = bytes === undefined ? none : domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
-            if (probe.type === "some") derived.bins.set(RESERVE_PROBE, probe.value);
-            reservings.set(id, derived);
+    const reservings = useMemo(() => new Map<string, ReserveProbe>(), [plan]);
+    const reservation = value.labels.reservation;
+    const unkeyed = useMemo(() => ({ unkeyed: `${a(reservation)} here has no key until it is made` }), [reservation]);
+    const reserving = (lane: string, at: Date): ReserveProbe => {
+        const kind = value.bin.kind;
+        let id: string | undefined = binKeyType.type === "String" ? RESERVE_PROBE : undefined;
+        if (id === undefined && kind.rowKey.type !== "some") {
+            const schedule = editing?.schedule;
+            id = schedule?.mint(kind.key, "", NONE_MINTED);
+            if (id === undefined) return schedule !== undefined && schedule.keyRefusal() === undefined ? undefined : unkeyed;
         }
-        return derived;
+        const slot = `${lane}|${dayKey(at)}|${id ?? ""}`;
+        const kept = reservings.get(slot);
+        if (kept !== undefined) return kept;
+        // A probe the app's `values` fail to make draws none, as the Reserve it stands for makes none.
+        const bytes = madeFromValues("Allocation", `a probe ${one(reservation)}`, () => value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none,
+            hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none));
+        if (id === undefined && bytes !== undefined && kind.rowKey.type === "some") {
+            try {
+                id = kind.rowKey.value(bytes);
+            } catch (error) {
+                console.error(`[Allocation] a probe ${one(reservation)}'s key could not be built from its row:`, error);
+            }
+            if (id !== undefined && plan.bins.has(id)) id = undefined;
+        }
+        let probe: ReserveProbe = unkeyed;
+        if (id !== undefined) {
+            const derived = domain.copyDay(plan);
+            const made = bytes === undefined ? none : domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            if (made.type === "some") derived.bins.set(id, made.value);
+            probe = { ask: variant("place", { subject: variant("bin", id), quantity: 0 }), of: derived };
+        }
+        reservings.set(slot, probe);
+        return probe;
     };
     // The day with a committed bin the drafts removed back on it, unlinked (and without a reservation it fills): what booking it
     // again asks the fit of (A51). The drafts are the cache's key: new drafts, a new cache.

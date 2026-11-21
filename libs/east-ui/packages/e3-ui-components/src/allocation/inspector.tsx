@@ -88,7 +88,7 @@ import {
 } from "./model.js";
 import { a, one, other } from "./nouns.js";
 import { SplitPopover } from "./split.js";
-import { RESERVE_PROBE } from "./table.js";
+import type { ReserveProbe } from "./table.js";
 import { resourceAxis } from "./timeline-layout.js";
 import { countedIssues } from "./toolbar.js";
 
@@ -150,9 +150,9 @@ export interface InspectorArgs {
     commands: AllocationCommands;
     /** Whether what main shows is retained while a narrowing of it is read, or one failed (#1398, CL8): Details' fields, and its buttons that edit, are off. */
     retained: boolean;
-    /** The day without a bin, and with a probe reservation in a free slot: what a reservation's and a free slot's questions are asked of. */
+    /** The day without a bin, and a free slot's question with the day it is asked of: what a reservation's and a free slot's questions ask the fit. */
     without: (bin: string) => Day;
-    reserving: (lane: string, at: Date) => Day;
+    reserving: (lane: string, at: Date) => ReserveProbe;
     /** What the narrowing shows of each source; `none`, every row. */
     shown: { lanes: option<Set<string>>; resources: option<Set<string>>; arrivals: option<Set<string>> };
     /** A refused drop's reason (A40), and its dismissal. */
@@ -763,14 +763,17 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const { commands, fit, plan, held, context, day, slots, loads, shown } = args;
     const nouns = words.nouns;
     const editable = commands.canEdit();
-    // The question a free row's resource cell asks (A48): a reservation in the slot.
-    const of = args.reserving(lane, at);
-    const ask = useMemo(() => variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 }), []);
+    // The question a free row's resource cell asks (A48): a reservation in the slot, under the key Reserve there would make
+    // (ruling 13) — none while that key is still to be made, or where none can be.
+    const probe = args.reserving(lane, at);
+    const asked = probe === undefined || "unkeyed" in probe ? undefined : probe;
     const { ask: asking } = fit;
-    useEffect(() => { asking(ask, of); }, [ask, of, asking]);
-    const reserve = reserveOptions(fit.answer(ask, of), loads, context, shown.resources, words);
-    // None coming: the board's fit failed, said in its banner, or the record refused the day with the probe on it (rule 10).
-    const failure = fitFailure(fit, ask, of);
+    useEffect(() => { if (asked !== undefined) asking(asked.ask, asked.of); }, [asked, asking]);
+    const reserve = asked === undefined ? undefined : reserveOptions(fit.answer(asked.ask, asked.of), loads, context, shown.resources, words);
+    // None coming: a reservation in the slot has no key, the board's fit failed — said in its banner — or the record refused
+    // the day with the probe on it (rule 10).
+    const unkeyed = probe !== undefined && "unkeyed" in probe ? probe.unkeyed : undefined;
+    const failure = asked === undefined ? undefined : fitFailure(fit, asked.ask, asked.of);
     const books = bookOptions({ plan, held, context, day, shown: shown.arrivals, words });
     const where = landing(slots, plan, lane, at, undefined);
     const run = (option: BookOption) => option.grip.kind === "arrival" ? commands.book(option.grip.arrival, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
@@ -786,7 +789,8 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
         </Box>
         <Box css={styles.section} data-allocation-reserve="">
             <Box css={styles.sectionHead}>Reserve {a(nouns.resource)}</Box>
-            {reserve === undefined ? <Box css={styles.absent}>{failure === undefined ? CHECKING : fit.error !== undefined ? "fits unavailable" : unavailableLine(failure)}</Box>
+            {reserve === undefined ? <Box css={styles.absent}>{unkeyed !== undefined ? unavailableLine(unkeyed)
+                : failure === undefined ? CHECKING : fit.error !== undefined ? "fits unavailable" : unavailableLine(failure)}</Box>
                 : reserve.length === 0 ? <Box css={styles.absent}>no {one(nouns.resource)} has a gap that fits</Box>
                     : reserve.map(o => <ListOption key={o.key} styles={styles} name={o.name} quantity={o.range} line={o.line} warn={false} testid={o.key}>
                         {editable ? <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.reserve(lane, where, o.key)}>Reserve</Button> : <span />}
