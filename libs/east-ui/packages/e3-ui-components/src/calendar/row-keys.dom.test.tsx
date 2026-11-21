@@ -18,7 +18,8 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DateTimeType, DictType, East, SetType, StringType, StructType, equalFor } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { Calendar, Record } from "@elaraai/e3-ui";
+import { Calendar, Data, Record } from "@elaraai/e3-ui";
+import { Slice } from "@elaraai/east-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { e3Harness } from "../e3-web-mount.test-utils.js";
 import { act, event, settle, slot } from "./harness.test-utils.js";
@@ -29,6 +30,10 @@ const NINE = new Date("2026-10-01T09:00:00Z"), TEN = new Date("2026-10-01T10:00:
 /** The bookings: one, which a new one is copied from. */
 const bookings = e3.record("calendar_keyed_bookings", DictType(StringType, Booking), {
     initial: new Map([["B-1", { ref: "B-1", title: "Safety check", start: NINE, end: TEN }]]),
+    indexes: (index) => ({
+        // What a rail narrows the bookings through: each read over the window in view.
+        calendar_keyed_bookings_by_time: index.interval({ from: "start", to: "end" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -67,6 +72,21 @@ const clashing = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     const held = $.const(East.function([SetType(StringType)], StringType, (_$2, _taken) => "B-1"));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", newKey: held }) } });
+}))) };
+
+/**
+ * The bookings' day under the app's own rule, their record read a window at a time — through a rail's source over its
+ * interval index, each booking by its key (`entries`): its session holds none of the record's keys but those it has
+ * met, so the rule is told none of the bookings the day shows.
+ */
+const byKey = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(bookings, ["patch"]));
+    const entries = $.let(Data.bindPaged(bookings));
+    const indexed = $.let(Data.bindPaged(bookings, { indexes: ["calendar_keyed_bookings_by_time"] }));
+    const slice = $.let(Slice.bindRecords("test.calendar.rowKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
+    const next = $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`B-${taken.size().add(1n)}`));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, newKey: next }) } });
 }))) };
 
 /** The keys of the bookings the day draws. */
@@ -123,6 +143,15 @@ describe("a Calendar's new event under each of the three key options (east-works
         await duplicate(c);
         expect(within(slot(c, "end")).getByRole("alert").textContent).toBe('Another booking is keyed "B-1" already');
         expect(drawn(c)).toHaveLength(1);
+    });
+
+    test("ruling 1 — over a record read a window at a time, the rule is told of a booking the day shows where the key it gives is that booking's, and asked again: the copy takes the next key, B-2, never refused for a key the rule could not know taken", async () => {
+        const { container: c } = await h.mount(byKey);
+        await duplicate(c);
+        expect(within(slot(c, "end")).queryByRole("alert")).toBeNull();
+        expect(event(c, "booking", "B-2")).not.toBeNull();
+        const rows = await saved(c);
+        expect([[...rows.keys()], sameBooking(rows.get("B-2")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })]).toEqual([["B-1", "B-2"], true]);
     });
 });
 
