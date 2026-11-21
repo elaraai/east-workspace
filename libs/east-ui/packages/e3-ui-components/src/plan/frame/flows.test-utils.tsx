@@ -7,8 +7,8 @@
  * Example 16's Plan as the link kinds' tests mount it (#1541, U10): the works'
  * centres, their four event kinds and the flows between them — a link kind
  * over a record — with its inspector, and the Plan's own `canConnect`, the
- * flows' `key` or their `newKey`, their presets or a binding that reads them
- * only where a test gives one.
+ * flows' `key` or their `newKey`, the print jobs' `key`, the flows' presets
+ * or a binding that reads them only where a test gives one.
  */
 
 import { DictType, East, FloatType, OptionType, StringType, StructType, some, type ExprType, type FunctionType, type SetType } from "@elaraai/east";
@@ -43,15 +43,17 @@ export interface FlowsPlanOptions {
     newKey?: () => ExprType<FunctionType<[SetType<StringType>], StringType>>;
     /** Whether the flows are read only, bound with `Data.bind`; left out, bound with their patch door. */
     readOnly?: boolean;
+    /** The print jobs' `key`, built from a job's row; left out, a String key made up. */
+    jobKey?: (job: ExprType<typeof ex.PrintJob>) => ExprType<StringType>;
 }
 
 /**
  * Example 16's Plan, with its inspector.
  *
- * @param options - The Plan's veto, the flows' key or their rule for one, whether they have templates and whether they are read only
+ * @param options - The Plan's veto, the flows' key or their rule for one, the print jobs' key, whether the flows have templates and whether they are read only
  * @returns The program, for the harness's `mount`
  */
-export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly = false }: FlowsPlanOptions = {}) {
+export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly = false, jobKey }: FlowsPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const works = $.let(Record.bind(ex.planLinkWorks, []));
         const plates = $.let(Record.bind(ex.planLinkPlates));
@@ -84,7 +86,10 @@ export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly
                         }),
                     }),
                 }),
-                job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+                job: Schedule.events(jobs, {
+                    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                    ...(jobKey === undefined ? {} : { key: jobKey }),
+                }),
                 binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
                 delivery: Schedule.events(deliveries, { name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" } }),
             },

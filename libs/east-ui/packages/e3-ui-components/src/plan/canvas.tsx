@@ -114,7 +114,8 @@ import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { parseEventRef } from "../shared/schedule/event-ref.js";
 import {
-    NO_LINK_KINDS, NO_LINK_KINDS_READ, editableLinkKinds, kindLinkOf, kindLinks, linkKindEdits, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, editableLinkKinds, kindLinkOf, kindLinks, linkFollowing, linkKindEdits, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver,
+    readLinkKinds,
     type PlanLinkEnd, type PlanLinkKindValue,
 } from "./links/kinds.js";
 import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
@@ -125,7 +126,7 @@ import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
-import { scheduleIssueName } from "../shared/schedule/editing.js";
+import { scheduleIssueName, type ScheduleFollowing } from "../shared/schedule/editing.js";
 import { drawnKinds, usePlanEventDrag, type PlanConnecting, type PlanDropAnswer } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -496,8 +497,12 @@ export function usePlanCanvas({
     }, [kinds, linkKinds]);
     // Each link kind bound with its patch door is a record of the one history (#1541, U10), its session named by its slot.
     const linkRecords = useMemo(() => linkKindRecords(linkKinds), [linkKinds]);
+    // An event a gesture moves under the key its fields build takes the links naming it with it (east-workspace#1709):
+    // asked as the gesture is recorded, of the links this render holds — read below, with the editing's drafts in place.
+    const linksFollow = useRef<ScheduleFollowing | undefined>(undefined);
+    const following = useCallback<ScheduleFollowing>((moved) => linksFollow.current?.(moved) ?? { changes: [] }, []);
     const eventEditing = usePlanEventEditing({
-        kinds, records: linkRecords, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
+        kinds, records: linkRecords, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, following, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;
@@ -604,6 +609,7 @@ export function usePlanCanvas({
     const linkDrafted = useDraftedRows(eventEditing, linkKinds);
     const [linkStanding] = useState(() => new DraftedStanding());
     const ofKinds = useMemo(() => kindLinks(linkKinds, linksRead, linkDrafted, linkStanding), [linkKinds, linksRead, linkDrafted, linkStanding]);
+    linksFollow.current = useMemo(() => linkFollowing(linkKinds, linksRead, linkDrafted), [linkKinds, linksRead, linkDrafted]);
     // The kinds holding more links than are drawn: none of their links draws, and Connect draws none of them.
     const linksOverCap = useMemo(() => linksOver(linkKinds, linksRead), [linkKinds, linksRead]);
     const linked = useMemo(() => (ofKinds.length === 0 ? nested : {

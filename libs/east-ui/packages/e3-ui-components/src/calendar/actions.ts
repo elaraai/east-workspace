@@ -74,7 +74,8 @@ const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
  */
 function keyRefusedWords(refusal: ScheduleKeyRefusal, name: string): string {
     const noun = lowerWord(name);
-    return "taken" in refusal.why ? `Another ${noun} is keyed "${refusal.why.taken}" already` : `No key can be made for this ${noun}`;
+    if ("taken" in refusal.why) return `Another ${noun} is keyed "${refusal.why.taken}" already`;
+    return "named" in refusal.why ? `${refusal.why.named} names this ${noun} by its key, and cannot follow it` : `No key can be made for this ${noun}`;
 }
 
 /**

@@ -114,6 +114,8 @@ export type PlanLinkEndsType = typeof PlanLinkEndsType;
  * @property templates - Its presets, as the library lists them: each a value for every field but its two ends
  * @property create - A new link between two events, its other fields a template's values, or, given none, their
  *   types' defaults; `none` for an end of a kind its field holds no keys of, or a key no key of that kind prints as
+ * @property write - A link's row with its ends written from the two events given, every other field as it was: how a
+ *   link follows an event it joins that moves under another key; `none` as `create` gives it
  * @property rowKey - A new link's key's text, built from its row; `none`, it is its `newKey`'s, or a String key is made
  *   up and an Integer one counted on
  * @property keyType - Its record's key type
@@ -129,6 +131,7 @@ export const PlanLinkKindType = StructType({
     read: FunctionType([BlobType, StringType], PlanLinkRolesType),
     templates: ArrayType(ScheduleTemplateType),
     create: FunctionType([PlanLinkEndsType, OptionType(BlobType)], OptionType(BlobType)),
+    write: FunctionType([BlobType, PlanLinkEndsType], OptionType(BlobType)),
     rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
@@ -589,6 +592,11 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         const others = $.let(templateValues(values, ValuesType, (_$2) => blank), ValuesType);
         return ended($ as never, others, ends) as never;
     });
+    // A link's row with its ends written, every other field as it was: an event it joins moved under another key.
+    const write = East.function([BlobType, PlanLinkEndsType], OptionType(BlobType), ($, bytes, ends) => {
+        const row = $.const(bytes.decodeBeast(rowType, "v2"));
+        return ended($ as never, row, ends) as never;
+    });
     // Its presets: a templates record's, each a value for every field but its ends — and none of them timed.
     const templates = linkTemplates(config.templates, ValuesType, [from.field, to.field], where);
 
@@ -633,6 +641,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
                 read: readOf(bound.keyType, rowType, rolesOf, PlanLinkRolesType),
                 templates,
                 create,
+                write,
                 rowKey: keyBuilt === undefined ? none : some(keyBuilt),
                 keyType: toEastTypeValue(bound.keyType),
             } as never, PlanLinkKindType) as ExprType<PlanLinkKindType>;
