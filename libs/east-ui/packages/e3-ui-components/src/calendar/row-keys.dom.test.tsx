@@ -11,7 +11,8 @@
  * the key its session makes in its own field (`keyField`); and Save writes it
  * so. Where the app's rule gives a key a booking holds, the copy is refused,
  * and its Details say which key; over a record read a window at a time, the
- * rule is told the key of every booking the day shows.
+ * rule is told the key of every booking the day shows. Over bookings keyed by
+ * number, Search Records reads a key typed as a number.
  */
 
 import { describe, expect, test } from "vitest";
@@ -56,7 +57,19 @@ const numbered = e3.record("calendar_numbered_bookings", DictType(StringType, Bo
     }),
 });
 
-const h = e3Harness({ "calendar/row-keys": { bookings, numbered } }, { main: "data-calendar-main" });
+/** The desk's bookings keyed by number — 2, 12 and 120 — on the one day: what a key typed as a number is sought among. */
+const counted = e3.record("calendar_counted_bookings", DictType(IntegerType, Booking), {
+    initial: new Map([
+        [2n, { ref: "2", title: "Safety check", start: NINE, end: TEN }],
+        [12n, { ref: "12", title: "Calibration", start: ELEVEN, end: NOON }],
+        [120n, { ref: "120", title: "Handover", start: ONE, end: TWO }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "calendar/row-keys": { bookings, numbered, counted } }, { main: "data-calendar-main" });
 const sameBooking = equalFor(Booking);
 
 /** The bookings' day, under the app's own rule for a new booking's key: B-1, B-2, … */
@@ -124,6 +137,13 @@ const numberedByKey = { fn: East.function([], UIComponentType, (_$) => Reactive.
     }));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, newKey: past }) } });
+}))) };
+
+/** The day of the bookings keyed by number, their record read whole. */
+const countedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(counted, ["patch"]));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end" }) } });
 }))) };
 
 /** The keys of the bookings the day draws. */
@@ -202,6 +222,24 @@ describe("a Calendar's new event under each of the three key options (east-works
         const rows = await h.read(numbered);
         expect([[...rows.keys()], sameBooking(rows.get("B-8")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })])
             .toEqual([["B-1", "B-3", "B-7", "B-8"], true]);
+    });
+});
+
+describe("a Calendar over bookings keyed by number (east-workspace#1709)", () => {
+    test("ruling 10 — Search Records reads the key typed as a number: 12 finds booking 12 alone, never 120 beside it, and 1..200 lists them in their numbers' order — 2, 12, 120", async () => {
+        const { container: c } = await h.mount(countedDay);
+        await waitFor(() => expect(drawn(c)).toHaveLength(3));
+        const input = slot(c, "toolbar").querySelector<HTMLInputElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input")!;
+        /** Types a query into the box, and gives the keys of the lines it lists. */
+        const listed = async (text: string) => {
+            await act(async () => { input.focus(); fireEvent.input(input, { target: { value: text } }); });
+            await settle();
+            const list = () => document.getElementById(input.getAttribute("aria-controls") ?? "");
+            await waitFor(() => expect(list()?.querySelector('[role="option"]')).not.toBeNull(), { timeout: 10_000 });
+            return [...list()!.querySelectorAll('[role="option"] [data-item-key]')].map((key) => key.textContent);
+        };
+        expect(await listed("12")).toEqual(["12"]);
+        expect(await listed("1..200")).toEqual(["2", "12", "120"]);
     });
 });
 
