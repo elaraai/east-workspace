@@ -14,13 +14,19 @@
  * - At each rest the jobs read are those of the blocks of presses meeting the
  *   view and its margin, never every block from the page's first row: a hall's
  *   own row stands for no press (#1711).
+ * - The halls draw in the order their binding gives: by name beside their
+ *   nested series index, in their keys' order without it. Their names run
+ *   against their keys, so a hall's presses mount where the view looks for
+ *   them only in that order (#1713).
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
  * `SCALE_NESTED=0` to bind the halls without their nested series index, and
- * `SCALE_LOG=1` to print what each step asked and the processor time it took.
+ * `SCALE_LOG=1` to print what each step asked, the processor time it took, and
+ * the rows and marks it left drawn — the same with the index and without.
  */
 
+import { createHash } from "node:crypto";
 import { describe, test, expect, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
 import { DateTimeType, DictType, East, OptionType, StringType, StructType, VariantType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -68,6 +74,14 @@ const hallKey = (h: number) => `H${pad(h, 2)}`;
 const taskKey = (t: number) => `t${pad(t, 2)}`;
 /** Each press's code, by its hall: `P<hall><press in hall>`. */
 const pressCodes: string[][] = SIZES.map((size, h) => Array.from({ length: size }, (_x, p) => `P${pad(h, 2)}${pad(p, 4)}`));
+/**
+ * The halls, by key, in the order the page draws them. Beside their nested series index the binding reads them through
+ * the first plain index it lists, by name: the first hall, which has none, then the rest against their keys' order.
+ * Without it the binding joins, and they come in their keys' order (#1713).
+ */
+const DRAWN: readonly number[] = NESTED
+    ? [0, ...Array.from({ length: HALLS - 1 }, (_x, i) => HALLS - 1 - i)]
+    : Array.from({ length: HALLS }, (_x, i) => i);
 
 // ── The records ──────────────────────────────────────────────────────────────
 
@@ -87,8 +101,8 @@ const DAY = 86_400_000;
 function halls(): ValueTypeOf<typeof Halls> {
     const tasks = new Map(Array.from({ length: TASKS }, (_x, t) => [taskKey(t), {}] as const));
     return new Map(SIZES.map((_size, h) => [hallKey(h), {
-        // The first hall states no name: its row is labelled by its key.
-        name: h === 0 ? none : some(`Hall ${pad(h, 2)}`),
+        // The first hall states no name: its row is labelled by its key. The others' names run against their keys.
+        name: h === 0 ? none : some(`Hall ${pad(HALLS - h, 2)}`),
         presses: new Map(pressCodes[h]!.map((code) => [code, { what: variant("press", {}), tasks: new Map(tasks) }] as const)),
     }] as const)) as ValueTypeOf<typeof Halls>;
 }
@@ -197,8 +211,11 @@ const mounted = (container: HTMLElement): string[] =>
 /** Processor seconds this process has used: what a step costs, whatever else the machine is doing. */
 const cpu = () => { const used = process.cpuUsage(); return (used.user + used.system) / 1e6; };
 
-/** What a step asked, by what it read, and what it cost: printed for a run by hand. */
-function report(step: string, from: number, cpu0: number): void {
+/** A short digest of some texts, in their order: what two runs compare a step's drawn rows or marks by. */
+const digest = (texts: readonly string[]) => createHash("sha256").update(texts.join("\n")).digest("hex").slice(0, 12);
+
+/** What a step asked, by what it read, what it cost, and the rows and marks it left drawn: printed for a run by hand. */
+function report(step: string, from: number, cpu0: number, container: HTMLElement): void {
     if (!LOG) return;
     const asked: Record<string, { requests: number; searches: number }> = {};
     for (const request of h.requests().slice(from)) {
@@ -209,7 +226,11 @@ function report(step: string, from: number, cpu0: number): void {
         at.requests += 1;
         at.searches += request.kind === "find" ? request.searches.length : 0;
     }
-    process.stdout.write(`\n### ${step}: ${(cpu() - cpu0).toFixed(1)} processor seconds\n${JSON.stringify(asked, null, 2)}\n`);
+    const rows = mounted(container);
+    const marks = [...container.querySelectorAll<HTMLElement>("[data-plan-row] [data-mark]")].map((mark) => mark.getAttribute("data-mark") ?? "");
+    process.stdout.write(`\n### ${step}: ${(cpu() - cpu0).toFixed(1)} processor seconds\n`
+        + `### ${step}, drawn: ${rows.length} rows (${digest(rows)}) from ${rows[0] ?? "-"} to ${rows[rows.length - 1] ?? "-"}, ${marks.length} marks (${digest(marks)})\n`
+        + `${JSON.stringify(asked, null, 2)}\n`);
 }
 
 describe("a Plan over grouped rows at a page's size (#1710)", () => {
@@ -227,16 +248,18 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             const { container } = await h.mount(page);
             await waitFor(() => expect(container.querySelectorAll("[data-plan-row]").length).toBeGreaterThan(0), { timeout: 600_000 });
             await settle();
-            report("open", from, cpu0);
+            report("open", from, cpu0, container);
             expect(searchesOf(from)).toBeLessThanOrEqual(SCHEDULE_CELL_BLOCK * LEVELS);
             expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Row heights: the Plan's own geometry, which its virtualizer sizes its rows by.
             const hallPx = PLAN_GEOMETRY.default.group;
             const pressPx = (1 + TASKS) * PLAN_GEOMETRY.default.row;
-            /** Where hall `h`'s own row sits. */
-            const hallTop = (at: number) => SIZES.slice(0, at).reduce((sum, size) => sum + hallPx + size * pressPx, 0);
-            const deep = HALLS - 2;
+            /** Where hall `at`'s own row sits: beneath every hall drawn before it, each its own row and its presses'. */
+            const hallTop = (at: number) => DRAWN.slice(0, DRAWN.indexOf(at)).reduce((sum, hall) => sum + hallPx + SIZES[hall]! * pressPx, 0);
+            // The hall drawn second to last by name, far down the page; by key, the third. The halls before it differ
+            // in each order, so its presses mount where the view looks only in the order the binding gives.
+            const deep = 2;
 
             // Inside a hall far down: a press's row at the top of the view.
             from = h.requests().length;
@@ -244,7 +267,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + 5 * pressPx }); });
             await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(deep, 2)}`))).toBe(true), { timeout: 600_000 });
             await settle();
-            report(`inside hall ${deep}`, from, cpu0);
+            report(`inside hall ${deep}`, from, cpu0, container);
             expect(searchesOf(from)).toBeGreaterThan(0);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
             expect(findsOf(SUMMARY, from)).toEqual([]);
@@ -255,7 +278,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             act(() => { window.scrollTo({ top: hallTop(deep) }); });
             await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(deep, 2)}0000`))).toBe(true), { timeout: 600_000 });
             await settle();
-            report(`hall ${deep}'s own row at the top`, from, cpu0);
+            report(`hall ${deep}'s own row at the top`, from, cpu0, container);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
             // Its jobs drawn, never its presses' shading from the summary.
             expect(findsOf(SUMMARY, from)).toEqual([]);
