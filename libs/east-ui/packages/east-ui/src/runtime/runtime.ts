@@ -59,28 +59,35 @@ export type Fragment = typeof Fragment;
  * its own child normalization (see `@elaraai/east-ui`). A fragment is
  * routed through the shared child coalescer so it yields a well-typed children
  * value independent of the enclosing tag.
+ *
+ * A tag's `key` is no React key here — nothing reconciles these elements — so
+ * it is one more prop: the compiler hands it apart from the others, and it
+ * reaches the component among them, typed by the component's own props
+ * (`<Record key={(row) => row.code}>`).
  */
 export function jsx(
     type: Component<unknown> | Fragment,
     props: { children?: unknown } | null,
+    key?: unknown,
 ): UIElement {
     if (type === Fragment) {
         // A fragment yields its coalesced children (a JS array or an East array
         // expression); the enclosing container re-coalesces it into place.
         return coalesceChildren(props?.children as ContainerChildrenType) as unknown as UIElement;
     }
-    return (type as Component<unknown>)((props ?? {}) as unknown);
+    return (type as Component<unknown>)((key === undefined ? props ?? {} : { ...props, key }) as unknown);
 }
 
 /** Static-children variant — identical behaviour for this runtime. */
 export const jsxs: typeof jsx = jsx;
 
-/** Development entry point — same behaviour, extra compiler args ignored. */
+/** Development entry point — same behaviour, the compiler's source arguments ignored. */
 export function jsxDEV(
     type: Component<unknown> | Fragment,
     props: { children?: unknown } | null,
+    key?: unknown,
 ): UIElement {
-    return jsx(type, props);
+    return jsx(type, props, key);
 }
 
 /**
