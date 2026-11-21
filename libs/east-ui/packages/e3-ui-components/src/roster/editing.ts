@@ -99,7 +99,8 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
     const records = useMemo((): ScheduleEditingRecord[] => [
         ...(value.periods.type === "some" ? [{ key: PERIODS, name: value.periods.value.every.type === "week" ? "Weeks" : "Days",
             editing: value.periods.value.editing, entries: value.periods.value.entries }] : []),
-        ...(value.targets.type === "some" ? [{ key: TARGETS, name: "Targets", editing: value.targets.value.editing, entries: value.targets.value.entries }] : []),
+        ...(value.targets.type === "some" ? [{ key: TARGETS, name: "Targets", editing: value.targets.value.editing, entries: value.targets.value.entries,
+            newKey: value.targets.value.newKey }] : []),
     ], [value.periods, value.targets]);
     const epoch = span.from.getTime(), until = span.to.getTime();
     // eslint-disable-next-line react-hooks/exhaustive-deps

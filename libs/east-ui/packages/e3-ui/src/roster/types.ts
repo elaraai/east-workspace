@@ -23,7 +23,7 @@ import { ColorTokenType, StatusTokenType } from "@elaraai/east-ui";
 import { EditingType } from "@elaraai/east-ui/internal";
 import { RowInspectorType } from "../utils/row-inspector.js";
 import {
-    ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType, ScheduleRosterRolesType,
+    ScheduleClockType, ScheduleEntriesType, ScheduleFitType, ScheduleNewKeyType, SchedulePeriodStatusType, ScheduleRefusalType, ScheduleRosterRolesType,
 } from "../schedule/types.js";
 import { ScheduleOptimiseRequestType } from "../schedule/optimise.js";
 import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
@@ -496,6 +496,7 @@ export type RosterTargetEntryType = typeof RosterTargetEntryType;
  * payload is one type whatever the record holds.
  * @property editing - The shared session over the record: whole rows by their key, its patch door
  * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
+ * @property newKey - The app's rule for a new target's key (`newKey`): given the keys taken, one that is not; `none`, the Roster makes one up
  * @property rows - The targets whose day falls in `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes
  * @property needed - A drafted row's hours needed (#1678), from its bytes and its shift's nominal hours: the targets' `needed`, or the sum of its `hours`
@@ -508,6 +509,7 @@ export type RosterTargetEntryType = typeof RosterTargetEntryType;
 export const RosterTargetsKindType = StructType({
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
+    newKey: OptionType(ScheduleNewKeyType),
     rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, RosterTargetEntryType))),
     read: FunctionType([BlobType], RosterTargetRolesType),
     needed: FunctionType([BlobType, FloatType], FloatType),

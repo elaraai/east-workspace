@@ -9,7 +9,8 @@
  * Allocation share (`Schedule.events`), told it as a Record and a Sheet are:
  * an East function from the keys taken to a new one, at the record's key
  * type. The kind carries it over the keys' text, as every builder's payload
- * does; told none, it carries none, and its session makes the key.
+ * does; told none, it carries none, and its session makes the key. The
+ * Roster's targets (`Roster.targets`) take the same option.
  *
  * e3-ui's specs read and write no e3: each record is a handle made by hand
  * (`record-handles.ts`).
@@ -18,11 +19,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
+    DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
     compareFor, type BlockBuilder, type ValueTypeOf,
 } from "@elaraai/east";
 import { Record } from "@elaraai/e3-ui";
-import { Schedule } from "@elaraai/e3-ui/internal";
+import { Roster, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { recordHandle } from "../record-handles.js";
 
@@ -63,6 +64,31 @@ describe("an event kind told the app's rule for a new key", () => {
         const overNumbers = East.function([SetType(IntegerType)], IntegerType, (_$, keys) => keys.size());
         assert.throws(() => kindOver(byRef, { newKey: overNumbers }),
             /Schedule\.events: "Job": `newKey` takes the keys taken and gives a new one — an East function from \.Set \.String to \.String/);
+    });
+});
+
+/** A staffing target: the Roster's roles. */
+const Cover = StructType({ day: DateTimeType, team: StringType, shift: StringType, heads: IntegerType, hours: DictType(StringType, FloatType) });
+const coversHandle = recordHandle(DictType(StringType, Cover), new SortedMap<string, ValueTypeOf<typeof Cover>>([], compareFor(StringType)), "spec_covers");
+/** The rule the targets carry, built as the Roster builds them: told the app's rule for a new key, or told none. */
+const coversRule = (options: object) => East.compile(East.function([], OptionType(FunctionType([SetType(StringType)], StringType)), ($) => {
+    const handle = $.let(coversHandle());
+    return Roster.targets(handle as never, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", ...options } as never).build().newKey;
+}), []);
+
+describe("the Roster's targets told the app's rule for a new key", () => {
+    test("ruling 1 — carry the rule; told none, they carry none, and the Roster makes a key up", () => {
+        const next = East.function([SetType(StringType)], StringType, (_$, keys) => East.str`C-${keys.size().add(1n)}`);
+        const rule = coversRule({ newKey: next })();
+        if (rule.type !== "some") assert.fail("expected the targets to carry their rule");
+        assert.equal(rule.value(taken("C-1")), "C-2");
+        assert.equal(coversRule({})().type, "none");
+    });
+
+    test("ruling 1 — refuse a rule that is no function from the targets' keys to one", () => {
+        const overNumbers = East.function([SetType(IntegerType)], IntegerType, (_$, keys) => keys.size());
+        assert.throws(() => coversRule({ newKey: overNumbers }),
+            /Roster\.targets: `newKey` takes the keys taken and gives a new one — an East function from \.Set \.String to \.String/);
     });
 });
 
