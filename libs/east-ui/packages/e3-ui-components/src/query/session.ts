@@ -552,6 +552,6 @@ export function recordGesture(
     origin: Origin,
     label: string,
 ): boolean {
-    const updates = listUpdates(current, next, QUERY_ENTRIES, (id) => session.entries.get(id) ?? original(id));
+    const updates = listUpdates(current, next, QUERY_ENTRIES, (id) => session.entries.get(id), original);
     return updates.length > 0 && session.record(updates, origin, label);
 }
