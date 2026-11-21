@@ -40,7 +40,8 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
-import { SnapGridEditor, type SnapGridTileAction } from "./editor.js";
+import { SnapGridEditor } from "./editor.js";
+import type { SnapGridTileAction } from "./editor-tile.js";
 import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
 import type { SnapGridJoined } from "./use-snap-grid-editing.js";
 

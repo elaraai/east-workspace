@@ -617,7 +617,7 @@ export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps 
 // of room folds into it — the SnapGrid editor's View, Studio's and the query
 // builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.
 export { ChipMenu, type ChipMenuProps } from "./toolbar/chip-menu.js";
-export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor.js";
+export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor-toolbar.js";
 export type { SnapGridPhoneOptions, SnapGridPlacing } from "./layout/snap-grid/phone.js";
 // A host's own sessions under the canvas's one history (#1673): what it joins, and the rows' ref they share.
 export type { SnapGridEntryRef, SnapGridJoined, SnapGridJoinedSession } from "./layout/snap-grid/use-snap-grid-editing.js";
