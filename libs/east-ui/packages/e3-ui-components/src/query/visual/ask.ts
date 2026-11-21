@@ -16,7 +16,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, IntegerType, StructType, decodeBeast2, fromEastTypeValue, isValueOf, printType, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, IntegerType, StructType, decodeBeast2, fromEastTypeValue, isValueOf, printType, type EastType, type option } from "@elaraai/east";
 import { AnswerCache, readHashes, withMinute, type KeptRequest, type KeptResult } from "../model/summaries.js";
 import { minuteOf, queryResultOf, type QueryResult, type QueryRoot } from "../one-shot.js";
 import { draftPlan, type PlanOptions } from "../plan.js";
@@ -30,7 +30,9 @@ import type { VisualValue } from "./print.js";
  *
  * @remarks
  * - `answered` — its rows, each column's East type, how many groups there
- *   were before the cut, and how many source rows it read: none is "no data".
+ *   were before the cut, and how many source rows it read: none is "no data";
+ *   and what a paged view's program answers beside its page (#1667): Other,
+ *   its largest value, its heat ramp's top.
  * - `problem` — it ended otherwise: the checker's problems, an error the run
  *   raised, a dataset with no value yet, out of time or too large — its
  *   result, which says which.
@@ -39,8 +41,29 @@ export type VisualAnswer =
     | {
         readonly kind: "answered"; readonly result: QueryResult; readonly rows: readonly Readonly<Record<string, unknown>>[];
         readonly columns: ReadonlyMap<string, EastType>; readonly groups: number; readonly n: number;
+        /** The groups past a group's first N, folded — Other; `undefined` where none was asked, or no fold is exact. */
+        readonly other?: VisualRest | undefined;
+        /** A list's largest first value among its first N, for its ranking bar; `undefined` where none was asked, or it has none. */
+        readonly largest?: number | undefined;
+        /** A heat map's top step: its value's 95th percentile over every pair; `undefined` where none was asked, or it has none. */
+        readonly heat?: number | undefined;
     }
     | { readonly kind: "problem"; readonly result: QueryResult };
+
+/**
+ * Other, as a paged view's program answers it (#1667): the groups past a
+ * group's first N, folded — one row, of a list's or a summary's; one a key of
+ * its second group, of a pivot's rows — and each column's East type.
+ *
+ * @property rows - Its rows: each value's parts, folded, its keys of the second group where it has one, and its rows
+ * @property columns - Each column's East type
+ */
+export interface VisualRest {
+    /** Its rows: each value's parts, folded, its keys of the second group where it has one, and its rows. */
+    readonly rows: readonly Readonly<Record<string, unknown>>[];
+    /** Each column's East type. */
+    readonly columns: ReadonlyMap<string, EastType>;
+}
 
 /** A program's answer that answered: its rows, each column's East type, its groups and the source rows it read. */
 export type VisualAnswered = Extract<VisualAnswer, { kind: "answered" }>;
@@ -57,20 +80,54 @@ export class VisualAskError extends Error {
     }
 }
 
+/** Whether a type is a number's, or an Option of one, as East's type equality tells it: what a value read beside a page is. */
+function isNumberType(type: EastType): boolean {
+    const payload = optionPayload(type) ?? type;
+    return payload.type === "Integer" || payload.type === "Float";
+}
+
+/** A field of an answer's type that is an Array of structs — its rows, its Other — as that Array; `undefined` for any other. */
+function rowsType(type: EastType): ArrayType<StructType> | undefined {
+    const row = rowOf(type);
+    return row?.type === "Struct" ? ArrayType(row) : undefined;
+}
+
 /**
  * The struct every visual program answers — its rows, how many groups there
- * were before the cut, and how many source rows it read — its rows' type the
+ * were before the cut, and how many source rows it read — and what a paged
+ * view's answers beside its page (#1667): Other's rows (`other`), a list's
+ * largest value (`largest`), a heat map's top (`heat`); its rows' types the
  * answer's own, known only once it is read: what an answer's value is checked
  * against.
  *
  * @param type - The answer's type
- * @returns The struct of `rows`, `groups` and `n`; `undefined` for a type that is no such struct
+ * @returns The struct of `rows`, `groups` and `n`, and those beside them it has;
+ *   `undefined` for a type that is no such struct, or that has another field
  */
-export function visualAnswerType(type: EastType): StructType<{ rows: ArrayType<StructType>; groups: IntegerType; n: IntegerType }> | undefined {
+export function visualAnswerType(type: EastType): StructType | undefined {
     if (type.type !== "Struct") return undefined;
-    const rows = (type.fields as Record<string, EastType | undefined>)["rows"];
-    const row = rows === undefined ? undefined : rowOf(rows);
-    return row?.type === "Struct" ? StructType({ rows: ArrayType(row), groups: IntegerType, n: IntegerType }) : undefined;
+    const expected: [string, EastType][] = [];
+    for (const [name, field] of Object.entries(type.fields as Record<string, EastType>)) {
+        switch (name) {
+            case "rows": case "other": {
+                const rows = rowsType(field);
+                if (rows === undefined) return undefined;
+                expected.push([name, rows]);
+                break;
+            }
+            case "groups": case "n":
+                expected.push([name, IntegerType]);
+                break;
+            case "largest": case "heat":
+                if (!isNumberType(field)) return undefined;
+                expected.push([name, field]);
+                break;
+            default:
+                return undefined;
+        }
+    }
+    const names = new Set(expected.map(([name]) => name));
+    return names.has("rows") && names.has("groups") && names.has("n") ? StructType(expected) : undefined;
 }
 
 /**
@@ -138,11 +195,37 @@ export async function askProgram(
             if (type === undefined || !isValueOf(decoded.value, type)) {
                 throw new VisualAskError("refused", `A visual's program answered ${printType(read)}, not its rows, groups and n`);
             }
-            const answer = decoded.value as ValueTypeOf<typeof type>;
-            const columns = new Map(Object.entries(type.fields.rows.value.fields as Record<string, EastType>));
-            return { value: { kind: "answered", result, rows: answer.rows, columns, groups: Number(answer.groups), n: Number(answer.n) }, hashes };
+            return { value: answeredOf(type, decoded.value, result), hashes };
         }
     }
+}
+
+/**
+ * An answer's value, checked against its type ({@link visualAnswerType}),
+ * read: its rows and each column's East type, its counts, and what it answers
+ * beside them.
+ *
+ * @param type - The answer's type
+ * @param value - Its value, of that type
+ * @param result - The run's result it was read from
+ * @returns The answer
+ */
+function answeredOf(type: StructType, value: unknown, result: QueryResult): VisualAnswered {
+    const fields = type.fields as Record<string, EastType | undefined>;
+    const answer = value as Readonly<Record<string, unknown>>;
+    // An Array of structs the answer holds: its rows, and each column's type.
+    const tableOf = (name: string): VisualRest | undefined => {
+        const field = fields[name];
+        const rows = field === undefined ? undefined : rowsType(field);
+        return rows === undefined ? undefined
+            : { rows: answer[name] as readonly Readonly<Record<string, unknown>>[], columns: new Map(Object.entries(rows.value.fields as Record<string, EastType>)) };
+    };
+    const numberAt = (name: string): number | undefined => numberOf(fields[name], answer[name]);
+    const rows = tableOf("rows")!;
+    return {
+        kind: "answered", result, rows: rows.rows, columns: rows.columns, groups: Number(answer["groups"] as bigint), n: Number(answer["n"] as bigint),
+        other: tableOf("other"), largest: numberAt("largest"), heat: numberAt("heat"),
+    };
 }
 
 /** A program a page asks: its text, which its answer is kept by, the source it reads, and the minute it asks for. */
@@ -210,13 +293,13 @@ export interface ValueParts {
 /**
  * A value's parts in an answer's row, read by each column's East type.
  *
- * @param answer - The answer: its rows' columns and their types
+ * @param answer - The answer, or its Other ({@link VisualRest}): its rows' columns and their types
  * @param row - The row
  * @param index - The value's index among the visual's values
  * @param value - The value
  * @returns Its parts
  */
-export function visualParts(answer: VisualAnswered, row: Readonly<Record<string, unknown>>, index: number, value: VisualValue): ValueParts {
+export function visualParts(answer: Pick<VisualAnswered, "columns">, row: Readonly<Record<string, unknown>>, index: number, value: VisualValue): ValueParts {
     const part = (name: string) => numberOf(answer.columns.get(name), row[name]);
     const v = `v${index}`;
     switch (value.measure.type) {

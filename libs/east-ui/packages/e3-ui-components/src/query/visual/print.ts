@@ -5,8 +5,9 @@
 
 /**
  * A Studio visual, printed as the jq programs it asks (#1670): a pure
- * function of the visual, its source and the page's state. A tile asks each
- * program on e3 (`run-draft.ts`), and an alert's check asks its visual's.
+ * function of the visual, its source, the page's state and the page of its
+ * rows it shows. A tile asks each program on e3 (`run-draft.ts`), and an
+ * alert's check asks its visual's.
  *
  * Every program reads one source's rows, narrows them — the visual's own
  * filter, then the page's filters on its source, then the period's window on
@@ -21,6 +22,11 @@
  * the planner can split over a large dataset's pieces, and Other and totals
  * stay exact; its reader ({@link visualValue}) makes the value of them.
  *
+ * A list, a summary and a pivot page their first group's groups (#1667): a
+ * program answers a page of them, how many there are, and beside the page
+ * what it needs of the rest — Other folded past a group's first N, a list's
+ * largest value for its ranking bar, a heat map's top step over every pair.
+ *
  * It imports neither React nor the renderers, so the query's calls entry
  * (`@elaraai/e3-ui-components/query`) carries it to a host in Node.
  *
@@ -30,7 +36,7 @@
 import { DateTimeType, none, printJq, some, toJSONFor, variant, type EastType, type JqNode, type StructType, type ValueTypeOf } from "@elaraai/east";
 import type { StudioVisualType } from "@elaraai/e3-ui/internal";
 import { NOW_FIELD } from "../one-shot.js";
-import { pathNode, readsVariable, stringLiteral } from "../steps/jq.js";
+import { binary, booleanLiteral, chain, pathNode, readsVariable, stringLiteral } from "../steps/jq.js";
 import { SEP, bindSegment } from "../steps/print.js";
 import { optionPayload } from "../steps/shape.js";
 
@@ -45,25 +51,30 @@ type Group = Extract<View, { type: "list" }>["value"]["item"];
 /** A period a value is measured over. */
 export type VisualPeriod = VisualValue["period"]["type"];
 
-/** The most groups a grouped program answers: a chart never draws more (CHT-9), and says so when it cuts. */
+/** The most groups a grouped program answers that draws every group: a chart never draws more (CHT-9), and says so when it cuts; nor a pivot more columns. */
 export const VISUAL_GROUP_LIMIT = 500;
 
-/** The rows a records page holds (TBL-1). */
+/** The rows a page holds: a records table's (TBL-1), and a list's items, a summary's groups of its first field and a pivot's rows. */
 export const VISUAL_RECORDS_PAGE = 50;
 
+/** The share of a heat map's values its ramp's top step closes at (TBL-4): a few outliers never wash the rest out. */
+export const HEAT_PERCENTILE = 0.95;
+
 /**
- * Which of a records table's rows its program asks: a page of them from an
- * offset, or every row after it — what an export writes.
+ * Which of a paged view's rows its program asks: a page of them from an
+ * offset, or every row after it — what an export writes. A records table
+ * pages its rows; a list its items, a summary its first group's groups, a
+ * pivot its rows.
  */
-export interface RecordsPage {
+export interface VisualPage {
     /** The first row asked, from 0. */
     readonly offset: number;
     /** How many rows from it; `"all"` asks every one. */
     readonly size: number | "all";
 }
 
-/** A records table's first page: what a tile asks first. */
-export const FIRST_RECORDS_PAGE: RecordsPage = { offset: 0, size: VISUAL_RECORDS_PAGE };
+/** A paged view's first page: what a tile asks first. */
+export const FIRST_PAGE: VisualPage = { offset: 0, size: VISUAL_RECORDS_PAGE };
 
 // ─── What the printer reads ──────────────────────────────────────────────────
 
@@ -127,19 +138,27 @@ export interface PrintState {
  *
  * @remarks
  * - `groups` — one row a group, `g0`, `g1` the group's keys, then the values'
- *   parts, then `n`: its rows. Sorted by the first group's order, and cut at
- *   {@link VISUAL_GROUP_LIMIT}.
- * - `heads` — a summary's first group alone, as `groups` answers it: the
- *   values of its group heads, from the query, a distinct count among them
- *   (TBL-2).
+ *   parts, then `n`: its rows. Sorted by the first group's order. A chart's
+ *   and a trend's are cut at {@link VISUAL_GROUP_LIMIT}; a list's and a
+ *   summary's of one group are a page of them, and Other folded where the
+ *   group keeps its first N (`other`), a list's largest value (`largest`); a
+ *   summary's of two groups and a pivot's are the pairs under a page of the
+ *   first group's groups, ordered as `heads` orders them, and `groups` says
+ *   how many of those there are — a pivot's with its rows past their first N
+ *   folded a column each (`other`) and its heat ramp's top (`heat`).
+ * - `heads` — a summary's first group alone, a page of it as `groups` pages a
+ *   list's: the values of its group heads, from the query, a distinct count
+ *   among them (TBL-2).
+ * - `columns` — a pivot's column group alone, cut at {@link VISUAL_GROUP_LIMIT}:
+ *   the columns every page draws, in their order.
  * - `total` — one row of the values' parts over every row read.
  * - `trend` — a KPI's value along its trend field, one row a bucket.
  * - `records` — one row a record, `c0`, `c1` its columns, a page of them.
  */
 export interface VisualAsk {
     /** What its answer is for. */
-    readonly role: "groups" | "heads" | "total" | "trend" | "records";
-    /** The period it covers. */
+    readonly role: "groups" | "heads" | "columns" | "total" | "trend" | "records";
+    /** The period it covers: a paged view's one program over values of several periods says `current`, and its values each read their own. */
     readonly period: VisualPeriod;
     /** The values it answers, by their index among the visual's values: what `v0`, `v1` read. */
     readonly values: readonly number[];
@@ -182,8 +201,8 @@ function fieldOf(name: string): string {
 
 /** An instant, as the ISO-8601 string literal East's jq reads as a DateTime. */
 const dateText = toJSONFor(DateTimeType);
-function dateLiteral(at: Date): string {
-    return printJq(stringLiteral(dateText(at) as string)).text;
+function dateNode(at: Date): JqNode {
+    return stringLiteral(dateText(at) as string);
 }
 
 /** A field's type in the row: `undefined` when the row has no field of that name. */
@@ -207,18 +226,90 @@ function valuesOf(source: PrintSource, name: string): string {
 
 // ─── Values and groups ───────────────────────────────────────────────────────
 
+/**
+ * A value a program answers: its index among the visual's values — what
+ * `v0`, `v1` name — the value, and, in a paged view's program over several
+ * periods, the condition that holds its period's rows, which each of its
+ * parts reads. A value whose period holds none of a group's rows answers none
+ * of its parts: "no data", never a zero.
+ */
+interface ValueAsk {
+    /** Its index among the visual's values. */
+    readonly index: number;
+    /** The value. */
+    readonly value: VisualValue;
+    /** Its period's rows, a jq condition over one row; `undefined` in a program of one period. */
+    readonly period?: string | undefined;
+}
+
 /** A value's parts over the rows of a group (`.`, an array), as object entries: `v0`, or `v0s`/`v0c`, `v0o`/`v0p`. */
-function valueParts(source: PrintSource, value: VisualValue, index: number): string[] {
-    const v = `v${index}`;
-    const measure = value.measure;
+function valueParts(source: PrintSource, ask: ValueAsk): string[] {
+    const v = `v${ask.index}`;
+    // Over several periods, each part reads its period's rows, and is null where there are none.
+    const of = (part: string) => (ask.period === undefined ? part : `(map(select(${ask.period})) | if length == 0 then null else ${part} end)`);
+    const measure = ask.value.measure;
     switch (measure.type) {
-        case "count": return [`${v}: length`];
-        case "sum": return [`${v}: (${valuesOf(source, measure.value)} | add)`];
-        case "mean": return [`${v}s: (${valuesOf(source, measure.value)} | add)`, `${v}c: (${valuesOf(source, measure.value)} | length)`];
-        case "min": return [`${v}: (${valuesOf(source, measure.value)} | min)`];
-        case "max": return [`${v}: (${valuesOf(source, measure.value)} | max)`];
-        case "distinct": return [`${v}: (${valuesOf(source, measure.value)} | unique | length)`];
-        case "ratio": return [`${v}o: (${valuesOf(source, measure.value.of)} | add)`, `${v}p: (${valuesOf(source, measure.value.per)} | add)`];
+        case "count": return [`${v}: ${of("length")}`];
+        case "sum": return [`${v}: ${of(`(${valuesOf(source, measure.value)} | add)`)}`];
+        case "mean": return [`${v}s: ${of(`(${valuesOf(source, measure.value)} | add)`)}`, `${v}c: ${of(`(${valuesOf(source, measure.value)} | length)`)}`];
+        case "min": return [`${v}: ${of(`(${valuesOf(source, measure.value)} | min)`)}`];
+        case "max": return [`${v}: ${of(`(${valuesOf(source, measure.value)} | max)`)}`];
+        case "distinct": return [`${v}: ${of(`(${valuesOf(source, measure.value)} | unique | length)`)}`];
+        case "ratio": return [`${v}o: ${of(`(${valuesOf(source, measure.value.of)} | add)`)}`, `${v}p: ${of(`(${valuesOf(source, measure.value.per)} | add)`)}`];
+    }
+}
+
+/**
+ * A value's parts over groups (`.`, an array of them), folded into one's —
+ * what Other holds of the groups past a group's first N: a count's, a sum's,
+ * a mean's and a ratio's parts add, a least takes the least, a most the most.
+ *
+ * @returns The folded parts, as object entries; `undefined` for a distinct
+ *   count, which no fold makes
+ */
+function foldedParts(ask: ValueAsk): string[] | undefined {
+    const v = `v${ask.index}`;
+    // Over several periods a part may be null: the present ones add, and none of them is none.
+    const added = (part: string) => (ask.period === undefined
+        ? `${part}: (map(.${part}) | add)`
+        : `${part}: (map(.${part} | values) | if length == 0 then null else add end)`);
+    switch (ask.value.measure.type) {
+        case "count": case "sum": return [added(v)];
+        case "mean": return [added(`${v}s`), added(`${v}c`)];
+        case "ratio": return [added(`${v}o`), added(`${v}p`)];
+        case "min": return [`${v}: (map(.${v} | values) | min)`];
+        case "max": return [`${v}: (map(.${v} | values) | max)`];
+        case "distinct": return undefined;
+    }
+}
+
+/** Every value's parts folded ({@link foldedParts}); `undefined` when one makes no fold. */
+function everyFolded(values: readonly ValueAsk[]): string[] | undefined {
+    const folded: string[] = [];
+    for (const ask of values) {
+        const parts = foldedParts(ask);
+        if (parts === undefined) return undefined;
+        folded.push(...parts);
+    }
+    return folded;
+}
+
+/**
+ * A value of a group's parts (`.`, one group), as jq: the number, or nothing
+ * (`empty`) where it has none — a mean or a ratio over nothing, a least or a
+ * most of no values, a period with none of its rows. A division guards its
+ * zero, which East's jq raises on.
+ */
+function valueOfParts(ask: ValueAsk): string {
+    const v = `.v${ask.index}`;
+    // A part that may be null — over several periods, or a least or a most — is read as its value, or nothing.
+    const lacking = ask.period !== undefined;
+    const part = (name: string) => (lacking ? `(${name} // 0)` : name);
+    switch (ask.value.measure.type) {
+        case "count": case "sum": case "distinct": return lacking ? `(${v} | values)` : v;
+        case "min": case "max": return `(${v} | values)`;
+        case "mean": return `(if ${part(`${v}c`)} == 0 then empty else ${part(`${v}s`)} / ${part(`${v}c`)} end)`;
+        case "ratio": return `(if ${part(`${v}p`)} == 0 then empty else ${part(`${v}o`)} / ${part(`${v}p`)} end)`;
     }
 }
 
@@ -265,22 +356,26 @@ function keyOf(source: PrintSource, group: Group): string {
 /**
  * What a group is ordered by, of a value's parts in its row: the value, made
  * negative for the highest first; for a value a group may have none of — a
- * mean or a ratio over nothing, a least or a most of no values — a struct of
- * whether it has none, then the value, so a group with none comes last either
- * way. A division guards its zero, which East's jq raises on.
+ * mean or a ratio over nothing, a least or a most of no values, a period with
+ * none of the group's rows — a struct of whether it has none, then the value,
+ * so a group with none comes last either way. A division guards its zero,
+ * which East's jq raises on.
  */
-function sortKeyOf(value: VisualValue, index: number, highFirst: boolean): string {
-    const v = `.v${index}`;
+function sortKeyOf(ask: ValueAsk, highFirst: boolean): string {
+    const v = `.v${ask.index}`;
     const signed = (key: string) => (highFirst ? `-(${key})` : `(${key})`);
-    switch (value.measure.type) {
+    // Over several periods every part may be null.
+    const lacking = ask.period !== undefined;
+    const part = (name: string) => (lacking ? `(${name} // 0)` : name);
+    switch (ask.value.measure.type) {
         case "count": case "sum": case "distinct":
-            return signed(v);
+            return lacking ? `{none: (${v} == null), key: ${signed(`${v} // 0`)}}` : signed(v);
         case "min": case "max":
             return `{none: (${v} == null), key: ${signed(`${v} // 0`)}}`;
         case "mean":
-            return `{none: (${v}c == 0), key: ${signed(`if ${v}c == 0 then 0 else ${v}s / ${v}c end`)}}`;
+            return `{none: (${part(`${v}c`)} == 0), key: ${signed(`if ${part(`${v}c`)} == 0 then 0 else ${part(`${v}s`)} / ${part(`${v}c`)} end`)}}`;
         case "ratio":
-            return `{none: (${v}p == 0), key: ${signed(`if ${v}p == 0 then 0 else ${v}o / ${v}p end`)}}`;
+            return `{none: (${part(`${v}p`)} == 0), key: ${signed(`if ${part(`${v}p`)} == 0 then 0 else ${part(`${v}o`)} / ${part(`${v}p`)} end`)}}`;
     }
 }
 
@@ -291,12 +386,12 @@ function sortKeyOf(value: VisualValue, index: number, highFirst: boolean): strin
  * program's, so each orders by its own. A program with no value keeps the
  * key's order.
  */
-function sortOf(group: Group, first: readonly [number, VisualValue] | undefined): string | undefined {
+function sortOf(group: Group, first: ValueAsk | undefined): string | undefined {
     if (first === undefined) return undefined;
     switch (group.sort.type) {
         case "natural": case "label": return undefined;
-        case "high": return `sort_by(${sortKeyOf(first[1], first[0], true)})`;
-        case "low": return `sort_by(${sortKeyOf(first[1], first[0], false)})`;
+        case "high": return `sort_by(${sortKeyOf(first, true)})`;
+        case "low": return `sort_by(${sortKeyOf(first, false)})`;
     }
 }
 
@@ -310,40 +405,127 @@ function rowsOf(source: PrintSource, where: readonly JqNode[], window: PrintWind
     const stages = [...(now ? [bindSegment(NOW_FIELD)] : []), `.${source.key}`];
     if (source.keyed) stages.push("[.[]]");
     for (const condition of where) stages.push(`map(select(${printJq(condition).text}))`);
-    if (window !== undefined && source.range !== undefined) {
-        const range = fieldOf(source.range);
-        stages.push(`map(select(${range} >= ${dateLiteral(window.from)} and ${range} < ${dateLiteral(window.to)}))`);
-    }
+    if (window !== undefined && source.range !== undefined) stages.push(`map(select(${printJq(windowCondition(source.range, window)).text}))`);
     return stages;
+}
+
+/** A window on a date field, as a condition over one row: `.ordered_at >= "…" and .ordered_at < "…"`. */
+function windowCondition(range: string, window: PrintWindow): JqNode {
+    const path = pathNode([range]);
+    return chain([binary(path, ">=", dateNode(window.from)), binary(path, "<", dateNode(window.to))], "and");
+}
+
+/** A bucket's optional date: the stages that drop the rows that have none, which fall in no bucket. */
+function unbucketed(source: PrintSource, groups: readonly Group[]): string[] {
+    return groups.filter((group) => group.bucket.type === "some" && isOptional(source, group.field)).map((group) => `map(select(${fieldOf(group.field)} != null))`);
+}
+
+/** A group of `group_by` (`.`, its rows) made one row: its keys from its first row (`$f`), its extras, its values' parts and its rows. */
+function groupRow(source: PrintSource, groups: readonly Group[], extras: readonly [string, string][], values: readonly ValueAsk[]): string {
+    const firstRow = groups.map((group, i) => `g${i}: ($f | ${keyOf(source, group)})`);
+    const extraParts = extras.map(([name, path]) => `${name}: $f${fieldOf(path)}`);
+    const parts = [...firstRow, ...extraParts, ...values.flatMap((ask) => valueParts(source, ask)), "n: length"];
+    return `map((.[0] // error("empty")) as $f | {${parts.join(", ")}})`;
 }
 
 /**
  * A grouped program: one row a group of `groups`' keys — and a bucket's
  * optional date dropped where it has none — each with its values' parts, its
  * extras (a caption, a split, read from its first row) and its rows; sorted;
- * cut at the limit.
+ * then the ending: cut at a limit, or a page.
  */
-function groupedProgram(rows: string[], source: PrintSource, groups: readonly Group[], extras: readonly [string, string][], values: readonly [number, VisualValue][], limit: number): string {
-    const stages = [...rows];
-    for (const group of groups) {
-        // A bucket reads a date: a row whose optional date has none falls in no bucket.
-        if (group.bucket.type === "some" && isOptional(source, group.field)) stages.push(`map(select(${fieldOf(group.field)} != null))`);
-    }
+function groupedProgram(rows: string[], source: PrintSource, groups: readonly Group[], extras: readonly [string, string][], values: readonly ValueAsk[], ending: string): string {
+    const stages = [...rows, ...unbucketed(source, groups)];
     const keys = groups.map((group, i) => `g${i}: ${keyOf(source, group)}`);
     stages.push(`group_by({${keys.join(", ")}})`);
-    const firstRow = groups.map((group, i) => `g${i}: ($f | ${keyOf(source, group)})`);
-    const extraParts = extras.map(([name, path]) => `${name}: $f${fieldOf(path)}`);
-    const parts = [...firstRow, ...extraParts, ...values.flatMap(([i, value]) => valueParts(source, value, i)), "n: length"];
-    stages.push(`map((.[0] // error("empty")) as $f | {${parts.join(", ")}})`);
+    stages.push(groupRow(source, groups, extras, values));
     const sort = groups[0] === undefined ? undefined : sortOf(groups[0], values[0]);
     if (sort !== undefined) stages.push(sort);
-    stages.push(`{rows: .[:${limit}], groups: length, n: (map(.n) | add)}`);
+    stages.push(ending);
+    return stages.join(SEP);
+}
+
+/** The ending of a program that draws every group: the first `limit` of them, how many there were, and the rows they hold. */
+function limitEnding(limit: number): string {
+    return `{rows: .[:${limit}], groups: length, n: (map(.n) | add)}`;
+}
+
+/** A page of a group's first N (`.`, its groups in order), as jq: `.[50:100]`. */
+function pageCut(page: VisualPage, top: number | undefined): string {
+    const end = page.size === "all" ? top : Math.min(page.offset + page.size, top ?? Number.POSITIVE_INFINITY);
+    return end === undefined || !Number.isFinite(end) ? `.[${page.offset}:]` : `.[${page.offset}:${end}]`;
+}
+
+/**
+ * A group's first N, from what it keeps: what a paged view's page is of.
+ *
+ * @param group - What a visual groups by
+ * @returns Its first N; `undefined` where it keeps every group
+ */
+export function topOf(group: Group): number | undefined {
+    return group.top.type === "some" ? Number(group.top.value) : undefined;
+}
+
+/**
+ * The ending of a paged level's program (a list's, a summary's of one group,
+ * its heads): a page of its first N, how many groups there are — the first N
+ * among them — and the rows they hold; Other, the groups past the first N
+ * folded, where the view folds them and the fold is exact; the largest of the
+ * first value among the first N, for a list's ranking bar.
+ */
+function pagedEnding(page: VisualPage, top: number | undefined, values: readonly ValueAsk[], beside: { readonly other: boolean; readonly largest: boolean }): string {
+    const fields = [`rows: ${pageCut(page, top)}`, "groups: length", "n: (map(.n) | add)"];
+    const folded = beside.other && top !== undefined ? everyFolded(values) : undefined;
+    if (folded !== undefined) fields.push(`other: (.[${top}:] | if length == 0 then [] else [{${[...folded, "n: (map(.n) | add)"].join(", ")}}] end)`);
+    const first = values[0];
+    if (beside.largest && first !== undefined) fields.push(`largest: (${top === undefined ? "." : `.[:${top}]`} | map(${valueOfParts(first)}) | max)`);
+    return `{${fields.join(", ")}}`;
+}
+
+/**
+ * The pairs under a page of heads — a summary of two groups, a pivot: the rows
+ * grouped by the first group's keys, each head ordered as its first group's
+ * sort orders the heads — by the value of its own rows, so as the `heads`
+ * program orders them — and holding its pairs of the second group, each with
+ * its values' parts and its rows; a page of the heads, their pairs one row
+ * each; how many heads there are; and, as the view asks, the heads past their
+ * first N folded into Other's pairs, one a key of the second group where the
+ * fold is exact, and the heat ramp's top step: the values' 95th percentile
+ * over every pair, by nearest rank.
+ */
+function pairsProgram(
+    rows: string[], source: PrintSource, groups: readonly [Group, Group], values: readonly ValueAsk[], page: VisualPage,
+    beside: { readonly other: boolean; readonly heat: boolean },
+): string {
+    const [first, second] = groups;
+    const stages = [...rows, ...unbucketed(source, groups)];
+    const k0 = keyOf(source, first);
+    const k1 = keyOf(source, second);
+    // A head carries what it is ordered by: its first value's parts, over its own rows.
+    const head = values[0] === undefined ? [] : valueParts(source, values[0]);
+    const pair = [`g0: ($f | ${k0})`, `g1: ($c | ${k1})`, ...values.flatMap((ask) => valueParts(source, ask)), "n: length"];
+    const pairs = `group_by({g1: ${k1}}) | map((.[0] // error("empty")) as $c | {${pair.join(", ")}})`;
+    stages.push(`group_by({g0: ${k0}})`);
+    stages.push(`map((.[0] // error("empty")) as $f | {${[`g0: ($f | ${k0})`, ...head, "n: length", `children: (${pairs})`].join(", ")}})`);
+    const sort = sortOf(first, values[0]);
+    if (sort !== undefined) stages.push(sort);
+    const top = topOf(first);
+    const fields = [`rows: (${pageCut(page, top)} | map(.children[]))`, "groups: length", "n: (map(.n) | add)"];
+    const folded = beside.other && top !== undefined ? everyFolded(values) : undefined;
+    if (folded !== undefined) {
+        const across = `group_by(.g1) | map((.[0] // error("empty")) as $c | {${["g1: ($c | .g1)", ...folded, "n: (map(.n) | add)"].join(", ")}})`;
+        fields.push(`other: (.[${top}:] | map(.children[]) | ${across})`);
+    }
+    if (beside.heat && values[0] !== undefined) {
+        fields.push(`heat: (map(.children[] | ${valueOfParts(values[0])}) | sort | if length == 0 then null else .[((length * ${HEAT_PERCENTILE}) | ceil) - 1] end)`);
+    }
+    stages.push(`{${fields.join(", ")}}`);
     return stages.join(SEP);
 }
 
 /** A total program: one row of the values' parts over every row read. */
-function totalProgram(rows: string[], source: PrintSource, values: readonly [number, VisualValue][]): string {
-    const parts = [...values.flatMap(([i, value]) => valueParts(source, value, i)), "n: length"];
+function totalProgram(rows: string[], source: PrintSource, values: readonly ValueAsk[]): string {
+    const parts = [...values.flatMap((ask) => valueParts(source, ask)), "n: length"];
     return [...rows, `{rows: [{${parts.join(", ")}}], groups: 1, n: length}`].join(SEP);
 }
 
@@ -360,7 +542,7 @@ export function recordsKey(index: number): string {
 }
 
 /** A records program: a page of rows — or every row — their columns, sorted by one field either way. */
-function recordsProgram(rows: string[], columns: readonly string[], sort: string | undefined, descending: boolean, page: RecordsPage): string {
+function recordsProgram(rows: string[], columns: readonly string[], sort: string | undefined, descending: boolean, page: VisualPage): string {
     const stages = [...rows];
     if (sort !== undefined) stages.push(`sort_by(${fieldOf(sort)})`);
     if (descending) stages.push("reverse");
@@ -407,7 +589,24 @@ function emptyWells(groups: readonly [string, Group][], lists: readonly [string,
     return [...groups.filter(([, group]) => group.field === "").map(([well]) => well), ...lists.filter(([, list]) => list.length === 0).map(([well]) => well)];
 }
 
-/** What a view reads: its groups, its values with their indexes, its extra fields, and its wells that are empty. */
+/**
+ * How a view pages its first group's groups (#1667): a list its items, a
+ * summary its first group's — over the pairs of its second, with one — and a
+ * pivot its rows, over the pairs of its columns.
+ *
+ * @property levels - One: a page of groups; two: the pairs under a page of heads
+ * @property other - Whether it folds its first group's groups past their first N into Other
+ * @property largest - Whether it draws its first value against the largest: a list's ranking bar
+ * @property heat - Whether it draws a heat ramp over its pairs
+ */
+interface Paging {
+    readonly levels: 1 | 2;
+    readonly other: boolean;
+    readonly largest: boolean;
+    readonly heat: boolean;
+}
+
+/** What a view reads: its groups, its values with their indexes, its extra fields, its wells that are empty, and how it pages. */
 interface ViewShape {
     readonly groups: readonly Group[];
     readonly values: readonly VisualValue[];
@@ -417,6 +616,10 @@ interface ViewShape {
     readonly total: boolean;
     /** Whether its first group's heads are asked apart: a summary of two groups. */
     readonly heads: boolean;
+    /** How it pages its first group's groups; `undefined` for one that draws every group, cut at the limit — a chart, a KPI. */
+    readonly paging?: Paging | undefined;
+    /** A pivot's columns, asked apart: the columns every page draws. */
+    readonly columns?: Group | undefined;
 }
 
 /** What a grouped view reads. */
@@ -477,9 +680,11 @@ function shapeOf(view: View): ViewShape | { readonly records: Extract<Extract<Vi
                 case "records": return { records: table.value };
                 case "summary": {
                     const summary = table.value;
+                    const two = summary.rows.length >= 2;
                     return {
                         groups: summary.rows.slice(0, 2), values: summary.values, extras: [], fields: [...summary.rows.map(g => g.field), ...summary.values.flatMap(valueFields)],
-                        empty: emptyWells([], [["rows", summary.rows], ["values", summary.values]]), total: summary.total, heads: summary.rows.length >= 2,
+                        empty: emptyWells([], [["rows", summary.rows], ["values", summary.values]]), total: summary.total, heads: two,
+                        paging: { levels: two ? 2 : 1, other: true, largest: false, heat: false },
                     };
                 }
                 case "pivot": {
@@ -487,6 +692,7 @@ function shapeOf(view: View): ViewShape | { readonly records: Extract<Extract<Vi
                     return {
                         groups: [pivot.rows, pivot.columns], values: [pivot.value], extras: [], fields: [pivot.rows.field, pivot.columns.field, ...valueFields(pivot.value)],
                         empty: emptyWells([["rows", pivot.rows], ["columns", pivot.columns]], []), total: false, heads: false,
+                        paging: { levels: 2, other: true, largest: false, heat: pivot.heat }, columns: pivot.columns,
                     };
                 }
             }
@@ -499,6 +705,7 @@ function shapeOf(view: View): ViewShape | { readonly records: Extract<Extract<Vi
             return {
                 groups: [list.item], values, extras, fields: [list.item.field, ...extras.map(([, f]) => f), ...values.flatMap(valueFields)],
                 empty: emptyWells([["item", list.item]], []), total: false, heads: false,
+                paging: { levels: 1, other: false, largest: list.bar, heat: false },
             };
         }
     }
@@ -518,13 +725,95 @@ export function visualValues(view: View): readonly VisualValue[] {
     return "records" in shape ? [] : shape.values;
 }
 
+/** A period's rows: the narrowing it reads them by, and whether that reads `.now`. */
+interface PeriodRows {
+    /** Its conditions over one row: the visual's own filter, then the page's — or, for another period, those that are no bound of the window — and its window. */
+    readonly where: readonly JqNode[];
+    /** The window moved to the period, which a program narrows by after `where`; `undefined` for the current period, whose filters hold it as they are. */
+    readonly window: PrintWindow | undefined;
+    /** Whether its conditions read `$now`. */
+    readonly now: boolean;
+}
+
+/** A program one of whose conditions reads `$now` reads `.now`. */
+function readsNow(conditions: readonly JqNode[]): boolean {
+    return conditions.some((node) => readsVariable(node, NOW_FIELD));
+}
+
+/**
+ * The asks of a paged view (#1667): its first group's groups a page at a time
+ * — its heads and their pairs, with a second — and, for a pivot, its columns;
+ * every value in one program, each over its own period's rows where they are
+ * over several, so every value of a page is of the same groups.
+ */
+function pagedAsks(
+    shape: ViewShape, paging: Paging, source: PrintSource, periods: ReadonlyMap<VisualPeriod, readonly ValueAsk[]>, rowsOfPeriod: (period: VisualPeriod) => PeriodRows, page: VisualPage,
+): VisualAsk[] {
+    const all = [...periods.values()].flat().sort((a, b) => a.index - b.index);
+    const indexes = all.map((ask) => ask.index);
+    const [only] = periods.keys();
+    let rows: string[];
+    let values: readonly ValueAsk[];
+    let period: VisualPeriod;
+    let reads: boolean;
+    if (periods.size <= 1) {
+        // One period: its rows, narrowed as they are.
+        period = only ?? "current";
+        const held = rowsOfPeriod(period);
+        rows = rowsOf(source, held.where, held.window, held.now);
+        values = all;
+        reads = held.now;
+    } else {
+        // Several: the rows of any of them, each value reading its own period's.
+        const narrowed = [...periods.keys()].map((at) => {
+            const held = rowsOfPeriod(at);
+            const conditions = [...held.where, ...(held.window === undefined || source.range === undefined ? [] : [windowCondition(source.range, held.window)])];
+            return { at, condition: conditions.length === 0 ? booleanLiteral(true) : chain(conditions, "and"), now: held.now };
+        });
+        reads = narrowed.some((held) => held.now);
+        rows = rowsOf(source, [chain(narrowed.map((held) => held.condition), "or")], undefined, reads);
+        const conditionOf = new Map(narrowed.map((held) => [held.at, printJq(held.condition).text]));
+        values = [...periods].flatMap(([at, asks]) => asks.map((ask) => ({ ...ask, period: conditionOf.get(at) }))).sort((a, b) => a.index - b.index);
+        period = "current";
+    }
+    const asks: VisualAsk[] = [];
+    const [first, second] = shape.groups;
+    if (first === undefined) return asks;
+    if (paging.levels === 1 || second === undefined) {
+        const ending = pagedEnding(page, topOf(first), values, paging);
+        asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, [first], shape.extras, values, ending), readsNow: reads });
+    } else {
+        // A pivot folds its rows past their first N into an Other row of cells; a summary's Other head is its heads'.
+        const beside = { other: paging.other && shape.columns !== undefined, heat: paging.heat };
+        asks.push({ role: "groups", period, values: indexes, program: pairsProgram(rows, source, [first, second], values, page, beside), readsNow: reads });
+        // A summary's heads: its first group alone, paged as its pairs are (TBL-2).
+        if (shape.heads) {
+            const ending = pagedEnding(page, topOf(first), values, { other: paging.other, largest: false });
+            asks.push({ role: "heads", period, values: indexes, program: groupedProgram(rows, source, [first], [], values, ending), readsNow: reads });
+        }
+    }
+    // A pivot's columns: every page draws the same, in their order.
+    if (shape.columns !== undefined) {
+        asks.push({ role: "columns", period, values: indexes, program: groupedProgram(rows, source, [shape.columns], [], values, limitEnding(VISUAL_GROUP_LIMIT)), readsNow: reads });
+    }
+    // The total: one program a period, as every visual's.
+    if (shape.total) {
+        for (const [at, asked] of periods) {
+            const held = rowsOfPeriod(at);
+            asks.push({ role: "total", period: at, values: asked.map((ask) => ask.index), program: totalProgram(rowsOf(source, held.where, held.window, held.now), source, asked), readsNow: held.now });
+        }
+    }
+    return asks;
+}
+
 /**
  * Prints a visual as the programs it asks.
  *
  * @param visual - The visual
  * @param source - Its source, as the printer reads it ({@link PrintSource})
  * @param state - The page's filters on its source, and the range they hold its date to
- * @param page - A records table's rows it asks: its first page unless given
+ * @param page - The page of its rows it asks — a records table's, a list's,
+ *   a summary's or a pivot's ({@link VisualPage}): its first unless given
  * @returns The programs; or the wells it needs filled, the fields its source
  *   lacks, or that a value over another period needs a date range on its
  *   source or a window on the page
@@ -537,18 +826,27 @@ export function visualValues(view: View): readonly VisualValue[] {
  *   place of the filters' bounds on the source's date, the filters' other
  *   conditions kept. A list with no values still lists its items: one
  *   program, of the current period.
+ * - **A page** (#1667): a list, a summary and a pivot ask a page of their
+ *   first group's groups ({@link VISUAL_RECORDS_PAGE}) in one program, every
+ *   value in it — over the rows of each period its values are over, each
+ *   value reading its own — so a page's values are of the same groups; with
+ *   its first group's first N, the page is of them, and Other — the rest,
+ *   folded, where the fold is exact — is answered beside it. A summary of two
+ *   groups asks its heads apart (`heads`) and the pairs under the page's
+ *   heads, ordered alike; a pivot asks its columns apart (`columns`), so
+ *   every page draws the same, and its heat ramp's top over every pair. A
+ *   list with its ranking bar is answered its largest first value.
  * - **Ordered high or low**, a program's groups follow the first of the
  *   visual's values it holds; a group with no value comes last.
  * - **Totals** are their own program: a KPI's value and what it is compared
  *   with, a pie's total, a summary's total row.
- * - **A summary of two groups** asks its group heads apart — its first group
- *   alone (`heads`) — so a head's values are the query's, a distinct count
- *   among them, never a fold of the rows under it.
+ * - **A chart** draws at most {@link VISUAL_GROUP_LIMIT} groups, and says so
+ *   when it cuts (CHT-9).
  * - **A KPI's trend** is its value along its trend field, bucketed to fit the
  *   page's window: a day up to a month, a week up to half a year, else a
  *   month — as with no window.
  * - **Records** are a page of {@link VISUAL_RECORDS_PAGE} from its offset,
- *   or every row — an export's ({@link RecordsPage}); their `groups` is how
+ *   or every row — an export's ({@link VisualPage}); their `groups` is how
  *   many rows there are in all.
  * - A visual's own filter, then the page's filters, narrow every program.
  * - **`.now`**: a program one of whose conditions reads `$now` binds
@@ -560,12 +858,10 @@ export function visualValues(view: View): readonly VisualValue[] {
  * if (printed.kind === "asks") for (const ask of printed.asks) await askOnE3(ask.program);
  * ```
  */
-export function printVisual(visual: Visual, source: PrintSource, state: PrintState, page: RecordsPage = FIRST_RECORDS_PAGE): PrintedVisual {
+export function printVisual(visual: Visual, source: PrintSource, state: PrintState, page: VisualPage = FIRST_PAGE): PrintedVisual {
     const view = visual.view;
     const own = visual.where.type === "some" ? [visual.where.value] : [];
     const where = [...own, ...state.filters];
-    // A program one of whose conditions reads `$now` reads `.now`.
-    const readsNow = (conditions: readonly JqNode[]) => conditions.some(node => readsVariable(node, NOW_FIELD));
     const now = readsNow(where);
     const shape = shapeOf(view);
     if ("records" in shape) {
@@ -582,11 +878,11 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
     const missing = [...new Set(shape.fields.filter(f => fieldType(source.row, f) === undefined))];
     if (missing.length > 0) return { kind: "missing", fields: missing };
     // The values, by period: each period one program, its values by their index.
-    const periods = new Map<VisualPeriod, [number, VisualValue][]>();
-    shape.values.forEach((value, i) => {
+    const periods = new Map<VisualPeriod, ValueAsk[]>();
+    shape.values.forEach((value, index) => {
         const at = periods.get(value.period.type);
-        if (at === undefined) periods.set(value.period.type, [[i, value]]);
-        else at.push([i, value]);
+        if (at === undefined) periods.set(value.period.type, [{ index, value }]);
+        else at.push({ index, value });
     });
     // A list with no values still lists its items: one program, of the page's window.
     if (periods.size === 0) periods.set("current", []);
@@ -597,31 +893,32 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         if (state.range === undefined) return { kind: "window" };
     }
     const range = source.range === undefined ? undefined : state.range;
-    // The current period's rows: the visual's own filter and the page's, as they are.
-    const current = rowsOf(source, where, undefined, now);
+    // A period's rows: the current's, the visual's own filter and the page's, as they are; another's, the page's
+    // window moved, in place of the filters' bounds on the source's date.
+    const rowsOfPeriod = (period: VisualPeriod): PeriodRows => {
+        if (period === "current" || range === undefined) return { where, window: undefined, now };
+        const moved = [...own, ...range.rest];
+        return { where: moved, window: periodWindow(range.window, period), now: readsNow(moved) };
+    };
+    if (shape.paging !== undefined) return { kind: "asks", asks: pagedAsks(shape, shape.paging, source, periods, rowsOfPeriod, page) };
     const asks: VisualAsk[] = [];
     for (const [period, values] of periods) {
-        // Another period's: the page's window moved, in place of the filters' bounds on the source's date.
-        const moved = period === "current" || range === undefined ? undefined : [...own, ...range.rest];
-        const reads = moved === undefined ? now : readsNow(moved);
-        const rows = moved === undefined || range === undefined ? current : rowsOf(source, moved, periodWindow(range.window, period), reads);
-        const indexes = values.map(([i]) => i);
+        const held = rowsOfPeriod(period);
+        const rows = rowsOf(source, held.where, held.window, held.now);
+        const indexes = values.map((ask) => ask.index);
         if (shape.groups.length > 0) {
-            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: reads });
+            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, limitEnding(VISUAL_GROUP_LIMIT)), readsNow: held.now });
         }
-        // A summary's group heads, from the query: its first group alone (TBL-2).
-        if (shape.heads) {
-            asks.push({ role: "heads", period, values: indexes, program: groupedProgram(rows, source, shape.groups.slice(0, 1), shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: reads });
-        }
-        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: reads });
+        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: held.now });
     }
     // A KPI's trend: its value along the trend field, over the current period.
     if (view.type === "kpi" && view.value.trend.type === "some") {
         const bucket = trendBucket(range?.window);
         const trend: Group = { field: view.value.trend.value, bucket: some(variant(bucket, null)), sort: variant("natural", null), top: none };
+        const current = rowsOfPeriod("current");
         asks.push({
             role: "trend", period: "current", values: [0],
-            program: groupedProgram(current, source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
+            program: groupedProgram(rowsOf(source, current.where, current.window, current.now), source, [trend], [], [{ index: 0, value: view.value.value }], limitEnding(VISUAL_GROUP_LIMIT)),
             readsNow: now, bucket,
         });
     }

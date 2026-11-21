@@ -74,19 +74,27 @@ function asksOf(printed: PrintedVisual): readonly VisualAsk[] {
     return printed.asks;
 }
 
+/** A visual program's answer as these tests read it: its rows, its counts, and what a paged view's answers beside them. */
+interface AnswerValue {
+    readonly rows: readonly Readonly<Record<string, unknown>>[];
+    readonly groups: bigint;
+    readonly n: bigint;
+    readonly [beside: string]: unknown;
+}
+
 /**
  * A program's answer over the fixture — at a minute, for one that reads
  * `.now` — once it checks against the root: the struct every visual program
  * answers, checked by its type.
  */
-function answerOf(program: string, orders: unknown = ORDERS, root: EastType = ROOT, now?: Date) {
+function answerOf(program: string, orders: unknown = ORDERS, root: EastType = ROOT, now?: Date): AnswerValue {
     const checked = checkJq(program, root, { root: true });
     const errors = checked.diagnostics.filter(d => d.severity.type === "error");
     expect(errors.map(e => e.message), program).toEqual([]);
     const type = checked.elementType === null ? undefined : visualAnswerType(checked.elementType);
     const answer = evaluateJq(checked, now === undefined ? { orders } : { orders, now });
     if (type === undefined || !isValueOf(answer, type)) throw new Error(`not a visual's answer: ${program}`);
-    return answer as ValueTypeOf<typeof type>;
+    return answer as AnswerValue;
 }
 
 /** Whether a program splits over the orders' pieces, as the planner would cut a large dataset. */
@@ -195,12 +203,25 @@ describe("printVisual", () => {
     });
 
     it("orders each period's program by the first of the visual's values it holds", () => {
-        const list = visualOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue", { period: "previous" }), v.count()] })));
-        const asks = asksOf(printVisual(list, SOURCE, quarter()));
-        expect(asks.map(a => [a.period, a.values])).toEqual([["previous", [0]], ["current", [1]]]);
-        // This quarter's orders: one each.
+        const column = visualOf(v.of("orders", v.column({ x: v.group("customer", { sort: "high" }), values: [v.sum("revenue", { period: "year_ago" }), v.count()] })));
+        const asks = asksOf(printVisual(column, SOURCE, quarter()));
+        expect(asks.map(a => [a.period, a.values])).toEqual([["year_ago", [0]], ["current", [1]]]);
+        // This quarter's orders: one each; a year before, Northwind's alone.
         expect(answerOf(asks[1]!.program).rows.map(r => [r["g0"], r["v1"]])).toEqual([["Harbour", 1n], ["Northwind", 1n], ["Summit", 1n]]);
-        expect(answerOf(asks[0]!.program).groups).toBe(0n);
+        expect(answerOf(asks[0]!.program).rows.map(r => [r["g0"], r["v0"]])).toEqual([["Northwind", 40]]);
+    });
+
+    it("asks a paged view's values over two periods in one program, each over its own period's rows, ordered by the first — a group one period lacks still listed (#1667)", () => {
+        const list = visualOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue", { period: "year_ago" }), v.count()] })));
+        const asks = asksOf(printVisual(list, SOURCE, quarter()));
+        expect(asks.map(a => [a.role, a.period, a.values])).toEqual([["groups", "current", [0, 1]]]);
+        expect(splits(asks[0]!.program)).toBe(true);
+        // A year before, Northwind's order alone; this quarter, one each: a value its period has none of is none, never a zero.
+        const answer = answerOf(asks[0]!.program);
+        expect(answer.rows.map(r => [r["g0"], r["v0"], r["v1"], r["n"]])).toEqual([
+            ["Northwind", some(40), some(1n), 2n], ["Harbour", none, some(1n), 1n], ["Summit", none, some(1n), 1n],
+        ]);
+        expect([answer.groups, answer.n]).toEqual([3n, 4n]);
     });
 
     it("lists a list's items when it has no values", () => {
@@ -324,6 +345,63 @@ describe("printVisual", () => {
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })));
         const region = printStateOf([{ source: "orders", where: condition(`.region == "SA"`), from: none }], "orders", SOURCE, NOW);
         expect([region.range, printVisual(kpi, SOURCE, region)]).toEqual([undefined, { kind: "window" }]);
+    });
+});
+
+describe("printVisual's pages (#1667)", () => {
+    // Revenue: SA 170.5 (Northwind 100.5, Summit 70), NSW 50 (Harbour), VIC 40 (Northwind, a year before).
+
+    it("pages a list's items as the page says, counts them all, and answers its largest first value for its bar", () => {
+        const list = visualOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue")], bar: true })));
+        const asks = asksOf(printVisual(list, SOURCE, { filters: [] }, { offset: 1, size: 1 }));
+        expect(asks.map(a => a.role)).toEqual(["groups"]);
+        expect(splits(asks[0]!.program)).toBe(true);
+        // Northwind 140.5, Summit 70, Harbour 50: the second alone, of three.
+        const answer = answerOf(asks[0]!.program);
+        expect([answer.rows.map(r => r["g0"]), answer.groups, answer.n, answer["largest"]]).toEqual([["Summit"], 3n, 4n, some(140.5)]);
+        // A list with no bar asks no largest.
+        const plain = visualOf(v.of("orders", v.list({ item: v.group("customer"), values: [v.sum("revenue")] })));
+        expect(Object.keys(answerOf(asksOf(printVisual(plain, SOURCE, { filters: [] }))[0]!.program))).toEqual(["rows", "groups", "n"]);
+    });
+
+    it("pages a group's first N, and answers Other — the rest folded — where the fold is exact", () => {
+        const summary = visualOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high", top: 2n })], values: [v.sum("revenue"), v.mean("units")] })));
+        const answer = answerOf(asksOf(printVisual(summary, SOURCE, { filters: [] }))[0]!.program);
+        expect([answer.rows.map(r => r["g0"]), answer.groups]).toEqual([["SA", "NSW"], 3n]);
+        expect(answer["other"]).toEqual([{ v0: 40, v1s: 4n, v1c: 1n, n: 1n }]);
+        // A page past the first N holds none of them.
+        expect(answerOf(asksOf(printVisual(summary, SOURCE, { filters: [] }, { offset: 50, size: 50 }))[0]!.program).rows).toEqual([]);
+        // A distinct count makes no fold: no Other is asked.
+        const distinct = visualOf(v.of("orders", v.summary({ rows: [v.group("region", { top: 2n })], values: [v.distinct("customer")] })));
+        expect(Object.keys(answerOf(asksOf(printVisual(distinct, SOURCE, { filters: [] }))[0]!.program))).toEqual(["rows", "groups", "n"]);
+    });
+
+    it("pages a summary of two groups by its heads, and asks the pairs under the page's heads, ordered alike", () => {
+        const summary = visualOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" }), v.group("customer")], values: [v.sum("revenue")] })));
+        const asks = asksOf(printVisual(summary, SOURCE, { filters: [] }, { offset: 0, size: 2 }));
+        expect(asks.map(a => a.role)).toEqual(["groups", "heads"]);
+        expect(asks.every(a => splits(a.program))).toBe(true);
+        const [pairs, heads] = asks.map(a => answerOf(a.program));
+        expect([heads!.rows.map(r => r["g0"]), heads!.groups]).toEqual([["SA", "NSW"], 3n]);
+        expect([pairs!.rows.map(r => [r["g0"], r["g1"], r["v0"]]), pairs!.groups]).toEqual([[["SA", "Northwind", 100.5], ["SA", "Summit", 70], ["NSW", "Harbour", 50]], 3n]);
+        // The next page: the third head, and its pairs.
+        const next = asksOf(printVisual(summary, SOURCE, { filters: [] }, { offset: 2, size: 2 }));
+        expect(next.map(a => answerOf(a.program).rows.map(r => r["g0"]))).toEqual([["VIC"], ["VIC"]]);
+    });
+
+    it("pages a pivot's rows over every column, asks its columns apart, and its heat ramp's top over every pair", () => {
+        const pivot = visualOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "year" }), value: v.count(), heat: true })));
+        const asks = asksOf(printVisual(pivot, SOURCE, { filters: [] }, { offset: 0, size: 2 }));
+        expect(asks.map(a => a.role)).toEqual(["groups", "columns"]);
+        expect(asks.every(a => splits(a.program))).toBe(true);
+        const [pairs, columns] = asks.map(a => answerOf(a.program));
+        // NSW and SA of three; every pair's count is 1, 2 and 1, whose 95th percentile by nearest rank is 2.
+        expect([pairs!.rows.map(r => [r["g0"], r["g1"], r["v0"]]), pairs!.groups, pairs!["heat"]]).toEqual([[["NSW", 2026n, 1n], ["SA", 2026n, 2n]], 3n, some(2n)]);
+        expect([columns!.rows.map(r => [r["g0"], r["v0"]]), columns!.groups]).toEqual([[[2025n, 1n], [2026n, 3n]], 2n]);
+        // Its rows past their first N fold into Other, a column each.
+        const topped = visualOf(v.of("orders", v.pivot({ rows: v.group("region", { top: 1n }), columns: v.group("ordered_at", { bucket: "year" }), value: v.count() })));
+        const first = answerOf(asksOf(printVisual(topped, SOURCE, { filters: [] }))[0]!.program);
+        expect([first.rows.map(r => r["g0"]), first["other"]]).toEqual([["NSW"], [{ g1: 2025n, v0: 1n, n: 1n }, { g1: 2026n, v0: 2n, n: 2n }]]);
     });
 });
 

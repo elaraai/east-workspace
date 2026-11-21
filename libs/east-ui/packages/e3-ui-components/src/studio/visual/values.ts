@@ -83,6 +83,38 @@ export interface VisualShown {
 }
 
 /**
+ * Where a page stands among the rows a view pages (#1667): a records table's
+ * rows, a list's items, a summary's groups of its first field, a pivot's rows
+ * — its first row's place, from 1, and its last's, and how many there are.
+ *
+ * @property first - Its first row's place, from 1; 0 for a page with none
+ * @property last - Its last row's place
+ * @property total - How many rows there are to page through
+ */
+export interface VisualPlace {
+    /** Its first row's place, from 1; 0 for a page with none. */
+    readonly first: number;
+    /** Its last row's place. */
+    readonly last: number;
+    /** How many rows there are to page through. */
+    readonly total: number;
+}
+
+/**
+ * A page's place among the rows a view pages: of a grouped view's, the first
+ * N of its groups, where it keeps N.
+ *
+ * @param offset - Its first row, from 0
+ * @param held - How many rows it holds
+ * @param of - How many there are
+ * @param top - The first N it pages through; `undefined` for every one
+ * @returns Its place
+ */
+export function placeOf(offset: number, held: number, of: number, top?: number): VisualPlace {
+    return { first: held === 0 ? 0 : offset + 1, last: offset + held, total: top === undefined ? of : Math.min(top, of) };
+}
+
+/**
  * A group's key in words, as an axis, a row or a slice is labelled: a date
  * bucket by its first instant, in its unit's words — `June 2026`, `Q3 2026`,
  * `Jun 29` for a day or a week; any other key as the query builder's results

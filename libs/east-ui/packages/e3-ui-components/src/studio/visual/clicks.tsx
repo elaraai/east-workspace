@@ -17,6 +17,8 @@
  */
 
 import { createContext, useContext, useMemo, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { some } from "@elaraai/east";
+import type { TableRootValue } from "@elaraai/east-ui-components";
 import type { ClickedGroup } from "../../query/visual/clicks.js";
 
 /**
@@ -127,4 +129,28 @@ export function useGroupClicks(): GroupClicks {
         },
         onClickCapture: (event) => { held.current = adds(event); },
     }), [onClick]);
+}
+
+/**
+ * A Table's clicks (TBL-6): its value with a row's click raising the groups
+ * the row stands for, by the row's pre-order index, and the box's capture
+ * handler ({@link GroupClicks.onClickCapture}) — the value as it is where a
+ * click does nothing.
+ *
+ * @param table - The Table's value; `undefined` while there is none
+ * @param clicked - The groups a row stands for, by its pre-order index
+ * @returns The Table's value, its rows' clicks raised, and the box's capture handler
+ */
+export function useTableClicks(
+    table: TableRootValue | undefined, clicked: ((rowIndex: number) => readonly ClickedGroup[] | undefined) | undefined,
+): { readonly table: TableRootValue | undefined; readonly onClickCapture: (event: MouseEvent) => void } {
+    const { raise, onClickCapture } = useGroupClicks();
+    const raised = useMemo((): TableRootValue | undefined => (table === undefined || raise === undefined || clicked === undefined ? table : {
+        ...table,
+        onRowClick: some((event) => {
+            raise(clicked(Number(event.rowIndex)));
+            return null;
+        }),
+    }), [table, clicked, raise]);
+    return { table: raised, onClickCapture };
 }

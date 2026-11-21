@@ -19,7 +19,7 @@
  */
 
 import { SortedMap, SortedSet, StructType, compareFor, type EastType } from "@elaraai/east";
-import { foldParts, partsValue, visualParts, type ValueParts, type VisualAnswer, type VisualAnswered } from "./ask.js";
+import { foldParts, partsValue, visualParts, type ValueParts, type VisualAnswer, type VisualAnswered, type VisualRest } from "./ask.js";
 import type { VisualAsk, VisualValue } from "./print.js";
 
 /** A program's ask and its answer. */
@@ -59,7 +59,10 @@ export interface ReadGroup {
  * @property groups - One group a key, in order
  * @property keyTypes - Each key's East type, `g0` then `g1`
  * @property extraTypes - Each extra's East type, by name
- * @property of - How many groups the ordering program had before its cut: more than `groups` when it was cut
+ * @property of - How many groups the ordering program had before its cut — of a paged view's, how many of its first group's: more than `groups` when it was cut, or holds a page
+ * @property other - Other, as a paged view's program answered it (#1667): the groups past its first group's first N, folded — one, or one a key of its second group; `undefined` where none was asked, or no fold is exact
+ * @property largest - A list's largest first value among its first N, as its program answered it; `undefined` where none was asked
+ * @property heat - A heat map's top step, as its program answered it: its value's 95th percentile over every pair; `undefined` where none was asked
  */
 export interface ReadGroups {
     /** One group a key, in order. */
@@ -68,8 +71,14 @@ export interface ReadGroups {
     readonly keyTypes: readonly EastType[];
     /** Each extra's East type, by name. */
     readonly extraTypes: ReadonlyMap<string, EastType>;
-    /** How many groups the ordering program had before its cut: more than `groups` when it was cut. */
+    /** How many groups the ordering program had before its cut — of a paged view's, how many of its first group's. */
     readonly of: number;
+    /** Other, as a paged view's program answered it: the groups past its first group's first N, folded; `undefined` where none was asked, or no fold is exact. */
+    readonly other: readonly ReadGroup[] | undefined;
+    /** A list's largest first value among its first N, as its program answered it; `undefined` where none was asked. */
+    readonly largest: number | undefined;
+    /** A heat map's top step, as its program answered it; `undefined` where none was asked. */
+    readonly heat: number | undefined;
 }
 
 /** The programs of one role that answered, each with its ask. */
@@ -99,7 +108,7 @@ interface Joining {
  * @param asks - The visual's asks, as the printer gave them
  * @param answers - Their answers, in the same order
  * @param values - The visual's values, which the asks' indexes name (`visualValues`)
- * @param role - Which programs: the groups, a summary's heads, or a KPI's trend
+ * @param role - Which programs: the groups, a summary's heads, a pivot's columns, or a KPI's trend
  * @returns The groups; `undefined` when no program of the role answered
  *
  * @remarks
@@ -110,8 +119,10 @@ interface Joining {
  *   one a high or low sort ranks by — then any group only another period
  *   has, in that program's order.
  * - **Its rows** are the current period's: the rows its tile counts.
+ * - **Other, the largest and the heat ramp's top** are that program's: a
+ *   paged view asks every value in one (#1667).
  */
-export function readGroups(asks: readonly VisualAsk[], answers: readonly VisualAnswer[], values: readonly VisualValue[], role: "groups" | "heads" | "trend"): ReadGroups | undefined {
+export function readGroups(asks: readonly VisualAsk[], answers: readonly VisualAnswer[], values: readonly VisualValue[], role: "groups" | "heads" | "columns" | "trend"): ReadGroups | undefined {
     const programs = programsOf(asks, answers, role);
     const leader = programs.find(p => p.ask.values.includes(0)) ?? programs.find(p => p.ask.period === "current") ?? programs[0];
     if (leader === undefined) return undefined;
@@ -150,7 +161,27 @@ export function readGroups(asks: readonly VisualAsk[], answers: readonly VisualA
         keyTypes,
         extraTypes,
         of: Number(leader.answer.groups),
+        other: leader.answer.other === undefined ? undefined : restOf(leader.ask, leader.answer.other, keyTypes, values),
+        largest: leader.answer.largest,
+        heat: leader.answer.heat,
     };
+}
+
+/**
+ * Other, as a paged view's program answered it: each of its rows a group
+ * folded into Other — its values' parts, its rows, and, of a pivot's rows, its
+ * key of the second group (`g1`); its own key `undefined`.
+ */
+function restOf(ask: VisualAsk, rest: VisualRest, keyTypes: readonly EastType[], values: readonly VisualValue[]): ReadGroup[] {
+    return rest.rows.map((row): ReadGroup => {
+        const parts = new Map<number, ValueParts>();
+        for (const index of ask.values) {
+            const value = values[index];
+            if (value !== undefined) parts.set(index, visualParts(rest, row, index, value));
+        }
+        const keys = keyTypes.map((_, i) => (i === 1 && rest.columns.has("g1") ? row["g1"] : undefined));
+        return { keys, extras: new Map(), parts, rows: rowsOf(row), other: true };
+    });
 }
 
 /**

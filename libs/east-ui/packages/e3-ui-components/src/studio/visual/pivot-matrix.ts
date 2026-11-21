@@ -9,30 +9,31 @@
  * each pair one cell holding its value, in short at the scale of the largest
  * drawn; a pair with no rows says "no data". Its heads are short, as an
  * axis's labels are (`Apr`). With heat on, each value takes one of five steps
- * from 0 to the 95th percentile of the values drawn — whole steps for a
- * count — the top step closed (`≥12`), on the theme's heat tokens, its text
- * ink on the first three and paper on the last two. A group's first N, then
- * the rest folded into Other where the fold is exact; else left out, which
- * it says.
+ * from 0 to the 95th percentile of its values over every pair — whole steps
+ * for a count — the top step closed (`≥12`), on the theme's heat tokens, its
+ * text ink on the first three and paper on the last two. A group's first N,
+ * then the rest folded into Other where the fold is exact; else left out,
+ * which it says. A page of its rows at a time (#1667), each over every column
+ * — the same columns on every page — and where the page stands.
  *
  * It imports neither React nor the renderers.
  *
  * @packageDocumentation
  */
 
-import { FloatType, SortedMap, SortedSet, StringType, compareFor, none, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { SortedMap, SortedSet, StringType, compareFor, none, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import type { Matrix } from "@elaraai/east-ui/internal";
 import type { MatrixRootValue } from "@elaraai/east-ui-components";
 import type { QueryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { ClickedGroup } from "../../query/visual/clicks.js";
-import type { VisualAsk } from "../../query/visual/print.js";
+import { topOf, type VisualAsk } from "../../query/visual/print.js";
 import { bucketStart, foldGroups, partsAt, readGroups, type ReadGroup } from "../../query/visual/read.js";
 import { capitalised } from "../../shared/capital.js";
 import type { StudioMessages } from "../messages.js";
 import {
-    axisLabel, bucketSpan, groupWords, shortNumber, valueFieldFormat, visualWords,
-    type VisualGroup, type VisualShown, type VisualSource, type VisualView,
+    axisLabel, bucketSpan, groupWords, placeOf, shortNumber, valueFieldFormat, visualWords,
+    type VisualGroup, type VisualPlace, type VisualShown, type VisualSource, type VisualView,
 } from "./values.js";
 
 /** A pivot's view: its row group, its column group, its value, and whether it is a heat map. */
@@ -46,10 +47,6 @@ type LabelValue = Extract<ValueTypeOf<typeof Matrix.Types.Column>["label"], { ty
 /** How many steps the heat ramp has (TBL-4). */
 export const HEAT_STEPS = 5;
 
-/** The heat percentile the ramp's top step closes at: a few outliers never wash the rest out. */
-const HEAT_PERCENTILE = 0.95;
-
-const compareFloat = compareFor(FloatType);
 const compareKeys = compareFor(StringType);
 
 /**
@@ -68,17 +65,20 @@ export interface HeatStep {
 /**
  * A pivot, read from its answer.
  *
- * @property matrix - Its cells as the Matrix's value
+ * @property matrix - Its page's cells as the Matrix's value
  * @property heat - Its heat ramp's steps, for its legend; `undefined` with heat off
- * @property shown - What it holds of how many groups, when it holds fewer; `undefined` when it holds them all
+ * @property place - Where its page stands among its rows: what its foot says, and its pager pages
+ * @property shown - What it holds of how many rows or columns, when a first N, or its columns' limit, leaves some out that no fold makes Other of; `undefined` when it holds them all
  * @property clicked - The groups a cell stands for, by its row's and its column's keys: what a click on it is made on (TBL-6)
  */
 export interface PivotModel {
-    /** Its cells as the Matrix's value. */
+    /** Its page's cells as the Matrix's value. */
     readonly matrix: MatrixRootValue;
     /** Its heat ramp's steps, for its legend; `undefined` with heat off. */
     readonly heat: readonly HeatStep[] | undefined;
-    /** What it holds of how many groups, when it holds fewer; `undefined` when it holds them all. */
+    /** Where its page stands among its rows. */
+    readonly place: VisualPlace;
+    /** What it holds of how many rows or columns, when some are left out that no fold makes Other of; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
     /** The groups a cell stands for, by its row's and its column's keys in the Matrix (TBL-6): its row's and its column's; `undefined` for a cell of Other's. */
     readonly clicked: (row: string, column: string) => readonly ClickedGroup[] | undefined;
@@ -104,32 +104,19 @@ function orderedKeys(first: readonly unknown[], group: VisualGroup, type: EastTy
     return [...first].sort(compare);
 }
 
-/** One side of a pivot drawn: each kept key's label and its keys — Other's the rest, which it says it is — and how many it left out. */
-interface Side {
-    readonly drawn: readonly { readonly label: string; readonly keys: readonly unknown[]; readonly other?: boolean }[];
-    readonly hidden: number;
+/** One row or column of a pivot drawn: its label and the keys it holds — Other's the rest, which it says it is. */
+interface Drawn {
+    readonly label: string;
+    readonly keys: readonly unknown[];
+    readonly other?: boolean;
 }
 
-/** A side's first N keys, each labelled short as an axis labels it, then Other where it folds exactly. */
-function sideOf(keys: readonly unknown[], group: VisualGroup, type: EastType, exact: boolean, said: QueryWords, m: StudioMessages): Side {
-    const n = group.top.type === "none" ? keys.length : Number(group.top.value);
-    // What the side's date buckets share, which a short label leaves out: `Apr`, of one year.
+/** A side's keys, each labelled short as an axis labels it: `Apr`, of one year. */
+function labelled(keys: readonly unknown[], group: VisualGroup, type: EastType, said: QueryWords, m: StudioMessages): Drawn[] {
+    // What the side's date buckets share, which a short label leaves out.
     const unit = group.bucket.type === "some" ? group.bucket.value.type : undefined;
     const span = bucketSpan(unit === undefined ? [] : keys.map((key) => bucketStart(key as bigint, unit)), said.formatters);
-    const kept = keys.slice(0, n).map((key) => ({ label: axisLabel(key, type, group, span, said, m), keys: [key] }));
-    const rest = keys.slice(n);
-    if (rest.length === 0) return { drawn: kept, hidden: 0 };
-    return exact ? { drawn: [...kept, { label: m.other(), keys: rest, other: true }], hidden: 0 } : { drawn: kept, hidden: rest.length };
-}
-
-/**
- * The value a ramp's top step closes at: the values' 95th percentile, by
- * nearest rank.
- */
-function percentileOf(values: readonly number[]): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort(compareFloat);
-    return sorted[Math.max(0, Math.ceil(HEAT_PERCENTILE * sorted.length) - 1)]!;
+    return keys.map((key) => ({ label: axisLabel(key, type, group, span, said, m), keys: [key] }));
 }
 
 /**
@@ -141,31 +128,43 @@ function percentileOf(values: readonly number[]): number {
  * @param source - Its source
  * @param words - The words and formatters
  * @param m - The Studio's words
+ * @param offset - Its page's first row, from 0
  * @returns The model; `undefined` when its program did not answer
  *
  * @remarks
- * - **Rows and columns** in their groups' order: by key, as A to Z and as is
- *   natural; as the program ranked them, high or low.
- * - **Other**, past a group's first N, folds the pairs it holds — a sum's and
- *   a mean's parts add — and is left out where no fold is exact: a distinct
- *   count, or pairs the program cut at its limit.
- * - **Heat**: five equal steps from 0 to the 95th percentile of the values
- *   drawn, by nearest rank — each a whole number of a count, so its legend
- *   reads `0 3 6 9 ≥12`; a value at or past the fourth edge takes the top
- *   step, and one under 0 the first.
+ * - **A page of rows** (#1667) in their group's order, as its program
+ *   answered them — by key, or by a row's own value high or low — of its first
+ *   N; Other, past them, on the last page, a cell a column as its program
+ *   folded them.
+ * - **The columns** are its columns program's, in their group's order — by
+ *   key, or by a column's own value — the same on every page: its first N,
+ *   then Other, which folds the page's pairs of every other column; at most
+ *   the program's limit of them.
+ * - **Other** is left out where no fold is exact — a distinct count — and the
+ *   pivot says what it holds of how many.
+ * - **Heat**: five equal steps from 0 to the 95th percentile of its values
+ *   over every pair, by nearest rank, as its program answered it — each a
+ *   whole number of a count, so its legend reads `0 3 6 9 ≥12`; a value at or
+ *   past the fourth edge takes the top step, and one under 0 the first. A
+ *   colour is a value's on every page.
  * - **A value** prints in short, at the scale of the largest drawn: `0.48M`
  *   beside `1.81M`.
  */
-export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages): PivotModel | undefined {
+export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages, offset = 0): PivotModel | undefined {
     const read = readGroups(asks, answers, [pivot.value], "groups");
     const [rowType, columnType] = read?.keyTypes ?? [];
     if (read === undefined || rowType === undefined || columnType === undefined) return undefined;
     const said = visualWords(words, m);
-    // Each pair's group, by its row's key then its column's; each side's keys as its program answered them.
+    // Each pair's group, by its row's key then its column's; the page's rows as the program answered them.
     const pairs = new SortedMap<unknown, SortedMap<unknown, ReadGroup>>([], compareFor(rowType));
     const rows: unknown[] = [];
     const seen = new SortedSet<unknown>([], compareFor(columnType));
     const columnsFirst: unknown[] = [];
+    const see = (column: unknown) => {
+        if (seen.has(column)) return;
+        seen.add(column);
+        columnsFirst.push(column);
+    };
     for (const group of read.groups) {
         let row = pairs.get(group.keys[0]);
         if (row === undefined) {
@@ -174,26 +173,46 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
             rows.push(group.keys[0]);
         }
         row.set(group.keys[1], group);
-        if (!seen.has(group.keys[1])) {
-            seen.add(group.keys[1]);
-            columnsFirst.push(group.keys[1]);
-        }
+        see(group.keys[1]);
     }
-    // Other folds exactly what every pair answered: no distinct count, and nothing cut.
-    const cut = read.of > read.groups.length;
-    const exact = !cut && pivot.value.measure.type !== "distinct";
-    const rowSide = sideOf(orderedKeys(rows, pivot.rows, rowType), pivot.rows, rowType, exact, said, m);
-    const columnSide = sideOf(orderedKeys(columnsFirst, pivot.columns, columnType), pivot.columns, columnType, exact, said, m);
-    // A pair's value: its group's, or Other's folded from the groups it holds.
-    const valueAt = (rowKeys: readonly unknown[], columnKeys: readonly unknown[]): number | undefined => {
-        const held = rowKeys.flatMap((r) => columnKeys.flatMap((c) => {
-            const group = pairs.get(r)?.get(c);
+    // Other's row, past the rows' first N: its cells by column, as the program folded them.
+    const otherRow = new SortedMap<unknown, ReadGroup>([], compareFor(columnType));
+    for (const group of read.other ?? []) {
+        otherRow.set(group.keys[1], group);
+        see(group.keys[1]);
+    }
+    // Other folds exactly any value but a distinct count.
+    const exact = pivot.value.measure.type !== "distinct";
+    // The rows: the page's, then Other on the last page.
+    const top = topOf(pivot.rows);
+    const place = placeOf(offset, rows.length, read.of, top);
+    const rowSide: Drawn[] = [
+        ...labelled(rows, pivot.rows, rowType, said, m),
+        ...(read.other !== undefined && read.other.length > 0 && place.last >= place.total ? [{ label: m.other(), keys: [], other: true }] : []),
+    ];
+    const rowsHidden = top !== undefined && top < read.of && read.other === undefined ? read.of - top : 0;
+    // The columns: the columns program's, in its order, the same on every page; its first N, then Other.
+    const columns = readGroups(asks, answers, [pivot.value], "columns");
+    const columnKeys = columns?.groups.map((group) => group.keys[0]) ?? orderedKeys(columnsFirst, pivot.columns, columnType);
+    const columnsOf = columns?.of ?? columnKeys.length;
+    const n = pivot.columns.top.type === "none" ? columnKeys.length : Math.min(columnKeys.length, Number(pivot.columns.top.value));
+    const kept = columnKeys.slice(0, n);
+    const keptSet = new SortedSet<unknown>(kept, compareFor(columnType));
+    // Other's column folds the page's pairs of every column not kept.
+    const rest = [...seen].filter((column) => !keptSet.has(column));
+    const folds = pivot.columns.top.type === "some" && exact && rest.length > 0;
+    const columnSide: Drawn[] = [...labelled(kept, pivot.columns, columnType, said, m), ...(folds ? [{ label: m.other(), keys: rest, other: true }] : [])];
+    const columnsHidden = folds ? 0 : Math.max(0, columnsOf - kept.length);
+    // A cell's value: its pair's, or Other's folded from the pairs it holds.
+    const valueAt = (row: Drawn, column: Drawn): number | undefined => {
+        const held = column.keys.flatMap((c) => {
+            const group = row.other === true ? otherRow.get(c) : pairs.get(row.keys[0])?.get(c);
             return group === undefined ? [] : [group];
-        }));
+        });
         const folded = foldGroups(held);
         return folded === undefined ? undefined : partsAt(folded.parts, 0);
     };
-    const grid = rowSide.drawn.map((row) => columnSide.drawn.map((column) => valueAt(row.keys, column.keys)));
+    const grid = rowSide.map((row) => columnSide.map((column) => valueAt(row, column)));
     const declared = valueFieldFormat(pivot.value, source);
     const format = declared.type === "some" ? declared.value : undefined;
     const f = said.formatters;
@@ -201,10 +220,10 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
     // Each value in short, at the scale of the largest drawn; a step's edge with no zeros ending its decimals.
     const largest = drawn.reduce((most, value) => Math.max(most, Math.abs(value)), 0);
     const short = (value: number, trim: boolean) => shortNumber(value, format, f, largest === 0 ? undefined : largest, trim);
-    // The ramp: five equal steps from 0 to the 95th percentile of the values drawn — whole ones for a count.
-    const top = percentileOf(drawn);
+    // The ramp: five equal steps from 0 to the 95th percentile over every pair, as the program answered it — whole ones for a count.
+    const heatTop = read.heat ?? 0;
     const counted = pivot.value.measure.type === "count" || pivot.value.measure.type === "distinct";
-    const width = counted && top > 0 ? Math.max(1, Math.ceil(top / HEAT_STEPS)) : top / HEAT_STEPS;
+    const width = counted && heatTop > 0 ? Math.max(1, Math.ceil(heatTop / HEAT_STEPS)) : heatTop / HEAT_STEPS;
     const stepOf = (value: number) => (width <= 0 ? 0 : Math.min(HEAT_STEPS - 1, Math.max(0, Math.floor(value / width))));
     const cell = (value: number | undefined): MatrixCell => {
         if (value === undefined) return cellOf(m.noValue(), "free", "transparent");
@@ -220,11 +239,11 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
         return { label: from, name: m.heatStep({ from, to: short((k + 1) * width, true) }) };
     });
     const matrix: MatrixRootValue = {
-        rows: rowSide.drawn.map((row, i) => ({
+        rows: rowSide.map((row, i) => ({
             key: `r${i}`, value: row.label, sublabel: none, depth: 0n, collapsed: false,
-            cells: new SortedMap(columnSide.drawn.map((_column, j): [string, MatrixCell] => [`c${j}`, cell(grid[i]![j])]), compareKeys),
+            cells: new SortedMap(columnSide.map((_column, j): [string, MatrixCell] => [`c${j}`, cell(grid[i]![j])]), compareKeys),
         })),
-        columns: columnSide.drawn.map((column, j) => ({ key: `c${j}`, label: some(labelOf(column.label)) })),
+        columns: columnSide.map((column, j) => ({ key: `c${j}`, label: some(labelOf(column.label)) })),
         rowHeader: some(capitalised(groupWords(pivot.rows, source, m) ?? "")),
         orientation: variant("horizontal", null),
         legend: none,
@@ -238,12 +257,11 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
         height: some("fill"),
         maxHeight: none,
     };
-    const shown = cut ? { shown: read.groups.length, of: read.of }
-        : rowSide.hidden > 0 ? { shown: rowSide.drawn.length, of: rowSide.drawn.length + rowSide.hidden }
-        : columnSide.hidden > 0 ? { shown: columnSide.drawn.length, of: columnSide.drawn.length + columnSide.hidden }
+    const shown = rowsHidden > 0 ? { shown: place.total, of: read.of }
+        : columnsHidden > 0 ? { shown: kept.length, of: columnsOf }
         : undefined;
     // A cell stands for its row's group and its column's: each side's one key, by the Matrix's own keys.
-    const sideClicked = (side: Side, prefix: string, group: VisualGroup, type: EastType) => new Map(side.drawn.flatMap((held, i): [string, ClickedGroup][] => (
+    const sideClicked = (side: readonly Drawn[], prefix: string, group: VisualGroup, type: EastType) => new Map(side.flatMap((held, i): [string, ClickedGroup][] => (
         held.other === true ? [] : [[`${prefix}${i}`, { group, key: held.keys[0], type }]]
     )));
     const rowsClicked = sideClicked(rowSide, "r", pivot.rows, rowType);
@@ -252,5 +270,5 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
         const [r, c] = [rowsClicked.get(row), columnsClicked.get(column)];
         return r === undefined || c === undefined ? undefined : [r, c];
     };
-    return { matrix, heat, shown, clicked };
+    return { matrix, heat, place, shown, clicked };
 }
