@@ -33,7 +33,7 @@ import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, entry, planHarness, rowAt, settle, slot, toggleSeries } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-nested.fixtures": ex });
 
@@ -155,20 +155,6 @@ async function zoomTo(c: HTMLElement, resolution: "day" | "week" | "month" | "qu
         fireEvent.mouseDown(radio, { button: 0 });
         fireEvent.click(radio);
     });
-    await settle();
-}
-
-/** The library's Series tab opened, and one of its lines toggled by its name. */
-async function toggleSeries(c: HTMLElement, name: string) {
-    const pane = slot(c, "start")!;
-    const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "));
-    if (tab === undefined) throw new Error("no Series tab");
-    if (tab.getAttribute("aria-selected") !== "true") {
-        fireEvent.click(tab);
-        await settle();
-    }
-    const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
-    fireEvent.click(within(panel).getByRole("button", { name: `Toggle ${name}` }));
     await settle();
 }
 

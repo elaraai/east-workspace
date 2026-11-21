@@ -159,6 +159,7 @@ import { scheduleCellId } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
+import { usePlanKeptRoot } from "./root/kept.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -603,6 +604,10 @@ export function usePlanCanvas({
     const linkRows = linkRowsResult.ok ? linkRowsResult.value : NO_LINK_ROWS;
     const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted,
         linkRows);
+    // Each window of those rows kept while what it is made from holds (#1712, #1713): the event kinds' wrapper reads every
+    // window again as their events move, and the cells' reader each it wants as it reads — both through it, so neither
+    // makes a window's rows again that would be the same.
+    const kept = usePlanKeptRoot(nested.value, nested.data, events !== undefined);
     // ── The link kinds' links (#1541, U10) ────────────────────────────────
     // Each kind's links, rows of the app's record read whole, with its session's drafts in place — a stored link as
     // drafted, one its draft adds, as the Connect tool draws one — join the root's own: each end names its event as a
@@ -616,10 +621,10 @@ export function usePlanCanvas({
     linksFollow.current = useMemo(() => linkFollowing(linkKinds, linksRead, linkDrafted), [linkKinds, linksRead, linkDrafted]);
     // The kinds holding more links than are drawn: none of their links draws, and Connect draws none of them.
     const linksOverCap = useMemo(() => linksOver(linkKinds, linksRead), [linkKinds, linksRead]);
-    const linked = useMemo(() => (ofKinds.length === 0 ? nested : {
-        value: { ...nested.value, links: [...nested.value.links, ...ofKinds] },
-        data: { ...nested.data, links: [...nested.data.links, ...ofKinds] },
-    }), [nested, ofKinds]);
+    const linked = useMemo(() => (ofKinds.length === 0 ? kept : {
+        value: { ...kept.value, links: [...kept.value.links, ...ofKinds] },
+        data: { ...kept.data, links: [...kept.data.links, ...ofKinds] },
+    }), [kept, ofKinds]);
     // The event kinds' events joined into the drafted root's own rows, and its links' event ends named where the events
     // draw (#1192, #1541).
     const shown = usePlanEventRoot(linked.value, linked.data, events !== undefined ? lead : undefined, events, hidden);
@@ -2085,7 +2090,7 @@ export function usePlanCanvas({
     const eventsReader = events !== undefined
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
-                kinds={kinds} rows={nested.data.rows.type === "inline" ? nested.data.rows : nested.value.rows} parts={eventParts}
+                kinds={kinds} rows={kept.data.rows.type === "inline" ? kept.data.rows : kept.value.rows} parts={eventParts}
                 links={linked.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
         )
         : null;
