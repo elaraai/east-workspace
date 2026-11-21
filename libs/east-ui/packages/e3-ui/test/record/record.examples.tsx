@@ -1299,13 +1299,21 @@ export const recordConflicts = example({
                 { key: "1", name: "Supervised" },
                 { key: "2", name: "Competent" },
             ], ArrayType(LevelType));
-            // A new member's key in the crew's own scheme: given every key taken, the first C-00N none of them is.
+            // A new member's key in the crew's own scheme: given every key taken, the first C-NNN none of them is — its
+            // number three digits at least, C-009 then C-010.
             const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const idOf = $.const(East.function([IntegerType], StringType, ($2, n) => {
+                    const digits = $2.let(East.str`${n}`);
+                    $2.while(digits.length().lessThan(3n), ($3) => {
+                        $3.assign(digits, East.str`0${digits}`);
+                    });
+                    return East.str`C-${digits}`;
+                }));
                 const n = $.let(taken.size().add(1n));
-                $.while(taken.has(East.str`C-00${n}`), ($2) => {
+                $.while(taken.has(idOf(n)), ($2) => {
                     $2.assign(n, n.add(1n));
                 });
-                return East.str`C-00${n}`;
+                return idOf(n);
             }));
             // A new member as they join: not yet inducted, not trained — their name left to type.
             const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Crew), (_$) => Record.patch(Crew, { inducted: false, forklift: "0" })));
@@ -1363,13 +1371,21 @@ export const recordStaffIds = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const staff = $.let(Record.bind(recordStaff));
-            // A new member's key in the list's own scheme: given every key taken, the first S-00N none of them is.
+            // A new member's key in the list's own scheme: given every key taken, the first S-NNN none of them is — its
+            // number three digits at least, S-009 then S-010.
             const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const idOf = $.const(East.function([IntegerType], StringType, ($2, n) => {
+                    const digits = $2.let(East.str`${n}`);
+                    $2.while(digits.length().lessThan(3n), ($3) => {
+                        $3.assign(digits, East.str`0${digits}`);
+                    });
+                    return East.str`S-${digits}`;
+                }));
                 const n = $.let(taken.size().add(1n));
-                $.while(taken.has(East.str`S-00${n}`), ($2) => {
+                $.while(taken.has(idOf(n)), ($2) => {
                     $2.assign(n, n.add(1n));
                 });
-                return East.str`S-00${n}`;
+                return idOf(n);
             }));
             // A new member as they join: in Inbound, their name left to type — and their id the Record's to keep.
             const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StaffMember), (_$) => Record.patch(StaffMember, { team: "Inbound" })));
