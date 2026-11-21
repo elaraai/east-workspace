@@ -354,6 +354,36 @@ describe("the shared editing over an event kind that builds each event's key fro
         expect([jobEqual(saved.get("V-5")!, renamed), saved.has("V-1"), jobEqual(saved.get("legacy")!, titled)], printJobs(saved)).toEqual([true, false, true]);
     });
 
+    test("ruling 1 — a visit an edit moves under another key is, to what its drafts are compared with, the visit its record holds under the key it had: an Undo puts it back and a Redo moves it again; moved on, it is still that visit; removed, it is none", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-held" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        /** Whether a key's row, as the editing says the record holds it, is the survey as stored; `undefined` for none. */
+        const heldAs = (id: string) => {
+            const row = editing().held("visits", id);
+            return row === undefined ? undefined : jobEqual(row as ValueTypeOf<typeof Job>, stored);
+        };
+        const moves = () => [...editing().movedFrom("visits")];
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        // Under V-5, the survey its record holds under V-1 — which holds it still.
+        expect([heldAs("V-5"), heldAs("V-1"), moves()]).toEqual([true, true, [["V-5", "V-1"]]]);
+        act(() => { editing().history.undo(); });
+        await settle();
+        expect([editing().held("visits", "V-5"), heldAs("V-1"), moves()]).toEqual([undefined, true, []]);
+        act(() => { editing().history.redo(); });
+        await settle();
+        expect([heldAs("V-5"), moves()]).toEqual([true, [["V-5", "V-1"]]]);
+        // Moved on again: still the survey its record holds under V-1.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...stored, ref: "V-6" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([editing().held("visits", "V-5"), heldAs("V-6"), moves()]).toEqual([undefined, true, [["V-6", "V-1"]]]);
+        // Removed: no row stands for it, and V-1 is a visit the drafts removed.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-6", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        expect([editing().held("visits", "V-6"), moves(), visitDraft("V-1")?.type]).toEqual([undefined, [], "missing"]);
+    });
+
     test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {
         await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-chain" /> });
         await waitFor(() => expect(editing().available("visits")).toBe(true));

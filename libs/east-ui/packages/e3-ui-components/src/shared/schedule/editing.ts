@@ -386,14 +386,29 @@ export interface ScheduleEditing<I extends Item = Item> {
     conflicted(kind: string, id: string): boolean;
     /**
      * An event's row as its kind's record held it when last read — what its
-     * drafts are tinted against — or a row of a record a builder writes.
+     * drafts are tinted against — or a row of a record a builder writes. A row
+     * the drafts moved under the key its fields build is the row it was, edited
+     * (east-workspace#1709): under the key it stands under now, the row its
+     * record holds under the key it had ({@link ScheduleEditing.movedFrom}).
      *
      * @param kind - The kind's slot, or the record's key
      * @param id - The event's key's text
-     * @returns The row, decoded; `undefined` for an event the record does not hold — and, for a kind read a window at
-     *   a time (#1199), for one its drafts do not hold, which stands as the record holds it
+     * @returns The row, decoded; `undefined` for an event the record does not hold, nor one the drafts moved there — and,
+     *   for a kind read a window at a time (#1199), for one its drafts do not hold, which stands as the record holds it
      */
     held(kind: string, id: string): unknown;
+    /**
+     * The rows the drafts moved under the key their fields build (east-workspace#1709), each by the key it stands under
+     * now, to the key its record holds it under: a moved row is the row it was, edited, and the key it left is no row
+     * removed. What a builder that keeps its record's rows itself — the Roster's stored week, the Allocation's stored
+     * day — files each moved row's stored version under, as {@link ScheduleEditing.held} gives it. A move holds while
+     * the drafts do: undone, the row is back under the key it had and the move gone; redone, back. A key its record
+     * holds a row under itself is never one of them.
+     *
+     * @param kind - The kind's slot, or the record's key
+     * @returns The moves; the same object while they hold, one empty object while there are none
+     */
+    movedFrom(kind: string): ReadonlyMap<string, string>;
     /**
      * An event as its kind's record held it when last read ({@link ScheduleEditing.held}), read as its kind reads a row
      * — its title, its start and its end — with none of its drafts in place and no read of the record: what names an
@@ -672,6 +687,8 @@ const FOLLOW_ROUNDS = 4;
 const NO_LANDED: ScheduleLanded = new Map();
 /** No carry-over gave a new event another key. */
 const NO_RENUMBERED: ScheduleRenumbered = new Map();
+/** The drafts hold no row moved under another key. */
+const NO_MOVES: ReadonlyMap<string, string> = new Map();
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -1008,6 +1025,14 @@ export function useScheduleEditing<I extends Item = Item>({
     else if (lastUnder.current.moved !== moved) lastUnder.current = { carried, moved, last: moved };
     const renumbered = lastUnder.current.last;
 
+    // Each move a gesture made of a row its record holds, or of a row such a move made, as the gesture is recorded: by
+    // the part's key, then by the key the row moved to, to the key it moved from (east-workspace#1709). What its drafts
+    // are compared with is the row its record holds under the key it had ({@link ScheduleEditing.movedFrom}). A move
+    // holds while the drafts do, so an Undo and a Redo of it, which move only the drafts, need nothing kept here.
+    const movesRef = useRef(new Map<string, Map<string, string>>());
+    // The moves that hold, by the part's key, as last asked: the same object while they hold, at whatever version.
+    const movedRef = useRef(new Map<string, { readonly version: number; readonly moves: ReadonlyMap<string, string> }>());
+
     // ── The gestures ─────────────────────────────────────────────────────────
     /**
      * An entry as its builder shows it, for a kind or a record read a window at a time (#1199) whose session holds none
@@ -1072,6 +1097,46 @@ export function useScheduleEditing<I extends Item = Item>({
         }
         const at = codecs[i]!.keyOf(id);
         return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
+    };
+    /** The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}): each key a row moved to, to the key its record holds it under. */
+    const movedOf = (kind: string): ReadonlyMap<string, string> => {
+        const kept = movedRef.current.get(kind);
+        if (kept !== undefined && kept.version === version) return kept.moves;
+        const i = indexOf(kind);
+        const links = i < 0 ? undefined : movesRef.current.get(kind);
+        const now = new Map<string, string>();
+        // What stands under a key with the drafts in place: a row, or none — the drafts removed it; else neither is known.
+        const at = (id: string): "row" | "gone" | undefined => {
+            const entry = state.original(keys[i]!, id);
+            return entry === undefined ? undefined : rowOf(entry) === undefined ? "gone" : "row";
+        };
+        for (const [to] of links ?? []) {
+            if (at(to) !== "row" || heldRow(kind, to) !== undefined) continue;
+            // Back through each move — past a row one made, moved on in its turn — to the row its record holds, which the
+            // drafts removed. A move whose row stands again under the key it left is undone.
+            for (let step = 0, key = to; step < links!.size; step++) {
+                const from = links!.get(key);
+                if (from === undefined) break;
+                const left = at(from);
+                if (left === "row") break;
+                if (heldRow(kind, from) !== undefined) {
+                    if (left === "gone") now.set(to, from);
+                    break;
+                }
+                key = from;
+            }
+        }
+        const same = kept !== undefined && kept.moves.size === now.size && [...now].every(([to, from]) => kept.moves.get(to) === from);
+        const moves = same ? kept.moves : now.size === 0 ? NO_MOVES : now;
+        movedRef.current.set(kind, { version, moves });
+        return moves;
+    };
+    /** A row as its record holds it, or — moved by the drafts under the key its fields build — as it holds it under the key it had ({@link ScheduleEditing.held}). */
+    const heldNow = (kind: string, id: string): unknown => {
+        const row = heldRow(kind, id);
+        if (row !== undefined) return row;
+        const from = movedOf(kind).get(id);
+        return from === undefined ? undefined : heldRow(kind, from);
     };
     /** A row read as its kind reads an event, nothing read of the record or of the drafts ({@link ScheduleEditing.eventOf}). */
     const eventOfRow = (kind: string, id: string, row: unknown): ScheduleRead<I> | undefined => {
@@ -1211,6 +1276,11 @@ export function useScheduleEditing<I extends Item = Item>({
                     build: (_id, version) => build(codec.encodeRow(rowOf(version))),
                     // The session's own, what its last Save left, its record's as last read.
                     original: (id) => state.original(key, id),
+                    // The row its record holds under a key: what a row written back there after the drafts removed it is.
+                    stored: (id) => {
+                        const row = heldRow(part.key, id);
+                        return row === undefined ? undefined : { draft: variant("value", row), wire: undefined, place: KEY_ORDER };
+                    },
                     // One its builder shows, of a record read a window at a time.
                     shown: (id) => {
                         if (part.entries.type !== "some") return false;
@@ -1280,10 +1350,13 @@ export function useScheduleEditing<I extends Item = Item>({
             return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
         },
         held(kind: string, id: string): unknown {
-            return heldRow(kind, id);
+            return heldNow(kind, id);
+        },
+        movedFrom(kind: string): ReadonlyMap<string, string> {
+            return movedOf(kind);
         },
         heldEvent(kind: string, id: string): ScheduleRead<I> | undefined {
-            const row = heldRow(kind, id);
+            const row = heldNow(kind, id);
             return row === undefined ? undefined : eventOfRow(kind, id, row);
         },
         eventOf(kind: string, id: string, row: unknown): ScheduleRead<I> | undefined {
@@ -1365,6 +1438,16 @@ export function useScheduleEditing<I extends Item = Item>({
                 .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))
                 .filter((part) => part.updates.length > 0);
             if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
+            // Each move of a row its record holds, or of a row such a move made — never a new row's, from the key made for
+            // it — kept for what the row's drafts are compared with ({@link ScheduleEditing.movedFrom}).
+            for (const [kind, byKey] of made.moves) {
+                for (const [from, to] of byKey) {
+                    const links = movesRef.current.get(kind);
+                    if (links?.has(from) !== true && heldRow(kind, from) === undefined) continue;
+                    if (links === undefined) movesRef.current.set(kind, new Map([[to, from]]));
+                    else links.set(to, from);
+                }
+            }
             if (made.moves.size > 0) setMoved(made.moves);
             return true;
         },
@@ -1378,6 +1461,7 @@ export function useScheduleEditing<I extends Item = Item>({
     const carrying = useCallback((kind: string) => latest.current.carrying(kind), []);
     const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
+    const movedFrom = useCallback((kind: string) => latest.current.movedFrom(kind), []);
     const heldEvent = useCallback((kind: string, id: string) => latest.current.heldEvent(kind, id), []);
     const eventOf = useCallback((kind: string, id: string, row: unknown) => latest.current.eventOf(kind, id, row), []);
     const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
@@ -1390,7 +1474,7 @@ export function useScheduleEditing<I extends Item = Item>({
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
-        shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf,
-    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey,
-        mint, record, keyRefusal, keyRefusalOf]);
+        shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf,
+    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row,
+        rowsByKey, mint, record, keyRefusal, keyRefusalOf]);
 }

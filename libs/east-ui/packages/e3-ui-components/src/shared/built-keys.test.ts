@@ -32,6 +32,7 @@ function ruleOver(stored: Readonly<Record<string, string>>, shown: readonly stri
             return code;
         },
         original: (id) => (id in stored ? row(stored[id]!) : undefined),
+        stored: (id) => (id in stored ? row(stored[id]!) : undefined),
         shown: (id) => shown.includes(id),
         underKey: (id, version) => ({ ...version, wire: id }),
     };
@@ -112,5 +113,16 @@ describe("a row stands under the key its row builds (east-workspace#1709)", () =
         const apart = new Map<string, TouchedEntry<string>>([["A", { before: row("Z"), after: row("Z") }]]);
         expect(settleBuiltKeys(apart, ruleOver({ A: "Z" }))).toEqual({ all: new Map(), held: new Map() });
         expect([held(back), held(apart)]).toEqual([[["A", "A"]], [["A", "Z"]]]);
+    });
+
+    test("ruling 1 — a row written back under a key its record holds, which the drafts removed — a removed row restored — is that row: it stays under its key while what its key reads is as stored, and moves only as that changed", () => {
+        // Stored under A apart from its key, Z: removed by the drafts, then written back as stored.
+        const restored = new Map<string, TouchedEntry<string>>([["A", { before: absent, after: row("Z") }]]);
+        expect(settleBuiltKeys(restored, ruleOver({ A: "Z" }))).toEqual({ all: new Map(), held: new Map() });
+        expect(held(restored)).toEqual([["A", "Z"]]);
+        // Written back with what its key reads changed: it moves, a row its record held.
+        const changed = new Map<string, TouchedEntry<string>>([["A", { before: absent, after: row("B") }]]);
+        expect(settleBuiltKeys(changed, ruleOver({ A: "Z" }))).toEqual({ all: new Map([["A", "B"]]), held: new Map([["A", "B"]]) });
+        expect(held(changed)).toEqual([["A", null], ["B", "B"]]);
     });
 });

@@ -9,7 +9,10 @@
  * east-workspace#1709): the warehouse's duties keyed by their note. A duty's
  * own form that writes its note moves the duty under the key it then builds,
  * still selected, and Save writes it there; a note that builds a key another
- * duty stands under is refused, the board saying whose key it is. And a duty
+ * duty stands under is refused, the board saying whose key it is. A duty so
+ * moved is the duty it was, edited — nothing drawn removed under the key it
+ * had — and a duty removed and restored is back under the key the record holds
+ * it by, though its note builds another. And a duty
  * the Roster adds — an agency's, requested from a shift's cell — under each of
  * the other two options a kind takes: keyed by the app's own rule (`newKey`),
  * and holding the key its session makes in its own field (`keyField`). And
@@ -157,5 +160,35 @@ describe("a Roster whose duty kind builds each duty's key from its row", () => {
         const saved = await h.read(ex.rosterDuties);
         expect([saved.has("s15"), sameDuty(saved.get("N-1")!, { ...before.get("s15")!, note: "N-1" }), sameDuty(saved.get("s6")!, before.get("s6")!), saved.size])
             .toEqual([false, true, true, before.size]);
+    });
+
+    test("ruling 1 — a duty an edit moves under another key is the duty it was, edited: nothing drawn removed under the key it had, its Details pending, never new; Remove leaves the stored duty's tombstone under the key it had, selected, and Restore brings it back", async () => {
+        const { container: c } = await h.mount(keyedByNote);
+        const end = () => slot(c, "end");
+        await press(assignment(c, "s15"));
+        await press(within(end()).getByRole("button", { name: "Note N-1" }));
+        // One duty, under N-1 and edited: nothing of it drawn removed under s15, its Details' chip Pending.
+        expect([c.querySelector('[data-roster-assignment="s15"]'), assignment(c, "N-1").hasAttribute("data-removed"), end().querySelector("[data-state]")?.getAttribute("data-state")])
+            .toEqual([null, false, "pending"]);
+        // Removed, the duty the record holds under s15 is what stays, removed and selected until Save; Restore brings it back.
+        await press(within(end()).getByRole("button", { name: "Remove" }));
+        expect([assignment(c, "s15").hasAttribute("data-removed"), c.querySelector('[data-roster-assignment="N-1"]')]).toEqual([true, null]);
+        await press(within(end()).getByRole("button", { name: "Restore" }));
+        expect([assignment(c, "s15").hasAttribute("data-removed"), c.querySelector('[data-roster-assignment="N-1"]')]).toEqual([false, null]);
+    });
+
+    test("ruling 1 — a duty removed and restored is back under the key the record holds it by, though its note builds another: nothing is drawn under that one, and Save writes nothing", async () => {
+        const { container: c } = await h.mount(keyedByNote);
+        const before = await h.read(ex.rosterDuties);
+        const end = () => slot(c, "end");
+        await press(assignment(c, "s15"));
+        await press(within(end()).getByRole("button", { name: "Remove" }));
+        expect(assignment(c, "s15").hasAttribute("data-removed")).toBe(true);
+        // Its note is the warehouse's empty one, which builds the key "".
+        await press(within(end()).getByRole("button", { name: "Restore" }));
+        expect([assignment(c, "s15").hasAttribute("data-removed"), c.querySelector('[data-roster-assignment=""]')]).toEqual([false, null]);
+        await press(history(c, "Save"));
+        const saved = await h.read(ex.rosterDuties);
+        expect([sameDuty(saved.get("s15")!, before.get("s15")!), saved.has(""), saved.size]).toEqual([true, false, before.size]);
     });
 });

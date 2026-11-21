@@ -51,6 +51,7 @@ import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../sh
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useClassesAhead, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
+import { heldUnderMoves } from "../shared/schedule/moved.js";
 import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -159,7 +160,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useSliceReactivity(binsPart?.key);
     const binChoices = binChoicesOf(binsPart);
     // The day assembled from the records' rows (§9): the bins its window read, every day's drafts in place, and its own row.
-    const stored = current ? data.bins : NO_STORED;
+    // A bin an edit moved under the key its fields build is filed under it, as the drafts key it (east-workspace#1709): the
+    // bin it was, edited — its Details name it, and Revert brings it back — never one removed and one new.
+    const movedBins = editing?.schedule.movedFrom(value.bin.kind.key);
+    const stored = useMemo(() => heldUnderMoves(current ? data.bins : NO_STORED, movedBins), [current, data.bins, movedBins]);
     const heldBins = useMemo(() => placeStored(domain, stored, day), [domain, stored, day]);
     // A day not read yet draws none of its bins, its drafts included: they wait in their session, and draw beside its
     // stored bins once those land — never a day of drafts alone (#1398, CL13).

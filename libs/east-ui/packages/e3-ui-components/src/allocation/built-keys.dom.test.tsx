@@ -298,3 +298,19 @@ test("ruling 1 — a bin unlinked moves under the key its bay and its links then
     const saved = await h.read(fx.moistureBins);
     expect([saved.has("3113"), saved.get("B-2/0")!.kilns.size, sameBin(saved.get("3115")!, before.get("3115")!), saved.size]).toEqual([false, 0, true, before.size]);
 });
+
+test("ruling 1 — a bin an edit moves under another key is the bin it was, edited: its Details name it by its key, pending, never a new bin; and Revert brings it back under the key the day holds it by, as it was, though its row builds another", async () => {
+    const { container: c } = await h.mount(keyedYard);
+    await waitFor(() => expect(card(c, "3113")).not.toBeNull());
+    const before = await h.read(fx.moistureBins);
+    // 3113 is stored apart from the key its row builds, B-2/1: unlinked, it moves under B-2/0.
+    await press(card(c, "3113"));
+    await press(button(details(c), "Unlink"));
+    expect([details(c).querySelector("[data-inspector-kind]")?.textContent, details(c).querySelector("[data-state]")?.getAttribute("data-state")])
+        .toEqual(["Bin B-2/0", "pending"]);
+    await press(button(details(c), "Revert"));
+    expect([card(c, "3113") !== null, card(c, "B-2/0"), card(c, "B-2/1")]).toEqual([true, null, null]);
+    await press(save(c));
+    const saved = await h.read(fx.moistureBins);
+    expect([sameBin(saved.get("3113")!, before.get("3113")!), saved.has("B-2/0"), saved.has("B-2/1"), saved.size]).toEqual([true, false, false, before.size]);
+});

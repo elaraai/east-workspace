@@ -450,9 +450,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         remove(id) {
             const a = week.assignments.get(id);
             if (a === undefined || blocked(a.place.day) !== undefined) return;
+            // One an edit moved under the key its fields build leaves its tombstone under the key it had (east-workspace#1709).
+            const kept = schedule?.movedFrom(duty).get(id) ?? id;
             if (record([{ kind: duty, id, remove: true }], "remove", "Remove duty")) {
                 // A saved duty stays as a restorable tombstone until Save, keeping its identity so another layout reveals it.
-                select(state.held.assignments.has(id) ? { type: "assignment", key: id } : undefined);
+                select(state.held.assignments.has(id) ? { type: "assignment", key: kept } : undefined);
             }
         },
         restore(id) {

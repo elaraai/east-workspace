@@ -107,13 +107,16 @@ export interface AllocationState {
     readonly domain: AllocationDomain;
     /** The plan day. */
     readonly day: Date;
-    /** The day as drafted, and as the records hold it. */
+    /**
+     * The day as drafted, and as the records hold it — a bin an edit moved under the key its fields build filed under
+     * that key, the bin it was (east-workspace#1709).
+     */
     readonly plan: Day;
     readonly held: Day;
     /** The own row of the period holding the day — the day's, or its week's (#1550) — as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
-    /** The bins the day's window read, by key: each stored bin's bytes. */
+    /** The bins the day's window read, by key — filed as `held` is: each stored bin's bytes. */
     readonly read: ReadonlyMap<string, StoredBin>;
     /** The editing; `undefined` for a read-only board. */
     readonly editing: AllocationEditing | undefined;
@@ -272,11 +275,23 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         remove(id) {
             if (!plan.bins.has(id)) return;
             const committed = held.bins.has(id);
-            if (write(`Back to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id } : undefined);
+            // One an edit moved under the key its fields build stays under Removed from plan by the key it had (east-workspace#1709).
+            const kept = schedule?.movedFrom(bins).get(id) ?? id;
+            if (write(`Back to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id: kept } : undefined);
         },
         revert(id) {
             if (!held.bins.has(id)) {
                 if (plan.bins.has(id) && write(`Return to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(undefined);
+                return;
+            }
+            // One an edit moved under the key its fields build goes back under the key it had, its stored row whole
+            // (east-workspace#1709): a row its record holds there stays there, whatever key its fields build.
+            const home = schedule?.movedFrom(bins).get(id);
+            if (home !== undefined) {
+                const stored = state.read.get(id)?.bytes;
+                if (takes && stored !== undefined && record([{ kind: bins, id, remove: true }, { kind: bins, id: home, row: stored }], "typed", "Revert")) {
+                    select({ type: "bin", id: home });
+                }
                 return;
             }
             if (write("Revert", "typed", next => { next.bins.set(id, domain.copyDay(held).bins.get(id)!); })) select({ type: "bin", id });

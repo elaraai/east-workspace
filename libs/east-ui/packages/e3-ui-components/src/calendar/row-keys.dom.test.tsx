@@ -12,7 +12,9 @@
  * so. Where the app's rule gives a key a booking holds, the copy is refused,
  * and its Details say which key; over a record read a window at a time, the
  * rule is told the key of every booking the day shows. Over bookings keyed by
- * number, Search Records reads a key typed as a number.
+ * number, Search Records reads a key typed as a number. A booking keyed by its
+ * reference, the reference typed in its Details, moves under the key it then
+ * builds, the booking it was, edited.
  */
 
 import { describe, expect, test } from "vitest";
@@ -139,6 +141,13 @@ const numberedByKey = { fn: East.function([], UIComponentType, (_$) => Reactive.
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, newKey: past }) } });
 }))) };
 
+/** The bookings' day, each keyed by its reference: a field of its row its Details' form edits. */
+const byRef = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(bookings, ["patch"]));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", key: (booking) => booking.ref }) } });
+}))) };
+
 /** The day of the bookings keyed by number, their record read whole. */
 const countedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const rows = $.let(Record.bind(counted, ["patch"]));
@@ -222,6 +231,24 @@ describe("a Calendar's new event under each of the three key options (east-works
         const rows = await h.read(numbered);
         expect([[...rows.keys()], sameBooking(rows.get("B-8")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })])
             .toEqual([["B-1", "B-3", "B-7", "B-8"], true]);
+    });
+});
+
+describe("a Calendar whose events' keys their rows build (east-workspace#1709)", () => {
+    test("ruling 1 — a booking whose reference is typed moves under the key it then builds, the booking it was, edited: its Details pending, never new; and Save writes it there", async () => {
+        const { container: c } = await h.mount(byRef);
+        await waitFor(() => expect(event(c, "booking", "B-1")).not.toBeNull());
+        await act(async () => { fireEvent.click(event(c, "booking", "B-1")); });
+        await settle();
+        const box = within(slot(c, "end").querySelector<HTMLElement>('[data-field="ref"]')!).getByRole("textbox");
+        await act(async () => { fireEvent.change(box, { target: { value: "B-9" } }); fireEvent.blur(box); });
+        await settle();
+        expect([event(c, "booking", "B-1"), event(c, "booking", "B-9") !== null, slot(c, "end").querySelector("[data-state]")?.getAttribute("data-state")])
+            .toEqual([null, true, "pending"]);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await waitFor(async () => expect((await h.read(bookings)).has("B-9")).toBe(true), { timeout: 8_000 });
+        const rows = await h.read(bookings);
+        expect([[...rows.keys()], sameBooking(rows.get("B-9")!, { ref: "B-9", title: "Safety check", start: NINE, end: TEN })]).toEqual([["B-9"], true]);
     });
 });
 

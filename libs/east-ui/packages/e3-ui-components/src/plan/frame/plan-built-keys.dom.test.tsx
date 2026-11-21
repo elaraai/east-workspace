@@ -10,7 +10,8 @@
  * its row its form edits. A customer typed in the inspector moves the job
  * under the key it then builds, still selected, and takes the flows that name
  * it with it — each written to name its new key, in the same step — and Save
- * writes the job and its flows so. An edit its key refuses says why under its
+ * writes the job and its flows so. So moved, it is the job it was, edited: its
+ * form tints only the field the edit changed. An edit its key refuses says why under its
  * field: the key it would build is another job's, or — the flows bound read
  * only — its flows cannot follow it. Duplicate is off for a job standing
  * under the key its row builds, whose copy would build that key too. A link
@@ -88,6 +89,16 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         expect(sameFlow(flows.get("covers")!, { from: variant("job", "Quay Books"), to: variant("job", "J-2013"), sheets: some(12.0) })).toBe(true);
         expect([jobs.has("J-2001"), jobs.get("Quay Books")!.title, jobs.size, flows.size]).toEqual([false, "Catalogue covers", 23, 17]);
         expect(sameFlow(flows.get("plates")!, { from: variant("plate", "P-01"), to: variant("job", "Quay Books"), sheets: none })).toBe(true);
+    });
+
+    test("ruling 1 — a job moved under another key is the job it was, edited: its form tints the field the edit changed, never every field as a new job's", async () => {
+        const { container: c } = await h.mount(flowsPlan(keyedByCustomer));
+        await settle();
+        fireEvent.click(job(c, "J-2001")!);
+        await settle();
+        await typeCustomer(c, "Quay Books");
+        const changed = (name: string) => pane(c).querySelector(`[data-inspector-fields='form'] [data-field='${name}']`)!.hasAttribute("data-dirty");
+        expect([job(c, "Quay Books") !== null, changed("customer"), changed("stock"), changed("due")]).toEqual([true, true, false, false]);
     });
 
     test("ruling 1 — a customer that builds a key another job stands under is refused, the job where it was, its field saying whose key it is; and where the flows are read only, a job a flow names stays under its key, its field saying its flows can't follow", async () => {
