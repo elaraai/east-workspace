@@ -25,4 +25,11 @@ describeEast("JSX key", (test) => {
     test("ruling 7 — a tag given no key hands its component none", ($) => {
         $(Assert.equal(<Keyed label="rack" />, TextF.Root("rack:no key")));
     });
+
+    // The compiler hands a key written after a spread to `createElement`, of the import source's root, among the props.
+    test("ruling 7 — a key written after a spread reaches its component too, as one written before it does", ($) => {
+        const shared = { label: "rack" };
+        $(Assert.equal(<Keyed {...shared} key="R-1" />, TextF.Root("rack:R-1")));
+        $(Assert.equal(<Keyed key="R-1" {...shared} />, TextF.Root("rack:R-1")));
+    });
 }, { platformFns: TestImpl });

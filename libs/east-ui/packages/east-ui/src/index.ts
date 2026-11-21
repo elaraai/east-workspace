@@ -33,6 +33,9 @@ export type { JsxTag, ContainerProps, ContentProps, ValueProps, OptionsProps } f
 export { coalesceChildren } from "./runtime/children.js";
 export type { ContainerChildrenType } from "./runtime/children.js";
 export type { UIElement } from "./runtime/runtime.js";
+// What the compiler calls, of this root, for a tag whose `key` is written
+// after a spread (`<Record {...shared} key={…} />`); no one imports it by hand.
+export { createElement } from "./runtime/runtime.js";
 
 // Style System
 export { Style } from "./style.js";

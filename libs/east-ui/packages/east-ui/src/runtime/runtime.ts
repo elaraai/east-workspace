@@ -63,7 +63,8 @@ export type Fragment = typeof Fragment;
  * A tag's `key` is no React key here — nothing reconciles these elements — so
  * it is one more prop: the compiler hands it apart from the others, and it
  * reaches the component among them, typed by the component's own props
- * (`<Record key={(row) => row.code}>`).
+ * (`<Record key={(row) => row.code}>`). One written after a spread the
+ * compiler hands to {@link createElement} instead.
  */
 export function jsx(
     type: Component<unknown> | Fragment,
@@ -105,6 +106,16 @@ export function h(
     else if (children.length > 1) merged.children = children;
     return jsx(type, merged);
 }
+
+/**
+ * The compiler's entry point for a tag whose `key` is written after a spread
+ * (`<Record {...shared} key={(row) => row.code} />`). There it calls
+ * `createElement` of the import source's own root, in place of {@link jsx},
+ * with the key among the props and the children after them — the classic
+ * factory's own call — so the key reaches the component as it does from
+ * {@link jsx}. `@elaraai/east-ui` and `@elaraai/e3-ui` each export it.
+ */
+export const createElement: typeof h = h;
 
 /**
  * JSX type contract consumed by the compiler under
