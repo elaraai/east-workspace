@@ -44,10 +44,13 @@ import {
     type EditingToDraftResultTypeFor,
 } from "@elaraai/east-ui/internal";
 import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
+import { NO_MOVES, composeMoves, followFrom, inverseMoves, movesThrough, pointAt, type EditPoint, type FollowStep, type Trail } from "./follow.js";
 import type { EntryKeys, KnownKeys } from "./keys.js";
 import { EntryMerger, type ConflictPoint } from "./merge.js";
 import { SESSION_TEXT } from "./messages.js";
 import type { AutosaveState } from "./autosave.js";
+
+export type { EditPoint } from "./follow.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
 // opaquely instead of infinitely expanding PatchTypeOf<EastType>; a keyed
@@ -331,124 +334,21 @@ export interface SettledConflict {
     readonly said: string | undefined;
 }
 
-interface History<W> {
+/** One step of a session's history: a transaction, as Undo takes it back and Redo replays it — and as following reads it (`follow.ts`). */
+interface History<W> extends FollowStep<W> {
     label: string;
     /** The gesture that made the transaction (#1409): what a host that replays a step by its origin reads. */
     origin: Origin;
-    before: Map<string, EntryVersion<W>>;
-    after: Map<string, EntryVersion<W>>;
     /** What a gesture recorded with the same key joins, while it is the last step and nothing is redone past it ({@link EditSession.record}). */
     joins?: string | undefined;
     /** What both began from, for each entry a settling moved it for: before and after the step, `undefined` for none. */
     ancestors?: { readonly before: ReadonlyMap<string, option<unknown> | undefined>; readonly after: ReadonlyMap<string, option<unknown> | undefined> } | undefined;
     /** The conflicts a settling settled, by entry and path: before and after the step, `undefined` for none. */
     settled?: { readonly before: ReadonlyMap<string, SettledConflict | undefined>; readonly after: ReadonlyMap<string, SettledConflict | undefined> } | undefined;
-    /** Each entry the step moved under another id, by the id it had ({@link EntryUpdate.from}): `undefined` for none. */
-    moves?: ReadonlyMap<string, string> | undefined;
 }
 
-/**
- * How a run of the session's history ended, as it started over ({@link Trail}): past how many of its steps the
- * entries stood then, with the new ids a carry-over gave new entries, on into the next run — or `"discarded"`, the
- * drafts the steps made gone with them.
- */
-type TrailEnd<W> = { readonly done: number; readonly renamed: ReadonlyMap<string, string>; readonly next: Trail<W> } | "discarded";
-
-/**
- * One run of a session's history, from where it starts over to where it next does (ruling 16 of
- * east-workspace#1709): its steps — the array the session holds them in, kept as they stood once the history starts
- * over — and, once it has, how it ended. What a point of the history is taken on, and followed along
- * ({@link EditSession.follow}).
- */
-interface Trail<W> {
-    readonly steps: History<W>[];
-    ended?: TrailEnd<W> | undefined;
-}
-
-/** Where a point of a session's history stands: its run, and the step done last there — `undefined` before the first. */
-interface PointAt<W> {
-    readonly trail: Trail<W>;
-    readonly step: History<W> | undefined;
-}
-
-declare const EDIT_POINT: unique symbol;
-
-/**
- * A point of a session's history ({@link EditSession.point}): where its entries stood as it was taken, which
- * {@link EditSession.follow} follows them on from. Opaque.
- */
-export interface EditPoint { readonly [EDIT_POINT]: true }
-
-/** Where each point stands in its session's history. */
-const pointsAt = new WeakMap<EditPoint, PointAt<unknown>>();
 /** A history started over with no entry given another id. */
-const NO_RENAMES: ReadonlyMap<string, string> = new Map();
-
-/** Where one leg of the way from a point of a history to where it stands now leaves each entry, by the id it had ({@link EditSession.follow}). */
-type FollowLeg = (id: string) => string | undefined;
-
-/** Whether a step made an entry under an id: absent there before the step, there after it — made, or put back after a removal. */
-function madeAt<W>(step: History<W>, id: string): boolean {
-    return step.after.get(id)?.draft !== undefined && step.before.get(id)?.draft === undefined;
-}
-
-/**
- * Where a step done leaves each entry, by the id it had before the step ({@link EditSession.follow}): under the id the
- * step moved it to; under none where another entry came to stand under its id — moved there, or made there; else under
- * its own.
- *
- * @param step - The step
- * @returns The leg
- */
-function onThrough<W>(step: History<W>): FollowLeg {
-    const moves = step.moves;
-    const into = moves === undefined ? undefined : new Set(moves.values());
-    return (id) => {
-        const to = moves?.get(id);
-        if (to !== undefined) return to;
-        return into?.has(id) === true || madeAt(step, id) ? undefined : id;
-    };
-}
-
-/**
- * Where each entry stood before a step Undo took back, by the id the step had left it under ({@link EditSession.follow}):
- * under the id the step moved it from; under none where the step made it there — it stood nowhere before — or moved away
- * the entry that stood there; else under its own.
- *
- * @param step - The step
- * @returns The leg
- */
-function backThrough<W>(step: History<W>): FollowLeg {
-    const moves = step.moves;
-    const back = moves === undefined ? undefined : new Map([...moves].map(([from, to]) => [to, from] as const));
-    return (id) => {
-        const from = back?.get(id);
-        if (from !== undefined) return from;
-        return moves?.has(id) === true || madeAt(step, id) ? undefined : id;
-    };
-}
-
-/**
- * Two runs of moves as one — a step's and those of a gesture that joins it ({@link EditSession.record}): each entry
- * from the id the first found it under to the id the second left it under. An entry moved back where it began is no
- * move.
- *
- * @param first - The earlier moves, by the id each entry had
- * @param then - The later moves, by the id each entry had then
- * @returns The moves together; `undefined` for none
- */
-function composeMoves(first: ReadonlyMap<string, string> | undefined, then: ReadonlyMap<string, string>): ReadonlyMap<string, string> | undefined {
-    const out = new Map<string, string>();
-    const later = new Map(then);
-    for (const [from, to] of first ?? []) {
-        const on = later.get(to);
-        if (on !== undefined) later.delete(to);
-        const end = on ?? to;
-        if (!stringEqual(from, end)) out.set(from, end);
-    }
-    for (const [from, to] of later) out.set(from, to);
-    return out.size === 0 ? undefined : out;
-}
+const NO_RENAMES: ReadonlyMap<string, string> = NO_MOVES;
 
 /** A settled conflict's key: its entry and its path. */
 const settledKey = (id: string, path: string): string => `${id}\u0000${path}`;
@@ -510,7 +410,11 @@ export interface EditSessionBinding<W> {
     draftType: EastType;
     /** A group entry's child field. */
     children?: string | undefined;
-    /** An Array source's identity field. */
+    /**
+     * An Array source's identity field: the String field its entries are addressed by. A keyed source's entries are
+     * addressed by key, and the session reads none of this for one — its collection may name here the field of an entry
+     * that holds its key (the editing contract's `idField`, east-workspace#1705).
+     */
     idField?: string | undefined;
     /**
      * A keyed source's key type (#880): its batches are `ChangeSet(E, K)`, and
@@ -866,7 +770,13 @@ export class EditSession<W> {
     private history: History<W>[] = [];
     private cursor = 0;
     /** The run of the history its steps are on now: the one a point taken now is on ({@link EditSession.follow}). */
-    private trail: Trail<W> = { steps: this.history };
+    private trail: Trail<History<W>> = { steps: this.history };
+    /** The moves the drafts held as this run of the history started ({@link EditSession.moved}), by the id each entry stood under then. */
+    private carriedMoves: ReadonlyMap<string, string> = NO_MOVES;
+    /** The moves the drafts hold as last read, at the session's version: the same object while they hold. */
+    private movedCache: { readonly serial: number; readonly value: ReadonlyMap<string, string> } | undefined;
+    /** Each entry the last Undo or Redo put back under another id, by the id it had ({@link EditSession.rekeyed}). */
+    private rekeyedIds: ReadonlyMap<string, string> = NO_MOVES;
     private base: Base | undefined;
     private submission: Submission<W> | undefined;
     private listeners = new Set<() => void>();
@@ -1440,9 +1350,7 @@ export class EditSession<W> {
     point(): EditPoint {
         const step = this.history[this.cursor - 1];
         if (step !== undefined) step.joins = undefined;
-        const point = {} as EditPoint;
-        pointsAt.set(point, { trail: this.trail, step });
-        return point;
+        return pointAt(this.trail, step);
     }
 
     /**
@@ -1452,7 +1360,7 @@ export class EditSession<W> {
      * step done before the point that Undo has taken back since; and through every carry-over that gave it another id
      * ({@link EditSession.renumbered}). An entry stands under no id of its own once another has come to stand under the
      * one it had — moved there, made there, or put back there after the entry was removed — nor, followed back past the
-     * step that made it, before it was made.
+     * step that made it, before it was made (`follow.ts`).
      *
      * @param point - A point of this session's history
      * @returns Each entry's id now, by the id it had at the point — `undefined` for one that stands under no id of its
@@ -1461,53 +1369,93 @@ export class EditSession<W> {
      *   was — the drafts discarded since, or the point another session's
      */
     follow(point: EditPoint): ((id: string) => string | undefined) | undefined {
-        const at = pointsAt.get(point) as PointAt<W> | undefined;
-        if (at === undefined) return undefined;
-        // The way from the point to where the steps stand now, leg by leg.
-        const legs: FollowLeg[] = [];
-        let trail = at.trail;
-        let from = at.step === undefined ? 0 : trail.steps.indexOf(at.step) + 1;
-        if (from === 0 && at.step !== undefined) return undefined;
-        for (;;) {
-            if (trail === this.trail) {
-                // On through the steps done since the point, or back through those before it Undo took back since.
-                for (let i = from; i < this.cursor; i++) legs.push(onThrough(trail.steps[i]!));
-                for (let i = from - 1; i >= this.cursor; i--) legs.push(backThrough(trail.steps[i]!));
-                break;
-            }
-            // A run of the history that ended: on through the steps done as it did, into the next — none past the
-            // point's own step undone then, which the history dropped as it started over.
-            const ended = trail.ended;
-            if (ended === undefined || ended === "discarded" || from > ended.done) return undefined;
-            for (let i = from; i < ended.done; i++) legs.push(onThrough(trail.steps[i]!));
-            const renamed = ended.renamed;
-            if (renamed.size > 0) legs.push((id) => renamed.get(id) ?? id);
-            trail = ended.next;
-            from = 0;
+        return followFrom<W, History<W>>(point, this.trail, this.cursor);
+    }
+
+    /**
+     * The moves the drafts hold (east-workspace#1709): each entry that stands under another id than the one its source
+     * holds it under — a row its builder moved under the key its fields build, which said where it came from
+     * ({@link EntryUpdate.from}) — by the id it stands under now, to the id its source holds it under. Such an entry is
+     * the entry it was, edited: what a host compares its draft with is the source's entry under the id it had, and
+     * the id it left holds no entry removed.
+     *
+     * A move holds while the drafts do: the entry there, none under the id it had, and its source holding it under
+     * that id and none under this one. Undo takes it back with the step that made it and Redo makes it again; moved on
+     * again, the entry is still the one its source holds; and once a Save lands it, or another entry comes to stand
+     * under the id, it is a move no more. The moves are the session's, with its drafts: a host that mounts again finds
+     * them, a carry-over takes them into the history's next run, and a reload keeps them beside the drafts (keep.ts).
+     *
+     * @returns Each moved entry's id in its source, by the id it stands under: the same object while the moves hold
+     */
+    get moved(): ReadonlyMap<string, string> {
+        const cached = this.movedCache;
+        if (cached !== undefined && cached.serial === this.serial) return cached.value;
+        const now = this.holding(movesThrough(this.carriedMoves, this.history, this.cursor, this.stored));
+        const same = cached !== undefined && cached.value.size === now.size && [...now].every(([id, began]) => {
+            const was = cached.value.get(id);
+            return was !== undefined && stringEqual(was, began);
+        });
+        const value = same ? cached.value : now.size === 0 ? NO_MOVES : now;
+        this.movedCache = { serial: this.serial, value };
+        return value;
+    }
+
+    /**
+     * Restore the moves the drafts held, kept through a reload beside them ({@link EditSession.restore}), before the
+     * session's first base: the history is not kept, so nothing else says a restored draft is the entry its source
+     * holds under another id.
+     *
+     * @param moves - Each moved entry's id in its source, by the id it stood under ({@link EditSession.moved})
+     * @returns Whether they are restored: `false` once the session has a base
+     */
+    restoreMoved(moves: ReadonlyMap<string, string>): boolean {
+        if (this.base !== undefined) return false;
+        this.carriedMoves = new Map(moves);
+        return true;
+    }
+
+    /**
+     * Each entry the last Undo or Redo put back under another id, by the id it had (east-workspace#1709): an Undo of a
+     * step that moved an entry under another id ({@link EntryUpdate.from}) stands it under the id it had, and its Redo
+     * under the other again. A new map at each Undo or Redo that moves one, and the same one through those that move
+     * none, so a host follows each once, and moves on what it holds by the id the entry had: its selection.
+     */
+    get rekeyed(): ReadonlyMap<string, string> { return this.rekeyedIds; }
+
+    /** Whether the source holds an entry under an id, as the session began from it. */
+    private readonly stored = (id: string): boolean => this.baseline.get(id)?.draft !== undefined;
+
+    /**
+     * The moves that hold of some the steps made ({@link EditSession.moved}): the entry stands under the id it moved to,
+     * which its source holds no entry under, and none stands under the id it began under, which its source holds it
+     * under.
+     */
+    private holding(moves: ReadonlyMap<string, string>): Map<string, string> {
+        const out = new Map<string, string>();
+        for (const [id, began] of moves) {
+            if (this.current.get(id)?.draft !== undefined && !this.stored(id) && this.stored(began) && this.current.get(began)?.draft === undefined) out.set(id, began);
         }
-        return (id) => {
-            let now: string | undefined = id;
-            for (const leg of legs) {
-                now = leg(now);
-                if (now === undefined) return undefined;
-            }
-            return now;
-        };
+        return out;
     }
 
     /**
      * The history starts over (ruling 16 of east-workspace#1709): its steps go, and the run they were on ends — where
      * the entries stood then, past the steps done, is where a point on it follows them from into the next, through the
-     * new ids a carry-over gave new entries; or nowhere, the drafts discarded.
+     * new ids a carry-over gave new entries; or nowhere, the drafts discarded. The moves the drafts hold go on into the
+     * next run ({@link EditSession.moved}), each under the id its entry stands under there: called once the drafts stand
+     * as that run begins from them.
      *
      * @param renamed - The new ids a carry-over gave new entries, by the id each had; `undefined` for drafts discarded
      */
     private startHistory(renamed: ReadonlyMap<string, string> | undefined): void {
-        const next: Trail<W> = { steps: [] };
+        const moved = renamed === undefined ? undefined : movesThrough(this.carriedMoves, this.history, this.cursor, this.stored);
+        const next: Trail<History<W>> = { steps: [] };
         this.trail.ended = renamed === undefined ? "discarded" : { done: this.cursor, renamed, next };
         this.trail = next;
         this.history = next.steps;
         this.cursor = 0;
+        this.carriedMoves = moved === undefined || renamed === undefined ? NO_MOVES
+            : this.holding(new Map([...moved].map(([id, began]) => [renamed.get(id) ?? id, began] as const)));
     }
 
     /**
@@ -2632,6 +2580,8 @@ export class EditSession<W> {
         for (const [id, entry] of step.before) this.current.set(id, entry);
         if (step.ancestors !== undefined) this.setAncestors(step.ancestors.before);
         if (step.settled !== undefined) this.setSettled(step.settled.before);
+        // Each entry the step moved stands under the id it had again ({@link EditSession.rekeyed}).
+        if (step.moves !== undefined) this.rekeyedIds = inverseMoves(step.moves);
         this.draftsChanged();
         this.gestured();
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
@@ -2644,6 +2594,8 @@ export class EditSession<W> {
         for (const [id, entry] of step.after) this.current.set(id, entry);
         if (step.ancestors !== undefined) this.setAncestors(step.ancestors.after);
         if (step.settled !== undefined) this.setSettled(step.settled.after);
+        // Each entry the step moved stands under the id it moved to again ({@link EditSession.rekeyed}).
+        if (step.moves !== undefined) this.rekeyedIds = new Map(step.moves);
         this.draftsChanged();
         this.gestured();
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);

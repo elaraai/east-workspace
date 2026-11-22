@@ -13,6 +13,12 @@
  * another id; and in each session of one history. An entry whose id another
  * entry comes to stand under stands under no id of its own; a point whose step
  * the history dropped follows nothing.
+ *
+ * And the moves a session's drafts hold (`EditSession.moved`): a moved entry
+ * is the entry its source holds under the id it had — through Undo and Redo,
+ * a move on, a carry-over and a Save — and what the last Undo or Redo put back
+ * under another id (`EditSession.rekeyed`), which a host follows its selection
+ * by.
  */
 
 import { expect, test } from "vitest";
@@ -198,4 +204,90 @@ test("ruling 16 — a gesture across two sessions of one history moves an entry 
     history.undo();
     expect([press.follow(atPress)!("J-1"), finish.follow(atFinish)!("J-2")]).toEqual(["J-1", "J-2"]);
     expect(finish.follow(atPress)).toBeUndefined();
+});
+
+test("a moved entry is the entry its source holds under the id it had: the session says so while the drafts hold the move — not once Undo takes it back, again once Redo makes it — and the same object while the moves hold", () => {
+    const session = jobs();
+    expect(session.moved.size).toBe(0);
+    session.record(moved("J-1", "Spring", SPRING), "typed", "Edit job");
+    const held = session.moved;
+    expect([...held]).toEqual([["Spring", "J-1"]]);
+    // An edit of another entry moves nothing: the very object.
+    session.record([{ id: "J-2", before: job(POSTERS), after: job({ ...POSTERS, sheets: 1.0 }) }], "typed", "Edit job");
+    expect(session.moved).toBe(held);
+    session.undo();
+    session.undo();
+    expect([...session.moved]).toEqual([]);
+    session.redo();
+    expect([...session.moved]).toEqual([["Spring", "J-1"]]);
+});
+
+test("an entry moved on again is still the entry its source holds; moved back where it began, it is no move; removed, none; and a new entry moved is none either", () => {
+    const session = jobs();
+    session.record(moved("J-1", "A", SPRING), "typed", "Edit job");
+    session.record(moved("A", "B", SPRING), "typed", "Edit job");
+    expect([...session.moved]).toEqual([["B", "J-1"]]);
+    session.record(moved("B", "J-1", SPRING), "typed", "Edit job");
+    expect([...session.moved]).toEqual([]);
+    session.undo();
+    session.record([{ id: "B", before: job(SPRING), after: ABSENT }], "remove", "Delete row");
+    expect([...session.moved]).toEqual([]);
+
+    // A new entry stood nowhere in its source: under whichever id, it is new.
+    const added = jobs();
+    added.record([{ id: "N", before: ABSENT, after: job(COVERS) }], "insert", "Insert row");
+    added.record(moved("N", "Covers", COVERS), "typed", "Edit job");
+    expect([...added.moved]).toEqual([]);
+});
+
+test("another entry made under the id an undone move gave is new: never the entry the drafts removed, moved", () => {
+    const session = jobs();
+    session.record(moved("J-1", "A", SPRING), "typed", "Edit job");
+    session.undo();
+    session.record([{ id: "J-1", before: job(SPRING), after: ABSENT }], "remove", "Delete row");
+    session.record([{ id: "A", before: ABSENT, after: job(COVERS) }], "insert", "Insert row");
+    expect([...session.moved]).toEqual([]);
+});
+
+test("an Undo of a step that moved an entry says it stands under the id it had again, and its Redo under the other: a new map at each, the same one through a step that moves none", () => {
+    const session = jobs();
+    session.record(moved("J-1", "Spring", SPRING), "typed", "Edit job");
+    session.record([{ id: "J-2", before: job(POSTERS), after: job({ ...POSTERS, sheets: 1.0 }) }], "typed", "Edit job");
+    expect(session.rekeyed.size).toBe(0);
+    session.undo();
+    expect(session.rekeyed.size).toBe(0);
+    session.undo();
+    const back = session.rekeyed;
+    expect([...back]).toEqual([["Spring", "J-1"]]);
+    session.redo();
+    expect([...session.rekeyed]).toEqual([["J-1", "Spring"]]);
+    const on = session.rekeyed;
+    session.redo();
+    expect(session.rekeyed).toBe(on);
+});
+
+test("a carry-over takes the moves into the history's next run: the source moved under the drafts, the history started over, and the moved entry is the one its source holds still", () => {
+    const session = new EditSession<string>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record(moved("J-1", "Spring", SPRING), "typed", "Edit job");
+    session.record([{ id: "J-2", before: job(POSTERS), after: job({ ...POSTERS, sheets: 1.0 }) }], "typed", "Edit job");
+    // At r2 another write has changed the posters' title: the drafts are carried over, and the history starts over.
+    session.observeBase(variant("revision", "r2"));
+    const held = (id: string) => (id === "J-1" ? some(SPRING) : id === "J-2" ? some({ ...POSTERS, title: "Shop posters, A2" }) : none);
+    expect(session.merge(variant("revision", "r2"), held)).toBe("merged");
+    expect([session.depth.undo, [...session.moved]]).toEqual([0, [["Spring", "J-1"]]]);
+});
+
+test("a Save lands a move: the entry is its source's under the id it moved to, and moved on from there it is the entry its source holds there", async () => {
+    const session = jobs();
+    session.record(moved("J-1", "Spring", SPRING), "typed", "Edit job");
+    await session.apply();
+    const saved = variant("snapshot", new SortedMap<string, JobValue>([["J-2", POSTERS], ["Spring", SPRING]], compareFor(StringType)));
+    expect(session.reconcile(saved, () => undefined)).toBe(true);
+    expect([session.pending, [...session.moved]]).toEqual([0, []]);
+    session.record(moved("Spring", "Summer", SPRING), "typed", "Edit job");
+    expect([...session.moved]).toEqual([["Summer", "Spring"]]);
 });

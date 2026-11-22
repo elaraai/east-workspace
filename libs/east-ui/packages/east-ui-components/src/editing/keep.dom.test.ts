@@ -85,6 +85,25 @@ describe("drafts kept through a reload", () => {
         expect(after.entries.get("J1")!.wire).toEqual({ id: "J1" });
     });
 
+    test("the moves the drafts hold are kept beside them: after a reload a moved entry is the entry its source holds under the id it had still, and with the move undone nothing of it is kept", () => {
+        const movedKey = () => window.sessionStorage.getItem(keptName(`${KEY}:moved`, { where: "tab" }));
+        const before = session();
+        before.observeBase(jobs());
+        // J1 moved under another id, as a builder moves a row under the key its fields build.
+        before.record([
+            { id: "J1", before: version("J1", cut), after: { draft: undefined, wire: undefined, place: none } },
+            { id: "Panel", before: { draft: undefined, wire: undefined, place: none }, after: version("Panel", cut), from: "J1" },
+        ], "typed", "Edit job");
+        expect([[...before.moved], movedKey() !== null]).toEqual([[["Panel", "J1"]], true]);
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, [...after.moved]]).toEqual([2, [["Panel", "J1"]]]);
+        // Taken back, the move is none of the drafts': nothing of it is kept.
+        before.undo();
+        expect([[...before.moved], movedKey()]).toEqual([[], null]);
+    });
+
     test("a reload over a source that moved carries the drafts over: a change apart combines, and the part both changed waits to be chosen", () => {
         drafted();
         reload();
