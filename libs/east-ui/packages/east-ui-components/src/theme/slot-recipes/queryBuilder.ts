@@ -28,6 +28,14 @@
  * danger states (by data attributes), and the joiner column that lines
  * conditions up.
  *
+ * A row is three parts side by side: its joiner, what it says (`rowBody`) and
+ * its ×. Where the row is longer than its room, what it says wraps — under its
+ * own first part, never under the joiner — and the joiner and the × hold to
+ * its first line: a × is never left on a line of its own, nor a value under
+ * the joiner column. The three stand on one baseline — the first line's words'
+ * — so the joiner's words and the × are centred on that line whatever it
+ * holds: a 26px slot, a taller input, a touch screen's.
+ *
  * In place (#1673) — a filter's conditions in a popover, a visual's own
  * filter — the same rows stand in `conditions`, marked
  * `data-query-look="inline"`, with no frame of their own: their slots are the
@@ -86,7 +94,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
         "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished", "conditions",
-        "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove", "removeGroup",
+        "row", "rowBody", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove", "removeGroup",
         "group", "groupBox", "groupHead", "cardFoot", "note", "problem", "problemIcon", "problemText",
         "tabFoot", "addAtEnd", "quick", "quickLabel",
         // The status line.
@@ -345,12 +353,12 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             minHeight: "0",
         },
-        /* A row of words and parts. While its × is pointed at, or holds the focus, it stands on the danger wash inside
-           the danger rule, 3px past its own edges: the row the × takes. */
+        /* A row: its joiner, what it says and its ×, side by side on the baseline of its first line's words. While its × is
+           pointed at, or holds the focus, it stands on the danger wash inside the danger rule, 3px past its own edges:
+           the row the × takes, every line of it. */
         row: {
             display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
+            alignItems: "baseline",
             gap: "6px",
             minHeight: "28px",
             borderRadius: "{radii.sm}",
@@ -358,11 +366,25 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             "&:has(> [data-query-remove='row']:is(:hover, :focus-visible))": REMOVING_ROW,
         },
-        /* `and`, `or`: a fixed column, so conditions line up. */
+        /* What a row says: its words, slots, inputs, chips and adds, 6 apart, each line's parts centred on it, wrapping
+           under its own first part where the row runs out. One line of it is the row's 28px, a 26px slot 1px inside. In
+           place it takes the row's width, so the × stands at the row's end. */
+        rowBody: {
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: "0",
+            minHeight: "28px",
+            "[data-query-look='inline'] &": { flex: "1" },
+        },
+        /* `and`, `or`: a fixed column, so conditions line up; its words on a slot's own 16px line, which the row's
+           baseline — a group's too — stands on its first line's. */
         joiner: {
             width: "30px",
             flexShrink: "0",
             fontSize: "12.5px",
+            lineHeight: "16px",
             color: "fg.muted",
             "[data-query-look='inline'][data-single] &": { display: "none" },
         },
@@ -438,10 +460,16 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle", color: "link" },
             },
         },
-        /* A row's ×; in place, at its line's end (#1673): the danger ink as it is pointed at. */
+        /* A row's ×, on the row's first line; in place, at the row's end (#1673), which what the row says leaves it. A
+           button of an icon alone has no words to stand on a baseline: it holds a slot's line of none, before its icon,
+           so the row's baseline centres it on its first line as it does a slot. (Its `::before` is a touch screen's
+           halo.) The danger ink as it is pointed at. */
         remove: {
             color: "fg.subtle",
-            "[data-query-look='inline'] &": { marginInlineStart: "auto" },
+            "&[data-query-remove='row']": {
+                flexShrink: "0",
+                "&::after": { content: '"\\200b"', order: "-1", width: "0", fontSize: "12.5px", lineHeight: "16px" },
+            },
             "&[data-query-remove='row']:is(:hover, :focus-visible)": { color: "fg.danger" },
         },
         /* A group's Remove group: its words at its foot's end, opposite its add — quiet, the danger ink as it is pointed
@@ -454,9 +482,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             _hover: { background: "transparent", color: "fg.danger" },
             _focusVisible: { color: "fg.danger" },
         },
-        /* A group of conditions: its joiner, and its box. */
+        /* A group of conditions: its joiner, and its box — the joiner's words on the baseline of its box's head's. */
         group: {
             display: "flex",
+            alignItems: "baseline",
             gap: "6px",
         },
         groupBox: {

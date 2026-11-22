@@ -77,6 +77,33 @@ export interface CardLine {
     readonly problems: readonly ProblemLine[];
 }
 
+/** A row's parts by where they stand in it ({@link rowSides}). */
+export interface RowSides {
+    /** Its joiner — `and`, `or`, or a first row's empty one — which stands in the joiner column; none where its first part is no joiner. */
+    readonly start: readonly CardPart[];
+    /** What it says: its words, slots, inputs, chips and adds — and a field's own ×, beside the field it takes. */
+    readonly body: readonly CardPart[];
+    /** Its ×, which takes the row, at its end; none where its last part is no remove of the row. */
+    readonly end: readonly CardPart[];
+}
+
+/**
+ * A row's parts by where they stand in it: its joiner in the joiner column,
+ * its × at its end, and what it says between the two. A row longer than the
+ * room it is drawn in wraps what it says — under its own first part, never
+ * under its joiner — and its × stays on its first line, at its end.
+ *
+ * @param parts - The row's parts, in order
+ * @returns Its joiner, what it says, and its ×
+ */
+export function rowSides(parts: readonly CardPart[]): RowSides {
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    const from = first !== undefined && first.t === "word" && first.joiner === true ? 1 : 0;
+    const to = parts.length > from && last !== undefined && last.t === "remove" && last.takes === "row" ? parts.length - 1 : parts.length;
+    return { start: parts.slice(0, from), body: parts.slice(from, to), end: parts.slice(to) };
+}
+
 /** The line between two steps: the shape in words. */
 export interface ShapeLine {
     /** The shape, or the count after a fresh run — `16 shipped orders`. */

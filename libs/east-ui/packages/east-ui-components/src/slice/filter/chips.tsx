@@ -107,8 +107,6 @@ export interface SliceFilterChip<D = never> {
      * An editor that submits by itself gives none, and its foot holds Cancel alone.
      */
     readonly apply?: ((draft: D | undefined) => (() => void) | undefined) | undefined;
-    /** Its editor's popover at its large size; its default unless given. */
-    readonly large?: boolean | undefined;
 }
 
 /** The row as it stood as an editor opened: each chip's words, and how many showed. */
@@ -174,21 +172,29 @@ export interface SliceFilterChipsProps<D = never> {
     readonly save?: SliceFilterSave | undefined;
     /** Its chips' groups' keys in the order it draws the groups; a group not among them comes after, in the order its first chip comes. */
     readonly groups?: readonly string[] | undefined;
+    /**
+     * Its editors are rows of conditions — a Studio page's filters: every popover of the row — a filter's, a new
+     * filter's, `+N more`'s, which holds a folded filter's editor — is the size that holds them (`xl`), one width
+     * whatever it shows. Otherwise a filter's is the small size, and a new filter's and `+N more`'s the large.
+     */
+    readonly rows?: boolean | undefined;
 }
 
 /**
  * A row of filter chips — see the module docs.
  *
- * @param props - The filters, the density, how many fold, what removing, clearing and adding do, a new filter's editor's name, and the groups' order
+ * @param props - The filters, the density, how many fold, what removing, clearing and adding do, a new filter's editor's name, the groups' order, and whether its editors are rows of conditions
  * @returns The row
  */
-export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemove, onClear, add, addApply, addLabel, seedOpen = false, save, groups }: SliceFilterChipsProps<D>) {
+export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemove, onClear, add, addApply, addLabel, seedOpen = false, save, groups, rows = false }: SliceFilterChipsProps<D>) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
     const edit = useSlotRecipe({ key: "sliceEdit" })();
     const frame = useSlotStyles("sliceFrame");
     const compact = density === "compact";
+    // Its popovers' sizes: a filter's own, and a new filter's and `+N more`'s.
+    const wide = rows ? "xl" as const : "lg" as const;
 
     // null = closed; "add" = a new filter's editor; "more" = overflow list;
     // "save" = save-as-a-set form; a number = editing the filter at that index — from its chip, or, one the row folds,
@@ -348,7 +354,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
             open={open === i}
             onOpenChange={o => setOpen(o ? i : null)}
             label={held.editLabel}
-            {...(held.large === true ? { size: "lg" as const } : {})}
+            {...(rows ? { size: wide } : {})}
             {...filterFoot(held, i, close)}
             trigger={
                 <SliceFieldChip label={held.label} title={held.whole} active data-slice-clause={i} data-chip-cut={held.whole === undefined ? undefined : ""}
@@ -374,7 +380,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
             open={open === "add"}
             onOpenChange={o => setOpen(o ? "add" : null)}
             label={addLabel ?? "Add filter"}
-            size="lg"
+            size={wide}
             footActions={actions(close, addApply === undefined ? undefined : { words: "Add filter", run: addApply(draft) }, "Done")}
             trigger={
                 // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
@@ -435,7 +441,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                             open={open === "more" || open === "save" || edited !== undefined}
                             onOpenChange={o => setOpen(o ? "more" : null)}
                             label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
-                            size="lg"
+                            size={wide}
                             {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
                                 footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,
                                 footActions: saving

@@ -83,9 +83,12 @@ const builderOf = (container: HTMLElement) => container.querySelector<HTMLElemen
 const cardsOf = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-step-id]")];
 /** A card's title. */
 const titleOf = (card: HTMLElement) => card.getAttribute("aria-label");
-/** A row's parts, as words: a slot's or a chip's text, an input's value, an icon button's name, a word as written. */
+/**
+ * A row's parts in order — its joiner, what it says, its × — as words: a slot's or a chip's text, an input's value, an
+ * icon button's name, a word as written.
+ */
 function partsOf(row: HTMLElement): string[] {
-    return [...row.children].map((el) => {
+    return [...row.children].flatMap((el) => (el.hasAttribute("data-query-row-body") ? [...el.children] : [el])).map((el) => {
         if (el instanceof HTMLInputElement) return `[${el.value}]`;
         if (el.getAttribute("aria-haspopup") === "listbox") return `<${el.querySelector("span")!.textContent}>`;
         if (el.tagName === "BUTTON" && el.textContent === "") return `(${el.getAttribute("aria-label")})`;

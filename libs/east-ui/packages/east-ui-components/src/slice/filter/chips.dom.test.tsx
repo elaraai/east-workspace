@@ -49,7 +49,7 @@ function Row() {
     return (
         <ChakraProvider value={system}>
             <SliceFilterChips density="focused" onRemove={() => undefined} onClear={() => undefined}
-                chips={[{ label: "region is SA", editLabel: "Filter on Orders", large: true, editor: () => <div>its rows</div> }]}
+                chips={[{ label: "region is SA", editLabel: "Filter on Orders", editor: () => <div>its rows</div> }]} rows
                 add={() => <div>a new filter's rows</div>} />
         </ChakraProvider>
     );
@@ -67,7 +67,6 @@ function DraftRow({ foldChips: folds, shows, done }: { foldChips?: number; shows
     const chips = regions.map((region, i): SliceFilterChip<string> => ({
         label: `Region: ${region}`,
         editLabel: `Filter ${region}`,
-        large: true,
         editor: (_close, tell) => (
             <div>
                 <button type="button" onClick={() => tell("NSW")}>Pick NSW</button>
@@ -82,7 +81,7 @@ function DraftRow({ foldChips: folds, shows, done }: { foldChips?: number; shows
     }));
     return (
         <ChakraProvider value={system}>
-            <SliceFilterChips<string> density={foldChips === undefined ? "focused" : "compact"} foldChips={foldChips} chips={chips}
+            <SliceFilterChips<string> density={foldChips === undefined ? "focused" : "compact"} foldChips={foldChips} chips={chips} rows
                 onRemove={(i) => { done.push(`removed ${regions[i]}`); setRegions((was) => was.filter((_held, j) => j !== i)); }} onClear={() => setRegions([])}
                 add={(_close, tell) => <button type="button" onClick={() => tell("WA")}>Write WA</button>}
                 addApply={(draft) => (draft === undefined ? undefined : () => { done.push(`added ${draft}`); setRegions((was) => [...was, draft]); })} />
@@ -278,7 +277,6 @@ function LiveRow({ hold, wholes = true }: { hold?: ((holding: boolean) => void) 
         label,
         ...(wholes ? { whole: `${label} — said whole` } : {}),
         editLabel: "Filter on Orders",
-        large: true,
         editor: () => (
             <div>
                 <button type="button" onClick={() => setLabels((was) => was.map((held, j) => (j === i ? `${held} +1` : held)))}>Edit</button>
@@ -287,7 +285,7 @@ function LiveRow({ hold, wholes = true }: { hold?: ((holding: boolean) => void) 
         ),
     }));
     const row = (
-        <SliceFilterChips density="focused" chips={chips} onRemove={(i) => setLabels((was) => was.filter((_held, j) => j !== i))}
+        <SliceFilterChips density="focused" chips={chips} rows onRemove={(i) => setLabels((was) => was.filter((_held, j) => j !== i))}
             onClear={() => setLabels([])} add={() => <button type="button" onClick={() => setLabels((was) => [...was, "Revenue: at least 100"])}>Add</button>} />
     );
     return <ChakraProvider value={system}>{hold === undefined ? row : <SliceRailHold.Provider value={hold}>{row}</SliceRailHold.Provider>}</ChakraProvider>;
@@ -428,12 +426,11 @@ function GroupedRow({ density = "focused", foldChips }: { density?: "compact" | 
         whole: `${filter.label} — said whole`,
         group: { key: filter.on, label: DATASETS[filter.on]! },
         editLabel: "Filter",
-        large: true,
         editor: () => <button type="button" onClick={() => setHeld((was) => [...was, { on: "orders", label: "Revenue: at least 100" }])}>Add on orders</button>,
     }));
     return (
         <ChakraProvider value={system}>
-            <SliceFilterChips density={density} foldChips={foldChips} chips={chips} groups={Object.keys(DATASETS)}
+            <SliceFilterChips density={density} foldChips={foldChips} chips={chips} groups={Object.keys(DATASETS)} rows
                 onRemove={(i) => setHeld((was) => was.filter((_filter, j) => j !== i))} onClear={() => setHeld([])} add={() => null} />
         </ChakraProvider>
     );

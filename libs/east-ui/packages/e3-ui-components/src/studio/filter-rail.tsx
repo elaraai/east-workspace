@@ -152,7 +152,6 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
             whole: said.whole,
             group: { key: filter.source, label: name },
             editLabel: m.filterOf({ source: name }),
-            large: true,
             editor: (_close, tell): ReactNode => (on === undefined
                 ? <Box as="span" css={edit.hint} data-studio-filter-gone="">{m.filterSourceGone({ source: filter.source })}</Box>
                 : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read} onDraft={(draft) => tell({ source: filter.source, draft })} />),
@@ -169,7 +168,7 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
     // of them heads the editor and names the one picked.
     const only = sources.length === 1 ? sources[0] : undefined;
     return (
-        <SliceFilterChips<FilterDraft> chips={chips} density={density} foldChips={foldChips} groups={sources.map((held) => held.source.key)}
+        <SliceFilterChips<FilterDraft> chips={chips} density={density} foldChips={foldChips} groups={sources.map((held) => held.source.key)} rows
             onRemove={(i) => page.remove(i)} onClear={() => page.clear()}
             add={(_close, tell) => <NewFilter sources={sources} tell={tell} />}
             addApply={(told) => {

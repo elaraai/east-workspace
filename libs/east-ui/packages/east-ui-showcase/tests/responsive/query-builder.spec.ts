@@ -11,7 +11,9 @@
  * level with the results' 44px band — and the status line along the foot; a
  * collapsed pane a 44px rail. The Query tab's band under its tab row, then the
  * source, a shape line after it and after every step, and the foot at the
- * pane's foot; the view shown in the brand. The toolbar folds by one ladder —
+ * pane's foot; the view shown in the brand. In every card a row's joiner and
+ * its × stand on the row's line, centred on it whether it holds slots alone or
+ * a taller input, the × after what the row says. The toolbar folds by one ladder —
  * Run's keys, then Copy jq to its icon, then Copy jq and Save… into the ⋯
  * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
@@ -141,6 +143,41 @@ test.describe("Query builder (#940)", () => {
             shown: "Visual",
             tinted: true,
         });
+    });
+
+    test("in every card a row is one line — its joiner's words and its × centred on it, the × 6 after what the row says — whether it holds slots alone or a taller input", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const rows = await builder.evaluate((root) => {
+            const at = (n: number) => Math.round(n * 2) / 2;
+            const middle = (el: Element) => at(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2);
+            return [...root.querySelectorAll("[data-query-tab=query] [data-query-line=row]")].map((row) => {
+                const parts = [...row.querySelectorAll("[data-query-row-body] > *")];
+                const [first, last] = [parts[0]!, parts[parts.length - 1]!];
+                const cross = row.querySelector(":scope > [data-query-remove=row]");
+                const joiner = row.querySelector(":scope > [data-query-joiner]");
+                return {
+                    step: row.closest("[data-step-kind]")!.getAttribute("data-step-kind"),
+                    // What it says is one line: every part centred on one height.
+                    oneLine: parts.every((part) => middle(part) === middle(first)),
+                    tallest: Math.max(...parts.map((part) => part.getBoundingClientRect().height)),
+                    // Its ×: on that line, after its last part. Its joiner's words, where it says any: on that line.
+                    cross: cross === null ? null : [middle(cross) === middle(first), at(cross.getBoundingClientRect().left - last.getBoundingClientRect().right)],
+                    joiner: joiner === null || joiner.textContent === "" ? null : middle(joiner) === middle(first),
+                };
+            });
+        });
+        // The default query: three conditions, the second and third joined by and; a look-up's two rows; five fields shown,
+        // each under a name; a sort; and how many rows to keep.
+        expect(rows.map((row) => [row.step, row.oneLine, row.cross, row.joiner])).toEqual([
+            ["filter", true, [true, 6], null], ["filter", true, [true, 6], true], ["filter", true, [true, 6], true],
+            ["lookup", true, null, null], ["lookup", true, null, null],
+            ...Array.from({ length: 5 }, () => ["pick", true, [true, 6], null]),
+            ["sort", true, null, null], ["limit", true, null, null],
+        ]);
+        // A condition's row holds slots alone, 26 tall; a field shown under a name holds an input taller than its slot.
+        const tallest = (step: string) => [...new Set(rows.filter((row) => row.step === step).map((row) => row.tallest))];
+        expect(tallest("filter")).toEqual([26]);
+        expect(tallest("pick").every((height) => height > 26)).toBe(true);
     });
 
     test("the toolbar folds by one ladder — Run's keys, Copy jq to its icon, Copy jq and Save… into the ⋯ chip in one move, the history item — a move each time the frame is narrower than the row's items", async ({ page }) => {

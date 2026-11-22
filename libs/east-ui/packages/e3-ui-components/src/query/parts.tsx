@@ -6,7 +6,10 @@
 /**
  * A step card's parts (#936) — #934's `CardPart`s and `CardLine`s as the
  * Query tab draws them (`Query Editor Spec.md` §4.3): words, with joiners in
- * a fixed column so conditions line up; slots, each the `select` trigger —
+ * a fixed column so conditions line up; a row's parts in three — its joiner,
+ * what it says, its × (`rowSides`) — so a row longer than its room wraps what
+ * it says under its own first part, its × held on its first line, at its end;
+ * slots, each the `select` trigger —
  * dashed while empty, the danger ink with a problem — which open the
  * autocomplete; inputs, which edit on leaving; chips with their ×; adds,
  * dashed in a row and quiet in a foot; a row's × and — in words, at its
@@ -30,7 +33,7 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faCaretDown, faCircleExclamation, faCircleInfo, faPlus, faTriangleExclamation, faXmark, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
 import { useValueSync } from "@elaraai/east-ui-components";
-import type { CardLine, CardPart, ProblemLine } from "./model/cards.js";
+import { rowSides, type CardLine, type CardPart, type ProblemLine } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
 import type { QueryWords } from "./model/words.js";
 import type { StepFix } from "./steps/check.js";
@@ -285,9 +288,9 @@ export function Problems({ problems, ps, actions }: { problems: readonly Problem
 }
 
 /**
- * A card's lines: rows, groups with their head and lines, feet — a group's
- * with its Remove group at its end — notes and a jq step's code, each with
- * the problems under it.
+ * A card's lines: rows — each its joiner, what it says and its × — groups
+ * with their head and lines, feet — a group's with its Remove group at its
+ * end — notes and a jq step's code, each with the problems under it.
  *
  * @param props - The lines, their styles and what they ask
  * @returns The lines
@@ -296,13 +299,20 @@ export function Lines({ lines, ps, actions }: { lines: readonly CardLine[]; ps: 
     const { styles } = ps;
     return lines.map((line, i) => {
         switch (line.kind) {
-            case "row":
+            case "row": {
+                // Its joiner, what it says, and its ×: what it says wraps between the two, which stay where they stand.
+                const sides = rowSides(line.parts);
                 return (
                     <Fragment key={i}>
-                        <Box css={styles.row} data-query-line="row"><Parts parts={line.parts} ps={ps} actions={actions} /></Box>
+                        <Box css={styles.row} data-query-line="row">
+                            <Parts parts={sides.start} ps={ps} actions={actions} />
+                            <Box css={styles.rowBody} data-query-row-body=""><Parts parts={sides.body} ps={ps} actions={actions} /></Box>
+                            <Parts parts={sides.end} ps={ps} actions={actions} />
+                        </Box>
                         <Problems problems={line.problems} ps={ps} actions={actions} />
                     </Fragment>
                 );
+            }
             case "group": {
                 const head = line.head ?? [];
                 return (

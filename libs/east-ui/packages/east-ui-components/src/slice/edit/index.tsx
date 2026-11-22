@@ -57,8 +57,8 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     onOpenChange: (open: boolean) => void;
     /** Mono head label naming the edit target. */
     label: ReactNode;
-    /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors. */
-    size?: "sm" | "lg";
+    /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors, `xl` (460px) for a filter's rows of conditions. */
+    size?: "sm" | "lg" | "xl";
     /**
      * Drop the body's own padding and gap, for a body that is a LIST.
      *

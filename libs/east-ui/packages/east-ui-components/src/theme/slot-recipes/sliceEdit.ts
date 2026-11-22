@@ -363,6 +363,11 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             sm: { content: { width: "320px" } },
             /** Predicate editors — cohort / filter `+M more`. */
             lg: { content: { width: "380px" } },
+            /**
+             * A filter's condition rows — a Studio page's filters: a joiner, a field, a comparison, a value and a ×,
+             * where a condition of a date reads on one line, in a group's box too.
+             */
+            xl: { content: { width: "460px" } },
         },
     },
     defaultVariants: { size: "sm" },

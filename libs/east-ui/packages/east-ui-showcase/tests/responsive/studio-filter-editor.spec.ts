@@ -28,6 +28,14 @@
  *    shows: to the editor's first control, and back to the filter's line —
  *    never to Clear all, drawn where Cancel stood; and `+N more` left with no
  *    filter to hold is shut, its popover and its chip gone.
+ *  - F17 a row's × stands on its row's first line, at the row's end, whatever
+ *    the row holds: the page's starting filter — its latest quarter, two
+ *    conditions of a date — reads one line a condition in its chip's editor,
+ *    as a condition of a date does in a group — its popover 460 wide, each
+ *    joiner's words on its row's first line, a group's on its box's head's;
+ *    and in a window too narrow for a row, its slots wrap under its first
+ *    slot — never under its joiner, and never its ×, which no slot runs
+ *    under.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -270,5 +278,91 @@ test.describe("A filter's editor (#1667)", () => {
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await expect(rail.locator("[data-slice-more]")).toHaveCount(0);
         await expect(rail.locator("[data-slice-clause]")).toHaveCount(0);
+    });
+
+    test("F17: a row's × stands on its row's first line, at the row's end — the page's date window one line a condition in its chip's editor, as a date's condition is in a group — and in a window too narrow for a row its slots wrap under its first slot, never its ×", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        const grid = await openVisuals(page, "light");
+        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        const rows = page.locator("[data-studio-filter-rows]");
+        const chooser = rows.locator("[data-chooser]");
+        /**
+         * Each row as it lies: how many lines its slots stand on; whether its joiner's words and its × are each centred on
+         * its first slot's line, and its × ends where the row ends; whether every line of its slots starts under its first
+         * slot; and whether every slot ends before its ×.
+         */
+        const laid = () => rows.locator("[data-condition-rows]").evaluate((root) => {
+            const at = (n: number) => Math.round(n * 2) / 2;
+            const middle = (box: DOMRect) => at(box.top + box.height / 2);
+            return [...root.querySelectorAll("[data-query-line=row]")].map((row) => {
+                const box = row.getBoundingClientRect();
+                const cross = row.querySelector(":scope > [data-query-remove=row]")!.getBoundingClientRect();
+                const joiner = row.querySelector(":scope > [data-query-joiner]");
+                const slots = [...row.querySelectorAll("[data-slot-key]")].map((slot) => slot.getBoundingClientRect());
+                const first = slots[0]!;
+                const tops = [...new Set(slots.map((slot) => at(slot.top)))];
+                return {
+                    lines: tops.length,
+                    // A joiner that says nothing — a first row's — and a lone condition's, which is not drawn, have no words to centre.
+                    joinerOnFirst: joiner === null || joiner.textContent === "" || joiner.getBoundingClientRect().height === 0 || middle(joiner.getBoundingClientRect()) === middle(first),
+                    crossOnFirst: middle(cross) === middle(first),
+                    crossAtEnd: at(cross.right) === at(box.right),
+                    under: tops.every((top) => at(Math.min(...slots.filter((slot) => at(slot.top) === top).map((slot) => slot.left))) === at(first.left)),
+                    clear: slots.every((slot) => slot.right <= cross.left),
+                };
+            });
+        });
+        const ONE_LINE = { lines: 1, joinerOnFirst: true, crossOnFirst: true, crossAtEnd: true, under: true, clear: true };
+        /** The open popover's width. */
+        const width = () => page.locator("[data-scope='popover'][data-part='content'][data-state='open']").evaluate((el) => el.getBoundingClientRect().width);
+        await railOnTop(page, rail);
+        // The page's starting filter, its latest quarter: on or after a date, and before another — a line each.
+        await rail.locator("[data-slice-clause]").first().click();
+        await expect(rows.locator("[data-query-line=row]")).toHaveCount(2);
+        await settled(page);
+        expect(await laid(), "the page's date window").toEqual([ONE_LINE, ONE_LINE]);
+        // The popover of a filter's rows: 460 wide, whichever of the row's it is.
+        expect(await width()).toBe(460);
+        // Its head — all of these are true — reads as one line: its words centred on its match's slot.
+        expect(await rows.locator("[data-condition-rows] > [data-query-line=head]").evaluate((head) => {
+            const middle = (el: Element) => Math.round((el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2) * 2) / 2;
+            return middle(head.querySelector("[data-query-row-body] > span")!) === middle(head.querySelector("[data-slot-key]")!);
+        })).toBe(true);
+        // A group, its first condition a date's: its field, then the year its list opens on. It reads one line too, in the
+        // group's box; the group's second row, still to be written, is its field's slot alone.
+        await rows.locator("[data-condition-rows] > [data-query-line=foot]").getByRole("button", { name: "Add group" }).click();
+        await chooser.locator("[role=option]", { hasText: "ordered at" }).first().click();
+        await expect(chooser.locator("[role=option]", { hasText: "2026" })).toBeVisible({ timeout: 20_000 });
+        await chooser.locator("[role=option]", { hasText: "2026" }).first().click();
+        await expect(chooser).toHaveCount(0);
+        await settled(page);
+        expect(await laid(), "a date's condition in a group").toEqual([ONE_LINE, ONE_LINE, ONE_LINE, ONE_LINE]);
+        // The group's joiner stands on its box's head's line: its words centred on the head's slot.
+        expect(await rows.locator("[data-query-line=group]").evaluate((group) => {
+            const middle = (el: Element) => Math.round((el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2) * 2) / 2;
+            return middle(group.querySelector(":scope > [data-query-joiner]")!) === middle(group.querySelector("[data-query-group-head] [data-slot-key]")!);
+        })).toBe(true);
+        await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+
+        // A window narrower than a condition of a date. The filter's editor opens from its chip — or, where the row has
+        // folded it, from its line in +N more — inside the window: each row's value wraps under its field — the row's
+        // first slot, not its joiner — and its × stays on the field's line, at the row's end, no slot under it.
+        await page.setViewportSize({ width: 360, height: 900 });
+        const [chip, more] = [rail.locator("[data-slice-clause]"), rail.locator("[data-slice-more]")];
+        // The toolbar chooses its form by its measured room: read once it has.
+        await expect.poll(async () => await chip.count() + await more.count()).toBe(1);
+        await settled(page);
+        if (await more.count() === 1) {
+            await more.click();
+            await page.locator("[data-scope='popover'][data-part='content'][data-state='open'] [data-slice-more-edit]").first().click();
+        } else await chip.click();
+        await expect(rows.locator("[data-query-line=row]")).toHaveCount(2);
+        await settled(page);
+        expect(await width()).toBeLessThanOrEqual(360);
+        const WRAPPED = { ...ONE_LINE, lines: 2 };
+        expect(await laid(), "in a window 360 wide").toEqual([WRAPPED, WRAPPED]);
+        // And nothing of it runs past the popover's body.
+        expect(await rows.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     });
 });

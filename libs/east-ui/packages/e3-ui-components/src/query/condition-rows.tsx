@@ -69,7 +69,10 @@ export const ConditionRows = memo(function ConditionRows({ card, popover, ps, ac
     }, [autoOpen, card, actions]);
     return (
         <Box ref={setRoot} css={styles.conditions} data-query-look="inline" data-condition-rows="" data-single={single ? "" : undefined}>
-            {card.head.length > 0 && <Box css={styles.row} data-query-line="head"><Parts parts={card.head} ps={ps} actions={actions} /></Box>}
+            {card.head.length > 0 && (
+                // Its match and its words: one line, laid as what a row says is.
+                <Box css={styles.row} data-query-line="head"><Box css={styles.rowBody} data-query-row-body=""><Parts parts={card.head} ps={ps} actions={actions} /></Box></Box>
+            )}
             <Lines lines={card.lines} ps={ps} actions={actions} />
             {popover !== undefined && <SlotChooser key={popover.generation} popover={popover} surface="bare" />}
         </Box>
