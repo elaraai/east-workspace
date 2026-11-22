@@ -74,8 +74,16 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     footLeft?: ReactNode;
     /** Right foot cluster — the action grammar (`Cancel · Apply`, `Done`, …). */
     footActions?: ReactNode;
-    /** The element the focus goes to as it opens — the first focusable in it
-     *  (its head's ×) when omitted, or when this finds none. */
+    /**
+     * Whether its head draws its close ×. `false` for an editor whose foot holds what closes it — a filter's or an
+     * alert's Cancel — so no × stands in its head over the ×s of its rows; Esc and a press outside it close it as
+     * before, and its head is as tall as with one. Drawn unless given. A phone's view keeps its ← back, and the bottom
+     * panel its ⌄.
+     */
+    headClose?: boolean | undefined;
+    /** The element the focus goes to as it opens — the first focusable in it (its head's ×) when omitted, or when
+     *  this finds none; with no × in its head ({@link editorFocus}), its body's first control, else its foot's first
+     *  action. */
     initialFocusEl?: (() => HTMLElement | null) | undefined;
     /**
      * Whether it stays open as the focus leaves it — for one whose action
@@ -105,6 +113,21 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     /** The editor body. */
     children: ReactNode;
 };
+
+/**
+ * Where the focus goes in an editor whose head holds no close × (`headClose: false`): its body's first control — else
+ * its foot's first action, as Cancel is. Never the link at its foot's start, which may take what it edits away
+ * (Remove filter), and which the first control of the whole popover would be once its body holds none.
+ *
+ * @param editor - The editor's element: the popover's content, a phone's view, or the bottom panel
+ * @returns The control, or `null` where it holds none the focus can go to
+ */
+export function editorFocus(editor: Element | null | undefined): HTMLElement | null {
+    if (editor === null || editor === undefined) return null;
+    return editor.querySelector("[data-slice-edit-body]")?.querySelector<HTMLElement>(FOCUSABLE)
+        ?? editor.querySelector("[data-slice-edit-actions]")?.querySelector<HTMLElement>(FOCUSABLE)
+        ?? null;
+}
 
 /** Places an open popover again as what it hangs from changes: Zag places it again only as its anchor or the page moves. */
 function Rehang({ from }: { from: unknown }) {
@@ -182,7 +205,7 @@ function HoldSide({ choose, release }: { choose: () => boolean; release: () => v
  * giving way to it ({@link FramePanelView}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, headClose = true, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -210,6 +233,9 @@ export function SliceEditPopover({
         return true;
     }, [anchored]);
     const release = useCallback(() => { sideRef.current = undefined; }, []);
+    // Where the focus goes as it opens: its host's choice; else, with no × in its head, its editor's own first control.
+    const ownFocus = useCallback(() => editorFocus(contentRef.current), []);
+    const firstFocus = initialFocusEl ?? (headClose ? undefined : ownFocus);
     // The box its bounds read, and its host's ref given it too.
     const setContent = useCallback((el: HTMLDivElement | null) => {
         contentRef.current = el;
@@ -318,7 +344,7 @@ export function SliceEditPopover({
             onOpenChange={(d) => onOpenChange(d.open)}
             positioning={positioning}
             lazyMount
-            {...(initialFocusEl !== undefined && { initialFocusEl })}
+            {...(firstFocus !== undefined && { initialFocusEl: firstFocus })}
             onInteractOutside={(e) => {
                 // Portalled select / combobox listboxes render at body level;
                 // interacting with them must not dismiss the editor.
@@ -342,19 +368,21 @@ export function SliceEditPopover({
                                 <ChakraPopover.ArrowTip />
                             </ChakraPopover.Arrow>
                         )}
-                        <Box css={styles.head}>
-                            <Box as="span" css={styles.headLabel}>{label}</Box>
-                            <ChakraPopover.CloseTrigger asChild>
-                                <chakra.button type="button" css={styles.headClose} aria-label="Close">
-                                    <FontAwesomeIcon icon={faXmark} />
-                                </chakra.button>
-                            </ChakraPopover.CloseTrigger>
+                        <Box css={styles.head} data-slice-edit-head="">
+                            <Box as="span" css={styles.headLabel} data-slice-edit-label="">{label}</Box>
+                            {headClose && (
+                                <ChakraPopover.CloseTrigger asChild>
+                                    <chakra.button type="button" css={styles.headClose} aria-label="Close">
+                                        <FontAwesomeIcon icon={faXmark} />
+                                    </chakra.button>
+                                </ChakraPopover.CloseTrigger>
+                            )}
                         </Box>
-                        <Box css={styles.body}>{children}</Box>
+                        <Box css={styles.body} data-slice-edit-body="">{children}</Box>
                         {(footLeft !== undefined || footActions !== undefined) && (
                             <Box css={styles.foot}>
                                 {footLeft}
-                                <Box css={styles.footActions}>{footActions}</Box>
+                                <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                             </Box>
                         )}
                     </ChakraPopover.Content>
@@ -447,11 +475,11 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
                         </chakra.button>
                         <Box as="span" css={styles.title}>{label}</Box>
                     </Box>
-                    <Box css={styles.body}>{children}</Box>
+                    <Box css={styles.body} data-slice-edit-body="">{children}</Box>
                     {(footLeft !== undefined || footActions !== undefined) && (
                         <Box css={styles.foot}>
                             {footLeft}
-                            <Box css={styles.footActions}>{footActions}</Box>
+                            <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                         </Box>
                     )}
                 </Box>,
@@ -514,11 +542,11 @@ function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flu
                             <FontAwesomeIcon icon={faChevronDown} aria-hidden />
                         </chakra.button>
                     </Box>
-                    <Box css={styles.panelBody} data-flush={flush ? "" : undefined}>{children}</Box>
+                    <Box css={styles.panelBody} data-flush={flush ? "" : undefined} data-slice-edit-body="">{children}</Box>
                     {(footLeft !== undefined || footActions !== undefined) && (
                         <Box css={styles.panelFoot}>
                             {footLeft}
-                            <Box css={styles.footActions}>{footActions}</Box>
+                            <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                         </Box>
                     )}
                 </Box>,

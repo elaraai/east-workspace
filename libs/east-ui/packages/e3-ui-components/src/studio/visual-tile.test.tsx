@@ -365,13 +365,13 @@ describe("a KPI's tile (#1671)", () => {
         ], [SOURCE, returns]);
         await waitFor(() => expect(container.querySelector("[data-studio-filters] [data-slice-add=filter]")).not.toBeNull());
         await act(async () => { fireEvent.click(container.querySelector<HTMLElement>("[data-studio-filters] [data-slice-add=filter]")!); });
-        // Its head's words — its foot's Add filter says them too.
+        // Its head's words — its foot's Add filter says them too — and no close × beside them: its foot's Cancel closes it.
         const head = await waitFor(() => {
-            const close = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open'] button[aria-label='Close']");
-            expect(close).not.toBeNull();
-            return close!.parentElement!.querySelector("span")!.textContent;
+            const label = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open'] [data-slice-edit-label]");
+            expect(label).not.toBeNull();
+            return label!;
         });
-        expect(head).toBe("Add filter");
+        expect([head.textContent, head.parentElement!.querySelector("button[aria-label='Close']")]).toEqual(["Add filter", null]);
         const choice = await waitFor(() => {
             const held = document.querySelector<HTMLElement>("[data-studio-filter-source]");
             expect(held).not.toBeNull();

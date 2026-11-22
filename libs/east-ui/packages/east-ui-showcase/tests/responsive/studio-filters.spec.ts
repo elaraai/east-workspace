@@ -21,7 +21,7 @@
  *    as the query builder draws it, solid once filled. Its foot holds Cancel
  *    and Add filter (ruled 22 November 2026): Add filter stands off until a
  *    condition is finished, nothing is added until it is pressed, and pressed
- *    it shuts the popover.
+ *    it shuts the popover. Its head holds no close ×: Cancel closes it.
  *  - F3 the filter is a chip in the rows' words, after its dataset's name —
  *    said once, in the caption type, on the chip's line (ruled 19 November
  *    2026) — and every visual of its source narrows: the tiles ask again, on
@@ -172,6 +172,9 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const foot = () => page.getByRole("dialog").locator("button").evaluateAll((all) => all
             .filter((b) => ["Cancel", "Add filter", "Done"].includes(b.textContent ?? "")).map((b) => [b.textContent, (b as HTMLButtonElement).disabled]));
         expect(await foot()).toEqual([["Cancel", false], ["Add filter", true]]);
+        // Its foot's Cancel closes it: its head holds its words, and no × over its rows' ×s.
+        expect(await page.getByRole("dialog").evaluate((el) => [el.querySelector("[data-slice-edit-label]")!.textContent, el.querySelectorAll("button[aria-label='Close']").length]))
+            .toEqual(["Add filter · Orders", 0]);
         /**
          * Whether the picker stands whole in the popover's body, on top, tall enough for its offers, with no edge of its
          * own — the popover's is the one frame — and the rows' block, and the popover with it, ending where it ends.
@@ -447,7 +450,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             const popover = page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
             await expect(popover.locator("[data-slice-more-row]").first()).toBeVisible();
             const more = await popover.evaluate((el) => ({
-                head: el.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+                head: el.querySelector("[data-slice-edit-label]")!.textContent,
                 named: [...el.querySelectorAll("[data-slice-more-group]")].map((group) => group.textContent),
                 held: [...el.querySelectorAll("[data-slice-more-words]")].map((row) => row.textContent),
             }));
@@ -600,13 +603,13 @@ test.describe("A Studio page's filter rail (#1673)", () => {
          */
         const editor = () => choice.evaluate((el) => {
             const content = el.closest("[data-scope='popover'][data-part='content']")!;
-            const head = content.querySelector("button[aria-label='Close']")!.parentElement!;
+            const head = content.querySelector("[data-slice-edit-head]")!;
             const rows = content.querySelector("[data-studio-filter-rows]")!.getBoundingClientRect();
             const box = el.getBoundingClientRect();
             const chips = [...el.querySelectorAll("button")];
             const fills = chips.map((chip) => [chip.getAttribute("aria-pressed"), getComputedStyle(chip).backgroundColor]);
             return {
-                head: head.querySelector("span")!.textContent,
+                head: head.querySelector("[data-slice-edit-label]")!.textContent,
                 chips: chips.map((chip) => [chip.textContent!.trim(), chip.getAttribute("aria-pressed"), chip.getBoundingClientRect().height]),
                 picked: fills.filter(([pressed]) => pressed === "true").every(([, fill]) => fills.every(([other, its]) => other === "true" || its !== fill)),
                 between: box.top >= head.getBoundingClientRect().bottom && box.bottom <= rows.top,

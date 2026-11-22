@@ -19,7 +19,11 @@
  *
  * An editor's actions stand in its popover's foot, one row of them (the
  * design system's Slice edit): a filter's — Remove filter at its start, then
- * Cancel and Apply; a new filter's — Cancel and Add filter. A host whose
+ * Cancel and Apply; a new filter's — Cancel and Add filter. A popover whose
+ * foot holds Cancel draws no close × in its head (ruled 22 November 2026):
+ * Cancel is what closes it, and no × stands over the ×s of its editor's rows.
+ * One whose foot holds Done — a new filter's that adds by itself, `+N more`'s
+ * list — keeps its ×. A host whose
  * editors' edits wait for that button — a Studio page's filters, whose
  * condition rows are a draft — says what the button does with the draft its
  * editor tells the row (`apply`, `addApply`): nothing changes until it is
@@ -56,8 +60,8 @@
  * list back, which says what was done. A filter no room is left to show is
  * never one that cannot be edited.
  *
- * The focus goes with what `+N more` shows: to the editor's popover's first
- * control as a line opens its filter's editor, and back to that line — or the
+ * The focus goes with what `+N more` shows: to the editor's first control
+ * (`editorFocus`) as a line opens its filter's editor, and back to that line — or the
  * line that took its place — as the list comes back; never left on nothing,
  * nor on a button drawn where the one pressed stood (Clear all, where Cancel
  * was). A line its × takes out hands the focus on the same way. Left with no
@@ -78,11 +82,10 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { SliceFieldChip } from "../choice.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
-import { SliceEditPopover } from "../edit";
+import { SliceEditPopover, editorFocus } from "../edit";
 import { SliceRailHold } from "../rail/hold.js";
 import type { SliceRailGroup } from "../rail/toolbar.js";
 import { usePressWait } from "../../pointer/press-wait.js";
-import { FOCUSABLE } from "../../primitives/focusable.js";
 import { chipOrder, foldedOrder } from "./groups.js";
 
 /**
@@ -281,7 +284,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
         if (body === null || (was === moreView && !onNothing)) return;
         const lines = body.querySelectorAll<HTMLElement>("[data-slice-more-edit]");
         const line = moreView === "more" ? lines[Math.min(moreLine.current, lines.length - 1)] : undefined;
-        (line ?? body.closest("[role='dialog']")?.querySelector<HTMLElement>(FOCUSABLE))?.focus({ preventScroll: true });
+        (line ?? editorFocus(body.closest("[role='dialog']")))?.focus({ preventScroll: true });
     });
 
     // An editor opening holds the row as it stands, and the rail it is drawn in. The row lets both go once no editor is
@@ -355,6 +358,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
             onOpenChange={o => setOpen(o ? i : null)}
             label={held.editLabel}
             {...(rows ? { size: wide } : {})}
+            headClose={false}
             {...filterFoot(held, i, close)}
             trigger={
                 <SliceFieldChip label={held.label} title={held.whole} active data-slice-clause={i} data-chip-cut={held.whole === undefined ? undefined : ""}
@@ -381,6 +385,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
             onOpenChange={o => setOpen(o ? "add" : null)}
             label={addLabel ?? "Add filter"}
             size={wide}
+            headClose={addApply === undefined}
             footActions={actions(close, addApply === undefined ? undefined : { words: "Add filter", run: addApply(draft) }, "Done")}
             trigger={
                 // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
@@ -442,6 +447,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                             onOpenChange={o => setOpen(o ? "more" : null)}
                             label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size={wide}
+                            headClose={edited === undefined && !saving}
                             {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
                                 footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,
                                 footActions: saving

@@ -20,14 +20,18 @@
  *  - F15 in a reader's rail, a group left with one row is that row, plain; and
  *    a filter's rows change nothing until Apply — every condition of it
  *    removed, Apply removes the filter: its chip and its editor go, and the
- *    page is as it was.
+ *    page is as it was. Its editor's head holds no close × — its foot's
+ *    Cancel closes it — and it opens with the focus on its first condition's
+ *    field.
  *  - F16 a filter the row folds into `+N more` is edited there: a press on its
  *    line shows its editor in the same popover — its head and its foot the
  *    filter's — and Apply gives the list back, saying what was done, the page
  *    narrowed by it. By the keyboard, the focus goes with what the popover
  *    shows: to the editor's first control, and back to the filter's line —
  *    never to Clear all, drawn where Cancel stood; and `+N more` left with no
- *    filter to hold is shut, its popover and its chip gone.
+ *    filter to hold is shut, its popover and its chip gone. Its list's head
+ *    holds its close ×, its foot Done; a filter's editor in it holds none,
+ *    its head as tall.
  *  - F17 a row's × stands on its row's first line, at the row's end, whatever
  *    the row holds: the page's starting filter — its latest quarter, two
  *    conditions of a date — reads one line a condition in its chip's editor,
@@ -45,7 +49,7 @@
 
 import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
-import { settled } from "./settle";
+import { animationsOver, settled } from "./settle";
 import { openConfigure } from "./studio-configure-page";
 import { openBuilder, railOnTop, revenue, submit, written } from "./studio-filters-page";
 import { openVisuals } from "./studio-visuals-page";
@@ -183,6 +187,9 @@ test.describe("A filter's editor (#1667)", () => {
         const foot = () => page.getByRole("dialog").locator("button").evaluateAll((every) => every
             .filter((b) => ["Remove filter", "Cancel", "Apply"].includes(b.textContent ?? "")).map((b) => [b.textContent, (b as HTMLButtonElement).disabled]));
         expect(await foot()).toEqual([["Remove filter", false], ["Cancel", false], ["Apply", true]]);
+        // Its foot's Cancel closes it: no × in its head, over its rows' own. It opened with the focus on its condition's field.
+        await expect(page.getByRole("dialog").getByRole("button", { name: "Close" })).toHaveCount(0);
+        await expect(rows.locator("[data-slot-key]").first()).toBeFocused();
         // A group added — two rows in its box — then one of them removed: the other stands, plain.
         await rows.locator("[data-condition-rows] > [data-query-line=foot]").getByRole("button", { name: "Add group" }).click();
         await expect(chooser).toBeVisible();
@@ -230,27 +237,32 @@ test.describe("A filter's editor (#1667)", () => {
         await settled(page);
         await rail.locator("[data-slice-more]").click();
         const popover = page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
-        /** The popover as it stands: its head's words, the filters it lists, and its foot's buttons. */
+        /** The popover as it stands: its head's words, whether it holds a close ×, and its height; the filters it lists; and its foot's buttons. */
         const now = () => popover.evaluate((el) => ({
-            head: el.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+            head: el.querySelector("[data-slice-edit-label]")!.textContent,
+            close: el.querySelector("[data-slice-edit-head] button[aria-label='Close']") !== null,
+            headHeight: el.querySelector("[data-slice-edit-head]")!.getBoundingClientRect().height,
             listed: [...el.querySelectorAll("[data-slice-more-words]")].map((line) => line.textContent),
             foot: [...el.querySelectorAll("button")].filter((b) => ["Remove filter", "Cancel", "Apply", "Clear all", "Done"].includes(b.textContent ?? "")).map((b) => b.textContent),
         }));
+        // The popover opens by a scale: its head's height is read once that has ended.
+        await animationsOver(popover);
         const list = await now();
-        expect([list.listed.includes("region is SA"), list.foot]).toEqual([true, ["Clear all", "Done"]]);
+        // Its list: Clear all and Done in its foot, and its close × in its head.
+        expect([list.listed.includes("region is SA"), list.foot, list.close]).toEqual([true, ["Clear all", "Done"], true]);
         /** What holds the focus, by its name — its label, else its words; `nothing` where the page's body does. */
         const focused = () => page.evaluate(() => {
             const held = document.activeElement;
             return held === null || held === document.body ? "nothing" : held.getAttribute("aria-label") ?? held.textContent;
         });
-        // Its line is one button, its words and Edit: pressed — by the keyboard — the popover is the filter's editor, the
-        // focus on its first control.
+        // Its line is one button, its words and Edit: pressed — by the keyboard — the popover is the filter's editor — no ×
+        // in its head, which is as tall as the list's — the focus on its first control, its condition's field.
         const line = popover.getByRole("button", { name: "Edit filter: region is SA" });
         await expect(line).toHaveText("region is SAEdit");
         await line.press("Enter");
         await expect(rows).toBeVisible();
-        expect(await now()).toEqual({ head: "Filter · Orders", listed: [], foot: ["Remove filter", "Cancel", "Apply"] });
-        expect(await focused()).toBe("Close");
+        expect(await now()).toEqual({ head: "Filter · Orders", close: false, headHeight: list.headHeight, listed: [], foot: ["Remove filter", "Cancel", "Apply"] });
+        expect(await focused()).toBe("region");
         // Cancel gives the list back as it was, the focus on the filter's line — never on Clear all, drawn where Cancel
         // stood — and Enter opens its editor again.
         await popover.getByRole("button", { name: "Cancel", exact: true }).press("Enter");

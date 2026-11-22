@@ -86,10 +86,14 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
         },
+        /* Its words, and its close × at its end. As tall with no × (`headClose: false`) as with one: the ×'s 22px inside
+           its padding, over its rule — so a popover whose head gains and loses it, as `+M more`'s does between its list
+           and a filter's editor, moves nothing under it. */
         head: {
             display: "flex",
             alignItems: "center",
             gap: "{spacing.2}",
+            minHeight: "43px",
             paddingX: "14px",
             paddingY: "10px",
             borderBottomWidth: "1px",

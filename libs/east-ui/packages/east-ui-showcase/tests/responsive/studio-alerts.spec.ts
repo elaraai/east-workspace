@@ -17,10 +17,11 @@
  *  - A2 a visual's bell opens its alerts' popover, 380 wide: each alert the
  *    row every flush popover's list draws (the pick panel's) — padded 8 12,
  *    its name 12.5 / 600 over where it stands in mono 9.5: firing since when,
- *    in `--neg`; watching; paused.
+ *    in `--neg`; watching; paused. Its head holds its close ×.
  *  - A3 an alert opened in it is its editor: its name, its condition in the
  *    query builder's rows, its pause, and Now — the rows that meet it now, a
- *    table of them, and how many of how many.
+ *    table of them, and how many of how many. Its foot's Cancel leaves it:
+ *    its head holds no close ×, over its condition's rows' ×s.
  *  - A4 the bar's bell lists the alerts firing, and opening one sets the
  *    page's filters to the alert's, over a reader's who had cleared them, and
  *    draws its banner: its name, how many rows met it, Show rows — those rows
@@ -145,6 +146,7 @@ test.describe("A Studio page's alerts (#1674)", () => {
         const open = await openBell(page, entry, "v-revenue");
         expect((await open.boundingBox())!.width).toBe(380);
         await expect(open).toContainText(`Alerts · ${name}`);
+        await expect(open.getByRole("button", { name: "Close" })).toHaveCount(1);
         const [quarter] = await listed(open);
         expect([quarter!.name, quarter!.status, quarter!.color]).toEqual(["Quarter under goal", "firing", neg]);
         expect(quarter!.says).toMatch(/^Firing since /);
@@ -167,6 +169,9 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await expect(open.locator("[data-studio-alert-editor]")).toBeVisible();
         await expect(open.locator("[data-studio-alert-name]")).toHaveValue("Month under goal");
         await expect(open.locator("[data-studio-filter-rows]")).toBeVisible();
+        // Its foot's Cancel leaves it: no close × in its head.
+        await expect(open.getByRole("button", { name: "Close" })).toHaveCount(0);
+        await expect(open.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
         await expect(open.getByRole("checkbox", { name: "Paused — not checked" })).not.toBeChecked();
         // Now: July and August under the month's goal of 130,000, of the quarter's three months.
         await expect(open.locator("[data-studio-alert-now]")).toContainText("2 of 3 rows meet it now", { timeout: 30_000 });

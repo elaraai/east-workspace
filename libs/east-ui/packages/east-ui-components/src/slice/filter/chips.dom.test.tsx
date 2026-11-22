@@ -12,7 +12,9 @@
  * pressed. A filter `+N more` holds is edited there, in the same popover, its
  * actions giving the list back — the focus going with what it shows, back to
  * the filter's line, never left on nothing nor on Clear all; left with no
- * filter to hold, it is shut, and the row lets go. While an editor is
+ * filter to hold, it is shut, and the row lets go. A popover whose foot holds
+ * Cancel draws no close × in its head; `+N more`'s list, whose foot holds
+ * Done, keeps its own. While an editor is
  * open the row stands as it stood as the editor opened — its chips' words and
  * how many there are — and holds the rail it is drawn in, letting both go once
  * no editor is open and the press that shut the last has clicked; a filter
@@ -106,10 +108,12 @@ const popoverNow = () => {
     if (content === null) return null;
     const foot = [...content.querySelectorAll<HTMLButtonElement>("button")].filter((b) => /^(Remove filter|Cancel|Apply|Add filter|Done|Clear all)$/.test(b.textContent ?? ""));
     return {
-        head: content.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+        head: content.querySelector("[data-slice-edit-label]")!.textContent,
         foot: foot.map((b) => `${b.textContent}${b.disabled ? " (off)" : ""}`),
     };
 };
+/** Whether the open popover's head holds a close ×. */
+const headClose = () => opened()!.querySelector("[data-slice-edit-head] button[aria-label='Close']") !== null;
 
 /** Opens a popover by its trigger, and names the buttons in its foot. */
 async function footOf(trigger: HTMLElement): Promise<string[]> {
@@ -126,6 +130,28 @@ describe("an editor's actions, in its popover's foot", () => {
         render(<Row />);
         expect(await footOf(document.querySelector<HTMLElement>("[data-slice-clause]")!)).toEqual(["Remove filter", "Cancel"]);
         expect(await footOf(screen.getByRole("button", { name: "Add filter" }))).toEqual(["Done"]);
+    });
+
+    test("a popover whose foot holds Cancel draws no close × in its head — a filter's, a new filter's that waits, a folded filter's in +N more; one whose foot holds Done keeps it", async () => {
+        render(<Row />);
+        await press(chipAt(0));
+        expect([popoverNow()!.foot, headClose()]).toEqual([["Remove filter", "Cancel"], false]);
+        await escape();
+        // A new filter's editor that adds by itself: Done, and the ×.
+        await press(screen.getByRole("button", { name: "Add filter" }));
+        expect([popoverNow()!.foot, headClose()]).toEqual([["Done"], true]);
+        cleanup();
+        render(<DraftRow foldChips={2} done={[]} />);
+        await press(screen.getByRole("button", { name: "Add filter" }));
+        expect([popoverNow()!.foot, headClose()]).toEqual([["Cancel", "Add filter (off)"], false]);
+        await escape();
+        // +N more: its list keeps the ×; a filter's editor in it has none; the list back, it is back.
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        expect([popoverNow()!.foot, headClose()]).toEqual([["Clear all", "Done"], true]);
+        await press(screen.getByRole("button", { name: "Edit filter: Region: VIC" }));
+        expect([popoverNow()!.foot, headClose()]).toEqual([["Remove filter", "Cancel", "Apply (off)"], false]);
+        await press(inPopover("Cancel"));
+        expect(headClose()).toBe(true);
     });
 
     test("a filter whose edits wait: Remove filter, Cancel and Apply — Apply off until its editor tells a draft with something to do, then doing it once and shutting", async () => {
@@ -205,8 +231,8 @@ describe("a filter +N more holds is edited there", () => {
         line.focus();
         await press(line);
         expect([popoverNow(), listed()]).toEqual([{ head: "Filter QLD", foot: ["Remove filter", "Cancel", "Apply (off)"] }, []]);
-        // The line pressed went with the list: the focus goes to the editor's popover's first control, never to the page.
-        expect(focused()).toBe("Close");
+        // The line pressed went with the list: the focus goes to the editor's first control, never to the page.
+        expect(focused()).toBe("Pick NSW");
         await press(inPopover("Pick NSW"));
         await pressFocused(inPopover("Apply"));
         expect([popoverNow(), listed(), done]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: NSW"], ["QLD is NSW"]]);
@@ -473,7 +499,7 @@ describe("a row of chips in groups (#1673)", () => {
         const more = () => {
             const content = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open']")!;
             return {
-                head: content.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+                head: content.querySelector("[data-slice-edit-label]")!.textContent,
                 held: [...content.querySelectorAll("[data-slice-more-group], [data-slice-more-words]")].map((el) => el.textContent),
             };
         };

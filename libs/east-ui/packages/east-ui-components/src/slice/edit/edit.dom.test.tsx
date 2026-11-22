@@ -10,15 +10,18 @@
  * worked out again. And Esc closes it from the moment it opens, a layer open
  * over it keeping its own — and a control in its body that takes Esc itself
  * and says so (`data-escape-layer`, a Chooser laid in it: #1673) keeping its
- * own too, the popover staying.
+ * own too, the popover staying. Its head draws its close × unless its host
+ * says its foot holds what closes it — a filter's editor's Cancel — and then
+ * the focus goes to its body's first control, else its foot's first action,
+ * never the link at its foot's start.
  */
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, screen, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../../theme/index.js";
-import { SliceEditPopover } from "./index.js";
+import { SliceEditPopover, editorFocus } from "./index.js";
 
 afterEach(cleanup);
 
@@ -85,6 +88,49 @@ class ResizeObserverStub {
     unobserve(): void { /* noop */ }
     disconnect(): void { /* noop */ }
 }
+
+describe("the edit popover's close ×", () => {
+    beforeEach(() => { vi.stubGlobal("ResizeObserver", ResizeObserverStub); });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    /** An editor as a filter's is: Remove filter at its foot's start, then Cancel and Apply; its body's controls as given. */
+    function Editor({ headClose, fields }: { headClose?: boolean; fields: readonly string[] }) {
+        const [open, setOpen] = useState(false);
+        return <ChakraProvider value={system}>
+            <SliceEditPopover open={open} onOpenChange={setOpen} label="Filter · Orders" trigger={<button type="button">Choose</button>}
+                {...(headClose === undefined ? {} : { headClose })}
+                footLeft={<button type="button">Remove filter</button>}
+                footActions={<><button type="button">Cancel</button><button type="button" disabled>Apply</button></>}>
+                {fields.map((field) => <button key={field} type="button">{field}</button>)}
+                <span>its rows</span>
+            </SliceEditPopover>
+        </ChakraProvider>;
+    }
+    /** The popover opened, and what it draws: its head's words, whether its head holds a ×, and where its focus goes. */
+    const opened = async (ui: ReactElement) => {
+        render(ui);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Choose" })); await Promise.resolve(); });
+        const content = document.querySelector<HTMLElement>("[data-scope='popover'][data-part='content'][data-state='open']")!;
+        return {
+            head: content.querySelector("[data-slice-edit-label]")?.textContent,
+            close: content.querySelector("[data-slice-edit-head] button[aria-label='Close']") !== null,
+            focus: editorFocus(content)?.textContent,
+        };
+    };
+
+    test("is drawn in its head, unless its host says its foot holds what closes it: then its head is its words alone", async () => {
+        expect(await opened(<Editor fields={["Field"]} />)).toMatchObject({ head: "Filter · Orders", close: true });
+        cleanup();
+        expect(await opened(<Editor headClose={false} fields={["Field"]} />)).toMatchObject({ head: "Filter · Orders", close: false });
+    });
+
+    test("with none, the focus goes to its body's first control — else its foot's first action, never the link at its foot's start", async () => {
+        expect((await opened(<Editor headClose={false} fields={["Field", "Comparison"]} />)).focus).toBe("Field");
+        cleanup();
+        // No control in its body: Cancel, the first of its actions the focus can go to — not Remove filter, before it.
+        expect((await opened(<Editor headClose={false} fields={[]} />)).focus).toBe("Cancel");
+    });
+});
 
 describe("Esc from the moment the edit popover opens", () => {
     // The page's frames, held: none passes until a test lets one, so "before its own dismissal listens" is no race.
