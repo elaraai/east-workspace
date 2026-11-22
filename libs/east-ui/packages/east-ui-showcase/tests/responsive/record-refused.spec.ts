@@ -13,6 +13,12 @@
  * the ring stands instead, for as long as the line says why. The next change
  * taken says its own words, in the line's own ink, and no row is marked.
  *
+ * Beside a rail (`recordBuiltKeysSliced`) the toolbar's row leaves the status
+ * line too little room for its words, and cuts them: the footer then says
+ * them whole, a refusal's in the danger ink, and they go with the refusal as
+ * the rail narrows the rows. A toolbar with room for them leaves the footer
+ * saying none.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test record-refused --project desktop`.
  */
@@ -116,4 +122,55 @@ test("recordBuiltKeys: a bin that would build another location's key is refused 
     await expect(status).not.toHaveAttribute("data-tone", "refused");
     expect(await ink()).toBe(muted);
     await expect(entry.locator('[data-record] [data-slot="row"][data-refused]')).toHaveCount(0);
+});
+
+test("recordBuiltKeysSliced: beside a rail the toolbar cuts the status line's words, and the footer says them whole — a refusal's in the danger ink, a Save's in the line's own — and a refusal's words go as the rail narrows the rows; a toolbar with room leaves the footer saying none @desktop", async ({ page }) => {
+    // Wide enough that the rail draws its chips in the row, which leave the status line a few letters' room.
+    const entry = await openRecord(page, "recordBuiltKeysSliced", "light", 1700, "record-keys");
+    const toolbar = entry.locator('[data-frame-slot="toolbar"]');
+    const status = toolbar.locator('[data-slot="status"]');
+    const band = entry.locator('[data-frame-slot="footer"] [data-slot="footerLive"]');
+    const cut = (part: Locator): Promise<boolean> => part.evaluate((el) => el.scrollWidth > el.clientWidth);
+    const ink = (part: Locator): Promise<string> => part.evaluate((el) => getComputedStyle(el).color);
+    const [danger, muted] = [await token(page, "fg-danger"), await token(page, "fg-muted")];
+    // No words yet: the footer's line is not drawn.
+    await expect(band).toBeHidden();
+
+    // Labels' bin typed as 1: A-1 is Pallet wrap's. The toolbar's line says so, cut by the rail's chips beside it…
+    await typeBin(page, entry, "A-4", "1");
+    await expect(status).toHaveText(TAKEN);
+    expect(await cut(status), "the rail leaves the toolbar's line too little room for its words").toBe(true);
+    // …and the footer says the words whole, in the danger ink.
+    await expect(band).toBeVisible();
+    await expect(band).toHaveText(TAKEN);
+    expect([await cut(band), await ink(band)]).toEqual([false, danger]);
+    // The toolbar's line is still the one a screen reader hears: the footer's is for the eye.
+    await expect(band).toHaveAttribute("aria-hidden", "true");
+
+    // A bin no location holds, and Save: the footer says what the Save did, whole, in the line's own ink.
+    await typeBin(page, entry, "A-4", "42");
+    await toolbar.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(band).toHaveText("Applied 1 change to 1 location", { timeout: 15_000 });
+    expect([await cut(band), await ink(band)]).toEqual([false, muted]);
+
+    // Refused again, then the rail narrows the rows to one zone: the refusal's words go with the rows they were said over.
+    await typeBin(page, entry, "A-3", "1");
+    await expect(band).toHaveText(TAKEN);
+    await toolbar.getByRole("button", { name: "Zone", exact: true }).click();
+    await page.getByRole("button", { name: /^Chilled/ }).click();
+    await page.keyboard.press("Escape");
+    await expect(entry.locator('[data-frame-slot="footer"]')).toContainText("16 of 32 locations");
+    await expect(status).not.toHaveAttribute("data-tone", "refused");
+    await expect(status).not.toHaveText(TAKEN);
+    // The line is back to the last thing that happened — the Save — and the footer says that, in the line's own ink.
+    await expect(band).toHaveText("Applied 1 change to 1 location");
+    await expect(band).not.toHaveAttribute("data-tone", "refused");
+
+    // With no rail the same words fit the toolbar's line on a frame this wide: the footer repeats none of them.
+    const plain = await openRecord(page, "recordBuiltKeys", "light", 1700);
+    await typeBin(page, plain, "A-2", "1");
+    const line = plain.locator('[data-frame-slot="toolbar"] [data-slot="status"]');
+    await expect(line).toHaveText(TAKEN);
+    expect(await cut(line)).toBe(false);
+    await expect(plain.locator('[data-frame-slot="footer"] [data-slot="footerLive"]')).toBeHidden();
 });

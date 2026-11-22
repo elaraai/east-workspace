@@ -48,7 +48,9 @@
  *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
  *     legend's 15-tall chips cut whole where the rail is short of room, and
  *     the shared loading line at its end; on a phone, the status line's words
- *     beside the line, in the band the frame lays over main's foot.
+ *     beside the line, in the band the frame lays over main's foot — and on a
+ *     wider frame, where the toolbar's row cuts those words, the words whole
+ *     at the footer's end, mono 11 in `fg.muted`, or the danger ink.
  *   - A phone (the Sheet's phone grid): no select column; the title held at
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
@@ -421,9 +423,14 @@ export const recordSlotRecipe = defineSlotRecipe({
         footerNote: { fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap" },
         footerSpacer: { flex: "1", minWidth: "0" },
         /* The status line's words on a phone, whose toolbar has no room for them: unseen and unheard on a wider frame, where
-           the toolbar's line says them. */
+           the toolbar's line says them — but seen there too, one line at the footer's end, where the toolbar's row cuts
+           them for want of room (`data-band`). */
         footerLive: {
             display: "none",
+            "&[data-band]": {
+                display: "block", flex: "0 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...refusedTone,
+            },
             "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted", ...refusedTone },
         },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },

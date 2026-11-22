@@ -18,7 +18,8 @@
  *   bar (`toolbar.tsx`, FR2–FR7); the status line says the last gesture's
  *   words, a step of the history's, or how many rows are ticked
  *   (`status.ts`, FR5, AD1–AD7) — a refused gesture's in the danger tone,
- *   the row it was refused on flashing in the grid;
+ *   the row it was refused on flashing in the grid — and where the row has no
+ *   room for its words, the footer says them whole;
  * - **the banners** — the session's, then an `entry` the record does not
  *   hold;
  * - **main** — the grid, filling the room the inspector leaves and scrolling
@@ -358,7 +359,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     }, [remove, ticks]);
     // Add and Delete are off while the rows take no gesture — a narrowing standing in, a far jump held — as the session's
     // add and remove would refuse it then.
-    const items = useRecordToolbarItems({
+    const { items, statusCut } = useRecordToolbarItems({
         styles, parts, title, count: total === undefined ? undefined : words.number(total), status: statusLine.text, refused: statusLine.refused, noun,
         onAdd: readOnly || !capabilities.insertRows ? undefined : onAdd,
         onDelete: readOnly || !capabilities.removeRows ? undefined : onDelete,
@@ -406,7 +407,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
                 banners={banners}
                 end={end}
                 minMain={MIN_MAIN_PX}
-                footer={<RecordFooter styles={styles} count={count} saved={saved} stale={stale} recordSlice={rowsPart} legend={legend} live={statusLine.text} refused={statusLine.refused}
+                footer={<RecordFooter styles={styles} count={count} saved={saved} stale={stale} recordSlice={rowsPart} legend={legend} live={statusLine.text} refused={statusLine.refused} band={statusCut}
                     loading={footer.loading} noun={footer.noun} onRetry={footer.onRetry} />}
                 loading={loading.cold}
                 busy={loading.busy}

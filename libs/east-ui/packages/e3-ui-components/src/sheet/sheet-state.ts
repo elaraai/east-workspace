@@ -760,8 +760,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
         // ── The narrowing and the tabs (B§8) ───────────────────────────────
-        case "narrowing.changed":
-            return narrowed(s, ctx);
+        case "narrowing.changed": {
+            // A refusal's words go with the view they were said over (east-workspace#1709): the row they named may be
+            // out of it, and said still, in the danger tone, they would read as of the rows now shown.
+            const t = narrowed(s, ctx);
+            return noticeRefuses(t.state.msg) ? { ...t, state: { ...t.state, msg: null } } : t;
+        }
         case "tab.switch":
         case "tab.create":
         case "tab.close": {

@@ -14,6 +14,7 @@
  * danger tone. A code typed over moves its rack; one another rack has is
  * refused, the rack marked where it stands, again each time; and a rack stored
  * apart from the key its row builds stays where it is until its code changes.
+ * A rack moved and then discarded is one change dropped.
  */
 
 import { describe, expect, test } from "vitest";
@@ -165,5 +166,13 @@ describe("a record whose rows' keys are built from them", () => {
         await waitFor(() => expect(ids(c)).toEqual(["OLD", "R-1", "R-5"]));
         await type(c, "OLD", "code", "R-8");
         expect(ids(c)).toEqual(["R-1", "R-5", "R-8"]);
+    });
+
+    test("ruling 1 — a rack moved under another key and discarded is one change dropped: the status line counts the rack once — never the key it left and the key it stood under as two", async () => {
+        const { container: c } = await h.mount({ fn: racksKeyed }, { storageKey: "record-built-key-discarded" });
+        await type(c, "R-2", "code", "R-5");
+        expect(ids(c)).toEqual(["OLD", "R-1", "R-5"]);
+        await press(c, editingMessages.discard());
+        expect([status(c), ids(c)]).toEqual(["Discarded 1 change", ["OLD", "R-1", "R-2"]]);
     });
 });

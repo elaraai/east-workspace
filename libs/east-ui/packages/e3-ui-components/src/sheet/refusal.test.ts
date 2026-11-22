@@ -6,12 +6,12 @@
  *
  * What a refused gesture shows beside its words (east-workspace#1709): which of the Sheet's messages say a gesture was
  * refused, which row one was refused on — a row the gesture would have moved, by the refusal's turn — and that a
- * refusal's words go as the next gesture is taken.
+ * refusal's words go as the next gesture is taken, and as the narrowing changes under them.
  */
 
 import { describe, expect, test } from "vitest";
 import { noticeRefuses, refusedRowOf } from "./refusal.js";
-import { initialSheetStore, sheetStoreReducer, type SheetNotice } from "./sheet-state.js";
+import { initialSheetState, initialSheetStore, sheetReducer, sheetStoreReducer, type SheetMachineCtx, type SheetNotice } from "./sheet-state.js";
 
 /** Why a cell was left as it was: a mark locks it. */
 const LOCKED = { why: "locked", words: "Shipped" } as const;
@@ -65,5 +65,20 @@ describe("what a refused gesture shows", () => {
         // No message, nothing to take away: the store is the one it was.
         const quiet = said(null);
         expect(sheetStoreReducer(quiet, { t: "taken", stood: null })).toBe(quiet);
+    });
+
+    test("a narrowing that changes takes away the words of a refusal — said over the rows as they were, the row they named may be out of view — never a message of another kind", () => {
+        /** A sheet of four rows of two columns: all a narrowing's change asks of it. */
+        const ctx: SheetMachineCtx = {
+            rowCount: 4, colCount: 2, lensActive: false, canAppend: false,
+            editableAt: () => true, kindAt: () => "text", parse: () => ({ kind: "blank" }), candidates: () => [], candidateAt: () => undefined, editTextAt: () => "",
+        };
+        const refusal: SheetNotice = { id: "keyRefused", what: "row", noun: undefined, why: { taken: "A-1" }, row: "A-4", nth: 1 };
+        const narrowed = (msg: SheetNotice | null) => sheetReducer({ ...initialSheetState({ r: 3, c: 1 }), msg }, { t: "narrowing.changed" }, ctx).state;
+        // The refusal's words go, and the ring returns to the top as it does for any narrowing.
+        expect([narrowed(refusal).msg, narrowed(refusal).sel]).toEqual([null, { r: 0, c: 1 }]);
+        // Words that say no refusal stand.
+        const pasted: SheetNotice = { id: "pasted", rows: 1, cols: 1, skipped: 0 };
+        expect(narrowed(pasted).msg).toBe(pasted);
     });
 });

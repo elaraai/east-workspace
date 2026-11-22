@@ -159,8 +159,9 @@ export function stepOf(action: HistoryAction, session: SheetTransactions, fields
         case "discard": {
             if (!session.canDiscard || session.pending === 0) return undefined;
             const tally = tallyDrafts(session, fields);
-            // A change of a row's place alone is a change too.
-            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, session.pending) };
+            // A change of a row's place alone is a change too. A row moved under another key is pending twice — the key
+            // it left, and the key it stands under — and is one row changed.
+            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, session.pending - session.moved.size) };
         }
         case "apply":
             return session.canApply ? { id: "applied", tally: tallyDrafts(session, fields) } : undefined;
