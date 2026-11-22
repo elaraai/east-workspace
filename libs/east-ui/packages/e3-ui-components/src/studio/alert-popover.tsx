@@ -6,7 +6,8 @@
 /**
  * A visual's alerts, from its header (#1674): a bell beside its menu — plain
  * with no alert, marked while one of its alerts fires — whose popover lists
- * them, each by its name and where it stands, and edits one: its name; its
+ * them, each by its name and where it stands (`alert-row.tsx`: the row every
+ * flush popover's list draws), and edits one: its name; its
  * condition, the query builder's condition rows over the visual's rows — its
  * groups, then its values (`filter-editor.tsx`); whether it is paused; and Now,
  * the rows over the line now as a result table, asked as the popover opens on
@@ -42,6 +43,7 @@ import { useAlertsRead, useSaveAlerts, useStudioAlerts, type StudioAlerts } from
 import { alertChanges, alertNameRefusal, isFiring, placementAlerts, type Alert, type AlertWrite, type Alerts } from "./alerts.js";
 import { ConditionEditor } from "./filter-editor.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
+import { AlertRow } from "./alert-row.js";
 import { usePageFilters } from "./page-filters.js";
 import { problemOf } from "./visual/notes.js";
 import type { Visual } from "./visual/values.js";
@@ -139,17 +141,10 @@ function AlertsBell({ visual, name, read, placement, studio, alerts }: AlertsBel
                 ? <ChakraButton type="button" variant="outline" size="xs" data-studio-new-alert="" onClick={() => setEditing({ held: undefined })}>{m.newAlert()}</ChakraButton>
                 : <Box as="span" ref={setFootActions} css={styles.alertFoot} />}>
             {edited === undefined ? (
-                <Box as="ul" css={styles.alerts} data-studio-alerts="">
+                <Box css={styles.alerts} data-studio-alerts="">
                     {mine.map((held) => {
                         const status = statusOf(held.alert, m, (at) => f.dateTime(at));
-                        return (
-                            <li key={held.name}>
-                                <chakra.button type="button" css={styles.alertRow} data-studio-alert={held.name} onClick={() => setEditing({ held })}>
-                                    <Box as="span" css={styles.alertName}>{held.name}</Box>
-                                    <Box as="span" css={styles.alertStatus} data-status={status.kind}>{status.words}</Box>
-                                </chakra.button>
-                            </li>
-                        );
+                        return <AlertRow key={held.name} name={held.name} status={status.kind} words={status.words} onOpen={() => setEditing({ held })} />;
                     })}
                 </Box>
             ) : (

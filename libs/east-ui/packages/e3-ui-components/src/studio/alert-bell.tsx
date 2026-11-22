@@ -17,7 +17,7 @@
  */
 
 import { memo, useMemo, useState } from "react";
-import { Box, Button as ChakraButton, chakra } from "@chakra-ui/react";
+import { Box, Button as ChakraButton } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBell } from "@fortawesome/free-solid-svg-icons";
 import { StringType, compareFor, DateTimeType, decodeBeast2, equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
@@ -30,6 +30,7 @@ import { resultTable } from "../query/results-table.js";
 import { useQueryWords } from "../query/words.js";
 import { changeStoredValue, forgetStoredValue, storedCodec, useStoredValue } from "../shared/stored-value.js";
 import { useAlertsRead, useStudioAlerts } from "./alert-context.js";
+import { AlertRow } from "./alert-row.js";
 import { isFiring, type Alert } from "./alerts.js";
 import { useStudioMessages } from "./messages.js";
 
@@ -101,20 +102,14 @@ export const EastChakraStudioAlertBell = memo(function EastChakraStudioAlertBell
             {firing.length === 0 ? (
                 <Box as="span" css={styles.note} data-studio-alerts-none="">{m.alertNoneFiring()}</Box>
             ) : (
-                <Box as="ul" css={styles.alerts} data-studio-alerts-firing="">
+                <Box css={styles.alerts} data-studio-alerts-firing="">
                     {firing.map(([name, alert]) => (
-                        <li key={name}>
-                            <chakra.button type="button" css={styles.alertRow} data-studio-alert={name} onClick={() => {
+                        <AlertRow key={name} name={name} status="firing" words={m.alertWhere({ page: alert.page.page, at: f.dateTime(firedAt(alert)!) })}
+                            onOpen={() => {
                                 openAlertPage(name, alert);
                                 setOpen(false);
                                 told?.(alert.page);
-                            }}>
-                                <Box as="span" css={styles.alertName}>{name}</Box>
-                                <Box as="span" css={styles.alertStatus} data-status="firing">
-                                    {m.alertWhere({ page: alert.page.page, at: f.dateTime(firedAt(alert)!) })}
-                                </Box>
-                            </chakra.button>
-                        </li>
+                            }} />
                     ))}
                 </Box>
             )}

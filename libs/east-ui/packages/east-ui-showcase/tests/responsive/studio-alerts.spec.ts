@@ -14,9 +14,10 @@
  *    alerts its rows meet — the quarter's revenue under its goal, the months
  *    under theirs — and their bells are marked in `--neg`, the rest the
  *    menu's own ink; the bar's bell counts two.
- *  - A2 a visual's bell opens its alerts' popover, 380 wide: each alert a row
- *    of 48 at least, its name over where it stands — firing since when, in
- *    `--neg`; watching; paused.
+ *  - A2 a visual's bell opens its alerts' popover, 380 wide: each alert the
+ *    row every flush popover's list draws (the pick panel's) — padded 8 12,
+ *    its name 12.5 / 600 over where it stands in mono 9.5: firing since when,
+ *    in `--neg`; watching; paused.
  *  - A3 an alert opened in it is its editor: its name, its condition in the
  *    query builder's rows, its pause, and Now — the rows that meet it now, a
  *    table of them, and how many of how many.
@@ -89,14 +90,21 @@ async function openBell(page: Page, entry: Locator, key: string): Promise<Locato
     return popover(page);
 }
 
-/** The alerts a popover lists: each one's name, where it stands, its words, its colour and its row's height. */
+/**
+ * The alerts a popover lists: each one's name, where it stands, its words and its colour, and how its row is drawn —
+ * its padding, its name's size and weight, and its line's size and face.
+ */
 const listed = (open: Locator) => open.locator("[data-studio-alert]").evaluateAll((rows) => rows.map((row) => {
     const status = row.querySelector("[data-status]")!;
+    const [own, name, line] = [getComputedStyle(row), getComputedStyle(status.previousElementSibling!), getComputedStyle(status)];
     return {
-        name: row.getAttribute("data-studio-alert"), status: status.getAttribute("data-status"), says: status.textContent,
-        color: getComputedStyle(status).color, height: row.getBoundingClientRect().height,
+        name: row.getAttribute("data-studio-alert"), status: status.getAttribute("data-status"), says: status.textContent, color: line.color,
+        row: [own.paddingTop, own.paddingRight, own.paddingBottom, own.paddingLeft, name.fontSize, name.fontWeight, line.fontSize, line.fontFamily.includes("Mono")],
     };
 }));
+
+/** How the row of a flush popover's list is drawn — the pick panel's: padded 8 12, its name 12.5 / 600, its line mono 9.5. */
+const POPOVER_ROW = ["8px", "12px", "8px", "12px", "12.5px", "600", "9.5px", true];
 
 test.describe("A Studio page's alerts (#1674)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
@@ -129,9 +137,10 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await expect(bar).toHaveText("2");
     });
 
-    test("A2: a visual's bell opens its alerts' popover, 380 wide — each alert a row of 48 at least, its name over where it stands: firing since when, in --neg; watching; paused", async ({ page }) => {
+    test("A2: a visual's bell opens its alerts' popover, 380 wide — each alert the row every flush popover's list draws, its name over where it stands: firing since when, in --neg; watching; paused", async ({ page }) => {
         const entry = await openAlerts(page);
-        const [neg, subtle] = [await token(page, "status-neg"), await token(page, "fg-subtle")];
+        // A row's line is the popover list's own: `--ink-3`, and `--neg` while its alert fires.
+        const [neg, muted] = [await token(page, "status-neg"), await token(page, "fg-muted")];
         const name = (await tile(entry, "v-revenue").locator("[data-studio-visual-name]").textContent())!;
         const open = await openBell(page, entry, "v-revenue");
         expect((await open.boundingBox())!.width).toBe(380);
@@ -139,13 +148,13 @@ test.describe("A Studio page's alerts (#1674)", () => {
         const [quarter] = await listed(open);
         expect([quarter!.name, quarter!.status, quarter!.color]).toEqual(["Quarter under goal", "firing", neg]);
         expect(quarter!.says).toMatch(/^Firing since /);
-        expect(quarter!.height).toBeGreaterThanOrEqual(48);
+        expect(quarter!.row).toEqual(POPOVER_ROW);
         await escapeLayer(page);
         await expect(popover(page)).toHaveCount(0);
         for (const [key, alert, says] of [["v-customers", "Customer over 50,000", "Watching"], ["v-combo", "Margin under 19%", "Paused"]] as const) {
             const shown = await listed(await openBell(page, entry, key));
-            expect(shown.map((row) => [row.name, row.says, row.color]), key).toEqual([[alert, says, subtle]]);
-            expect(shown[0]!.height, key).toBeGreaterThanOrEqual(48);
+            expect(shown.map((row) => [row.name, row.says, row.color]), key).toEqual([[alert, says, muted]]);
+            expect(shown[0]!.row, key).toEqual(POPOVER_ROW);
             await escapeLayer(page);
             await expect(popover(page)).toHaveCount(0);
         }
