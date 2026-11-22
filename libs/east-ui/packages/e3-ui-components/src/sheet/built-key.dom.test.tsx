@@ -271,6 +271,9 @@ test("ruling 16 — over lanes paged from the rail's `rows` source, a lane a typ
     await waitFor(async () => expect([...(await h.read(pagedLanes)).keys()]).toEqual([101n, 103n, 107n, 201n]));
     const saved = await h.read(pagedLanes);
     expect(laneEqual(saved.get(107n)!, { aisle: 1n, slot: 7n, note: "Picks" }), printFor(pagedLanes.type)(saved)).toBe(true);
-    // Read again, it stands in its key's place.
+    // Read again, it stands in its key's place — and the ring, which was on it, is on it still: never on the lane that
+    // took the place it stood in.
+    expect(ringOn(c)).toBe("107");
     await waitFor(() => expect(ids(c)).toEqual(["101", "103", "107", "201"]));
+    expect(ringOn(c)).toBe("107");
 });
