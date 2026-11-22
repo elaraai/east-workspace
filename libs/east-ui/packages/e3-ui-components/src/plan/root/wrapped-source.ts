@@ -12,8 +12,8 @@
  * - ONE wrapper a source. A host function is equivalent only to itself, so a
  *   new wrapper would be a new source to the paging driver, which would drop
  *   its windows: the wrapper made for a source is the one handed on while a
- *   source that derives the same rows stands under it (the driver's own test,
- *   #809).
+ *   source that derives the same rows stands under it — by the driver's own
+ *   test (`pagedSourceEquivalent`, #809).
  * - It reads the source under it, and whatever else its layer drew with, as
  *   they stand when it is asked ({@link PagedLatest}): the canvas's last
  *   render's, never the render's that made the wrapper.
@@ -30,14 +30,11 @@
  */
 
 import { useMemo, useRef } from "react";
-import { equivalentFor, none, some, variant } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { none, some, variant } from "@elaraai/east";
 import { snapshotOf } from "@elaraai/east-ui-components/internal";
+import { pagedSourceEquivalent } from "../controller/paging.js";
 import type { PlanRootValue } from "../model.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
-
-/** Whether two paged sources derive the same rows — the paging driver's test (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /** What a wrapper reads as it is asked: the source under it now, and what else its layer drew with at the canvas's last render. */
 export type PagedLatest<X> = X & { readonly src: PlanPagedSourceValue | undefined };

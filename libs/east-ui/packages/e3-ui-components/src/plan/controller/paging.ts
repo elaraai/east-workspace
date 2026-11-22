@@ -199,8 +199,9 @@ import {
 
 /** Whether two paged sources derive the same rows: the same id AND equivalent
  *  functions — `page` wraps the series pipeline, so its captures are what the
- *  rows are derived WITH (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
+ *  rows are derived WITH (#809). The test a layer's wrapper over a source is
+ *  kept by, too (`../root/wrapped-source.ts`). */
+export const pagedSourceEquivalent: (a: PlanPagedSourceValue, b: PlanPagedSourceValue) => boolean = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 /** Whether two narrowings, as a live source prints them, are the same one (#1354). */
 const sameNarrowing = equalFor(StringType);
 /** Whether two sources' ids are the same one. */
