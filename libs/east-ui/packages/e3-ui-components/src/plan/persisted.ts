@@ -23,6 +23,13 @@ export interface PlanAnchor {
     /** The source window its row came from, on a paged canvas — where a
      *  remount that has not loaded the row yet looks for it. */
     window: number | null;
+    /**
+     * How many of the source's entries a window held when `window` was counted (#1714): a canvas's windows hold as many
+     * as its root says, which a deploy may change, so a remount opens the window that holds the entry the saved one
+     * began at, never the window of the same number. Absent in an anchor saved before a window's size could change,
+     * whose number is read at the size now.
+     */
+    entries?: number | undefined;
     /** The block its row came from (#823) — which block the remount opens at
      *  that window; `null` for a row of no paged block, or an anchor saved
      *  before blocks paged apart (every block then opens there). */
@@ -112,7 +119,9 @@ export function persistedOf(stored: unknown): PlanPersisted {
         // Written before blocks paged apart, an anchor names none.
         && (a.block === undefined || a.block === null || Number.isInteger(a.block))
         // Over rows not read, the element under the view's top (#1398); over a row, none.
-        && (a.element === undefined || (Number.isInteger(a.element) && a.element >= 0));
+        && (a.element === undefined || (Number.isInteger(a.element) && a.element >= 0))
+        // The size its window is counted in (#1714); an anchor saved before a window's size could change names none.
+        && (a.entries === undefined || (Number.isInteger(a.entries) && a.entries > 0));
     const own = ownWindowOf(window);
     return {
         collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
@@ -137,7 +146,7 @@ export const sameKey = (x: string, y: string): boolean => x === y;
 /** Two anchors are the same — `x` may be absent. */
 export const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor): boolean => x !== null
     && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window && x.block === y.block
-    && x.element === y.element;
+    && x.element === y.element && x.entries === y.entries;
 
 /** Two of the canvas's own windows are the same — `x` may be absent. */
 export const sameOwnWindow = (x: PlanOwnWindow | undefined, y: PlanOwnWindow): boolean => x !== undefined

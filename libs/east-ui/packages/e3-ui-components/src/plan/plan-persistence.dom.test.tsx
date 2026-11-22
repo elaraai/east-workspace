@@ -323,6 +323,38 @@ describe("Plan UI state survives a remount (#813)", () => {
         expect(storedAt("plan-813-paged").charts).toEqual([rowKey("u1999")]);
     });
 
+    test("a place saved while a window held another number of entries opens the window its row is in now, never the window of that number (#1714)", async () => {
+        const asked: number[] = [];
+        const source = {
+            id: "dom-1714-resized",
+            page: (offset: bigint) => {
+                const from = Number(offset);
+                asked.push(from / 200);
+                return some(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) =>
+                    planRow(`u${pad(from + i, 4)}`, span())));
+            },
+            total: () => some(2_000n),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+        // The last session rested on u1300 while a window held fifty entries: its twenty-seventh window, 26. At two
+        // hundred a window that number is entry 5,200, past the end of the two thousand; the row is in window 6.
+        localStorage.setItem(keptName("plan-1714-resized"), JSON.stringify({
+            collapse: [], charts: [],
+            anchor: { key: rowItem("u1300"), offset: 0, index: 500, window: 26, entries: 50 },
+        }));
+        const { container } = renderPlan(planRoot([], { source }), "plan-1714-resized");
+        await waitFor(() => expect(container.querySelector(rowSel("u1300"))).toBeTruthy(), { timeout: 5_000 });
+        expect(frameOf(container).scrollTop).toBeGreaterThan(0);
+        // Its own window and those beside it: never the last, where a window number read at the size now would land.
+        expect(asked).toContain(6);
+        expect(asked).not.toContain(9);
+        // The place kept from here says the size its window is counted in.
+        await scrollAndSettle(container, 1_310 * 32);
+        expect(storedAt("plan-1714-resized").anchor).toMatchObject({ key: rowItem("u1310"), window: 6, entries: 200 });
+    });
+
     test("a paged canvas whose source has shrunk past the anchor's window opens its last window and settles there — the row gone, its clamped index — and keeps the view's place again (#1398)", async () => {
         // A thousand rows now: five windows, the last u0800–u0999.
         const source = {

@@ -76,6 +76,15 @@
  * the window of a row it has not read, and puts the view back as many px into
  * the window once it is in — its rows, or its failure's band.
  *
+ * # A saved window is counted at its own size (#1714)
+ *
+ * A place saved over a row names the window the row came from, and how many
+ * entries a window held then. A canvas's windows hold as many as its root
+ * says, which a deploy may change: a remount opens the window that holds the
+ * entry the saved one began at, at the size it reads at now — never the
+ * window of the same number, which at another size is other rows, or past
+ * the source's end.
+ *
  * @packageDocumentation
  */
 
@@ -1413,7 +1422,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(saved.window * paging.getSnapshot().windowEntries, block);
+                        // The entry its window began at, by the size the window was counted in (#1714): a window's size
+                        // is the root's to say, and may be another now. An anchor that names none is read at the size now.
+                        paging.openAt(saved.window * (saved.entries ?? paging.getSnapshot().windowEntries), block);
                         return;
                     }
                     // On its way still. Once the jump has settled — the window opened for it in and drawn: its last, past
@@ -1444,14 +1455,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             const band = item.kind === "band" ? item.band : item.kind === "failed" ? item.failure : undefined;
             const unread = band === undefined ? undefined : paging.unreadPlace(band, at.offset);
             const origin = item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) : undefined;
+            // A window's number is counted in windows of the size the canvas reads at now, which the place says (#1714).
+            const entries = paging.getSnapshot().windowEntries;
             const next: PlanAnchor = band !== undefined && unread !== undefined
                 ? {
                     key: bodyItemKey(item),
                     offset: unread.px,
                     index: at.index,
-                    window: Math.floor(unread.element / paging.getSnapshot().windowEntries),
+                    window: Math.floor(unread.element / entries),
                     block: band.block,
                     element: unread.element,
+                    entries,
                 }
                 : {
                     key: bodyItemKey(item),
@@ -1459,6 +1473,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     index: at.index,
                     window: origin?.w ?? null,
                     block: origin?.block ?? null,
+                    ...(origin !== undefined && { entries }),
                 };
             if (sameAnchor(persisted.anchor, next)) return;
             persisted = { ...persisted, anchor: next };
