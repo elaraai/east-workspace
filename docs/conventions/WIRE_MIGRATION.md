@@ -1501,9 +1501,20 @@ Each wire changed under this rule, with the kind it is.
   and `Candidate`, are constructors (`FitRequest({ key })`) where they were
   types, and `Roster.Types.OptimiseRequest({ edges: true, key })` holds
   `fixed` at the duties' key type. At the default key, String, each is the
-  type it was, so an app's fit and optimiser over records keyed by String keep
-  their signatures, the constructor called (`Allocation.Types.FitRequest()`);
-  one over another key type is new. A UI value encoded under either type does
+  type it was, so the fit of an app over records keyed by String takes and
+  answers what it did; one over another key type is new. An app's source
+  changes all the same, whatever its keys: each of these was a value and is
+  now a function to call. `Allocation.Types.FitAsk`, `FitRequest`,
+  `FitContext`, `FitResult` and `Candidate`, and `Roster.Types.FitContext` and
+  `Candidate`, are written `Allocation.Types.FitRequest()`; the ready-made
+  parts `Allocation.fit`, `candidates`, `answer` and `lookahead`, and
+  `Roster.answer`, are written `Allocation.answer()`. An app written against
+  the release before does not compile until each is called. The shared
+  session's declaration (`EditingType`) keeps its fields, and a keyed session
+  now says one it always left `none`: `idField`, the field of an entry that
+  holds its key, of the key's own type, where its kind names one (`keyField`).
+  The session reads none of it for a keyed source; the builder's renderer
+  keeps a new row's key there. A UI value encoded under either type does
   not decode under the other: packages are re-exported, and the dataflow
   computes each UI task's output again under the new type. A UI task's output
   is not stored state, and an application's records keep their types, so no
