@@ -564,6 +564,14 @@ test.describe("The builder's inspector's alerts (#1674)", () => {
             foot: { says: ["Delete", "Cancel", "Save"], at: [0, 8, 0], line: [true, 26, true] },
         });
         expect(await passes(section)).toBe(false);
+        // Its field's list (the manual test read `mean margin 0.19 – 0.19` here): each field's range over the rows the
+        // alert checks — the quarter's regions — its ends told apart.
+        await section.locator("[data-query-line=row] [data-slot-key]").first().click();
+        // The list opens again, under a new id, once its summary arrives: found by what it holds, on every retry.
+        await expect(page.getByRole("listbox").filter({ hasText: "mean margin" }).getByRole("option")).toHaveText([
+            /^region\s*text\s*5 values$/, /^revenue\s*number\s*38,394\.85 – 116,549\.42$/, /^mean margin\s*number, sometimes missing\s*0\.19 – 0\.20$/,
+        ]);
+        await escapeLayer(page);
         await section.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(section.locator("[data-studio-alert-editor]")).toHaveCount(0);
         expect((await listed(section)).map((row) => row.name)).toEqual(["Margin under 19%"]);

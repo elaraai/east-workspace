@@ -15,7 +15,7 @@
  */
 
 import {
-    none, some, variant,
+    FloatType, equalFor, none, some, variant,
     type EastType, type SummaryLeafType, type ValueTypeOf,
 } from "@elaraai/east";
 import type { Formatters, TickFormatOpt } from "@elaraai/east-ui-components";
@@ -303,6 +303,36 @@ export function dataNumber(n: number, field: StepField, words: QueryWords): stri
     return f.value(n, field.kind === "int" ? WHOLE : CENTS);
 }
 
+/** Whether two numbers are one, as East compares Floats. */
+const sameNumber = equalFor(FloatType);
+
+/** The most decimals a range's ends are told apart by, before each is printed as East prints a Float. */
+const SPAN_DECIMALS = 6n;
+
+/**
+ * A number field's least and greatest, as a summary's range prints them: each
+ * as {@link dataNumber} prints it — and, where two different numbers print the
+ * same so, with the fewest decimals that tell them apart: a share's
+ * `0.187 – 0.194`, never `0.19 – 0.19`. Ends that six decimals do not tell
+ * apart are each as East prints a Float, every digit.
+ *
+ * @param min - the least
+ * @param max - the greatest
+ * @param field - the field they belong to
+ * @param words - the words
+ * @returns the two texts
+ */
+export function spanNumbers(min: number, max: number, field: StepField, words: QueryWords): { from: string; to: string } {
+    const f = words.formatters;
+    let [from, to] = [dataNumber(min, field, words), dataNumber(max, field, words)];
+    if (from !== to || sameNumber(min, max)) return { from, to };
+    for (let places = 3n; from === to && places <= SPAN_DECIMALS; places++) {
+        const format: TickFormatOpt = variant("number", { minimumFractionDigits: some(places), maximumFractionDigits: some(places), signDisplay: none });
+        [from, to] = [f.value(min, format), f.value(max, format)];
+    }
+    return from === to ? { from: f.float(min), to: f.float(max) } : { from, to };
+}
+
 /**
  * A value a step holds, as its slot shows it: text as written, a number as
  * data — every digit, never grouped.
@@ -339,7 +369,8 @@ export function leafPath(field: StepField, list?: StepField): string {
 /**
  * What a summary says of a field, as a slot's offer shows it
  * (`Query Editor Spec.md` §4.5): `8 values`, `0.85 – 3,646.84`, `3 cases`,
- * `1–4 each`, `· 12 missing`.
+ * `1–4 each`, `· 12 missing`. A range's ends are told apart
+ * ({@link spanNumbers}).
  *
  * @param field - the field
  * @param leaf - its leaf of the summary
@@ -366,9 +397,7 @@ export function fieldSummaryWords(field: StepField, leaf: SummaryLeaf | undefine
             break;
         }
         case "int": case "num": {
-            if (leaf.numbers.type === "some") {
-                parts.push(m.span({ from: dataNumber(leaf.numbers.value.min, field, words), to: dataNumber(leaf.numbers.value.max, field, words) }));
-            }
+            if (leaf.numbers.type === "some") parts.push(m.span(spanNumbers(leaf.numbers.value.min, leaf.numbers.value.max, field, words)));
             break;
         }
         case "date": {
