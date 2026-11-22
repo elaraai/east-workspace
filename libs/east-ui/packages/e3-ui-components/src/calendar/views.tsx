@@ -356,7 +356,8 @@ function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to
 
 /**
  * A resource's line under its name: its meta and its booked hours over a span — or, where a kind past the cap is placed
- * on its kind, that its hours are not counted (#1424), never a sum that leaves those events out unsaid.
+ * on its kind, that its hours are not counted (#1424), never a sum that leaves those events out unsaid. A resource with
+ * no meta says its hours alone: no separator stands before nothing, taking room its hours then lack in a narrow column.
  *
  * @param props - The views' props: what is uncounted, and the app's formatters
  * @param row - The resource's row
@@ -365,8 +366,8 @@ function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to
  */
 function bookedWords(props: Pick<CalendarViewsProps, "uncounted" | "format">, row: CalendarRow, hours: (row: CalendarRow) => number): string {
     const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
-    if (row.resource.type === "some" && uncounted.resources.has(row.resource.value.kind)) return `${row.meta} · hours not counted`;
-    return `${row.meta} · ${props.format.number(hours(row))} h booked`;
+    const said = row.resource.type === "some" && uncounted.resources.has(row.resource.value.kind) ? "hours not counted" : `${props.format.number(hours(row))} h booked`;
+    return row.meta.length === 0 ? said : `${row.meta} · ${said}`;
 }
 
 /**
