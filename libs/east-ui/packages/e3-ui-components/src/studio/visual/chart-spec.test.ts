@@ -245,6 +245,15 @@ describe("chartModel", () => {
         expect(axisOf(model.spec, "axisRight")!.ticks).toHaveLength(3);
     });
 
+    it("steps an axis of shares by whole percents, as its ticks print them: none prints rounded, and no two alike", async () => {
+        // Each region's average margin, a share, on a line of its own and on a combo's right axis.
+        const wholePercents = (ticks: readonly number[] | undefined) => ticks?.map((tick) => Math.abs(tick * 100 - Math.round(tick * 100)) < 1e-9);
+        const line = await modelOf(v.of("orders", v.line({ x: v.group("region"), values: [v.mean("margin")] })), { filters: [] });
+        expect(wholePercents(axisOf(line.spec, "axisLeft")!.ticks)).toEqual([true, true, true]);
+        const combo = await modelOf(v.of("orders", v.combo({ x: v.group("region"), columns: [v.left(v.sum("revenue"))], lines: [v.right(v.mean("margin"))] })), { filters: [] });
+        expect(wholePercents(axisOf(combo.spec, "axisRight")!.ticks)).toEqual([true, true, true]);
+    });
+
     it("draws a scatter's points at their two values, its split colouring them (CHT-6)", async () => {
         const model = await modelOf(v.of("orders", v.scatter({ point: "customer", x: v.sum("units"), y: v.sum("revenue"), split: "region" })));
         const frame = frameOf(model.spec);

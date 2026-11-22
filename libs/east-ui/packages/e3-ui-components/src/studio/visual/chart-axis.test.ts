@@ -50,6 +50,19 @@ describe("axisTicks", () => {
         expect(axisTicks(7.3, 7.9, false).ticks).toEqual([7, 7.5, 8]);
     });
 
+    it("steps by whole units where its numbers say no finer — a percent's whole percents — so no two ticks print alike, and none prints rounded", () => {
+        // Average margins of 19.3% to 19.6%: on their own step the ticks are 19.2%, 19.4% and 19.6%, which whole percents print 19%, 19%, 20%.
+        expect(axisTicks(0.193, 0.196, false).ticks).toEqual([0.192, 0.194, 0.196]);
+        expect(axisTicks(0.193, 0.196, false, 2, 0.01).ticks).toEqual([0.19, 0.2, 0.21]);
+        // 15% to 20%: a step of 2.5% would print its middle tick, 17.5%, as 18%. (The step starts on 0.15 itself: 0.15
+        // over 0.025 is a float's 5.999…, which is its sixth step.)
+        expect(axisTicks(0.15, 0.2, false).ticks).toEqual([0.15, 0.175, 0.2]);
+        expect(axisTicks(0.15, 0.2, false, 2, 0.01).ticks).toEqual([0.15, 0.18, 0.21]);
+        // A step already of whole units is the same one.
+        expect(axisTicks(0.12, 0.29, false, 2, 0.01).ticks).toEqual([0.1, 0.2, 0.3]);
+        expect(axisTicks(0, 1, true, 2, 0.01).ticks).toEqual([0, 0.5, 1]);
+    });
+
     it("gives one value alone, or none, a domain of one step about it", () => {
         expect(axisTicks(0, 0, true).ticks).toEqual([0, 0.5, 1]);
         expect(axisTicks(40, 40, true).ticks).toEqual([0, 20, 40]);

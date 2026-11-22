@@ -360,9 +360,14 @@ function drawn(data: readonly ChartSeries[], stacked: boolean): number[] {
     return [...totals.values()];
 }
 
-/** A measure's ticks over what is drawn on it; `undefined` when nothing is. */
-function ticksOver(values: readonly number[], zero: boolean, intervals = 2): AxisTicks | undefined {
-    return values.length === 0 ? undefined : axisTicks(Math.min(...values), Math.max(...values), zero, intervals);
+/** The least an axis's ticks say apart, by its format: a share's are whole percents; any other's, whatever its step is. */
+function unitOf(format: ValueFormat | undefined): number {
+    return format?.type === "percent" ? 0.01 : 0;
+}
+
+/** A measure's ticks over what is drawn on it, a whole number of its format's units apart; `undefined` when nothing is. */
+function ticksOver(values: readonly number[], zero: boolean, format: ValueFormat | undefined, intervals = 2): AxisTicks | undefined {
+    return values.length === 0 ? undefined : axisTicks(Math.min(...values), Math.max(...values), zero, intervals, unitOf(format));
 }
 
 /** Each value's goal, for the axis to hold. */
@@ -424,7 +429,7 @@ function seriesChart(kind: "column" | "bar" | "line" | "area", chart: SeriesChar
     const percent = stack === "percent";
     const format: ValueFormat | undefined = percent ? variant("percent", null) : formatOf(values[0], made);
     // The measure's ticks: over every value drawn and each goal, from zero for a mark filled from it.
-    const axis = percent ? SHARES : ticksOver([...drawn(current, stack !== undefined), ...drawn(reference, false), ...goalsOf(values)], kind !== "line");
+    const axis = percent ? SHARES : ticksOver([...drawn(current, stack !== undefined), ...drawn(reference, false), ...goalsOf(values)], kind !== "line", format);
     const goals = goalNodes(percent ? [] : values, axis, made);
     if (horizontal) {
         const [only] = current;
@@ -526,14 +531,15 @@ function comboChart(chart: ComboChart, read: ReadGroups, made: Made): ChartModel
     const valuesOn = (right: boolean) => axes.filter(({ axis }) => axis.right === right).map(({ axis }) => axis.value);
     const left = valuesOn(false);
     const right = valuesOn(true);
-    const leftTicks = ticksOver([...sides.left.values, ...goalsOf(left)], sides.left.zero);
+    const [leftFormat, rightFormat] = [formatOf(left[0], made), formatOf(right[0], made)];
+    const leftTicks = ticksOver([...sides.left.values, ...goalsOf(left)], sides.left.zero, leftFormat);
     const children: ChartSpec[] = [
         gridOf("gridRows"),
         ...layers,
         ...goalNodes(left, leftTicks, made),
         axisOf("axisBottom"),
-        axisOf("axisLeft", { format: formatOf(left[0], made), ticks: leftTicks }),
-        ...(right.length > 0 ? [axisOf("axisRight", { format: formatOf(right[0], made), ticks: ticksOver(sides.right.values, sides.right.zero) })] : []),
+        axisOf("axisLeft", { format: leftFormat, ticks: leftTicks }),
+        ...(right.length > 0 ? [axisOf("axisRight", { format: rightFormat, ticks: ticksOver(sides.right.values, sides.right.zero, rightFormat) })] : []),
     ];
     return {
         spec: frameOf(children, { x: "band", y: "linear" }, chart.legend.type !== "hidden" && axes.length > 1, right.length > 0), shown, caption: undefined, numbers: "ticks",
@@ -582,8 +588,8 @@ function scatterChart(chart: ScatterChart, read: ReadGroups, made: Made): ChartM
         gridOf("gridRows"),
         layerOf(data, "scatter"),
         // Four ticks across and three up, each axis over its own values.
-        axisOf("axisBottom", { format: formatOf(chart.x, made), ticks: ticksOver(every.flatMap(point => (point.x.type === "number" ? [point.x.value] : [])), false, 3) }),
-        axisOf("axisLeft", { format: formatOf(chart.y, made), ticks: ticksOver(every.map(point => point.value), false) }),
+        axisOf("axisBottom", { format: formatOf(chart.x, made), ticks: ticksOver(every.flatMap(point => (point.x.type === "number" ? [point.x.value] : [])), false, formatOf(chart.x, made), 3) }),
+        axisOf("axisLeft", { format: formatOf(chart.y, made), ticks: ticksOver(every.map(point => point.value), false, formatOf(chart.y, made)) }),
     ];
     const caption = made.m.scatterCaption({
         x: midSentence(valueName(chart.x, made.source, made.m)), xUnit: unitLabel(chart.x, made.source, made.m),
