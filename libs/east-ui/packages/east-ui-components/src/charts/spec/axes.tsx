@@ -19,7 +19,7 @@ import { GridRows, GridColumns } from "@visx/grid";
 import { useFormatters } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { T, useScales, type Axis } from "./context.js";
-import { cutLabel, labelLine, labelWidth, tickPx, tickTextCss, ticksThatFit, titleTextCss } from "./labels.js";
+import { LINE_GAP, cutLabel, labelLine, labelWidth, tickPx, tickTextCss, ticksThatFit, titleTextCss } from "./labels.js";
 import { domainReach, measureFormatter, tickFormatter } from "./tick-format.js";
 
 /** An axis's scale, as its ticks read it: a position for a value, its domain, and a linear's or a time's ticks or a band's width. */
@@ -42,7 +42,8 @@ function ticksOf(scale: TickScale, count: number): unknown[] {
 /**
  * The ticks an axis beside the plot labels (the chart rules; #1671, #1692): its own tick values, else its scale's for
  * its count — every category of a band given none — and of them, those whose labels clear one another, each a line of
- * its size centred on its tick: as many as fit keep theirs, the first and the last among them.
+ * its size centred on its tick, its own line's leading and 2 between it and the next (`LINE_GAP`): as many as fit keep
+ * theirs, the first and the last among them. A bar chart's bands 16 apart or more each keep their name.
  *
  * @param scale - The axis's scale
  * @param own - The author's own tick values; `undefined` for none
@@ -57,7 +58,7 @@ function sideTicks(scale: TickScale, own: readonly unknown[] | undefined, count:
         return { value: v, at, from: at - line / 2, to: at + line / 2 };
     });
     // Read down the axis, as they stand; kept in the order they were asked for.
-    const kept = ticksThatFit(placed.sort((a, b) => a.at - b.at));
+    const kept = ticksThatFit(placed.sort((a, b) => a.at - b.at), LINE_GAP);
     return wanted.filter(v => kept.includes(v));
 }
 

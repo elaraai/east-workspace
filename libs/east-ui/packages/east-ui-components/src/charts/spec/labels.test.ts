@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describe, expect, test } from "vitest";
-import { cutLabel, labelLine, marginsThatFit, plotLeast } from "./labels.js";
+import { LINE_GAP, cutLabel, labelLine, marginsThatFit, plotLeast, ticksThatFit } from "./labels.js";
 
 describe("marginsThatFit", () => {
     test("each side the more of what its labels need and the chart rules' own, while the plot keeps a third", () => {
@@ -38,6 +38,27 @@ describe("cutLabel", () => {
         expect(cutLabel("Granite Peak", 72, 10)).toBe("Granite Peak");
         expect(cutLabel("Granite Peak", 30, 10)).toBe("Gran…");
         expect(cutLabel("Granite Peak", 4, 10)).toBe("G…");
+    });
+});
+
+describe("ticksThatFit", () => {
+    /** Ticks a steady step apart, each label an extent about its tick. */
+    const steady = (count: number, step: number, extent: number) => Array.from({ length: count }, (_, i) => ({ value: i, at: i * step, from: i * step - extent / 2, to: i * step + extent / 2 }));
+
+    test("labels side by side keep 8 between them: as many as fit, the first and the last among them", () => {
+        // Five labels 40 wide, 50 apart: 10 between them.
+        expect(ticksThatFit(steady(5, 50, 40))).toEqual([0, 1, 2, 3, 4]);
+        // 44 apart, 4 between them: every other one.
+        expect(ticksThatFit(steady(5, 44, 40))).toEqual([0, 2, 4]);
+    });
+
+    test("labels one over another, each on its own line, stand 2 clear: five bars 21 apart keep every name — side by side they would keep three", () => {
+        // A bar chart's five bands 21 apart, their names on 14px lines.
+        const names = steady(5, 21, labelLine(11));
+        expect(ticksThatFit(names)).toEqual([0, 2, 4]);
+        expect(ticksThatFit(names, LINE_GAP)).toEqual([0, 1, 2, 3, 4]);
+        // Bands under a line and its clearance apart still give way: 15 each.
+        expect(ticksThatFit(steady(5, 15, labelLine(11)), LINE_GAP)).toEqual([0, 2, 4]);
     });
 });
 

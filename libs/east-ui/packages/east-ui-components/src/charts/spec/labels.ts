@@ -26,8 +26,15 @@ const MONO_ADVANCE = 0.6;
  *  from the frame's edge. */
 export const LEFT_LABEL_ROOM = 15;
 
-/** The least room between two labels along an axis, in px. */
+/** The least room between two labels side by side along an axis, in px. */
 const LABEL_GAP = 8;
+
+/**
+ * The least room between two labels one over another down an axis beside the plot, in px. Each stands on a line of its
+ * own ({@link labelLine}), which holds its own leading: two lines 2 apart read as two lines, where two words 2 apart
+ * on one line read as one.
+ */
+export const LINE_GAP = 2;
 
 /** The chart rules' grid margins (`guidelines/charts.md`): what a frame given none takes. */
 export const RULE_MARGIN: Margin = { top: 24, right: 24, bottom: 28, left: 44 };
@@ -189,6 +196,7 @@ export function labelWidth(text: string, px: number): number {
  * whatever their length (the chart rules; #1671).
  *
  * @param ticks - The ticks, each with its position along the axis and its label's extent about it, in px
+ * @param gap - The least room between two labels, px: side by side 8, unless given; one over another, {@link LINE_GAP}
  * @returns The ticks that keep their labels, in the order given
  *
  * @remarks
@@ -198,7 +206,7 @@ export function labelWidth(text: string, px: number): number {
  * - Ticks at uneven positions — a numeric axis pinned to its points — keep
  *   each one, from the start, that clears the one kept before it.
  */
-export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at: number; readonly from: number; readonly to: number }[]): V[] {
+export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at: number; readonly from: number; readonly to: number }[], gap: number = LABEL_GAP): V[] {
     if (ticks.length < 2) return ticks.map(tick => tick.value);
     const steps = ticks.slice(1).map((tick, i) => tick.at - ticks[i]!.at);
     const step = steps[0]!;
@@ -209,7 +217,7 @@ export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at
         const kept = new Set<V>();
         let edge = -Infinity;
         for (const tick of along) {
-            if (tick.from < edge + LABEL_GAP) continue;
+            if (tick.from < edge + gap) continue;
             kept.add(tick.value);
             edge = tick.to;
         }
@@ -219,7 +227,7 @@ export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at
     const last = ticks.length - 1;
     for (let spans = last; spans >= 1; spans--) {
         const kept = Array.from({ length: spans + 1 }, (_, i) => ticks[Math.round((i * last) / spans)]!);
-        if (kept.every((tick, i) => i === 0 || tick.from >= kept[i - 1]!.to + LABEL_GAP)) return kept.map(tick => tick.value);
+        if (kept.every((tick, i) => i === 0 || tick.from >= kept[i - 1]!.to + gap)) return kept.map(tick => tick.value);
     }
     return [ticks[0]!.value];
 }
