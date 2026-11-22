@@ -7,57 +7,108 @@
  * Decoded segments, kept (#1351): what every dataset route reads a collection
  * through.
  *
- * A collection is a manifest of segment objects, and a segment is the unit of
- * every read: nothing reads inside one, so a window, a key search or a row
- * looked up by its key costs that segment's read and decode. The routes read
- * the segments a request touches here, several at a time, each once, and each
- * decoded segment is kept by its content hash, bounded by its decoded weight —
- * the measure every runtime's pager cache counts a segment by (east's
- * `decodedWeightFor`) — so a pan, a repeated window or a second search of the
- * same segment decodes nothing. A segment two requests ask for at once is
- * read once, for both.
+ * A collection is a manifest of segment objects, and a segment is the unit a
+ * read fetches. It is not the unit a read decodes: a segment is walked once —
+ * its keys checked, where each row starts noted, no value built (east's
+ * `beast2SegmentRowsFor`) — and a search's bounds and a read's rows are then
+ * decoded from its bytes, each when it is asked for. So a search of a
+ * segment's keys, or a read of a few of its rows, costs the walk and those
+ * rows, never every row the segment holds.
  *
- * A decoded segment is pure data, and it is decoded frozen: every request it
- * serves shares it, and none can change what a later one is served. An entry
- * is keyed by the backend it was read through and the repository it was read
- * from as well as its hash, as the routes' cache of opened datasets is, so two
- * backends, or two repositories, holding the same bytes never share one.
+ * The routes read the segments a request touches here, several at a time,
+ * each once, and each is kept by its content hash, bounded by its weight: the
+ * bytes it holds its rows in, which is a fraction of what the rows weigh
+ * built. So a pan, a repeated window or a second search of the same segment
+ * fetches and walks nothing. A segment two requests ask for at once is read
+ * once, for both. A Set's segment, and one whose rows hold a function, cannot
+ * be read from its bytes: it is decoded whole, kept at its decoded weight —
+ * the measure every runtime's pager cache counts a segment by (east's
+ * `decodedWeightFor`) — and read the same way.
+ *
+ * A row is decoded frozen, and anew for each read, so no request can change
+ * what a later one is served. An entry is keyed by the backend it was read
+ * through and the repository it was read from as well as its hash, as the
+ * routes' cache of opened datasets is, so two backends, or two repositories,
+ * holding the same bytes never share one.
  *
  * @packageDocumentation
  */
 
 import { compareFor, openBeast2PagesFor, segmentKeyTypeOf, type EastTypeValue } from '@elaraai/east';
-import { decodedWeightFor } from '@elaraai/east/internal';
+import { beast2SegmentRowsFor, type Beast2SegmentRows } from '@elaraai/east/internal';
 import { eachAtMost, type DatasetSegments, type StorageBackend } from '@elaraai/e3-core/portable';
 
 /** How many segment objects one request reads at once. */
 export const SEGMENT_READ_CONCURRENCY = 8;
 
 /**
- * The decoded weight the kept segments may hold between them, in bytes: 64
- * MiB. The segment decoded last always stays, so one segment over the budget
- * is still kept, alone.
+ * The weight the kept segments may hold between them, in bytes: 64 MiB. The
+ * segment read last always stays, so one segment over the budget is still
+ * kept, alone.
  */
 export const DECODED_SEGMENTS_MAX_WEIGHT = 64 * 1024 * 1024;
 
-/** One segment, decoded. */
+/** One segment, read: its rows, each decoded when it is asked for. */
 export interface DecodedSegment {
-  /** The segment's collection, frozen: an array, a `SortedSet` or a `SortedMap`. */
-  readonly value: unknown;
-  /** A Set's elements or a Dict's keys, in order — what a search bisects. Empty
-   *  for an Array, which has no key order. */
-  readonly keys: readonly unknown[];
-  /** A Dict's values, in its keys' order. Empty for a Set or an Array. */
-  readonly values: readonly unknown[];
   /** How many elements (pairs, for a Dict) it holds. */
   readonly count: number;
+  /**
+   * A Set's element or a Dict's key at a row — what a search bisects.
+   *
+   * @param row - The row, from 0, within the segment
+   * @returns The key, frozen
+   * @throws {SegmentCorruptError} When the row's bytes do not decode
+   */
+  key(row: number): unknown;
+  /**
+   * The row as an element of its collection: an Array's item, a Set's element
+   * or a Dict's `[key, value]` pair.
+   *
+   * @param row - The row, from 0, within the segment
+   * @returns The element, its values frozen
+   * @throws {SegmentCorruptError} When the row's bytes do not decode
+   */
+  element(row: number): unknown;
 }
 
-/** A kept segment: its decode, shared while it is in flight, and its weight
+/** A segment's rows as east reads them, a row that does not decode answered
+ *  as the segment's fault, as a segment that does not walk is. */
+class Rows implements DecodedSegment {
+  readonly count: number;
+
+  constructor(private readonly rows: Beast2SegmentRows) {
+    this.count = rows.count;
+  }
+
+  key(row: number): unknown {
+    try {
+      return this.rows.key(row);
+    } catch (err) {
+      throw corrupt(err);
+    }
+  }
+
+  element(row: number): unknown {
+    try {
+      return this.rows.element(row);
+    } catch (err) {
+      throw corrupt(err);
+    }
+  }
+}
+
+/** What a segment's bytes threw, as the segment's fault: the store gave the
+ *  bytes its name holds, so that they do not read as this collection's
+ *  segment is never the store's. */
+function corrupt(err: unknown): SegmentCorruptError {
+  return new SegmentCorruptError(err instanceof Error ? err.message : String(err));
+}
+
+/** A kept segment: its read, shared while it is in flight, and its weight
  *  once it has landed. */
 interface Kept {
   readonly decoded: Promise<DecodedSegment>;
-  /** The decoded weight it counts for; 0 until it has landed. */
+  /** The weight it counts for; 0 until it has landed. */
   weight: number;
   landed: boolean;
 }
@@ -91,16 +142,19 @@ export function backendIdOf(storage: StorageBackend): number {
   return id;
 }
 
-/** Each collection type's decode and weigher, built once. */
-const decoders = new WeakMap<EastTypeValue, { open: (bytes: Uint8Array) => { segment(i: number): unknown }; weigh: (value: unknown) => number }>();
+/** Each collection type's reader of one segment object's rows, built once. */
+const readers = new WeakMap<EastTypeValue, (bytes: Uint8Array) => Beast2SegmentRows>();
 
-function decoderFor(typeValue: EastTypeValue): { open: (bytes: Uint8Array) => { segment(i: number): unknown }; weigh: (value: unknown) => number } {
-  let decoder = decoders.get(typeValue);
-  if (decoder === undefined) {
-    decoder = { open: openBeast2PagesFor(typeValue, { frozen: true }), weigh: decodedWeightFor(typeValue) };
-    decoders.set(typeValue, decoder);
+function readerFor(typeValue: EastTypeValue): (bytes: Uint8Array) => Beast2SegmentRows {
+  let reader = readers.get(typeValue);
+  if (reader === undefined) {
+    const open = openBeast2PagesFor(typeValue, { frozen: true });
+    const rowsOf = beast2SegmentRowsFor(typeValue);
+    // A segment object holds its one segment.
+    reader = (bytes) => rowsOf(open(bytes), 0);
+    readers.set(typeValue, reader);
   }
-  return decoder;
+  return reader;
 }
 
 /** Lets the least recently used landed segments go until the kept weight is
@@ -114,59 +168,34 @@ function evict(landed: string): void {
   }
 }
 
-/** Decodes segment `i` of a collection, read through its backend. */
+/** Reads segment `i` of a collection through its backend, and walks it. */
 async function decode(segments: DatasetSegments, i: number): Promise<{ segment: DecodedSegment; weight: number }> {
-  const { open, weigh } = decoderFor(segments.typeValue);
+  const read = readerFor(segments.typeValue);
   const bytes = await segments.segment(i);
-  let value: unknown;
+  let rows: Beast2SegmentRows;
   try {
-    value = open(bytes).segment(0);
+    rows = read(bytes);
   } catch (err) {
-    // The store gave the bytes its name holds; that they do not decode as
-    // this collection's segment is the segment's fault, never the store's.
-    throw new SegmentCorruptError(err instanceof Error ? err.message : String(err));
+    throw corrupt(err);
   }
   decodes++;
-  const kind = segments.typeValue.type;
-  let keys: unknown[] = [];
-  let values: unknown[] = [];
-  let count: number;
-  if (kind === 'Dict') {
-    const map = value as ReadonlyMap<unknown, unknown>;
-    keys = new Array<unknown>(map.size);
-    values = new Array<unknown>(map.size);
-    let at = 0;
-    for (const [key, item] of map) {
-      keys[at] = key;
-      values[at] = item;
-      at++;
-    }
-    count = map.size;
-  } else if (kind === 'Set') {
-    keys = [...(value as ReadonlySet<unknown>)];
-    count = keys.length;
-  } else {
-    count = (value as readonly unknown[]).length;
-  }
-  // The arrays a search bisects cost a reference an element beside the value.
-  const weight = weigh(value) + 8 * (keys.length + values.length);
-  return { segment: { value, keys, values, count }, weight };
+  return { segment: new Rows(rows), weight: rows.weight };
 }
 
 /**
- * Segment `i` of a collection, decoded: from the kept segments, or read and
- * decoded once and kept.
+ * Segment `i` of a collection, its rows to read: from the kept segments, or
+ * read and walked once and kept.
  *
  * @param storage - The backend the collection is read through
  * @param repo - The repository it is in
  * @param segments - The opened collection
  * @param i - The segment's index
- * @returns The decoded segment
+ * @returns The segment's rows
  * @throws {SegmentCorruptError} When the segment does not hold what its manifest
  *   says of it: another element count, a first key that is not its fence, or
  *   a last key at or past the next segment's fence
  */
-export async function decodedSegment(
+async function decodedSegment(
   storage: StorageBackend, repo: string, segments: DatasetSegments, i: number,
 ): Promise<DecodedSegment> {
   const key = `${backendIdOf(storage)}\u0000${repo}\u0000${segments.manifest.entries[i]!.hash}`;
@@ -201,14 +230,15 @@ export async function decodedSegment(
 }
 
 /**
- * The segments of a collection a request touches, decoded: each read once,
- * {@link SEGMENT_READ_CONCURRENCY} at a time, through the kept segments.
+ * The segments of a collection a request touches, their rows to read: each
+ * read once, {@link SEGMENT_READ_CONCURRENCY} at a time, through the kept
+ * segments.
  *
  * @param storage - The backend the collection is read through
  * @param repo - The repository it is in
  * @param segments - The opened collection
  * @param indices - The segments, in any order, repeats and all
- * @returns Each segment's decode, by its index
+ * @returns Each segment's rows, by its index
  * @throws {SegmentCorruptError} When a segment does not hold what its manifest
  *   says of it
  */
@@ -239,14 +269,16 @@ export class SegmentCorruptError extends Error {
 }
 
 /**
- * Checks a decoded segment against its manifest: its element count, and, for
- * a Set or a Dict, that its first key is its fence and its last key falls
- * before the next segment's fence — the checks a pager's window makes across
- * the segments it reads, made for each segment a route reads.
+ * Checks a segment against its manifest: its element count, and, for a Set or
+ * a Dict, that its first key is its fence and its last key falls before the
+ * next segment's fence — the checks a pager's window makes across the segments
+ * it reads, made for each segment a route reads. A kept segment is checked
+ * for each collection it is read as a segment of: it is kept by its content,
+ * and what a manifest says of it is the manifest's.
  *
  * @param segments - The opened collection
  * @param i - The segment's index
- * @param segment - Its decode
+ * @param segment - Its rows
  * @throws {SegmentCorruptError} When it does not hold what the manifest says
  */
 async function checkSegmentOrder(segments: DatasetSegments, i: number, segment: DecodedSegment): Promise<void> {
@@ -254,13 +286,13 @@ async function checkSegmentOrder(segments: DatasetSegments, i: number, segment: 
     throw new SegmentCorruptError(`beast2 v5: segment ${i} holds ${segment.count} elements, and its manifest says ${segments.counts[i]}`);
   }
   const keyType = segmentKeyTypeOf(segments.typeValue);
-  if (keyType === null || segment.keys.length === 0) return;
+  if (keyType === null || segment.count === 0) return;
   const cmp = comparators(keyType);
   const noun = segments.typeValue.type === 'Dict' ? 'key' : 'element';
-  if (cmp(segment.keys[0], await segments.fence(i)) !== 0) {
+  if (cmp(segment.key(0), await segments.fence(i)) !== 0) {
     throw new SegmentCorruptError(`beast2 v5: segment ${i}'s first ${noun} is not its fence — the wire must hold the canonical value (corrupt or pre-contract blob)`);
   }
-  if (i + 1 < segments.segmentCount && cmp(segment.keys[segment.keys.length - 1], await segments.fence(i + 1)) >= 0) {
+  if (i + 1 < segments.segmentCount && cmp(segment.key(segment.count - 1), await segments.fence(i + 1)) >= 0) {
     throw new SegmentCorruptError(`beast2 v5: segments ${i} and ${i + 1} are not disjoint ascending ${noun} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
   }
 }
@@ -284,29 +316,50 @@ export function comparators(keyType: EastTypeValue): (a: unknown, b: unknown) =>
 }
 
 /**
- * The first index whose element satisfies a predicate that is false, then
- * true, over the elements in order: a binary search.
+ * The first of some rows, in order, that a predicate holds at, where it is
+ * false, then true, over them: a binary search, which asks of some ten rows of
+ * a thousand.
  *
- * @param items - The elements, in order
- * @param pred - The monotone predicate
- * @returns The first index it holds at, or `items.length` when it holds at none
+ * @param count - How many rows there are
+ * @param pred - The monotone predicate, of a row from 0
+ * @returns The first row it holds at, or `count` when it holds at none
  */
-export function firstWhere(items: readonly unknown[], pred: (item: unknown) => boolean): number {
+export function firstWhere(count: number, pred: (row: number) => boolean): number {
   let lo = 0;
-  let hi = items.length;
+  let hi = count;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (pred(items[mid])) hi = mid;
+    if (pred(mid)) hi = mid;
     else lo = mid + 1;
   }
   return lo;
 }
 
 /**
+ * Where a key falls in a Dict's segment, and the pair the segment holds under
+ * it: found by bisection of its keys, the one value decoded when the key is
+ * there.
+ *
+ * @param segment - The segment that can hold the key
+ * @param cmp - The key type's comparator
+ * @param key - The key
+ * @returns The row the key is at, or would take — the segment's count when it
+ *   is past its last — and the `[key, value]` pair held under it, if any
+ * @throws {SegmentCorruptError} When a row's bytes do not decode
+ */
+export function rowUnder(
+  segment: DecodedSegment, cmp: (a: unknown, b: unknown) => number, key: unknown,
+): { at: number; pair: readonly [unknown, unknown] | undefined } {
+  const at = firstWhere(segment.count, (row) => cmp(segment.key(row), key) >= 0);
+  const held = at < segment.count && cmp(segment.key(at), key) === 0;
+  return { at, pair: held ? segment.element(at) as [unknown, unknown] : undefined };
+}
+
+/**
  * What the kept segments have done, and what they hold now.
  *
- * @returns The decodes made, the reads the kept segments served, the segments
- *   kept, their decoded weight and the budget
+ * @returns The segments read and walked (`decodes`), the reads the kept
+ *   segments served, the segments kept, their weight and the budget
  */
 export function decodedSegmentStats(): { decodes: number; hits: number; segments: number; weight: number; budget: number } {
   return { decodes, hits, segments: kept.size, weight: keptWeight, budget: DECODED_SEGMENTS_MAX_WEIGHT };

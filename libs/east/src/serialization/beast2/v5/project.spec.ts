@@ -20,12 +20,13 @@ import {
 import { type EastTypeValue } from "../../../type_of_type.js";
 import { isTypeValueEqual } from "../../../type_value_equal.js";
 import { compareFor, equalFor } from "../../../comparison.js";
-import { randomStream, randomType, randomValueFor, seedFuzz } from "../../../fuzz.js";
+import { randomStream, randomValueFor, seedFuzz } from "../../../fuzz.js";
 import { East, SortedMap, SortedSet, ref, variant } from "../../../index.js";
-import { encodeBeast2SegmentsFor, openBeast2LazyFor, Beast2Pages } from "../index.js";
+import { openBeast2LazyFor, Beast2Pages } from "../index.js";
 import { asTypeValue } from "./type-section.js";
 import { Beast2ProjectionAliasError } from "./codec.js";
 import { beast2PagedLoopStats, buildProjectedSegmentDecoder, loopProjectionType } from "./project.js";
+import { randomRow, segmented } from "./segmented.spec.fixtures.js";
 
 type Field = { name: string; type: EastTypeValue };
 
@@ -83,26 +84,6 @@ function keep(value: any, wire: EastTypeValue, proj: EastTypeValue): any {
     default:
       throw new Error(`no projection narrows a ${wire.type}`);
   }
-}
-
-/** A row of 1 to 6 random fields, nested recursion included. */
-function randomRow(draw: () => number): EastType {
-  const fields: Record<string, EastType> = {};
-  const n = 1 + Math.floor(draw() * 6);
-  for (let i = 0; i < n; i++) {
-    fields[`f${i}`] = randomType(1, { includeRecursive: false, includeFunctions: false, nestedRecursive: true });
-  }
-  return StructType(fields);
-}
-
-/** A collection's rows cut into segments of `per`, as the pager reads them. */
-function segmented(type: EastType, rows: unknown[], per: number): Uint8Array {
-  const batches: unknown[] = [];
-  for (let i = 0; i < rows.length; i += per) {
-    const chunk = rows.slice(i, i + per);
-    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
-  }
-  return encodeBeast2SegmentsFor(type)(batches as never);
 }
 
 describe("beast2 v5 projected decoding", () => {

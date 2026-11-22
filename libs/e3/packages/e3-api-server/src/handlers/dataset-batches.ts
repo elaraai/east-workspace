@@ -29,7 +29,7 @@ import {
   openTarget, pageError, readDataset, rowsByKey, searchTarget, type RowSpan,
 } from './dataset-reads.js';
 import { compileKeySearch, locateAll, type KeySearch, type KeySearchQuery, type Located } from './key-search.js';
-import { comparators, decodedSegments, firstWhere } from './segments.js';
+import { comparators, decodedSegments, rowUnder } from './segments.js';
 
 /** The most queries, keys or runs one batch read takes: 10,000, a page's cap. */
 export const DATASET_BATCH_MAX = PAGE_MAX_LIMIT;
@@ -388,14 +388,12 @@ async function rowsAt(
   const decoded = await decodedSegments(storage, repoPath, segments, owners);
   return keys.map((key, i) => {
     const owner = owners[i]!;
-    const segment = decoded.get(owner)!;
     const base = owner === 0 ? 0 : segments.cumulative[owner - 1]!;
-    const at = firstWhere(segment.keys, (held) => cmp(held, key) >= 0);
     // A key past the segment's last sits where the next segment begins.
-    if (at < segment.keys.length && cmp(segment.keys[at], key) === 0) {
-      return { key: segment.keys[at], row: some(segment.values[at]), position: BigInt(base + at) };
-    }
-    return { key, row: none, position: BigInt(base + at) };
+    const { at, pair } = rowUnder(decoded.get(owner)!, cmp, key);
+    return pair === undefined
+      ? { key, row: none, position: BigInt(base + at) }
+      : { key: pair[0], row: some(pair[1]), position: BigInt(base + at) };
   });
 }
 

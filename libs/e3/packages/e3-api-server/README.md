@@ -506,11 +506,14 @@ the keys it names in one `rows`, and another record's rows for its runs — a
 drawing's details — in one `rows` by `keysOf`, the keys read from the index
 where the runs' entries are kept, never sent. Each batch places its bounds,
 keys or rows by the manifest's fences and counts, which reads nothing, then
-reads every segment it touches once, several at a time. The server keeps decoded segments
-by content hash, bounded by their decoded weight (64 MiB), and every page,
-search and batch reads through them — so a window read again, or a pan over
-the same segments, decodes none. A value read whole is streamed as its
-segments' bytes, and decodes none of them.
+reads every segment it touches once, several at a time. A segment is walked
+once — its keys checked, where each row starts noted, no value built — and a
+search's bounds and a read's rows are decoded from its bytes when asked for,
+so a few rows of a large segment cost those rows. The server keeps each walked
+segment by content hash, bounded by the bytes it holds (64 MiB between them),
+and every page, search and batch reads through them — so a window read again,
+or a pan over the same segments, fetches none. A value read whole is streamed
+as its segments' bytes, and decodes none of them.
 
 A summary index's entry stands for every row of its key — its `key` Null, its
 value the rows' totals — so it names no row to join: a `page` or `runs` read of

@@ -15,7 +15,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { compareFor } from "../comparison.js";
-import { encodeBeast2SegmentsFor, openBeast2LazyFor } from "../serialization/beast2/index.js";
+import { openBeast2LazyFor } from "../serialization/beast2/index.js";
+import { segmented } from "../serialization/beast2/v5/segmented.spec.fixtures.js";
 import { DictType, IntegerType, SetType, StringType } from "../types.js";
 import { SortedMap } from "./sortedmap.js";
 import { SortedSet } from "./sortedset.js";
@@ -55,14 +56,7 @@ const ROWS: [bigint, string][] = Array.from({ length: 25 }, (_, i) => [BigInt(i 
 const NAMES: string[] = Array.from({ length: 25 }, (_, i) => `tag-${String(i * 2).padStart(2, "0")}`);
 
 /** A blob of ten-element segments, so a lazy reader of it reads several. */
-function segments(type: typeof Table | typeof Tags, items: readonly unknown[]): Uint8Array {
-    const batches: unknown[] = [];
-    for (let i = 0; i < items.length; i += 10) {
-        const chunk = items.slice(i, i + 10);
-        batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : new Set(chunk));
-    }
-    return encodeBeast2SegmentsFor(type)(batches as never);
-}
+const segments = (type: typeof Table | typeof Tags, items: readonly unknown[]): Uint8Array => segmented(type, items, 10);
 
 /** The maps a case is run over: one held in memory, and one read lazily from a blob, a segment at a time. */
 const MAPS: readonly { name: string; make: () => SortedMap<bigint, string> }[] = [

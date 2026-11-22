@@ -24,7 +24,6 @@ import {
   openForRead, openTarget, pageError, pinnedCacheControl, readDataset, rowsByKey, searchTarget, type PinnedCache,
 } from './dataset-reads.js';
 import { compileKeySearch, locateAll, type KeySearchQuery, type Located } from './key-search.js';
-import { decodedSegment } from './segments.js';
 
 export { PAGE_BYTE_BUDGET_DEFAULT, type PinnedCache } from './dataset-reads.js';
 
@@ -187,8 +186,8 @@ export interface DatasetPageWindow {
   /** Fill each window entry's `row` from the primary.
    *
    *  The window's primary keys are grouped by the primary segment that holds
-   *  them, and each segment is read and decoded once, through the decoded
-   *  segments the API process keeps: a page reads at most one segment per row,
+   *  them, and each segment is read once, through the segments the API
+   *  process keeps: a page reads at most one segment per row,
    *  and one whose entries cluster costs far fewer reads than its row count. A
    *  view that renders from the index's covering projection alone leaves this
    *  off and never touches the primary. */
@@ -383,13 +382,13 @@ async function valuePage(
     if (seg >= segmentCount) {
       return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
     }
+    pageCount = segments.counts[seg]!;
+    pageOffset = seg === 0 ? 0 : cumulative[seg - 1]!;
     try {
-      windowValue = (await decodedSegment(storage, repoPath, segments, seg)).value;
+      windowValue = collectionOf(typeValue, await elementsOf(storage, repoPath, segments, [{ from: pageOffset, to: pageOffset + pageCount }]));
     } catch (err) {
       return corruptRefusal(err, 'dataset_not_segmented');
     }
-    pageCount = segments.counts[seg]!;
-    pageOffset = seg === 0 ? 0 : cumulative[seg - 1]!;
   } else {
     const limit = effectiveLimit();
     // An empty window past the end touches no segment.
@@ -537,7 +536,7 @@ export interface DatasetFindQuery extends KeySearchQuery {
  * with the key type's East comparator, then binary-searches the keys of at
  * most the one owning segment (exact key) or the two edge segments (a range —
  * which is what an exact key is through an index: every entry under it), each
- * read and decoded once, through the decoded segments the API process keeps.
+ * read once, through the segments the API process keeps, its keys alone decoded.
  *
  * Responds with JSON `{ found, row, count }`: `row` is the match's global
  * element index (for a prefix, the range's first row; for a miss, the
