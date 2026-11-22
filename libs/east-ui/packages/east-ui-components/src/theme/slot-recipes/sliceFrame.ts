@@ -11,10 +11,12 @@
  *     `meta` / `body` / `footer` / `footerLabel` / `footerAction`) — the bsys
  *     observe `.frame` pattern: 1px rule, 10px radius, paper-2 header/footer.
  *   - `Slice.Frame` (`frameEyebrow` / `frameEyebrowControls` / `frameEyebrowMeta`
- *     / `frameBody` / `frameFooter` / `frameFooterStat` / `frameFooterDelta`) —
+ *     / `frameBody` / `frameFooter` / `frameFooterStat` / `frameFooterDelta` /
+ *     `framePager`) —
  *     the container that houses a slice consumer: a fixed-height one-row eyebrow
  *     (affordances left / meta right, never wraps), an unpadded body slot, and a
- *     derived-count footer. Matches `design/slice.html#slice-frame`.
+ *     derived-count footer — a paged Table's with its page buttons at its end.
+ *     Matches `design/slice.html#slice-frame`.
  *   - The rail's clusters (`railCluster` / `railAffordance` / `railTrigger`,
  *     #952) — one form of a cluster as the shared toolbar renders it: the live
  *     affordances, then the folded ones' trigger — and the sectioned editor
@@ -45,7 +47,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "railGroupHead", "railGroupIcon", "railGroupLabel", "railGroupCount",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
-        "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
+        "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta", "framePager",
         "searchPill", "searchKbd", "searchClear",
         "searchCompact", "searchFull", "searchSuggestion", "searchIdentity", "searchLabel", "searchMeta",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
@@ -282,6 +284,14 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         frameFooterDelta: {
             color: "fg.success",
             fontWeight: "semibold",
+        },
+        // A paged Table's pager in its footer: the rest of the footer's line, the Pagination's page buttons at the
+        // line's end — the room the Pagination reads to draw its strip or, under 360px of it, its readout (#1268).
+        framePager: {
+            flex: "1",
+            minWidth: "0",
+            display: "flex",
+            justifyContent: "flex-end",
         },
 
         // Compact search — the closed `.search` pill in the eyebrow's right zone.

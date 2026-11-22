@@ -51,6 +51,8 @@ import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } from "./use-paged-rows.js";
 import { windowedSourceOf } from "../windowed-source.js";
+import { pagePlace } from "../page-place.js";
+import { PageButtons, PageFoot, PageRange } from "../pagination/page-foot.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
@@ -1041,10 +1043,10 @@ const TableCore = function TableCore({
     }, [setPersistedState, value.frozen]);
 
     // Embedded pagination — `value.pagination` carries `pageSize`,
-    // `page` (1-based), and an `onPageChange` callback. When defined,
+    // `page` (0-based), and an `onPageChange` callback. When defined,
     // the renderer slices `rows` to the current page on the JS side
-    // and renders a small pager beneath the table. Virtualization
-    // remains active but only across the page slice.
+    // and draws its pager under the table: the design system's footer
+    // band. Virtualization remains active but only across the page slice.
     // `onPageChange` lives on the IR as a plain `FunctionType` (not wrapped in
     // OptionType) — it's required when pagination is defined.
     const paginationConfig = getSomeorUndefined(value.pagination);
@@ -1052,9 +1054,9 @@ const TableCore = function TableCore({
     // Page index is 0-based per the IR (`TablePaginationType.page` doc).
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
     const paginationOnChange = paginationConfig?.onPageChange;
-    // A page holds `pageSize` TOP-LEVEL rows, each with its whole subtree
-    // (#954), so the pager counts top-level rows.
-    const totalPages = pageSize ? Math.max(1, Math.ceil(tree.roots.length / pageSize)) : 1;
+    // A turn of the page: the East-side callback, told the new page's index from 0. A page holds `pageSize`
+    // TOP-LEVEL rows, each with its whole subtree (#954), so the pager counts top-level rows.
+    const onPage = useCallback((next: number) => { paginationOnChange?.(BigInt(next)); }, [paginationOnChange]);
     // Slice the top-level rows to the current page when pagination is active.
     // (A paged source refuses `pagination` at build time — one paging
     // mechanism, not two.)
@@ -2250,40 +2252,19 @@ const TableCore = function TableCore({
                     );
                 })()}
             </ChakraTable.Root>
-            {/* Embedded pagination — rendered beneath the table when
-                `value.pagination` is defined. Calls the East-side
-                onChange (when present) with the new page (1-based). */}
-            {paginationConfig && !hidePaginationBand && (
-                <Box css={tableCustomSlots.pageBand} data-table-page-band="">
-                    <Box as="span" css={tableCustomSlots.pageBandText}>
-                        Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(tree.roots.length)} total)
-                    </Box>
-                    <chakra.button
-                        type="button"
-                        css={tableCustomSlots.pageBandStep}
-                        aria-label="Previous page"
-                        disabled={currentPage <= 0}
-                        onClick={() => {
-                            if (currentPage <= 0) return;
-                            if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage - 1)));
-                        }}
-                    >
-                        <FontAwesomeIcon icon={faChevronLeft} />
-                    </chakra.button>
-                    <chakra.button
-                        type="button"
-                        css={tableCustomSlots.pageBandStep}
-                        aria-label="Next page"
-                        disabled={currentPage >= totalPages - 1}
-                        onClick={() => {
-                            if (currentPage >= totalPages - 1) return;
-                            if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage + 1)));
-                        }}
-                    >
-                        <FontAwesomeIcon icon={faChevronRight} />
-                    </chakra.button>
-                </Box>
-            )}
+            {/* Its pager — under the table when `value.pagination` is defined: the design system's footer band
+                (`parts-pagination`), where the page stands among the top-level rows at its start, and the
+                Pagination's page buttons at its end. A turn of the page calls the East-side `onPageChange` with
+                the new page's index, from 0. */}
+            {pageSize !== undefined && pageSize > 0 && !hidePaginationBand && (() => {
+                const place = pagePlace(currentPage * pageSize, pageRoots.length);
+                const of = words.number(tree.roots.length);
+                return (
+                    <PageFoot pages={{ count: tree.roots.length, pageSize, page: currentPage, onPage, storageKey: `${storageKey}.pages` }}>
+                        <PageRange>{place.first === 0 ? `Showing 0 of ${of}` : `Showing ${words.number(place.first)}–${words.number(place.last)} of ${of}`}</PageRange>
+                    </PageFoot>
+                );
+            })()}
             {/* Review batch foot (#264) — the shared commitBar foot, stacked
                 BELOW the pager band so the page controls stay beside the rows
                 they page. */}
@@ -2343,6 +2324,11 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
         loading: paged.loading,
         partial: paged.total === undefined || paged.loadedElements < paged.total,
     }), [pagedSource, paged.loadedElements, paged.total, paged.loading]);
+    // With pagination the pager joins the chrome footer — counts at its start, page buttons at its end: one band,
+    // not two. A turn of the page calls the East-side `onPageChange` with the new page's index, from 0.
+    const paginationConfig = getSomeorUndefined(props.value.pagination);
+    const pagerOnChange = paginationConfig?.onPageChange;
+    const onPage = useCallback((next: number) => { pagerOnChange?.(BigInt(next)); }, [pagerOnChange]);
 
     // A source that could not be READ is not an empty table — say why. There is
     // no offline stand-in for a paged source (#573), so this is what a bound
@@ -2364,14 +2350,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const total = Number(slice.totalCount());
     const result = Number(slice.resultCount());
     const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
-
-    // With pagination enabled the pager joins the chrome footer (count left,
-    // pager right) — one band, not two.
-    const paginationConfig = getSomeorUndefined(props.value.pagination);
     const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : 0;
-    const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
-    const totalPages = paginationConfig ? Math.max(1, Math.ceil(topLevelRows / pageSize)) : 1;
-    const pagerOnChange = paginationConfig?.onPageChange;
 
     return (
         <Box css={{ ...frameStyles.root, height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -2381,7 +2360,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
             <Box css={{ ...frameStyles.frameBody, flex: "1 1 0%", minHeight: 0, overflow: "hidden" }}>
                 <TableCore {...props} rows={rows} transport={transport} hidePaginationBand />
             </Box>
-            <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
+            <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }} data-slice-frame-foot="">
                 {/* A paged table counts ELEMENTS loaded, not slice results: the
                     slice narrows what the host fed, which here is the prefix
                     that happened to land (#575's rule, one component over). */}
@@ -2406,35 +2385,10 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                         {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${words.percent(pct / 100)}`}</Box>}
                     </>
                 )}
-                {paginationConfig && (
-                    <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" marginLeft="auto">
-                        <Box as="span">{`page ${words.number(currentPage + 1)} of ${words.number(totalPages)}`}</Box>
-                        <chakra.button
-                            type="button"
-                            aria-label="Previous page"
-                            disabled={currentPage <= 0}
-                            cursor={currentPage <= 0 ? "not-allowed" : "pointer"}
-                            opacity={currentPage <= 0 ? 0.4 : 1}
-                            onClick={() => {
-                                if (currentPage <= 0 || !pagerOnChange) return;
-                                queueMicrotask(() => pagerOnChange(BigInt(currentPage - 1)));
-                            }}
-                        >
-                            <FontAwesomeIcon icon={faChevronLeft} style={{ width: 9, height: 9 }} />
-                        </chakra.button>
-                        <chakra.button
-                            type="button"
-                            aria-label="Next page"
-                            disabled={currentPage >= totalPages - 1}
-                            cursor={currentPage >= totalPages - 1 ? "not-allowed" : "pointer"}
-                            opacity={currentPage >= totalPages - 1 ? 0.4 : 1}
-                            onClick={() => {
-                                if (currentPage >= totalPages - 1 || !pagerOnChange) return;
-                                queueMicrotask(() => pagerOnChange(BigInt(currentPage + 1)));
-                            }}
-                        >
-                            <FontAwesomeIcon icon={faChevronRight} style={{ width: 9, height: 9 }} />
-                        </chakra.button>
+                {/* Its pager: the Pagination's page buttons, as a Table's own foot draws them, over the top-level rows. */}
+                {paginationConfig !== undefined && pageSize > 0 && (
+                    <Box css={frameStyles.framePager}>
+                        <PageButtons count={topLevelRows} pageSize={pageSize} page={Number(paginationConfig.page)} onPage={onPage} storageKey={`${props.storageKey}.pages`} />
                     </Box>
                 )}
             </Box>

@@ -21,6 +21,14 @@
  *    `--brand-tint` in `--brand-dd` with no edge; `outline` puts the edges back.
  *  - P4 `boundaries` are the pages at either end: one by default, two when it
  *    says two.
+ *  - P5 a Table's pager is the design system's: under its rows, the footer
+ *    band — 37 with its 1px `--rule`, on `--paper-2`, padded 20 either side —
+ *    where the page stands at its start, `Showing 1–20 of 200` in mono 10
+ *    `--ink-4`, and the Pagination's page buttons at `sm` at its end; no band
+ *    of the Table's own.
+ *  - P6 a sliced Table's frame footer draws the same pager: the Pagination's
+ *    page buttons at `sm`, 24 tall, at its end, 14 in from it as its counts
+ *    are from its start; every button in it one of the Pagination's.
  *
  * Each colour is compared with its token's as the page resolves it in its
  * theme, so two tokens of one colour — `--ink-2` and `--brand-dd` in light —
@@ -38,9 +46,13 @@ import { settled } from "./settle";
 const CONFIGURATOR = "collections/pagination/paginationVariants";
 /** The catalog's plain pager, declaring neither size nor variant. */
 const BASIC = "collections/pagination/paginationBasic";
+/** The catalog's review Table: 200 rows, 20 a page, as wide as its entry — room for its pager's strip. */
+const TABLE = "collections/table/tableReview";
+/** The catalog's sliced Table: its rail over its rows, its counts and its pager in its frame's footer. */
+const SLICED_TABLE = "slice/slice/sliceTableChrome";
 
 /** The design system's tokens a pager is drawn in, by their Chakra names. */
-const TOKENS = ["border-strong", "border-subtle", "bg-surface", "fg-strong", "fg-muted", "fg-subtle", "fg-faint", "brand-tint", "brand-solid", "brand-pressed"] as const;
+const TOKENS = ["border-strong", "border-subtle", "bg-surface", "bg-canvas", "fg-strong", "fg-muted", "fg-subtle", "fg-faint", "brand-tint", "brand-solid", "brand-pressed"] as const;
 
 /** A token a pager is drawn in, or `none`: no colour. */
 type Token = (typeof TOKENS)[number] | "none";
@@ -118,6 +130,50 @@ const stripOf = (entry: Locator) => entry.evaluate((root) =>
     [...root.querySelectorAll("[data-scope=pagination] [data-part=item], [data-scope=pagination] [data-part=ellipsis]")]
         .map((el) => (el.getAttribute("data-part") === "ellipsis" ? "…" : (el.textContent ?? "").trim())));
 
+/** Opens a catalog entry that draws a Table, its rows drawn, at rest. */
+async function openTable(page: Page, hash: string): Promise<Locator> {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await page.goto(`/?theme=light#${hash}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("tbody tr").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+/**
+ * A footer's pager as laid out, the footer found by its selector: the footer's height, rule, paper and padding;
+ * where the page stands, when it says so, with its type and how far in it starts; the page buttons' heights and its
+ * triggers' boxes; how far in from the footer's end the strip ends; every button in it that is no part of the
+ * Pagination; and the bands of a Table's own.
+ */
+const footOf = (entry: Locator, selector: string) => entry.evaluate((root, at) => {
+    const foot = root.querySelector<HTMLElement>(at);
+    const own = root.querySelectorAll("[data-table-page-band]").length;
+    if (foot === null) return { foot: "none", own };
+    const s = getComputedStyle(foot);
+    const box = foot.getBoundingClientRect();
+    const range = foot.querySelector<HTMLElement>("[data-page-range]");
+    const r = range === null ? undefined : getComputedStyle(range);
+    const bar = foot.querySelector("[data-scope=pagination][data-part=root] > *")?.getBoundingClientRect();
+    const size = (el: Element | null) => {
+        const b = el?.getBoundingClientRect();
+        return b === undefined ? "none" : `${Math.round(b.width)}×${Math.round(b.height)}`;
+    };
+    return {
+        height: Math.round(box.height), rule: `${s.borderTopWidth} ${s.borderTopColor}`, paper: s.backgroundColor, pad: [s.paddingLeft, s.paddingRight],
+        range: range === null || r === undefined ? "none" : {
+            text: range.textContent, size: r.fontSize, ink: r.color, mono: r.fontFamily.includes("Mono"), start: Math.round(range.getBoundingClientRect().left - box.left),
+        },
+        buttons: [...new Set([...foot.querySelectorAll("[data-scope=pagination] [data-part=item]")].map((el) => Math.round(el.getBoundingClientRect().height)))],
+        triggers: [size(foot.querySelector("[data-scope=pagination] [data-part=prev-trigger]")), size(foot.querySelector("[data-scope=pagination] [data-part=next-trigger]"))],
+        end: bar === undefined ? "none" : Math.round(box.right - bar.right),
+        others: [...foot.querySelectorAll("button")].filter((el) => el.getAttribute("data-scope") !== "pagination").map((el) => el.getAttribute("aria-label") ?? el.textContent),
+        own,
+    };
+}, selector);
+
 test.describe("The Pagination is the design system's", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
@@ -173,5 +229,21 @@ test.describe("The Pagination is the design system's", () => {
         await boundaries.press("Tab");
         await settled(page);
         await expect.poll(() => stripOf(entry)).toEqual(["1", "2", "…", "5", "6", "7", "…", "49", "50"]);
+    });
+
+    test("P5: a Table's pager is the footer band under its rows — 37 with its --rule, on --paper-2, padded 20 — where the page stands at its start in mono 10 --ink-4, and the Pagination's page buttons at sm at its end", async ({ page }) => {
+        const entry = await openTable(page, TABLE);
+        const t = await tokensOf(page);
+        expect(await footOf(entry, "[data-page-foot]")).toEqual({
+            height: 37, rule: `1px ${t["border-subtle"]}`, paper: t["bg-canvas"], pad: ["20px", "20px"],
+            range: { text: "Showing 1–20 of 200", size: "10px", ink: t["fg-subtle"], mono: true, start: 20 },
+            buttons: [24], triggers: ["24×24", "24×24"], end: 20, others: [], own: 0,
+        });
+    });
+
+    test("P6: a sliced Table's frame footer draws the same pager — the Pagination's page buttons at sm at its end, 14 in as its counts are; no button of its own", async ({ page }) => {
+        const entry = await openTable(page, SLICED_TABLE);
+        const foot = await footOf(entry, "[data-slice-frame-foot]");
+        expect(foot).toMatchObject({ buttons: [24], triggers: ["24×24", "24×24"], end: 14, others: [], own: 0 });
     });
 });

@@ -103,6 +103,7 @@ import { dateFieldSlotRecipe } from "./slot-recipes/dateField.js";
 import { numberInputSlotRecipe } from "./slot-recipes/numberInput.js";
 import { fileUploadSlotRecipe } from "./slot-recipes/fileUpload.js";
 import { paginationSlotRecipe } from "./slot-recipes/pagination.js";
+import { pageFootSlotRecipe } from "./slot-recipes/pageFoot.js";
 import { dataListSlotRecipe } from "./slot-recipes/dataList.js";
 import { treeViewSlotRecipe } from "./slot-recipes/treeView.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
@@ -266,7 +267,8 @@ const config = defineConfig({
             dateField:       dateFieldSlotRecipe,
             fileUpload:      fileUploadSlotRecipe,
             pagination:      paginationSlotRecipe,
-            dataList:        dataListSlotRecipe,
+            pageFoot:        pageFootSlotRecipe,
+            dataList:       dataListSlotRecipe,
             treeView:        treeViewSlotRecipe,
             table:           tableSlotRecipe,
             carousel:        carouselSlotRecipe,

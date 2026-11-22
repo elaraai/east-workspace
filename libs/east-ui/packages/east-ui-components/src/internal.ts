@@ -162,6 +162,12 @@ export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
 
+// The foot of rows that page — the design system's footer band: its range line and its page buttons — for a host that
+// pages rows of its own: a Studio visual's records, list, summary and pivot (#1667); and where a page stands among its
+// rows, which its range line says.
+export { PageButtons, PageFoot, PageRange, type PageButtonsProps, type PageFootProps } from "./collections/pagination/page-foot.js";
+export { pagePlace, type PagePlace } from "./collections/page-place.js";
+
 // The metric chip's frame — the design system's DeltaPill — around a value a renderer has as text: a Studio KPI's change (#1671).
 export { MetricChipFrame, type MetricChipFrameProps, type MetricChipTone } from "./display/metric-chip/index.js";
 // The drawer's content, open as its host says, around what the host draws in it: a Studio tile's Show rows (#1671).

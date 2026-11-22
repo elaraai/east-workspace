@@ -21,6 +21,7 @@
 import { none, printJq, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import type { StudioSourceType, StudioVisualType } from "@elaraai/e3-ui/internal";
 import { tickFormatOf, type Formatters, type TickFormatOpt, type ValueFormat } from "@elaraai/east-ui-components";
+import { pagePlace, type PagePlace } from "@elaraai/east-ui-components/internal";
 import { human, plural, type QueryWords } from "../../query/model/words.js";
 import { valueText } from "../../query/results-table.js";
 import { readLiteral } from "../../query/steps/jq.js";
@@ -85,17 +86,14 @@ export interface VisualShown {
 /**
  * Where a page stands among the rows a view pages (#1667): a records table's
  * rows, a list's items, a summary's groups of its first field, a pivot's rows
- * — its first row's place, from 1, and its last's, and how many there are.
+ * — its first row's place, from 1, and its last's, as every paged view's
+ * foot says them (`pagePlace`), and how many there are.
  *
  * @property first - Its first row's place, from 1; 0 for a page with none
  * @property last - Its last row's place
  * @property total - How many rows there are to page through
  */
-export interface VisualPlace {
-    /** Its first row's place, from 1; 0 for a page with none. */
-    readonly first: number;
-    /** Its last row's place. */
-    readonly last: number;
+export interface VisualPlace extends PagePlace {
     /** How many rows there are to page through. */
     readonly total: number;
 }
@@ -111,7 +109,7 @@ export interface VisualPlace {
  * @returns Its place
  */
 export function placeOf(offset: number, held: number, of: number, top?: number): VisualPlace {
-    return { first: held === 0 ? 0 : offset + 1, last: offset + held, total: top === undefined ? of : Math.min(top, of) };
+    return { ...pagePlace(offset, held), total: top === undefined ? of : Math.min(top, of) };
 }
 
 /**

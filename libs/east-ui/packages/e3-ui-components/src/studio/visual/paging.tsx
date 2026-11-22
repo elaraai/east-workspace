@@ -15,25 +15,22 @@
  * narrowing that asks other programs, starts at the first page; a new minute
  * that asks the same ones keeps the page it is on.
  *
+ * Its foot is the design system's footer band, the one every host that pages
+ * rows draws (east-ui-components' `PageFoot`): a Table's own pager is the
+ * same.
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Box } from "@chakra-ui/react";
-import { none, some, variant } from "@elaraai/east";
-import { EastChakraPagination, useFormatters, type PaginationValue } from "@elaraai/east-ui-components";
-import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { useFormatters } from "@elaraai/east-ui-components";
+import { PageFoot } from "@elaraai/east-ui-components/internal";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import { useVisualAnswers } from "../../query/visual/answers.js";
 import { FIRST_PAGE, printVisual, VISUAL_RECORDS_PAGE, type PrintSource, type PrintState, type PrintedVisual, type VisualAsk } from "../../query/visual/print.js";
 import { useStudioMessages } from "../messages.js";
 import { ShownNote, VisualNote } from "./notes.js";
 import type { Visual, VisualPlace, VisualShown } from "./values.js";
-
-/** Its pager: the design system's small size, the footer band's 24px (TBL-1) — nothing else declared. */
-const PAGER_STYLE: PaginationValue["style"] = some({
-    size: some(variant("sm", null)), variant: none, color: none, background: none, activeBackground: none, activeColor: none, siblings: none, boundaries: none,
-});
 
 /** No programs: a view that does not print. */
 const NO_ASKS: readonly VisualAsk[] = [];
@@ -128,8 +125,9 @@ export interface VisualPageFootProps {
 }
 
 /**
- * A paged view's foot, on one line: where the page stands among the rows —
- * `Showing 51–100 of 1,482` — and, past one page, the Pagination.
+ * A paged view's foot, on one line — the footer band (TBL-1): where the page
+ * stands among the rows — `Showing 51–100 of 1,482` — and, past one page, its
+ * page buttons.
  *
  * @param props - Where the page stands, its offset, how to show another, and where the pager keeps its state
  * @returns The foot
@@ -137,23 +135,11 @@ export interface VisualPageFootProps {
 export function VisualPageFoot({ place, offset, onPage, storageKey }: VisualPageFootProps) {
     const m = useStudioMessages();
     const f = useFormatters();
-    const styles = useSlotStyles("studioVisual");
     const page = Math.floor(offset / VISUAL_RECORDS_PAGE);
-    const pagination = useMemo((): PaginationValue | undefined => (place.total <= VISUAL_RECORDS_PAGE ? undefined : {
-        count: BigInt(place.total),
-        pageSize: BigInt(VISUAL_RECORDS_PAGE),
-        page: BigInt(page),
-        onPageChange: (next: bigint) => {
-            onPage(Number(next));
-            return null;
-        },
-        style: PAGER_STYLE,
-    }), [place.total, page, onPage]);
     return (
-        <Box css={styles.foot} data-studio-visual-foot="">
+        <PageFoot pages={place.total <= VISUAL_RECORDS_PAGE ? undefined : { count: place.total, pageSize: VISUAL_RECORDS_PAGE, page, onPage, storageKey: `${storageKey}.pages` }}>
             <VisualNote>{m.rowsShown({ first: f.number(place.first), last: f.number(place.last), of: f.number(place.total) })}</VisualNote>
-            {pagination !== undefined && <EastChakraPagination value={pagination} storageKey={`${storageKey}.pages`} />}
-        </Box>
+        </PageFoot>
     );
 }
 
@@ -165,20 +151,15 @@ export interface VisualGroupsFootProps extends VisualPageFootProps {
 
 /**
  * A grouped view's foot (#1667) — a list's, a summary's, a pivot's: past one
- * page, where the page stands and the Pagination ({@link VisualPageFoot});
- * else, where its first N holds fewer than there are, how many of how many;
- * else none.
+ * page, where the page stands and its page buttons ({@link VisualPageFoot});
+ * else, where its first N holds fewer than there are, how many of how many,
+ * in the same band; else none.
  *
  * @param props - Where the page stands, what its first N holds, its offset, how to show another, and where the pager keeps its state
  * @returns The foot; nothing for a view of one page that holds every group
  */
 export function VisualGroupsFoot({ shown, ...page }: VisualGroupsFootProps) {
-    const styles = useSlotStyles("studioVisual");
     if (page.place.total > VISUAL_RECORDS_PAGE) return <VisualPageFoot {...page} />;
     if (shown === undefined) return null;
-    return (
-        <Box css={styles.foot}>
-            <ShownNote shown={shown} />
-        </Box>
-    );
+    return <PageFoot><ShownNote shown={shown} /></PageFoot>;
 }

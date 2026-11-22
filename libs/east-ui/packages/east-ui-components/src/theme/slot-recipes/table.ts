@@ -22,9 +22,9 @@
  *   - A group's head, as its host marks it (`data-row-head`, #1671): mono
  *     10/600/0.1em uppercase, then its count on `--paper-3` in mono 9.5
  *     `--ink-3`.
- *   - Page band (`pagination`, under the rows): `Page 2 of 5 (120 total)` in
- *     mono 10.5 `fg.muted` — the phone pager's range voice — then its ‹ ›
- *     steps, a 1 px `border.subtle` top rule.
+ *   - Its pager (`pagination`, under the rows): the design system's footer
+ *     band, the `pageFoot` recipe's — `Showing 26–50 of 120`, then the
+ *     Pagination's page buttons at `sm`. None of it is this recipe's.
  *   - Header controls (#951): the label, then one row of 24 px pin / sort
  *     buttons, shown while the header is hovered or holds focus, and a
  *     resize grip on its right edge.
@@ -80,7 +80,6 @@ export const tableSlotRecipe = defineSlotRecipe({
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle", "tileHeader", "tileHeaderLabel", "tileHeaderNote",
-        "pageBand", "pageBandText", "pageBandStep",
         "phoneGroupRow", "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
     ],
@@ -319,18 +318,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         },
         /* What made a total, before it: the label voice. */
         totalLabel: { flexShrink: 0, marginInlineEnd: "6px", fontFamily: "mono", fontSize: "label.xs", fontWeight: "400", letterSpacing: "0.1em", textTransform: "uppercase", color: "fg.subtle" },
-        /* The page band under the rows: its words, then its ‹ ›. */
-        pageBand: {
-            display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "{spacing.2}", paddingX: "{spacing.3}", paddingY: "{spacing.2}",
-            borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
-        },
-        pageBandText: { fontFamily: "mono", fontSize: "label.md", fontVariantNumeric: "tabular-nums", color: "fg.muted", whiteSpace: "nowrap" },
-        pageBandStep: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "4px 8px", border: "none", borderRadius: "4px", background: "transparent", cursor: "pointer",
-            "& svg": fontAwesomeSize("10px"),
-            _disabled: { cursor: "not-allowed", opacity: "0.4" },
-        },
-        /* The pager: over the rows as they scroll under it. */
+        /* A phone's column pager: over the rows as they scroll under it. */
         phonePager: { position: "sticky", top: 0, left: 0, zIndex: 3, background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
         phonePagerBand: { height: "44px", display: "flex", alignItems: "center", paddingInlineStart: "16px", paddingInlineEnd: "4px" },
         phonePagerRange: {

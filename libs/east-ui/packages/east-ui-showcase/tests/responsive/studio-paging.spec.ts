@@ -62,9 +62,9 @@ function tileOf(grid: Locator, key: string): Locator {
     return grid.locator(`[data-studio-visual-tile][data-studio-placement="${key}"]`);
 }
 
-/** A placement's foot: where its page stands, and its pager. */
+/** A placement's foot — the footer band every paged view draws: where its page stands, and its pager. */
 function footOf(grid: Locator, key: string): Locator {
-    return tileOf(grid, key).locator("[data-studio-visual-foot]");
+    return tileOf(grid, key).locator("[data-page-foot]");
 }
 
 /** How many rows a tile's foot says there are: the N of `Showing 1–50 of N`. */

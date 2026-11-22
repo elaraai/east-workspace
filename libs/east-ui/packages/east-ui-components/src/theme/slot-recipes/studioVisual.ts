@@ -34,6 +34,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine } from "../one-line-box.js";
+import { PAGE_RANGE } from "./pageFoot.js";
 
 /** The room a tile's eyebrow strip centres its row in: its 36px less its rule and the pixel of padding over the row. */
 const HEAD_ROOM = 34;
@@ -45,16 +46,10 @@ const HEAD_ROOM = 34;
 const KPI_AT_20 = "@container (max-width: 143.98px)";
 const KPI_AT_16 = "@container (max-width: 110.98px)";
 
-/**
- * Under this width a tile's foot stands its note and its pager on a line each (#1692): under 360px a pager draws its
- * readout (#1268), and its room beside a note would hold neither whole.
- */
-const FOOT_STACKED = "@container (max-width: 359.98px)";
-
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
-        "tile", "head", "name", "end", "meta", "follow", "body", "root", "caption", "note", "table", "foot",
+        "tile", "head", "name", "end", "meta", "follow", "body", "root", "caption", "note", "table",
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValues", "listPair", "listValue", "listUnit", "listBar", "listBarFill",
@@ -111,26 +106,13 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}",
             minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         },
-        /* What it holds of how many — `Showing 500 of 1,240 groups`: mono 10 `--ink-4`, on a whole 12px line; one line, ended in
-           an ellipsis where its tile is too narrow for it, its whole on hover (#1692). */
-        note: {
-            fontFamily: "mono", fontSize: "label.sm", fontVariantNumeric: "tabular-nums", lineHeight: "12px", color: "fg.subtle", flexShrink: "0",
-            minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-        },
-        /* A table, taking the room its foot leaves; a wide one scrolls inside it (TBL-5). */
+        /* What it holds of how many — `Showing 500 of 1,240 groups` — in the footer band's range voice (`pageFoot`): mono 10
+           `--ink-4`, on a whole 12px line; one line, ended in an ellipsis where its tile is too narrow for it, its whole on
+           hover (#1692). */
+        note: PAGE_RANGE,
+        /* A table, taking the room its foot leaves — the footer band's (`pageFoot`): where its page stands, and its pages;
+           a wide one scrolls inside it (TBL-5). */
         table: { flex: "1", minWidth: "0", minHeight: "0", display: "flex", flexDirection: "column" },
-        /* Under a table: where its page stands, and its pages — the Frame's footer band, 37 with its `--rule`, on the
-           strip's paper, padded 0 20. Its 24px pager and its 12px line are each centred in the even 36 under the rule, on
-           one line: the pager's room the rest of the line — the room it reads to draw its strip or its readout (#1268) —
-           and its strip at the room's end, as the room's justification places it. In a foot under 360px the note and the
-           pager each take a line, 4 apart, the pager's room the whole line (#1692). */
-        foot: {
-            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "center", justifyContent: "flex-end", columnGap: "{spacing.3}", rowGap: "{spacing.1}",
-            flexShrink: "0", minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
-            background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
-            containerType: "inline-size",
-            [FOOT_STACKED]: { "& > *": { gridColumn: "1 / -1" } },
-        },
         /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well.
            Its width is what its number's size answers (#1692). */
         kpi: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0", containerType: "inline-size" },
