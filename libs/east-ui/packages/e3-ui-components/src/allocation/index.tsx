@@ -456,14 +456,17 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // what a free slot's Reserve list and a free Table row's resource Chooser ask the fit (A48, A60). Over bins keyed by
     // String it stands under a text no bin holds. Over bins keyed by any other type it stands under the key Reserve there
     // would make (east-workspace#1709, ruling 13), so the fit answers for it as for any bin: the key its row builds, where
-    // the bins' kind builds keys from rows; else the one the kind's rule makes, made once for the drafts, however often a
-    // list draws — a record read a window at a time makes its first once its largest key is read. None made yet, it is
-    // asked once one is; none to be made — the rule refuses, the key its row builds fails or is another bin's of the day,
-    // or the board is read only — the lists say so. The drafts are the caches' key: new drafts, new caches.
+    // the bins' kind builds keys from rows; else the one the kind's rule makes, made once for the drafts and what a key is
+    // made past — the record as its session holds it, and its largest key as last read, which another session's Save
+    // moves — however often a list draws; a record read a window at a time makes its first once its largest key is read.
+    // None made yet, it is asked once one is; none to be made — the rule refuses, the key its row builds fails or is
+    // another bin's of the day, or the board is read only — the lists say so. The drafts are the probes' key: new drafts,
+    // new probes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const reservings = useMemo(() => new Map<string, ReserveProbe>(), [plan]);
+    const madePast = editing?.schedule.version, largest = editing?.schedule.lastKeys;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const probeKeys = useMemo((): { made?: { readonly id: string | undefined } } => ({}), [plan]);
+    const probeKeys = useMemo((): { made?: { readonly id: string | undefined } } => ({}), [plan, madePast, largest]);
     const reservation = value.labels.reservation;
     const unkeyed = useMemo(() => ({ unkeyed: `${a(reservation)} here has no key until it is made` }), [reservation]);
     const reserving = (lane: string, at: Date): ReserveProbe => {

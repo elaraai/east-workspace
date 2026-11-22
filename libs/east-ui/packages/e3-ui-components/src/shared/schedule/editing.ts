@@ -344,6 +344,13 @@ export interface ScheduleEditing<I extends Item = Item> {
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
     /**
+     * Each kind read a window at a time and keyed by Integer: its record's largest key, as last read — what its next new
+     * key is made one past ({@link ScheduleEditing.mint}), by the kind's slot. The same object until a read of one moves
+     * it, so what keeps a key made ahead of a gesture knows when to make it again: another session's Save moves it, the
+     * drafts as they were.
+     */
+    readonly lastKeys: ReadonlyMap<string, option<option<string>>>;
+    /**
      * Lets go of what Saves landed of a kind's events, once its builder's reads hold them as the record does now
      * ({@link ScheduleEditing.landed}).
      *
@@ -1517,8 +1524,8 @@ export function useScheduleEditing<I extends Item = Item>({
     const under = useCallback((kind: string, id: string) => latest.current.under(kind, id), []);
 
     return useMemo(() => ({
-        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
+        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version, lastKeys,
         shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under,
-    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row,
-        rowsByKey, mint, record, keyRefusal, keyRefusalOf, under]);
+    }), [history, sessions, drafts, landed, renumbered, version, lastKeys, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read,
+        row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under]);
 }
