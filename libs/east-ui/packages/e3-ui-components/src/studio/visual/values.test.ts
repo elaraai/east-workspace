@@ -9,8 +9,9 @@
  * A Studio visual's values, as its tiles show them (#1671): a visual's name
  * made from its wells (TIL-1), values' names made from their measures, their
  * fields' formats, a change coloured by which way is better (KPI-2), a goal's
- * standing, a number in short with its unit beside it, and a KPI's model
- * read from its answers, its words made (KPI-1, KPI-3).
+ * standing, a number in short with its unit beside it, a date bucket's label
+ * along an axis, and a KPI's model read from its answers, its words made
+ * (KPI-1, KPI-3).
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,9 +19,9 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages-en.js";
-import { some, variant } from "@elaraai/east";
+import { IntegerType, some, variant } from "@elaraai/east";
 import { queryWords } from "../../query/model/words.js";
-import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";
+import { CHANGE_FORMAT, axisLabel, bucketSpan, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -101,6 +102,21 @@ describe("a value's number in short, and its unit (KPI-1)", () => {
         expect([0, 0.5, 1].map((n) => shortNumber(n, variant("percent", null), words, 1, true))).toEqual(["0%", "50%", "100%"]);
         // With no declared format, a number as it is.
         expect(shortNumber(1284, undefined, words)).toBe("1,284");
+    });
+});
+
+describe("axisLabel (TIL-5)", () => {
+    it("labels a day's bucket by its month and day within one year — and with its year where the axis's buckets run past one, as a month's is", () => {
+        const day = v.group("ordered_at", { bucket: "day" });
+        /** A day's key: its count since 1970, as its program groups by it. */
+        const keyOf = (at: Date) => BigInt(at.getTime() / 86_400_000);
+        const [lastYear, july, september] = [new Date(Date.UTC(2025, 8, 29)), new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 8, 28))];
+        const label = (at: Date, along: readonly Date[]) => axisLabel(keyOf(at), IntegerType, day, bucketSpan(along, words), queryWords(words), m);
+        // The quarter's days: the day alone.
+        expect(label(september, [july, september])).toBe(words.monthDay(september));
+        // Two years' days, a tick a year apart: each says its year — never two that read as two days of one week.
+        expect([label(lastYear, [lastYear, september]), label(september, [lastYear, september])]).toEqual([words.date(lastYear), words.date(september)]);
+        expect(words.date(lastYear)).toContain("2025");
     });
 });
 

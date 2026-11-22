@@ -203,8 +203,10 @@ export function pickLabel(pick: ClickedPick, words: QueryWords, m: StudioMessage
 /**
  * A group's key as a chart's axis labels it (TIL-5): short, leaving out what
  * every label of the axis shares — a month of one year `Apr`, of several
- * `Apr 2026`; a quarter `Q3`; an hour of one day `14:00`; a day or a week
- * `Jun 29`. Any other key as a table says it ({@link groupLabel}).
+ * `Apr 2026`; a quarter `Q3`; an hour of one day `14:00`; a day or a week of
+ * one year `Jun 29`, of several `Jun 29, 2026`, so two a year apart never read
+ * as two days of one week. Any other key as a table says it
+ * ({@link groupLabel}).
  *
  * @param key - The key, as the answer gave it: a bucket's period number
  * @param type - The key's East type
@@ -221,7 +223,7 @@ export function axisLabel(key: unknown, type: EastType, group: VisualGroup, span
     const f = words.formatters;
     switch (unit) {
         case "hour": return span.oneDay ? f.time(start) : f.dateTime(start);
-        case "day": case "week": return f.monthDay(start);
+        case "day": case "week": return span.oneYear ? f.monthDay(start) : f.date(start);
         case "quarter": {
             const quarter = Math.floor(start.getUTCMonth() / 3) + 1;
             return span.oneYear ? m.quarterShort({ quarter }) : m.quarterOf({ quarter, year: f.year(start) });
