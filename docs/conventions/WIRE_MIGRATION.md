@@ -1472,3 +1472,39 @@ Each wire changed under this rule, with the kind it is.
   spec's bytes and hash change with the case, and each task of a re-exported
   package that names an environment runs again. Packages are re-exported, so
   no repository upgrade step ships.
+- **e3-ui's builders make a new row's key by the app's rule, and read every
+  key at its record's type** — package-borne. The kind every builder takes
+  over an app's record of events (`ScheduleKindType`: the Calendar's events,
+  the Plan's event kinds, which carry its fields, and the Roster's duties and
+  the Allocation's bins, each inside its builder's own kind) gains `newKey`
+  and `rowKey`, after `entries`: the app's rule for a new row's key, given the
+  keys taken, each as its text (`Option<Function([Set<String>], String)>`),
+  and the key's text the app's `key` builds from a row's bytes
+  (`Option<Function([Blob], String)>`), `none` for a kind given neither. The
+  Roster's cover targets (`RosterTargetsKindType`) gain the same two after
+  `entries`, and the fields the Flowchart's and the Schematic's kinds and the
+  Plan's link kinds share (`KindSideFields`) gain `newKey` after `entries`,
+  each of them holding its `rowKey` already. The Sheet's editing declaration
+  (`SheetEditingType`) gains `underKey` and `rowKey`, last: over a record
+  whose entries hold their own key in a field (`keyField`), an entry's draft
+  and wire row with a key's text put in that field and in the cell of any
+  column over it; over one whose keys the app builds from them (`key`), an
+  entry's key's text from its bytes. A Plan's link kind (`PlanLinkKindType`)
+  gains `write`, after `create`: a link's row with its ends written from the
+  two events given, which is how a link follows an event it joins that moves
+  under another key. The Plan's root (`PlanRootType`) gains `rowsKeyType`,
+  after `unnarrowed`: the key type `data` holds its entries by, which its key
+  searches read a typed key at and order the keys they find by, none for a
+  Plan with no `data`. The fit's and the optimiser's types over a builder's
+  rows take their record's key type: `Allocation.Types.FitAsk`, `FitRequest`,
+  `FitContext`, `FitResult` and `Candidate`, and `Roster.Types.FitContext`
+  and `Candidate`, are constructors (`FitRequest({ key })`) where they were
+  types, and `Roster.Types.OptimiseRequest({ edges: true, key })` holds
+  `fixed` at the duties' key type. At the default key, String, each is the
+  type it was, so an app's fit and optimiser over records keyed by String keep
+  their signatures, the constructor called (`Allocation.Types.FitRequest()`);
+  one over another key type is new. A UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, and an application's records keep their types, so no
+  repository upgrade step ships with it.
