@@ -23,6 +23,7 @@ import { Chart } from "@elaraai/east-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import { groupCondition } from "../../query/visual/clicks.js";
+import type { PrintState } from "../../query/visual/print.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages-en.js";
 import { GOAL_COLOR, NEG_COLOR, OTHER_COLOR, REFERENCE_COLOR, REFERENCE_WIDTH, chartModel, type ChartModel, type ChartSpec, type ChartView } from "./chart-spec.js";
@@ -34,11 +35,11 @@ const m = studioMessages;
 /** A series layer, decoded. */
 type SeriesMark = ValueTypeOf<typeof Chart.Spec.Types.SeriesMark>;
 
-/** A chart visual's model, over the orders. */
-async function modelOf(content: ReturnType<typeof v.of>): Promise<ChartModel> {
+/** A chart visual's model, over the orders: the quarter's, unless the page's state is given. */
+async function modelOf(content: ReturnType<typeof v.of>, state?: PrintState): Promise<ChartModel> {
     if (content.type !== "visual" || content.value.view.type !== "chart") throw new Error("not a chart");
     const chart: ChartView = content.value.view.value;
-    const { asks, answers } = await answered(content);
+    const { asks, answers } = await answered(content, state);
     const model = chartModel(chart, asks, answers, LISTED_ORDERS, words, m);
     if (model === undefined) throw new Error("no groups answered");
     return model;
@@ -163,6 +164,17 @@ describe("chartModel", () => {
         // A line over a field that is no date stays in bands.
         const byRegion = await modelOf(v.of("orders", v.line({ x: v.group("region"), values: [v.sum("revenue")] })));
         expect(frameOf(byRegion.spec).xScale.type).toBe("band");
+    });
+
+    it("prints a time axis's days and weeks with their year where they run past one year, as its months are — never three days that read as one week's", async () => {
+        const byWeek = v.of("orders", v.line({ x: v.group("ordered_at", { bucket: "week" }), values: [v.sum("revenue")] }));
+        const pattern = async (state?: PrintState) => axisNode((await modelOf(byWeek, state)).spec, "axisBottom")!.tickFormat;
+        // The quarter's weeks are of one year: the day alone.
+        expect(await pattern()).toEqual(some(variant("date", "MMM DD")));
+        // Every order, with no filter — last year's too: a tick a year apart says its year.
+        expect(await pattern({ filters: [] })).toEqual(some(variant("date", "MMM DD YYYY")));
+        const byMonth = v.of("orders", v.line({ x: v.group("ordered_at", { bucket: "month" }), values: [v.sum("revenue")] }));
+        expect(axisNode((await modelOf(byMonth, { filters: [] })).spec, "axisBottom")!.tickFormat).toEqual(some(variant("date", "MMM YYYY")));
     });
 
     it("stacks to a hundred percent, its axis a percent; and a line ignores the stack (CHT-1, CHT-3)", async () => {

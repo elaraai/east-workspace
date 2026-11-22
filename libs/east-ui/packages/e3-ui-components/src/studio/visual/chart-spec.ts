@@ -223,11 +223,14 @@ interface TimeAxis {
     readonly pattern: string;
 }
 
-/** The East date pattern a time axis's ticks print by: short, leaving out what every bucket shares. */
+/**
+ * The East date pattern a time axis's ticks print by: short, leaving out what every bucket shares — and no more: days
+ * and weeks that run past one year say their year, so three ticks a year apart never read as three days of one week.
+ */
 function datePattern(unit: Exclude<BucketUnit, "quarter">, span: BucketSpan): string {
     switch (unit) {
         case "hour": return span.oneDay ? "HH:mm" : "MMM DD HH:mm";
-        case "day": case "week": return "MMM DD";
+        case "day": case "week": return span.oneYear ? "MMM DD" : "MMM DD YYYY";
         case "year": return "YYYY";
         case "month": case "auto": return span.oneYear ? "MMM" : "MMM YYYY";
     }
