@@ -13,8 +13,10 @@
  * the visual's goal, shows the rows that meet it now and saves it as one
  * patch, which the page's check then fires; the check of alerts set before the
  * page opened writes a firing once; a delete another session's edit overtakes
- * is refused, naming the alert; and the bell for a host's bar opens a firing
- * alert's page with its filters, under a banner naming it.
+ * is refused, naming the alert; an alert whose last condition is removed in
+ * its rows holds none, so its editor says one is needed and Save waits (ruled
+ * 22 November 2026); and the bell for a host's bar opens a firing alert's page
+ * with its filters, under a banner naming it.
  */
 
 import { describe, expect, test } from "vitest";
@@ -178,6 +180,29 @@ describe("a page's alerts (#1674)", () => {
         await waitFor(() => expect(document.querySelector("[data-studio-alert-refused]")?.textContent).toMatch(/^Region over 1000: /), { timeout: 10_000 });
         const kept = (await readAlerts()).get("Region over 1000");
         expect(kept?.paused).toBe(true);
+    });
+
+    test("an alert's last condition removed in its rows: it holds none, so its editor says one is needed and Save waits — nothing is written", async () => {
+        await mountWith(new Map([["Region over 1000", alertOn(".revenue > 1000")]]));
+        const seeded = await commitCount();
+        await waitFor(() => expect(visualBell()).not.toBeNull());
+        await press(visualBell());
+        await press(await waitFor(() => {
+            const row = document.querySelector<HTMLElement>('[data-studio-alert="Region over 1000"]');
+            if (row === null) throw new Error("the bell lists no alert");
+            return row;
+        }));
+        const editor = await waitFor(() => {
+            const found = document.querySelector<HTMLElement>("[data-studio-alert-editor] [data-studio-filter-rows]");
+            if (found === null) throw new Error("the alert's editor draws no rows");
+            return found;
+        });
+        const save = () => document.querySelector<HTMLButtonElement>("[data-studio-alert-save]")!;
+        const needed = () => screen.queryByText("Finish the condition to save the alert.") !== null;
+        expect([save().disabled, needed()]).toEqual([false, false]);
+        await press(within(editor).getByRole("button", { name: "Remove" }));
+        expect([[...editor.querySelectorAll("[data-query-line=row]")].length, save().disabled, needed()]).toEqual([0, true, true]);
+        expect(await commitCount()).toBe(seeded);
     });
 
     test("the bar's bell lists a firing alert, and opening it sets its page's filters to the alert's, tells the host the page, and draws the banner — whose Show rows gives the rows that met it, and whose Dismiss puts it away", async () => {

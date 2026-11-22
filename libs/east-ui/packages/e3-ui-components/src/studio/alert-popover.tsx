@@ -11,7 +11,10 @@
  * condition, the query builder's condition rows over the visual's rows — its
  * groups, then its values (`filter-editor.tsx`); whether it is paused; and Now,
  * the rows over the line now as a result table, asked as the popover opens on
- * it and on Run, never on an edit. Save writes one patch on the alerts record;
+ * it and on Run, never on an edit. Its condition is a draft: what its rows say
+ * as they stand, so one with no finished row — its last removed, or its only
+ * one being rewritten — says a condition is needed, and Save waits for it.
+ * Save writes one patch on the alerts record;
  * Delete confirms in the popover. A new alert starts from the visual's first
  * value — under its goal where it has one, else above a number to write — and
  * the page's filters as it is made. Two people saving one alert meet a
@@ -40,10 +43,10 @@ import type { StepQuery } from "../query/steps/values.js";
 import { useQueryWords } from "../query/words.js";
 import { messageOf } from "../shared/message.js";
 import { useAlertsRead, useSaveAlerts, useStudioAlerts, type StudioAlerts } from "./alert-context.js";
+import { AlertRow } from "./alert-row.js";
 import { alertChanges, alertNameRefusal, isFiring, placementAlerts, type Alert, type AlertWrite, type Alerts } from "./alerts.js";
 import { ConditionEditor } from "./filter-editor.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
-import { AlertRow } from "./alert-row.js";
 import { usePageFilters } from "./page-filters.js";
 import { problemOf } from "./visual/notes.js";
 import type { Visual } from "./visual/values.js";
@@ -303,7 +306,7 @@ function AlertEditor({ visual, name, read, placement, studio, alerts, held, foot
                     </Box>
                     <Box css={edit.field}>
                         <Box as="span" css={edit.fieldLabel}>{m.alertCondition()}</Box>
-                        <ConditionEditor id={`alert:${placement}:${held?.name ?? ""}`} query={query} held={opened} conditionOf={conditionOf} root={root} onChange={setCondition} />
+                        <ConditionEditor id={`alert:${placement}:${held?.name ?? ""}`} query={query} held={opened} conditionOf={conditionOf} root={root} live={false} onChange={setCondition} />
                         {condition === undefined && <Box as="span" css={edit.hint}>{m.alertUnfinished()}</Box>}
                     </Box>
                     <EastChakraCheckbox value={pausedBox} />

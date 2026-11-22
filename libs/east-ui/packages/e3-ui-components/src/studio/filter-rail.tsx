@@ -11,7 +11,9 @@
  * once, the datasets in the order the surface lists them (ruled 19 November
  * 2026); a `+ FILTER` chip; and each chip's editor: the query builder's
  * condition rows over its source (`./filter-editor.tsx`). Each edit is one of
- * the filters' gestures — added, changed, removed, cleared (`./page-filters.tsx`).
+ * the filters' gestures — added, changed, removed, cleared (`./page-filters.tsx`):
+ * a filter whose last condition is removed in its rows is removed, its chip
+ * and its editor with it, as its Remove filter does.
  *
  * It is a model for the rail both it and Slice draw (`useSliceRailItems`, on
  * the rail engine): its one affordance is the filters, whose chips fold one
@@ -71,8 +73,11 @@ interface Filtered {
     readonly read: PrintSource;
 }
 
-/** A filter's editor: its condition rows over its source, each finished edit written to the page; a new one's open on its field's list. */
-function FilterEditor({ id, where, read, onChange }: { id: string; where: JqNode | undefined; read: PrintSource; onChange: (where: JqNode) => void }) {
+/**
+ * A filter's editor: its condition rows over its source, each edit of its finished rows written to the page — `undefined`
+ * once its last is removed; a new one's open on its field's list.
+ */
+function FilterEditor({ id, where, read, onChange }: { id: string; where: JqNode | undefined; read: PrintSource; onChange: (where: JqNode | undefined) => void }) {
     const root = useVisualRoot();
     // A page whose sources cannot be queried has no rows to edit a condition over.
     return root === undefined ? null : <FilterConditions id={id} where={where} read={read} root={root} onChange={onChange} autoOpen={where === undefined} />;
@@ -89,7 +94,8 @@ interface NewFilterProps {
 /**
  * A new filter's editor: its source, chosen where the page reads more than
  * one, then its condition rows. The filter is added as its first condition is
- * finished, and the rows go on editing it.
+ * finished, and the rows go on editing it; its last condition removed, it is
+ * removed, and the rows go on to write another.
  */
 function NewFilter({ sources, page }: NewFilterProps) {
     const m = useStudioMessages();
@@ -98,7 +104,13 @@ function NewFilter({ sources, page }: NewFilterProps) {
     const [added, setAdded] = useState<number | undefined>(undefined);
     const on = sources.find((held) => held.source.key === picked) ?? sources[0];
     if (on === undefined) return null;
-    const write = (where: JqNode) => {
+    const write = (where: JqNode | undefined) => {
+        if (where === undefined) {
+            // Its last condition removed: the filter these rows added goes, and the next they finish is another.
+            if (added !== undefined) page.remove(added);
+            setAdded(undefined);
+            return;
+        }
         const filter: PageFilter = { source: on.source.key, where, from: none };
         if (added === undefined) {
             // Added after the rest: its place is the count before it.
@@ -151,10 +163,18 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
             group: { key: filter.source, label: name },
             editLabel: m.filterOf({ source: name }),
             large: true,
-            editor: (): ReactNode => (on === undefined
+            editor: (close): ReactNode => (on === undefined
                 ? <Box as="span" css={edit.hint} data-studio-filter-gone="">{m.filterSourceGone({ source: filter.source })}</Box>
                 : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read}
-                    onChange={(where) => page.change(i, { ...filter, where })} />),
+                    onChange={(where) => {
+                        if (where === undefined) {
+                            // Its last condition removed: the filter goes, and its editor with it, as its Remove filter does.
+                            close();
+                            page.remove(i);
+                        } else {
+                            page.change(i, { ...filter, where });
+                        }
+                    }} />),
         };
     });
     // Each finished condition is the page's at once: the popovers say no Done or Cancel. The datasets in the surface's order.

@@ -19,6 +19,8 @@
  * visual's source, each of which a row must pass; a filter in words, as its
  * chip says it ({@link filterWords}); a filter as the query its condition
  * rows edit, and read back from it ({@link filterQuery}, {@link whereOf});
+ * what an edit of those rows tells their host — the condition its finished
+ * rows hold, that its last one was removed, or nothing ({@link conditionTold});
  * and the page's state as a visual's
  * printer reads it ({@link printStateOf}) — the filters, and the window they
  * hold the source's date to ({@link pageRange}), which a value over another
@@ -32,7 +34,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, DateTimeType, compareFor, none, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DateTimeType, JqType, compareFor, equalFor, none, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { isoDateTime } from "@elaraai/east/internal";
 import type { StudioFilterType, StudioPageFilterType } from "@elaraai/e3-ui/internal";
 import { conditionChip, conditionWords } from "../model/step-words.js";
@@ -298,6 +300,66 @@ export function whereOf(query: StepQuery, root: EastType): JqNode | undefined {
         bodies.push(body);
     }
     return bodies.length === 0 ? undefined : chain(bodies, "and");
+}
+
+// ─── What an edit of a condition's rows tells its host ───────────────────────
+
+const sameCondition = equalFor(JqType);
+
+/**
+ * What an edit of a condition's rows tells their host: a page filter's, a
+ * visual's own filter's, an alert's.
+ *
+ * - `condition`: the condition the finished rows now hold.
+ * - `removed`: the host holds no condition any more.
+ * - `nothing`: it holds what it held.
+ */
+export type ConditionTold =
+    | { readonly kind: "condition"; readonly where: JqNode }
+    | { readonly kind: "removed" }
+    | { readonly kind: "nothing" };
+
+const REMOVED: ConditionTold = { kind: "removed" };
+const NOTHING: ConditionTold = { kind: "nothing" };
+
+/** How many rows a query's last step — its Keep rows where step — holds: its tests, each group's counted. */
+function conditionRows(query: StepQuery): number {
+    const step = query.steps[query.steps.length - 1];
+    const count = (conds: readonly Condition[]): number => conds.reduce((n, held) => n + (held.type === "group" ? count(held.value.conds) : 1), 0);
+    return step?.type === "filter" ? count(step.value.conds) : 0;
+}
+
+/**
+ * What an edit of a condition's rows tells their host.
+ *
+ * @param before - The query the rows edited, as it stood before the edit
+ * @param after - The query as the edit left it
+ * @param held - The condition the host holds; `undefined` when it holds none
+ * @param conditionOf - The condition a query's finished rows hold; `undefined` while none is finished ({@link whereOf})
+ * @param live - Whether the host applies each edit as it is made — a page's filter, a visual's own — or holds a draft its
+ *   own Save writes — an alert
+ * @returns What the host is told
+ *
+ * @remarks
+ * - A row still to be finished is no part of the condition: the finished rows
+ *   are told at once, whatever else is being written, and an edit that leaves
+ *   them saying what the host holds tells nothing.
+ * - With no finished row left, an edit that took a row away took the
+ *   condition with it, and the host's is removed: its last condition, or its
+ *   last finished one beside rows still empty.
+ * - With no finished row left by an edit that took none away — its only
+ *   row's field changed, its value still to be chosen — a live host keeps
+ *   what it holds until the row is finished: a condition half rewritten is
+ *   never a filter taken off the page. A draft holds what its rows say, so
+ *   its condition is removed until one is finished, and its Save waits.
+ */
+export function conditionTold(
+    before: StepQuery, after: StepQuery, held: JqNode | undefined, conditionOf: (query: StepQuery) => JqNode | undefined, live: boolean,
+): ConditionTold {
+    const where = conditionOf(after);
+    if (where !== undefined) return held !== undefined && sameCondition(where, held) ? NOTHING : { kind: "condition", where };
+    if (held === undefined) return NOTHING;
+    return !live || conditionRows(after) < conditionRows(before) ? REMOVED : NOTHING;
 }
 
 // ─── The window a page's filters hold a source's date to ─────────────────────

@@ -12,7 +12,8 @@
  * — a field dropped on one, placed from the keyboard, moved, changed and taken
  * out (EDT-3–EDT-5), a field a well refuses (EDT-4), a pill's menu (EDT-6,
  * EDT-7), a field its source lacks (MOD-5) — its own filter, written with the
- * condition rows in place (ruled 19 November 2026), and the Fields list. The
+ * condition rows in place (ruled 19 November 2026) and removed with its last
+ * condition (ruled 22 November 2026), and the Fields list. The
  * record and the builders are `builder.test-utils.tsx`'s; the tab drawn from a
  * declaration alone (EDT-2) is `configure.test.tsx`'s.
  */
@@ -309,6 +310,25 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         // Remove filter: the filter off, one gesture, the rows empty again.
         await pressOn(remove()!);
         expect([tinted(), lines().length, lines()[0]!.includes("North"), remove()]).toEqual([["where"], 1, false, null]);
+    });
+
+    test("a visual's own filter's last condition removed in its rows removes the filter, as Remove filter does — the rows left to write another, one gesture Undo takes back (ruled 22 November 2026)", async () => {
+        const { container } = await mountBoard();
+        await select(container, "b-sales");
+        const rows = () => configurePart(container, "where").querySelector<HTMLElement>("[data-studio-filter-rows]")!;
+        const lines = () => [...rows().querySelectorAll<HTMLElement>("[data-query-line=row]")].map((row) => row.textContent ?? "");
+        const tinted = () => [...inspector(container).querySelectorAll("[data-changed]")].map((el) => el.getAttribute("data-changed"));
+        const remove = () => inspector(container).querySelector<HTMLElement>("[data-configure-remove-filter]");
+        await openSlot(rows(), "field");
+        await pick("region");
+        await waitFor(() => expect(offers()).toContain("North"));
+        await pick("North");
+        expect([tinted(), remove() !== null]).toEqual([["where"], true]);
+        // Its only row's ×: no condition, so no filter — Remove filter goes with it, the visual as it was saved.
+        await pressOn(within(rows()).getByRole("button", { name: "Remove" }));
+        expect([lines(), remove(), tinted(), within(rows()).getByRole("button", { name: "Add condition" }).textContent]).toEqual([[], null, [], "Add condition"]);
+        await press("Undo");
+        expect([lines().length, lines()[0]!.includes("North"), remove() !== null]).toEqual([1, true, true]);
     });
 
     test("an operator places a column chart, picks a source, drops a date on its X axis and a number on its values — the canvas draws it, each a gesture Undo takes back, and Save writes one patch (EDT-3, EDT-5, MOD-6)", async () => {

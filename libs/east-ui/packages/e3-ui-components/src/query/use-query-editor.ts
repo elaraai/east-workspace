@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { checkJq, describeJqType, none, some, type CheckJqResult } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
-import { cardsFor, sourceCard, type Card, type SourceCard } from "./model/cards.js";
+import { cardsFor, slotDrawn, sourceCard, type Card, type SourceCard } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
 import { parseErrorWords } from "./model/problem-words.js";
 import { applyAction, applyInput, applyRemove, applySlot } from "./model/slot-edits.js";
@@ -442,10 +442,11 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     }), [open, onSlot, onInput, onRemove, onAction, onFix, onMove, onRemoveStep]);
 
     // ── The open slot's autocomplete ────────────────────────────────────
-    // A slot whose step is gone — undone, removed — closes.
+    // A slot the query draws no more closes (`slotDrawn`): its step gone — undone, removed — or, in a step that stays,
+    // its condition, its total or its field: a group's Remove group takes the list its condition opened with it (#1667).
     const openRef = open?.ref;
     const openStep = openRef === undefined || openRef.kind === "add-step" ? -1 : query.steps.findIndex((s) => s.value.id === openRef.stepId);
-    const gone = openRef !== undefined && openRef.kind !== "add-step" && openStep < 0;
+    const gone = openRef !== undefined && !slotDrawn(cards, openRef);
     useEffect(() => { if (gone) setOpen(undefined); }, [gone]);
     const request = useMemo(() => (openRef === undefined || openStep < 0 || !summaryNeeded(openRef.kind) || isJq ? undefined
         : summaryAt(query, openStep, root.type)), [openRef, openStep, query, root, isJq]);

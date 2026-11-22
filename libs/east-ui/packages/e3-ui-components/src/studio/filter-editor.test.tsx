@@ -7,7 +7,11 @@
  * A page filter's conditions, edited (#1673): the query builder's condition
  * rows over one source — a condition drawn as its row, a value picked from
  * the values the source holds, a condition added and told only once it is
- * finished, all or any, and a line of jq where no row says the condition.
+ * finished, all or any, and a line of jq where no row says the condition;
+ * its removes (ruled 22 November 2026) — a row's ×, and a group's Remove group
+ * in words at its foot — a group left with one row that row, plain, and the
+ * filter removed once its last finished row is. The rules themselves, step by
+ * step, are `query/visual/filter-flow.test.ts`'s.
  * In place: no frame of their own, a lone condition with no joiner column,
  * the shared picker in the flow under them — open on a new filter's field,
  * Esc closing it and leaving the rows, Tab choosing as Enter does. Its
@@ -28,10 +32,10 @@ tileHarness();
 
 const { popover, offers, openSlot, pick } = slotActions(act, settle);
 
-/** A filter's rows over the orders, on e3, and each condition they told, as jq; `autoOpen` as a new filter's are. */
+/** A filter's rows over the orders, on e3, and each thing they told — a condition, as jq, or the filter `removed`; `autoOpen` as a new filter's are. */
 async function rowsOf(where: string | undefined, autoOpen = false) {
     const told: string[] = [];
-    const onChange = (next: JqNode) => { told.push(printJq(next).text); };
+    const onChange = (next: JqNode | undefined) => { told.push(next === undefined ? "removed" : printJq(next).text); };
     const { container } = await onE3(
         <FilterConditions id="f1" where={where === undefined ? undefined : condition(where)} read={ORDERS_SOURCE} root={ORDERS_ROOT} onChange={onChange} autoOpen={autoOpen} />,
     );
@@ -119,6 +123,88 @@ describe("a page filter's conditions", () => {
         await settle();
         expect(told).toHaveLength(1);
         expect(popover()).toBeNull();
+    });
+
+    test("Remove group closes the list the group's condition opened: no list stays open on a slot that is gone", async () => {
+        const { rows } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add group" })); });
+        await settle();
+        // The group's first condition opens on its field's list.
+        await waitFor(() => expect(popover()).not.toBeNull());
+        expect(lines(rows)).toHaveLength(3);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove group" })); });
+        await settle();
+        expect([lines(rows).length, popover()]).toEqual([1, null]);
+    });
+
+    test("a condition's × closes the list open on it, and leaves a list open on another row where it is", async () => {
+        const { rows } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        // The new row's field opens at once; its own × takes the list with the row.
+        await waitFor(() => expect(popover()).not.toBeNull());
+        const removes = () => screen.getAllByRole("button", { name: "Remove" });
+        await act(async () => { fireEvent.click(removes()[1]!); });
+        await settle();
+        expect([lines(rows).length, popover()]).toEqual([1, null]);
+        // A list open on the first row's value stays open on it when a row added after it is removed.
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        await openSlot(rows, "SA");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await act(async () => { fireEvent.click(removes()[1]!); });
+        await settle();
+        expect(lines(rows)).toHaveLength(1);
+        expect(offers()).toContain("NSW");
+    });
+
+    test("a group's remove is its words, Remove group, at its foot's end after its add — never a × in its head — and each row keeps its own ×, each marked by what it takes", async () => {
+        const { rows } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add group" })); });
+        await settle();
+        const box = rows.querySelector<HTMLElement>("[data-query-group-box]")!;
+        const removeGroup = screen.getByRole("button", { name: "Remove group" });
+        const foot = box.querySelector<HTMLElement>(":scope > [data-query-line=foot]")!;
+        expect([removeGroup.textContent, removeGroup.getAttribute("data-query-remove"), removeGroup.querySelector("svg"), removeGroup.parentElement === foot]).toEqual(["Remove group", "group", null, true]);
+        expect([...foot.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Add condition", "Remove group"]);
+        expect(box.querySelector("[data-query-group-head] [data-query-remove]")).toBeNull();
+        // The filter's own row, and the group's two: each a × that takes its row.
+        const crosses = [...rows.querySelectorAll<HTMLElement>("[data-query-line=row] > [data-query-remove]")];
+        expect(crosses.map((cross) => [cross.getAttribute("data-query-remove"), cross.getAttribute("aria-label"), cross.querySelector("svg")?.getAttribute("data-icon")]))
+            .toEqual([["row", "Remove", "xmark"], ["row", "Remove", "xmark"], ["row", "Remove", "xmark"]]);
+    });
+
+    test("a group's row removed leaves the other as a plain row: no group of one, and nothing told while neither is finished", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add group" })); });
+        await settle();
+        expect([lines(rows).length, rows.querySelectorAll("[data-query-group-box]").length]).toEqual([3, 1]);
+        await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[2]!); });
+        await settle();
+        expect([lines(rows).length, rows.querySelectorAll("[data-query-group-box]").length, screen.queryByRole("button", { name: "Remove group" }), told]).toEqual([2, 0, null, []]);
+    });
+
+    test("its only condition's × removes the filter — told once — and leaves the adds to write another, which is a filter again once finished", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove" })); });
+        await settle();
+        expect([lines(rows), told, popover()]).toEqual([[], ["removed"], null]);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        await waitFor(() => expect(popover()).not.toBeNull());
+        await pick("region");
+        await waitFor(() => expect(offers()).toContain("NSW"));
+        await pick("NSW");
+        expect(told).toEqual(["removed", `.region == "NSW"`]);
+    });
+
+    test("its last finished row removed beside a row still empty removes the filter, and the empty row stands", async () => {
+        const { rows, told } = await rowsOf(`.region == "SA"`);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
+        await settle();
+        await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!); });
+        await settle();
+        expect([lines(rows).length, told]).toEqual([1, ["removed"]]);
     });
 
     test("holds a condition no row says as a line of jq", async () => {

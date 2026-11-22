@@ -163,7 +163,7 @@ function mock(name: string): StepQuery {
 
 // ─── Reading cards ───────────────────────────────────────────────────────────
 
-/** A part as a compact token: `[field:status]`, `[value:_value]` while empty, `#` for data in mono, `!` for a problem. */
+/** A part as a compact token: `[field:status]`, `[value:_value]` while empty, `#` for data in mono, `!` for a problem; a row's remove `×`, a group's its words. */
 function partText(p: CardPart): string {
     switch (p.t) {
         case "word": return p.joiner === true ? `<${p.text}>` : p.text;
@@ -171,7 +171,7 @@ function partText(p: CardPart): string {
         case "input": return `{${p.input.kind}:${p.value}${p.error ? "!" : ""}}`;
         case "chip": return `(${p.text})`;
         case "add": return `+${p.text}`;
-        case "remove": return "×";
+        case "remove": return p.takes === "group" ? p.label : "×";
         case "code": return `\`${p.text}\``;
     }
 }
@@ -320,10 +320,10 @@ describe("P1: cards and words", () => {
         expect(cardsOf(mock("Gold customers or big orders")).map(cardText)[1]).toEqual([
             "Keep rows where | [match:all] of these are true",
             "row: <> [field:status] [cmp:is not] [value:cancelled] ×",
-            "group: [group-match:any] of these is true × | <and>",
+            "group: [group-match:any] of these is true | <and>",
             "  row: <> [field:tier] [cmp:is] [value:gold] ×",
             "  row: <or> [field:total] [cmp:is at least] [value:1500#] ×",
-            "  foot: +Add condition",
+            "  foot: +Add condition Remove group",
             "foot: +Add condition +Add group",
         ]);
         expect(cardsOf(mock("Revenue by region")).map(cardText)[2]).toEqual([

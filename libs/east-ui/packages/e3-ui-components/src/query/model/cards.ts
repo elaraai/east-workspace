@@ -21,7 +21,7 @@ import { fieldByRef, fieldsOf, type StepField } from "../steps/fields.js";
 import { itemShape, scalarFieldsOf } from "../steps/print.js";
 import { singular, unwrapRecursive, type Shape } from "../steps/shape.js";
 import { isComplete, lastUnit, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
-import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./refs.js";
+import { sameSlot, type ActionRef, type InputRef, type RemoveRef, type SlotRef } from "./refs.js";
 import { problemWords } from "./problem-words.js";
 import { orderKind, stepWords } from "./step-words.js";
 import {
@@ -41,8 +41,11 @@ export type CardPart =
     | { readonly t: "chip"; readonly text: string; readonly remove: RemoveRef }
     /** An add: a foot's, or Look up's Add field. */
     | { readonly t: "add"; readonly text: string; readonly action: ActionRef; readonly ghost: boolean }
-    /** A row's ×. */
-    | { readonly t: "remove"; readonly label: string; readonly target: RemoveRef }
+    /**
+     * A remove, named by its label, and what it takes: its `row` — a ×; a `group` and all it holds — its label in
+     * words, in the group's foot, so a group's is never the mark a row's is; or one `part` of a row — a field's ×.
+     */
+    | { readonly t: "remove"; readonly label: string; readonly target: RemoveRef; readonly takes: "row" | "group" | "part" }
     /** A jq step's code. */
     | { readonly t: "code"; readonly text: string };
 
@@ -62,13 +65,13 @@ export interface ProblemLine {
 
 /** One line of a card. */
 export interface CardLine {
-    /** A row of parts; a group, with its own head and lines; a foot of adds; a note; a jq step's code. */
+    /** A row of parts; a group, with its own head and lines; a foot of adds — and, a group's, its Remove group; a note; a jq step's code. */
     readonly kind: "row" | "group" | "foot" | "note" | "code";
     /** Its parts. */
     readonly parts: readonly CardPart[];
     /** A group's head: its match and its words. */
     readonly head?: readonly CardPart[];
-    /** A group's lines. */
+    /** A group's lines: its rows, then its foot — Add condition, and Remove group opposite it. */
     readonly lines?: readonly CardLine[];
     /** The problems under it. */
     readonly problems: readonly ProblemLine[];
@@ -166,9 +169,9 @@ function input(ctx: CardContext, ref: Omit<InputRef, "stepId">, value: string, w
     return { t: "input", input: { stepId: ctx.step.value.id, ...ref }, value, width, mono, error };
 }
 
-/** A remove part. */
-function remove(ctx: CardContext, kind: RemoveRef["kind"], id: string, label?: string): CardPart {
-    return { t: "remove", label: label ?? ctx.words.messages.remove(), target: { kind, stepId: ctx.step.value.id, id } };
+/** A remove part, and what it takes: its row unless told. */
+function remove(ctx: CardContext, kind: RemoveRef["kind"], id: string, label?: string, takes: "row" | "group" | "part" = "row"): CardPart {
+    return { t: "remove", label: label ?? ctx.words.messages.remove(), target: { kind, stepId: ctx.step.value.id, id }, takes };
 }
 
 /** An add part. */
@@ -240,11 +243,16 @@ function filterLines(ctx: CardContext, step: Extract<Step, { type: "filter" }>):
                 parts: [gi === 0 ? word("", true) : word(m.joiner({ match: g.match.type }), true), ...conditionParts(ctx, gc, ctx.before), remove(ctx, "condition", gc.value.id)],
                 problems: problemsWhere(ctx, d => d.condId !== undefined && conditionIds(gc).includes(d.condId)),
             }));
-            inner.push({ kind: "foot", parts: [add(ctx, m.addCondition(), { kind: "add-condition", groupId: g.id })], problems: problemsWhere(ctx, d => d.condId === g.id) });
+            // Its foot: Add condition, and — in words, opposite it — Remove group, which takes the group and all it holds.
+            inner.push({
+                kind: "foot",
+                parts: [add(ctx, m.addCondition(), { kind: "add-condition", groupId: g.id }), remove(ctx, "condition", g.id, m.removeGroup(), "group")],
+                problems: problemsWhere(ctx, d => d.condId === g.id),
+            });
             lines.push({
                 kind: "group",
                 parts: joiner,
-                head: [slot(ctx, { kind: "group-match", condId: g.id }, m.match({ match: g.match.type }), false), word(m.ofThese({ match: g.match.type })), remove(ctx, "condition", g.id, m.removeGroup())],
+                head: [slot(ctx, { kind: "group-match", condId: g.id }, m.match({ match: g.match.type }), false), word(m.ofThese({ match: g.match.type }))],
                 lines: inner,
                 problems: [],
             });
@@ -299,7 +307,7 @@ function stepLines(ctx: CardContext): { head: CardPart[]; lines: CardLine[] } {
                 ? by.value.value.flatMap((ref, i) => [
                     ...(i === 0 ? [] : [word(m.joiner({ match: "all" }))]),
                     slot(ctx, { kind: "by", id: ref }, refLabel(before, ref), errorAt(ctx, { slot: "by", id: ref })),
-                    remove(ctx, "by-field", ref, `${m.remove()} ${refLabel(before, ref)}`),
+                    remove(ctx, "by-field", ref, `${m.remove()} ${refLabel(before, ref)}`, "part"),
                 ])
                 : [slot(ctx, { kind: "by" }, byText, errorAt(ctx, { slot: "by" }))];
             // Another field to group by, once it groups by one.
@@ -540,6 +548,12 @@ export function outlineOf(query: StepQuery, checked: CheckedSteps, words: QueryW
     });
 }
 
+/** Every part a card draws, in order: its head's, its lines', and each group's head's and lines'. */
+function cardParts(card: Card): CardPart[] {
+    const parts = (lines: readonly CardLine[]): CardPart[] => lines.flatMap(l => [...(l.head ?? []), ...l.parts, ...parts(l.lines ?? [])]);
+    return [...card.head, ...parts(card.lines)];
+}
+
 /**
  * The first empty slot of a card: where an added step opens.
  *
@@ -547,7 +561,36 @@ export function outlineOf(query: StepQuery, checked: CheckedSteps, words: QueryW
  * @returns the slot, or `undefined` when every slot is filled
  */
 export function firstEmptySlot(card: Card): SlotRef | undefined {
-    const parts = (lines: readonly CardLine[]): CardPart[] => lines.flatMap(l => [...(l.head ?? []), ...l.parts, ...parts(l.lines ?? [])]);
-    const found = [...card.head, ...parts(card.lines)].find(p => p.t === "slot" && p.empty);
+    const found = cardParts(card).find(p => p.t === "slot" && p.empty);
     return found?.t === "slot" ? found.slot : undefined;
+}
+
+/**
+ * The slots a card draws, in order: each slot part's, and the slot an add
+ * opens — Add field's list hangs from its add.
+ *
+ * @param card - the card
+ * @returns its slots
+ */
+export function cardSlots(card: Card): SlotRef[] {
+    return cardParts(card).flatMap((part): SlotRef[] => {
+        if (part.t === "slot") return [part.slot];
+        return part.t === "add" && part.action.kind === "open" && part.action.slot !== undefined ? [part.action.slot] : [];
+    });
+}
+
+/**
+ * Whether a query's cards still draw a slot: what a slot's open list is held
+ * to. A list hangs from a slot the cards draw, so a gesture that takes the
+ * slot away — its row's ×, its group's Remove group, its step removed, an undo — takes
+ * the list with it, and one that takes another row away leaves it where it
+ * is: a slot is its condition's, its total's or its field's by id, never by
+ * its place. The add-step list hangs from no card's part, so it always stands.
+ *
+ * @param cards - the query's cards ({@link cardsFor})
+ * @param slot - the slot
+ * @returns whether a card draws it
+ */
+export function slotDrawn(cards: readonly Card[], slot: SlotRef): boolean {
+    return slot.kind === "add-step" || cards.some(card => cardSlots(card).some(drawn => sameSlot(drawn, slot)));
 }

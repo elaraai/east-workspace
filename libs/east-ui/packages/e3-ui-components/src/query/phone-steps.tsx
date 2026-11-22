@@ -154,7 +154,7 @@ function Clause({ id, parts, problems, open, onOpen, ps, actions, isDirty }: Cla
                             );
                             case "remove": return (
                                 <chakra.button key={i} type="button" css={styles.removeLink} onClick={() => actions.onRemove(part.target)}>
-                                    <FontAwesomeIcon icon={faXmark} />{part.target.kind === "condition" ? ps.words.messages.removeCondition() : part.label}
+                                    <FontAwesomeIcon icon={faXmark} />{part.target.kind === "condition" && part.takes === "row" ? ps.words.messages.removeCondition() : part.label}
                                 </chakra.button>
                             );
                             default: return null;
@@ -167,7 +167,7 @@ function Clause({ id, parts, problems, open, onOpen, ps, actions, isDirty }: Cla
     );
 }
 
-/** A card's lines as clauses: a group's head a clause, its lines under it; a foot's adds as links. */
+/** A card's lines as clauses: a group's head a clause, its lines under it; a foot's adds as links, and a group's Remove group after its add. */
 function PhoneLines({ lines, at, open, onOpen, ps, actions, isDirty }: { lines: readonly CardLine[]; at: string; open: string | undefined; onOpen: (id: string | undefined) => void; ps: PartStyles; actions: PartActions; isDirty: ClauseProps["isDirty"] }): ReactNode {
     const styles = useSlotStyles("queryPhone");
     return lines.map((line, i) => {
@@ -190,6 +190,11 @@ function PhoneLines({ lines, at, open, onOpen, ps, actions, isDirty }: { lines: 
                                 <chakra.button key={j} type="button" css={styles.addLink} data-slot-key={part.action.kind === "open" && part.action.slot !== undefined ? slotKey(part.action.slot) : undefined}
                                     onClick={(event) => actions.onAction(part.action, event.currentTarget)}>
                                     <FontAwesomeIcon icon={faPlus} />{part.text}
+                                </chakra.button>
+                            ) : part.t === "remove" ? (
+                                // A group's Remove group, in its words, after its add.
+                                <chakra.button key={j} type="button" css={styles.removeLink} data-query-remove={part.takes} onClick={() => actions.onRemove(part.target)}>
+                                    <FontAwesomeIcon icon={faXmark} />{part.label}
                                 </chakra.button>
                             ) : null)}
                         </Box>

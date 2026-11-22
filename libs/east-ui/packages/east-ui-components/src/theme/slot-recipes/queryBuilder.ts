@@ -15,6 +15,12 @@
  * foot with Quick add. The builder fills its host and draws no border of its
  * own; a host frames it, or places it bare.
  *
+ * A remove says what it takes before it takes it: a row's × and a group's
+ * Remove group — its words, at its foot's end, never the mark a row's is —
+ * are each marked by what they take (`data-query-remove`), and while one is
+ * pointed at or holds the focus, the row or the group it would take stands on
+ * the danger wash, inside the danger rule.
+ *
  * The parts take their sizes from the design system's own: a slot is the
  * `select` trigger, an input the `input`, a jq step's code the `codeBlock`,
  * the buttons the `button` and `iconButton` recipes, the status line's dots
@@ -47,6 +53,19 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { centredLine } from "../one-line-box.js";
 
+/**
+ * A row its × is about to take, as a group its Remove group is: on the danger wash, inside the danger rule — both 3px
+ * past the row's own edges, which hold no padding to stand them on, and neither moving anything.
+ */
+const REMOVING_ROW = {
+    background: "bg.danger.subtle",
+    boxShadow: "0 0 0 3px {colors.bg.danger.subtle}",
+    outlineWidth: "1px",
+    outlineStyle: "solid",
+    outlineColor: "border.error",
+    outlineOffset: "3px",
+} as const;
+
 /** A small dashed button: a shape line's Insert, an add in a row. */
 const dashed = {
     borderWidth: "1px",
@@ -67,7 +86,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
         "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished", "conditions",
-        "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove",
+        "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove", "removeGroup",
         "group", "groupBox", "groupHead", "cardFoot", "note", "problem", "problemIcon", "problemText",
         "tabFoot", "addAtEnd", "quick", "quickLabel",
         // The status line.
@@ -326,13 +345,18 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             minHeight: "0",
         },
-        /* A row of words and parts. */
+        /* A row of words and parts. While its × is pointed at, or holds the focus, it stands on the danger wash inside
+           the danger rule, 3px past its own edges: the row the × takes. */
         row: {
             display: "flex",
             flexWrap: "wrap",
             alignItems: "center",
             gap: "6px",
             minHeight: "28px",
+            borderRadius: "{radii.sm}",
+            transitionProperty: "background, box-shadow",
+            transitionDuration: "{durations.fast}",
+            "&:has(> [data-query-remove='row']:is(:hover, :focus-visible))": REMOVING_ROW,
         },
         /* `and`, `or`: a fixed column, so conditions line up. */
         joiner: {
@@ -414,10 +438,21 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle", color: "link" },
             },
         },
-        /* A row's ×; in place, at its line's end, in line with its group's (#1673). */
+        /* A row's ×; in place, at its line's end (#1673): the danger ink as it is pointed at. */
         remove: {
             color: "fg.subtle",
             "[data-query-look='inline'] &": { marginInlineStart: "auto" },
+            "&[data-query-remove='row']:is(:hover, :focus-visible)": { color: "fg.danger" },
+        },
+        /* A group's Remove group: its words at its foot's end, opposite its add — quiet, the danger ink as it is pointed
+           at, on no wash of its own: its group's box takes the wash. */
+        removeGroup: {
+            marginInlineStart: "auto",
+            paddingInline: "{spacing.1}",
+            fontWeight: "medium",
+            color: "fg.muted",
+            _hover: { background: "transparent", color: "fg.danger" },
+            _focusVisible: { color: "fg.danger" },
         },
         /* A group of conditions: its joiner, and its box. */
         group: {
@@ -437,6 +472,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             background: "bg.panel",
+            transitionProperty: "background, border-color",
+            transitionDuration: "{durations.fast}",
+            // While its Remove group is pointed at, or holds the focus: the group and all it holds, which it takes.
+            "&:has(> [data-query-line='foot'] > [data-query-remove='group']:is(:hover, :focus-visible))": { background: "bg.danger.subtle", borderColor: "border.error" },
         },
         groupHead: {
             display: "flex",

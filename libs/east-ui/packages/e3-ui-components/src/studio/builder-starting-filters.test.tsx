@@ -10,12 +10,13 @@
  * step of the canvas's one history, in order with the placements', and Save
  * each one's own patch; their change first in the publish preview's list; and
  * the preview starting on them — the reader's filters this browser holds of the
- * page forgotten by an edit of them. The record and the builders are
- * `builder.test-utils.tsx`'s.
+ * page forgotten by an edit of them; and a filter whose last condition is
+ * removed in its chip's rows removed with it (ruled 22 November 2026). The
+ * record and the builders are `builder.test-utils.tsx`'s.
  */
 
 import { describe, test, expect } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, NullType, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
@@ -106,6 +107,24 @@ describe("<Studio.Builder> — the page's starting filters (#1673)", () => {
         await press("Redo");
         expect([spanOf(container, "g-bars"), chips(container)]).toEqual(["7", []]);
         expect(await commits()).toEqual(at);
+    });
+
+    test("a filter's last condition removed in its chip's rows removes the filter — its chip and its editor go, as its Remove filter does — one step Undo takes back", async () => {
+        const { container } = await mountFiltered();
+        await act(async () => { fireEvent.click(rail(container)!.querySelector<HTMLElement>("[data-slice-clause]")!); });
+        await settle();
+        const rows = await waitFor(() => {
+            const found = document.querySelector<HTMLElement>("[data-studio-filter-rows]");
+            if (found === null) throw new Error("the chip's editor draws no rows");
+            return found;
+        });
+        expect([...rows.querySelectorAll("[data-query-line=row]")].map((row) => row.textContent?.includes("North"))).toEqual([true]);
+        await act(async () => { fireEvent.click(within(rows).getByRole("button", { name: "Remove" })); });
+        await settle();
+        expect([chips(container), document.querySelector("[data-studio-filter-rows]")]).toEqual([[], null]);
+        await waitFor(() => expect(countOn(container)).toBe("6"));
+        await press("Undo");
+        expect(chips(container)).toEqual(["Region: North"]);
     });
 
     test("Save sends each its own request — one patch on the starting filters, one on the placements — and the record holds both", async () => {

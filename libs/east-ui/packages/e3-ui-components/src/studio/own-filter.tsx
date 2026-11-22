@@ -10,7 +10,8 @@
  * popover draws (`./filter-editor.tsx`), over the visual's source, the shared
  * picker under them while a slot is open. Each condition finished is the
  * visual's, one gesture of the canvas, saved with the page; Remove filter
- * takes it off. The rows hold their own drafts, so a change of the filter
+ * takes it off, as removing its last condition in its rows does. The rows
+ * hold their own drafts, so a change of the filter
  * they did not make — an undo, a redo, Remove filter — starts them afresh
  * over what the visual holds.
  *
@@ -82,7 +83,7 @@ export function StudioOwnFilter({ placement, visual, source, field, onEdit }: St
                     <FilterConditions key={`${placement}:${visual.source}:${rows.start}`} id={`own:${placement}:${visual.source}`} where={where} read={read} root={root}
                         onChange={(next) => {
                             setRows((was) => ({ ...was, held: next }));
-                            onEdit({ ...visual, where: some(next) });
+                            onEdit({ ...visual, where: next === undefined ? none : some(next) });
                         }} />
                 ),
             })}
