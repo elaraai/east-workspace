@@ -10,8 +10,11 @@
  * the flowchart edits, the changes waiting on Save (`3 pending`); when its
  * records were last saved, the newest of their last saves; each Save's notice,
  * the rows it took out of a kind's narrowing (the shared
- * `RecordSliceSaveNotice`); and, after a card's ⏎ that is refused, why — a
- * polite live line, so a screen reader hears it too. What the narrowing draws
+ * `RecordSliceSaveNotice`); and, after a gesture that is refused — a card's ⏎,
+ * a row whose key another holds, a transition drawn where there is one — why,
+ * in the danger tone (east-workspace#1709): a change that did not happen is
+ * never read as one that did. It is a polite live line, so a screen reader
+ * hears it too. What the narrowing draws
  * as context counts nowhere: the transitions counted are those drawn as
  * themselves, an in-place one among them though it folds into its state's
  * `↻ n`, and an unresolved one once, under unresolved.
@@ -67,7 +70,7 @@ export interface FlowchartFooterProps {
     readonly pending: number | undefined;
     /** When the records were last saved, as the footer says it — the newest of their last saves; `undefined` with none. */
     readonly saved: string | undefined;
-    /** Why a card's ⏎ was refused — `Drop onto a transition`; `undefined`, nothing to say. */
+    /** Why a gesture was refused — `Drop onto a transition`, `A move from Mix to Proof is there already`; `undefined`, nothing to say. */
     readonly message?: string | undefined;
     /** The flowchart's words: its numbers print in the app's locale. */
     readonly words: FlowchartWords;
@@ -95,7 +98,8 @@ export function FlowchartFooter({ styles, counts, pending, saved, message, words
             <Box as="span">{m.footerLinks({ n: counts.transitions })}</Box>
             {message !== undefined && <Box as="span">·</Box>}
             {/* Always there, so a screen reader hears each line it takes. */}
-            <Box as="span" css={styles.footerMessage} data-flowchart-message="" data-footer-slack="" aria-live="polite">{message ?? ""}</Box>
+            <Box as="span" css={styles.footerMessage} data-flowchart-message="" data-footer-slack="" data-tone={message === undefined ? undefined : "refused"}
+                title={message} aria-live="polite">{message ?? ""}</Box>
             {notices.map((notice) => <RecordSliceSaveNotice key={notice.sort} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
             <Box css={styles.footerSplit} data-flowchart-split="">
                 {m.footerSplit({

@@ -48,7 +48,8 @@
  *   where the states carry an `order` — between two cards, a line marking
  *   where it lands (D4); a handle dragged to a state, which `canConnect` may
  *   veto, a drop on the source its in-place transition, a drop that would
- *   repeat a transition pulsing it instead; and Del — in the canvas, never in
+ *   repeat a transition pulsing it instead, the frame saying that it is there
+ *   already (east-workspace#1709); and Del — in the canvas, never in
  *   a field being typed into — deleting the selected state or states with
  *   their transitions, the transition, the decision, or the lane while it
  *   holds no state. A drag is its pointer's (east-ui-components'
@@ -213,6 +214,12 @@ export interface FlowchartCanvasEdit {
     readonly deleteStates?: ((keys: readonly string[]) => void) | undefined;
     /** A handle dragged to a state; the state itself for an in-place transition. */
     readonly connect?: ((from: string, to: string) => void) | undefined;
+    /**
+     * A handle dragged to a state it is joined to already (east-workspace#1709): nothing is added — the canvas pulses the
+     * transition there is, handed here by its key — and the frame says so, so the drop is never one that seems to have
+     * done nothing.
+     */
+    readonly repeated?: ((key: string) => void) | undefined;
     /** Del on a selected transition. */
     readonly deleteLink?: ((key: string) => void) | undefined;
     /** Del on a selected decision: cleared from the transitions it governs. */
@@ -979,6 +986,7 @@ export function FlowchartCanvasView({
     useEffect(() => () => dropDrag.current?.(), []);
 
     const connectEdit = edit?.connect;
+    const repeatedEdit = edit?.repeated;
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
         if (connectEdit === undefined) return;
         e.preventDefault();
@@ -1004,8 +1012,10 @@ export function FlowchartCanvasView({
                 if (!d || d.over === null) return;
                 if (d.dup !== undefined) {
                     // Already connected — absorb the drop and pulse the existing
-                    // link (or the node itself for a folded in-place loop).
+                    // link (or the node itself for a folded in-place loop), and
+                    // tell the frame, which says so.
                     setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                    repeatedEdit?.(d.dup);
                     return;
                 }
                 if (d.allowed) {
@@ -1016,7 +1026,7 @@ export function FlowchartCanvasView({
         });
         // After the follow: it lets go of a drag still in flight, whose draft this one's replaces.
         setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false, dup: undefined });
-    }, [connectEdit, svgPoint, connectTarget, model, canConnect, followDrag]);
+    }, [connectEdit, repeatedEdit, svgPoint, connectTarget, model, canConnect, followDrag]);
 
     /**
      * Where a moved state lands at a point: the band under it, where the band

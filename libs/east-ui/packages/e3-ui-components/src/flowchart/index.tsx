@@ -54,7 +54,8 @@
  *   it names, which takes the keyboard there, the inspector opened at Details
  *   where it is collapsed or at Issues;
  * - **the footer** (`footer.tsx`): the counts, the changes waiting on Save,
- *   the last save, each Save's notice, a refused gesture's words, and the
+ *   the last save, each Save's notice, a refused gesture's words — in the
+ *   danger tone, a transition drawn where there is one among them — and the
  *   loading line — `Loading states…`, `Updating states…`, or a failed read
  *   with Retry — shown on the frame's one reveal clock (`LoadingReveal`).
  *
@@ -491,6 +492,11 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
             connect: transitions ? (from, to) => {
                 const made = act("connect", (h) => connect(h, from, to));
                 if (made?.key !== undefined) revealSelection({ kind: "link", key: made.key }, false);
+            } : undefined,
+            // A transition drawn where there is one adds none: the canvas pulses the one there is, and the footer says so, in
+            // the words every row refused for its key is said in (east-workspace#1709).
+            repeated: transitions ? (key) => {
+                setNotice(m.gestureRefused(refusalWord({ refusal: "taken", sort: "transitions", key }, latest.current.holding)));
             } : undefined,
             deleteLink: transitions ? (key) => { act("deleteLink", (h) => deleteLink(h, key)); } : undefined,
             deleteDecision: decisions ? (key) => { act("deleteDecision", (h) => deleteDecision(h, key)); } : undefined,
