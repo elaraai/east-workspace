@@ -8,7 +8,7 @@
  *
  * A Studio visual's records (#1671): a records table's page — its columns in
  * their well order, headed by the source's labels, a currency's code in its
- * header and its amounts grouped (TBL-1, TBL-5) — and where it stands among
+ * header and its amounts grouped, each with its cents (TBL-1, TBL-5) — and where it stands among
  * every row; a viewer's sort, its program's; the rows under any visual,
  * without its grouping (TIL-2), as a table's page and as East values of one
  * struct, which a value tree shows; and records as CSV.
@@ -58,11 +58,11 @@ function cellsIn(table: TableRootValue, key: string) {
 }
 
 describe("recordsModel", () => {
-    it("heads a page's columns in their well order by the source's labels, a currency's code in its header and its amounts grouped (TBL-1, TBL-5)", async () => {
+    it("heads a page's columns in their well order by the source's labels, a currency's code in its header and its amounts grouped, each with its cents (TBL-1, TBL-5)", async () => {
         const model = recordsModel(recordsOf(BY_REVENUE), answerOf((await answered(BY_REVENUE)).answers), 0, LISTED_ORDERS, words, m);
         expect(model.table.columns.map((c) => [c.key, c.header])).toEqual([["c0", some("Region")], ["c1", some("Revenue AUD")], ["c2", some("Ordered")]]);
         expect(model.table.columns.map((c) => c.format)).toEqual([
-            none, some(variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none })), none,
+            none, some(variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none })), none,
         ]);
         // The quarter's five orders, the most revenue first.
         expect(cellsIn(model.table, "c0")).toEqual(["SA", "SA", "NSW", "VIC", "WA"].map((region) => variant("String", region)));

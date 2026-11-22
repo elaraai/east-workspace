@@ -432,14 +432,20 @@ export function valueFormat(value: VisualValue, source: VisualSource): TickForma
 /** A share, as a signed percent with one decimal: what a change says. */
 export const CHANGE_FORMAT: TickFormatOpt = variant("percent", { minimumFractionDigits: none, maximumFractionDigits: some(1n), signDisplay: none });
 
-/** An amount under a header naming its currency: grouped, up to two decimals, no sign of the currency. */
+/** A number of no declared format in a table: grouped, up to two decimals. */
 const AMOUNT_FORMAT: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
+
+/**
+ * A currency's amount with its cents, and no sign of the currency, which its header or its unit says: `10.00`,
+ * `1,284.50`. Every amount of a column, so none mixes `649.4` and `2,083` (ruled 22 November 2026).
+ */
+const CENTS_FORMAT: TickFormatOpt = variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
 
 /**
  * How a table heads a field's column, and prints its numbers (TBL-5): by its
  * label, a currency field's code after it — `Revenue AUD` — over its amounts
- * grouped, with no currency sign in each cell; any other field in its own
- * format.
+ * grouped, each with its cents and no currency sign; any other field in its
+ * own format.
  *
  * @param source - The source its fields are of
  * @param id - The field
@@ -450,14 +456,14 @@ export function columnHead(source: VisualSource, id: string, m: StudioMessages):
     const label = fieldLabel(source, id);
     const format = source.fields.find((field) => field.id === id)?.format ?? none;
     if (format.type === "none") return { header: label, format: undefined };
-    if (format.value.type === "currency") return { header: m.columnUnit({ label, unit: format.value.value.code }), format: AMOUNT_FORMAT };
+    if (format.value.type === "currency") return { header: m.columnUnit({ label, unit: format.value.value.code }), format: CENTS_FORMAT };
     return { header: label, format: tickFormatOf(format.value) };
 }
 
 /**
  * How a table heads a value's column, and prints its numbers (TBL-2, TBL-3):
  * by its name, a currency's code after it — `Revenue AUD` — over its amounts
- * grouped, with no currency sign in each cell; and its goal, where it has
+ * grouped, each with its cents and no currency sign; and its goal, where it has
  * one, a small label of its own after the header — `goal 11.00`. A value of
  * any other field is printed in that field's format; one of none — a count,
  * a sum of units — grouped, to two decimals at most.
@@ -479,9 +485,9 @@ export function valueHead(value: VisualValue, source: VisualSource, words: Query
 
 /**
  * How a value's numbers print where its unit is said apart — a table's
- * header, a list's value (LST-1): a currency's amounts grouped, its code the
- * unit; a value of any other field in that field's format; one of none
- * grouped, to two decimals at most.
+ * header, a list's value (LST-1): a currency's amounts grouped, each with its
+ * cents, its code the unit; a value of any other field in that field's
+ * format; one of none grouped, to two decimals at most.
  *
  * @param value - The value
  * @param source - The source its fields are of
@@ -490,7 +496,7 @@ export function valueHead(value: VisualValue, source: VisualSource, words: Query
 export function valueUnit(value: VisualValue, source: VisualSource): { readonly format: TickFormatOpt; readonly unit: string | undefined } {
     const declared = valueFieldFormat(value, source);
     if (declared.type === "none") return { format: AMOUNT_FORMAT, unit: undefined };
-    if (declared.value.type === "currency") return { format: AMOUNT_FORMAT, unit: declared.value.value.code };
+    if (declared.value.type === "currency") return { format: CENTS_FORMAT, unit: declared.value.value.code };
     return { format: tickFormatOf(declared.value), unit: undefined };
 }
 
@@ -518,9 +524,6 @@ export function unitLabel(value: VisualValue, source: VisualSource, m: StudioMes
         default: return valueUnit(value, source).unit;
     }
 }
-
-/** A currency's amount with its cents, and no sign of the currency: `10.00`, `1,284.50`. */
-const CENTS_FORMAT: TickFormatOpt = variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
 
 /**
  * A number of a declared format where room is short — a tile's number, an

@@ -10,7 +10,7 @@
  * the condition's rows say it — `mean margin` — and its numbers print as the
  * visual's own tables print them (`visual/values.ts`), never every digit of a
  * float: a value in its own format, else its field's — a currency's amounts
- * grouped, one of no format grouped to two decimals at most — and a records
+ * grouped, each with its cents, one of no format grouped to two decimals at most — and a records
  * table's column in its field's, one of no format exactly, as its table
  * prints it.
  *

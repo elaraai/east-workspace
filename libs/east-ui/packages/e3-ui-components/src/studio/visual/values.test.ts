@@ -21,7 +21,7 @@ import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js
 import { studioMessages } from "../messages-en.js";
 import { IntegerType, some, variant } from "@elaraai/east";
 import { queryWords } from "../../query/model/words.js";
-import { CHANGE_FORMAT, axisLabel, bucketSpan, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";
+import { CHANGE_FORMAT, axisLabel, bucketSpan, changeOf, columnHead, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -72,6 +72,20 @@ describe("a value's name and format", () => {
         expect(valueHead(v.sum("units", { format: { currency: { code: "USD" } } }), LISTED_ORDERS, queryWords(words), m).header).toBe("Units USD");
         expect([shortValue(1284, v.sum("units", { format: { currency: { code: "USD" } } }), LISTED_ORDERS, words), shortValue(0.5, v.sum("revenue", { format: "percent" }), LISTED_ORDERS, words)])
             .toEqual(["1,284.00", "50%"]);
+    });
+});
+
+describe("a table's column of amounts (TBL-5)", () => {
+    it("prints a currency's amounts with their cents, every one — a column never mixes 649.4 and 2,083 — under a header naming the currency; a field of no format, as it is", () => {
+        // A records table's column, by its field.
+        const revenue = columnHead(LISTED_ORDERS, "revenue", m);
+        expect(revenue.header).toBe("Revenue AUD");
+        expect([649.4, 1973.3, 2083].map((n) => words.value(n, revenue.format))).toEqual(["649.40", "1,973.30", "2,083.00"]);
+        // A summary's column, by its value: a sum of the same field.
+        expect([649.4, 2083].map((n) => words.value(n, valueUnit(v.sum("revenue"), LISTED_ORDERS).format))).toEqual(["649.40", "2,083.00"]);
+        // A value of no format — a sum of units — is grouped, to two decimals at most.
+        expect([3, 1284.5].map((n) => words.value(n, valueUnit(v.sum("units"), LISTED_ORDERS).format))).toEqual(["3", "1,284.5"]);
+        expect(columnHead(LISTED_ORDERS, "units", m).format).toBeUndefined();
     });
 });
 

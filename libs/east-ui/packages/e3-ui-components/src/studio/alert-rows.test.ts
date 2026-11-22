@@ -11,8 +11,9 @@
  * the Table shows them — each column under its field's name, as the
  * condition's rows say it, and its numbers as the visual's own tables print
  * them, never every digit of a float: a value in its own format, else its
- * field's — a currency's amounts grouped, a share a percent to two decimals,
- * closer than a tile says it — and a records table's column in its field's.
+ * field's — a currency's amounts grouped, each with its cents, a share a
+ * percent to two decimals, closer than a tile says it — and a records table's
+ * column in its field's.
  * Over the visual tests' orders, each alert's program asked in memory as e3
  * asks it.
  */
@@ -65,11 +66,11 @@ describe("an alert's rows", () => {
     /** Revenue by region, with each region's average margin: South Australia's 170 at 0.15000000000000002. */
     const combo = v.of("orders", v.combo({ x: v.group("region"), columns: [v.left(v.sum("revenue"))], lines: [v.right(v.mean("margin"))] }));
 
-    it("heads each column by its field's name, as the condition's rows say it, and prints a value as its field's format says — an amount grouped, a share a percent — never every digit of a float", async () => {
+    it("heads each column by its field's name, as the condition's rows say it, and prints a value as its field's format says — an amount grouped, with its cents, a share a percent — never every digit of a float", async () => {
         const table = await nowOf(combo, ".mean_margin != null and .mean_margin < 0.19", LISTED_ORDERS);
         expect(heads(table)).toEqual(["region", "revenue", "mean margin"]);
         // South Australia's alone: its 100 and 70, and the mean of 0.2 and 0.1 — a float's 0.15000000000000002.
-        expect(printed(table)).toEqual([["SA", "170", "15%"]]);
+        expect(printed(table)).toEqual([["SA", "170.00", "15%"]]);
     });
 
     it("says a share to two decimals, closer than a tile's whole percents: a row under 19% reads 18.65%, not 19%", async () => {
@@ -91,7 +92,7 @@ describe("an alert's rows", () => {
         const records = v.of("orders", v.records({ columns: ["customer", "revenue", "margin", "units"], sort: "revenue", descending: true }));
         const table = await nowOf(records, ".revenue >= 70", LISTED_ORDERS);
         expect(heads(table)).toEqual(["customer", "revenue", "margin", "units"]);
-        expect(printed(table)).toEqual([["Northwind", "100", "20%", "3"], ["Summit", "70", "10%", "2"]]);
+        expect(printed(table)).toEqual([["Northwind", "100.00", "20%", "3"], ["Summit", "70.00", "10%", "2"]]);
         // Units, a field of no format: none, so the Table prints it as it is.
         expect(table.columns.find((column) => column.key === "units")!.format.type).toBe("none");
     });
@@ -110,7 +111,7 @@ describe("an alert's rows", () => {
         // The fields a banner reads: the visual's rows', with no condition to print.
         const stage = alertRowsStage(visualOf(combo), ORDERS_SOURCE);
         if ("kind" in stage) throw new Error("no rows");
-        expect(printed(alertRowsTable(rows, visualOf(combo), LISTED_ORDERS, stage.fields, words, studioMessages))).toEqual([["SA", "170", "15%"]]);
+        expect(printed(alertRowsTable(rows, visualOf(combo), LISTED_ORDERS, stage.fields, words, studioMessages))).toEqual([["SA", "170.00", "15%"]]);
         expect(printed(alertRowsTable(rows, undefined, LISTED_ORDERS, [], words, studioMessages))).toEqual([["SA", "170.0", "0.15000000000000002"]]);
     });
 });

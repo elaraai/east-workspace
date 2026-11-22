@@ -168,9 +168,10 @@ describe("summaryModel", () => {
         expect([model.head(0), model.head(2), model.place]).toEqual([{ count: 1 }, { count: 1 }, { first: 2, last: 3, total: 4 }]);
     });
 
-    it("prints a value with no unit grouped, to two decimals at most", async () => {
+    it("prints a value with no unit grouped, to two decimals at most; a currency's, each amount with its cents", async () => {
         const model = await modelOf(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.count(), v.mean("revenue")], total: false })));
         const amount = some(variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none }));
-        expect(model.table.columns.map((c) => [c.header, c.format])).toEqual([[some("Region"), none], [some("Orders"), amount], [some("Average revenue AUD"), amount]]);
+        const cents = some(variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none }));
+        expect(model.table.columns.map((c) => [c.header, c.format])).toEqual([[some("Region"), none], [some("Orders"), amount], [some("Average revenue AUD"), cents]]);
     });
 });
