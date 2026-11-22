@@ -26,13 +26,14 @@
  */
 
 import { useMemo, type ReactNode } from "react";
-import { afterEach, beforeEach } from "vitest";
-import type { RenderResult } from "@testing-library/react";
+import { afterEach, beforeEach, expect } from "vitest";
+import { fireEvent, waitFor, type RenderResult } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { EastIR } from "@elaraai/east";
 import type { SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { I18nProvider, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { e3Harness, useEvaluated, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
+import { act, e3Harness, useEvaluated, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
 import { boundFrame } from "../frame.test-utils.js";
 // The Sheet is an extension: its renderer registers as it loads.
 import { EastChakraSheet } from "./index.js";
@@ -150,3 +151,35 @@ export const slot = (container: HTMLElement, name: string) => container.querySel
  * @returns Each tab's text: its name and its count
  */
 export const tabs = (pane: HTMLElement) => [...pane.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
+
+/**
+ * The toolbar's Search Records box: its query typed a key at a time, as a person types it, or asked at once — the box
+ * focused as a click focuses it, one query, so the lines it lists are the only rows it reads — its clear, Enter, which
+ * picks the line highlighted or else the first match, and the lines its list shows.
+ *
+ * @param container - The render's container
+ * @returns The box, its input, and what a test does with them
+ */
+export function searchRecords(container: HTMLElement) {
+    const box = () => container.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
+    const input = () => box().querySelector<HTMLInputElement>("input")!;
+    const type = async (text: string) => {
+        for (const key of text) {
+            const typed = input().value + key;
+            await userEvent.type(input(), key);
+            await waitFor(() => expect(input().value).toBe(typed));
+        }
+    };
+    const ask = async (text: string) => {
+        await act(async () => { input().focus(); });
+        await act(async () => { fireEvent.change(input(), { target: { value: text } }); });
+    };
+    const clear = async () => { await act(async () => { fireEvent.click(box().querySelector("button[aria-label='Clear search']")!); }); };
+    const enter = async () => { await act(async () => { fireEvent.keyDown(input(), { key: "Enter" }); }); };
+    // The box's list: the listbox its input controls, its lines as they read.
+    const lines = () => {
+        const list = document.getElementById(input().getAttribute("aria-controls") ?? "");
+        return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    };
+    return { box, input, type, ask, clear, enter, lines };
+}

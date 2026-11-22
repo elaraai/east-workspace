@@ -19,12 +19,14 @@
  * over duties and cover targets keyed by number, with neither, a duty and a
  * target the Roster adds are one past the largest (ruling 10). And over duties
  * keyed by a struct, read through the slice's duty source (east-workspace#1696),
- * a duty is drawn, dragged to another shift, and saved under its own key.
+ * a duty is drawn, dragged to another shift, and saved under its own key; and
+ * over cover targets keyed by a struct — their slot — read through the slice's
+ * targets source, a target's positions typed are saved under its own key.
  */
 import { describe, expect, test } from "vitest";
 import { waitFor, within } from "@testing-library/react";
 import {
-    DictType, East, FunctionType, IntegerType, NullType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, printFor, variant,
+    DateTimeType, DictType, East, FunctionType, IntegerType, NullType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, printFor, variant,
     type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -51,9 +53,20 @@ const placedDuties = e3.record("roster_placed_duties", DictType(Placed, ex.Wareh
     indexes: (index) => ({ roster_placed_duties_by_time: index.interval({ from: "start", to: "end" }) }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
-const h = rosterHarness({ "roster/numbered": { numberedDuties, numberedCover, placedDuties } });
+/** A cover target's key as its slot names it: its day, its group and its shift — a struct, no String. */
+const Slot = StructType({ day: DateTimeType, team: StringType, shift: StringType });
+/** The warehouse's cover targets keyed by their slots, filed by their days: none until a test writes some. */
+const placedCover = e3.record("roster_placed_cover", DictType(Slot, ex.WarehouseCover), {
+    initial: new SortedMap([], compareFor(Slot)),
+    indexes: (index) => ({ roster_placed_cover_by_day: index.interval({ from: "day", to: "day" }) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const h = rosterHarness({ "roster/numbered": { numberedDuties, numberedCover, placedDuties, placedCover } });
 const sameDuty = equalFor(ex.WarehouseDuty);
 const sameKey = equalFor(StringType);
+const sameSlot = equalFor(Slot);
+const sameHeads = equalFor(IntegerType);
+const sameCover = equalFor(ex.WarehouseCover);
 
 /** How a test's Roster keys its duties: by the key a duty's row builds, by the app's own rule, or holding each one's key in a field. */
 type DutyKeys =
@@ -67,20 +80,26 @@ type DutyKeys =
  *
  * @param keys - How the duties are keyed; told the app's rule, a new duty is the next `D-<n>`; `undefined`, by the Roster
  * @param numbered - Over the duties keyed by number in place of the warehouse's, or keyed by a struct and read a week at
- *   a time through the slice's duty source, each by its key (east-workspace#1696); and with the cover targets keyed by number
+ *   a time through the slice's duty source, each by its key (east-workspace#1696); and with the cover targets keyed by
+ *   number, or by their slots and read a week at a time through the slice's targets source
  * @returns The example
  */
-const keyedRoster = (keys: DutyKeys | undefined, numbered: { readonly duties?: true | "placed"; readonly cover?: true } = {}) => ({
+const keyedRoster = (keys: DutyKeys | undefined, numbered: { readonly duties?: true | "placed"; readonly cover?: true | "placed" } = {}) => ({
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const placed = numbered.duties === "placed";
+        const placedTargets = numbered.cover === "placed";
         const rota = $.let(Record.bind((placed ? placedDuties : numbered.duties === true ? numberedDuties : ex.rosterDuties) as typeof ex.rosterDuties, ["patch"]));
         const slice = placed ? $.let(Slice.bindRecords("test.roster.placedDuties", {
             duty: { source: Data.bindPaged(placedDuties, { indexes: ["roster_placed_duties_by_time"] }), range: "start" },
+        })) : placedTargets ? $.let(Slice.bindRecords("test.roster.placedCover", {
+            targets: { source: Data.bindPaged(placedCover, { indexes: ["roster_placed_cover_by_day"] }), range: "day" },
         })) : undefined;
         // Each read by its key, and a new one keyed by the app's rule: a struct's key the Roster makes none of (ruling 10).
         const entries = placed ? $.let(Data.bindPaged(placedDuties)) : undefined;
         const newPlace = placed ? $.const(East.function([SetType(Placed)], Placed, (_$2, taken) => ({ person: "new", seq: taken.size().add(1n) }))) : undefined;
-        const cover = numbered.cover === true ? $.let(Record.bind(numberedCover, ["patch"])) : undefined;
+        const cover = numbered.cover === undefined ? undefined : $.let(Record.bind((placedTargets ? placedCover : numberedCover) as typeof numberedCover, ["patch"]));
+        // Each target read by its key beside the targets source, and a new one keyed by its slot: a struct's key the Roster makes none of.
+        const coverEntries = placedTargets ? $.let(Data.bindPaged(placedCover)) : undefined;
         const people = $.let(Data.bind(ex.rosterStaff));
         const firms = $.let(Data.bind(ex.rosterAgencies));
         const times = $.let(Data.bind(ex.rosterShiftTimes));
@@ -108,7 +127,13 @@ const keyedRoster = (keys: DutyKeys | undefined, numbered: { readonly duties?: t
             },
             shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order }),
             groups: Roster.groups(teams.read(), { label: t => t.label, order: t => t.order }),
-            ...(cover === undefined ? {} : { targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }) }),
+            ...(cover === undefined ? {} : { targets: Roster.targets(cover, {
+                day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours",
+                ...(coverEntries === undefined ? {} : {
+                    entries: coverEntries as never,
+                    key: ((row: ExprType<typeof ex.WarehouseCover>) => ({ day: row.day, team: row.team, shift: row.shift })) as never,
+                }),
+            }) }),
         });
     }))),
 });
@@ -166,7 +191,7 @@ describe("a Roster over duties and cover targets keyed by number, given neither 
     });
 });
 
-describe("a Roster over duties keyed by any type, read through its slice's duty source (east-workspace#1696)", () => {
+describe("a Roster over duties and cover targets keyed by any type, read through its slice's sources (east-workspace#1696)", () => {
     test("#1696 — over duties keyed by a struct, read a week at a time through the duty source, a duty is drawn, dragged to another group's shift, and Save writes it under its own key", async () => {
         // The warehouse's duties, each keyed by its person's place: s15, H. Aspen's Sunday early inbound, at (s15, 1).
         const duties = await h.read(ex.rosterDuties);
@@ -179,6 +204,25 @@ describe("a Roster over duties keyed by any type, read through its slice's duty 
         await press(history(c, "Save"));
         const saved = await h.read(placedDuties);
         expect([saved.size, saved.get({ person: "s15", seq: 1n })?.team, saved.get({ person: "s15", seq: 1n })?.shift]).toEqual([duties.size, "picking", "late"]);
+    });
+
+    test("#1696 — over cover targets keyed by a struct, their slot, read a week at a time through the targets source, a target of the day is drawn, its positions typed, and Save writes it under its own key", async () => {
+        // The warehouse's targets, each keyed by its slot: its day, its group and its shift.
+        const cover = await h.read(ex.rosterCover);
+        const stored = new SortedMap([...cover.values()].map((row): [ValueTypeOf<typeof Slot>, ValueTypeOf<typeof ex.WarehouseCover>] => [{ day: row.day, team: row.team, shift: row.shift }, row]), compareFor(Slot));
+        await h.patch(placedCover, stored);
+        const { container: c } = await h.mount(keyedRoster(undefined, { cover: "placed" }));
+        const requirement = () => slot(c, "main").querySelector<HTMLElement>("[data-roster-requirement]");
+        await waitFor(() => expect(requirement()).not.toBeNull(), { timeout: 8_000 });
+        await press(requirement());
+        await retypeNumber(within(slot(c, "end")).getByRole("spinbutton", { name: "Positions" }), "13");
+        await press(history(c, "Save"));
+        // One target changed — the one typed, its positions 13 — under the key its slot names, and no target added.
+        const saved = await h.read(placedCover);
+        const changed = [...saved].filter(([key, row]) => { const was = stored.get(key); return was === undefined || !sameCover(row, was); });
+        expect([saved.size, changed.length]).toEqual([stored.size, 1]);
+        const [key, row] = changed[0]!;
+        expect([sameHeads(row.heads, 13n), sameSlot(key, { day: row.day, team: row.team, shift: row.shift })]).toEqual([true, true]);
     });
 });
 
