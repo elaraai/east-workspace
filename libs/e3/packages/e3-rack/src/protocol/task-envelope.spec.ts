@@ -5,7 +5,8 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RACK_REASON_CODES, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackReason, readRackRetries } from './task-envelope.js';
+import { RACK_PHASE_MARKS, RACK_REASON_CODES, describeRackPhases, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackPhases,
+  readRackReason, readRackRetries } from './task-envelope.js';
 import { readRackWaiting } from './rack-json.js';
 
 it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and leaves out what it cannot read, refusing nothing', () => {
@@ -75,4 +76,34 @@ it('reads what a lease asks of a rack, and whether a rack\'s offer holds it', ()
   assert.deepEqual(readRackWaiting('{"cores":1,"memoryBytes":34359738368,"gpus":0,"ms":12000,"later":1}'), { cores: 1, memoryBytes: 34359738368, gpus: 0, ms: 12000 });
   assert.equal(readRackWaiting(null), undefined);
   assert.equal(readRackWaiting('not json'), undefined);
+});
+
+it('reads a result\'s phases for the marks and counts it knows, keeps a mark of a later release, and leaves out what it cannot read, refusing nothing (#1723)', () => {
+  const marks = Object.fromEntries(RACK_PHASE_MARKS.map((mark, i) => [mark, i * 1_000]));
+  const phases = { marks, fetchedBytes: 903, fetchMs: 260_000, cachedBytes: 0, sentBytes: 4 };
+  assert.deepEqual(readRackPhases(JSON.parse(JSON.stringify(phases))), phases);
+  // As a wire's JSON reads: `__proto__` an entry of its own
+  assert.deepEqual(readRackPhases(JSON.parse('{"marks": {"admitted": 5, "warmed-up": 7, "Booted": 9, "__proto__": 1, "booted": -1, "runner-started": 1.5, '
+    + '"runner-ended": "9"}, "fetchedBytes": 10, "fetchMs": -1, "cachedBytes": 1152921504606846976, "sentBytes": "4", "later": true}')),
+  { marks: { 'admitted': 5, 'warmed-up': 7 }, fetchedBytes: 10 });
+  assert.equal(Object.keys(readRackPhases({ marks: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`mark-${i}`, i])) })!.marks).length, 32);
+  // A rack from before them says none, and one that says nothing that reads says none
+  for (const none of [undefined, null, 'phases', [], {}, { marks: [] }, { marks: { booted: 'soon' } }]) {
+    assert.equal(readRackPhases(none), undefined, JSON.stringify(none));
+  }
+  assert.deepEqual(readRackPhases({ sentBytes: 0 }), { marks: {}, sentBytes: 0 });
+});
+
+it('says where a lease\'s time went as a run prints it, leaving out what its rack did not say (#1723)', () => {
+  const MB = 1024 ** 2;
+  const phases = { marks: { 'admitted': 0, 'booted': 3_000, 'runner-started': 3_200, 'runner-ended': 22_200, 'outputs-sent': 23_200 },
+    fetchedBytes: 903 * MB, fetchMs: 260_000, cachedBytes: 0, sentBytes: 4 * MB };
+  assert.equal(describeRackPhases(phases, 12_000), 'granted +12 s · fetched 903 MB (0 B cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s');
+  // Its caller did not measure the grant; tenths of a second under ten; a wait for room the rack said
+  assert.equal(describeRackPhases({ marks: { 'admitted': 2_400, 'booted': 2_650, 'runner-started': 2_700, 'runner-ended': 2_830 }, cachedBytes: 1536 }),
+    'admitted +2.4 s · fetched 0 B (1.5 KB cached) · booted 0.3 s · ran 0.1 s');
+  assert.equal(describeRackPhases({ marks: {} }, 400), 'granted +0.4 s');
+  assert.equal(describeRackPhases({ marks: {} }), '', 'nothing to say');
+  assert.equal(describeRackPhases({ marks: { 'outputs-sent': 5 }, sentBytes: 2 * 1024 ** 3 }, undefined, (bytes) => `${bytes} bytes`), 'sent 2147483648 bytes',
+    'a size as its caller prints one');
 });

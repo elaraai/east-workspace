@@ -144,6 +144,11 @@ export interface ExecutionResult {
    *  units'. Absent when no runner reported one: a command body, or a runner
    *  that recorded no result. */
   peakBytes?: number;
+  /** Where its time went, as the host that ran it says it, for the line a
+   *  run prints of it: a rack's phases (`granted +12 s · fetched 903 MB (0 B
+   *  cached) 260 s · …`). Runtime-only, never recorded; absent from an
+   *  execution that ran here, or was served from the cache. */
+  timing?: string;
 }
 
 /** The identity of one execution attempt: the execution-cache key it is

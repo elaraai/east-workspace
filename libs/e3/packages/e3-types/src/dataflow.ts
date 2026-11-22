@@ -403,6 +403,9 @@ export interface PartitionProgress {
   cached?: boolean;
   /** Unit duration in milliseconds (completed only). */
   duration?: number;
+  /** Where the unit's time went, as the host that ran it says it: a rack's
+   *  phases (completed only; absent for a unit that ran here). */
+  timing?: string;
 }
 
 // =============================================================================

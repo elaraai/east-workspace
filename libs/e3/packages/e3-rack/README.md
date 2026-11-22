@@ -518,6 +518,30 @@ with its reason. In code, `RackPlacementEvent` carries the same (`kind`
 placement's `detail`), and
 `rack.takeSummary()` with `describeRackSummary` the line.
 
+A rack's agent may also say where the lease's time went (`phases`: each mark
+it reached, in ms after it received the grant, by its own clock, and the bytes
+it fetched from its source, read from its cache and sent; read with
+`readRackPhases`). A run prints them, after the duration, on the line of the
+work they are of: `[DONE]` for a task, and `[PART]`, `[MERGE]` or `[COMBINE]`
+for a unit of a split task, as `describeRackPhases` says them:
+
+```text
+  [PART] score_rows 3/48 #3 [271204ms] — granted +12 s · fetched 903 MB (0 B cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s
+```
+
+`granted` is how long the work waited for a rack to claim it, by this machine's
+clock; `admitted` (shown when half a second or more) how long its rack took to
+have room for it; `fetched` the bytes its source sent the rack, those its guest
+read from the rack's cache, and how long a fetch was under way, which overlaps
+the run, since a guest fetches its inputs as its work reads them; `booted`
+from its admission until its guest asked for its lease; `ran` its execution;
+`sent` the bytes it sent its source, and how long after its result the last
+object was in the store. The same is the last line of the work's log (`e3: on
+its rack: …`, which `e3 task logs` shows), and follows each unit's line in its
+split task's log. A rack whose agent says none prints nothing more, and a hub
+or source that knows none ignores them: they are JSON in the result, read by
+name, as its reason is.
+
 A rack that admits work by its resources reports all it has and what is free,
 and the hub's fleet snapshot carries both for each such rack: what is free is
 the less of what the rack last reported and what the hub's own leases leave of

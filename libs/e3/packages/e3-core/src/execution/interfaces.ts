@@ -117,6 +117,10 @@ export interface TaskResult {
    *  execution reached, as its execution records it — for a result served
    *  from the cache too. Absent when no runner reported one. */
   peakBytes?: number;
+  /** Where its time went, as the host that ran it says it: a rack's phases
+   *  (`ExecutionResult.timing`). Runtime-only; absent for work that ran
+   *  here. */
+  timing?: string;
 }
 
 /** An execution's record while it runs: the `running` case of its status. */

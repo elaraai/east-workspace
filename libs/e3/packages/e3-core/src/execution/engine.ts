@@ -681,7 +681,8 @@ export class SplitTask {
   /**
    * Reports a unit of the stage settled: its peak, toward {@link stagePeak};
    * its line in the task's log, naming its execution and its peak memory when
-   * it has one; and its progress when it succeeded.
+   * it has one, and, after a dash, where its time went when the host that ran
+   * it says so (`ExecutionResult.timing`); and its progress when it succeeded.
    *
    * @param index - The unit's index in the stage
    * @param result - The unit's result
@@ -698,12 +699,14 @@ export class SplitTask {
       const label = merge === null ? `piece ${index + 1}/${total}` : `${this.phase} level ${merge.level}/${merge.levels} unit ${index + 1}/${total}`;
       const state = result.cancelled ? 'cancelled' : result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
       const peak = result.peakBytes === undefined ? '' : ` peak=${result.peakBytes}`;
-      this.log(`${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}\n`);
+      const timing = result.timing === undefined ? '' : ` — ${result.timing}`;
+      this.log(`${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}${timing}\n`);
     }
     if (result.state === 'success') {
       this.done++;
       this.options.onPartitionProgress?.({
         phase: this.phase, index, total, completed: this.done, state: 'completed', cached: result.cached, duration: result.duration,
+        ...(result.timing !== undefined && { timing: result.timing }),
       });
     }
   }

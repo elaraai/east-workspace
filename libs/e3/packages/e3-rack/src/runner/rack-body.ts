@@ -6,7 +6,7 @@
 import { ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
-import { RACK_LEASE_VERSION, leaseReserve, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
+import { RACK_LEASE_VERSION, describeRackPhases, leaseReserve, readRackPhases, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
   wholeResources, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
@@ -123,6 +123,9 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     let leasedAgain = false;
     // Since when a queued lease has had no rack that could claim it.
     const unreachable: { since?: number } = {};
+    // When a rack last claimed the work, by this machine's clock: how long it
+    // waited for its grant, from its hand-over, which its line says
+    let claimedAt: number | undefined;
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
@@ -158,6 +161,7 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
           // A claim after the first is the same work leased again, which a
           // run counts once
           report.claimed(claim.rackLabel, leaseId, needs);
+          claimedAt = Date.now();
         } });
       if (end.kind === 'aborted') {
         return await stop('cancelled', end.how === 'left' ? 'cancelled: e3 left the rack execution because the run was aborted'
@@ -173,7 +177,11 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       const reason = report.reason(leaseId, result);
       const fallback = (text: string | undefined, otherwise: string) => runLocal(fallbackReason(reason, text, otherwise), reason);
       const duration = () => Date.now() - request.ids.startTime;
-      const peak = result.peakBytes !== undefined ? { peakBytes: result.peakBytes } : {};
+      // Where its time went on the rack, as its rack says it (#1723): what its
+      // line says after its duration
+      const phases = readRackPhases(result.phases);
+      const timing = phases === undefined ? '' : describeRackPhases(phases, claimedAt === undefined ? undefined : claimedAt - request.ids.startTime);
+      const peak = { ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }), ...(timing !== '' && { timing }) };
       if (reason?.code === 'outgrew-cap') {
         const cap = outgrownCap(reason, resources);
         if (resources.kind === 'unit') {

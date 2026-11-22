@@ -9,7 +9,7 @@ import type { ExecutionOwner } from '@elaraai/e3-types';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { closureHashes } from '../lease/closure.js';
 import { unitCap } from '@elaraai/e3-core';
-import { isLeaseEventV2, leaseInputs, leaseRecordsUnit, leaseReserve, readRackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { describeRackPhases, isLeaseEventV2, leaseInputs, leaseRecordsUnit, leaseReserve, readRackLeaseResources, readRackPhases, type RackLeaseResult } from '../protocol/task-envelope.js';
 import type { RackAttemptStore } from '../server/rack-routes.js';
 
 /**
@@ -66,6 +66,13 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
       const attempt = attemptFor(lease);
       const current = await statusOf(lease);
       if (current !== null && current.type !== 'running') return;
+      // Where its time went on its rack (#1723), the last line of its log
+      // before its end: what `e3 task logs` shows of it. How long it waited
+      // for its grant is the hub's to say, from the lease's creation to its
+      // claim, by the hub's clock
+      const phases = readRackPhases(result.phases);
+      const timing = phases === undefined ? '' : describeRackPhases(phases, lease.claimedAtMs === undefined ? undefined : lease.claimedAtMs - lease.createdAtMs);
+      if (timing !== '') await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: on its rack: ${timing}\n`);
       await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
       const mib = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MiB`;
       let needs: ReturnType<typeof readRackLeaseResources>;
