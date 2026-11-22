@@ -27,8 +27,8 @@ import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/regist
 import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, FetchCostRequestType, FetchCostResultType,
+  HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
 import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
@@ -40,6 +40,7 @@ import { listenerProblem, loadHubCertificate, loadHubConfig, saveHubConfig, wild
 import { acquireHubLock, type HeldHubLock } from './lock.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge, type SessionEndpoint } from './session-bridge.js';
+import { RackLinkMeter } from './link-meter.js';
 
 interface Session {
   id: string;
@@ -106,6 +107,9 @@ export interface RackHubOptions {
   listenerRetryMs?: number;
   /** Test tuning; production sweeps every five seconds. */
   sweepMs?: number;
+  /** Measures each rack's link from the reads the hub serves it; the hub's
+   *  own unless given, as a test gives one whose clock it sets. */
+  linkMeter?: RackLinkMeter;
 }
 
 /**
@@ -125,6 +129,11 @@ export interface RackHubOptions {
  * its digest, so a session builds an environment over the image that will
  * run it. Such a rack is served the layers built over its tier when the
  * work's sessions keep them, and the whole environment's otherwise.
+ *
+ * The hub measures each rack's link from the reads it serves it, and keeps
+ * which objects it served each rack whole ({@link RackLinkMeter}), for as
+ * long as it runs: a session asks it what a unit would fetch
+ * (`/v1/sessions/:id/fetch-costs`) before it leases the unit.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -167,6 +176,9 @@ export class RackHub {
   private registry!: FileRackRegistry;
   private config!: HubConfig;
   private bridge!: SessionProxyStorageBridge;
+  /** Each rack's link, as the reads the hub serves it measure it, and what
+   *  it was served whole: for as long as the hub runs. */
+  private readonly meter: RackLinkMeter;
   private dispatch!: StoreRackDispatch;
   private control?: Server;
   private rack?: Server | HttpsServer;
@@ -278,6 +290,7 @@ export class RackHub {
     this.home = options.home ?? rackHome();
     this.now = options.now ?? Date.now;
     this.idleSince = this.now();
+    this.meter = options.linkMeter ?? new RackLinkMeter();
     this.backend = new InMemoryRackLeaseStore(this.now);
     this.leases = new FairLeaseStore(this.backend, (lease) => this.subscriptions.get(lease.leaseId)?.owner ?? '');
     this.closed = new Promise((resolve) => { this.resolveClosed = resolve; });
@@ -309,7 +322,7 @@ export class RackHub {
           });
         },
         advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
-        envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease) });
+        envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease), meter: this.meter });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
       // The rack listener binds before the control socket answers: a client
@@ -604,6 +617,16 @@ export class RackHub {
       const text = this.tierManifests.get((await decodeBody(c, TierManifestRequestType)).digest);
       return answer(TierManifestResultType, text === undefined ? none : some(text));
     });
+    // What a session's work would fetch from each rack the hub has served:
+    // the link's rate, and which of its objects the rack holds
+    app.post('/v1/sessions/:id/fetch-costs', async (c) => {
+      const session = this.session(c.req.param('id'));
+      const { hashes } = await decodeBody(c, FetchCostRequestType);
+      return answer(FetchCostResultType, this.meter.racks().map((rackId) => {
+        const link = this.meter.link(rackId);
+        return { rackId, bytesPerSecond: link.bytesPerSecond === null ? none : some(link.bytesPerSecond), held: hashes.map((hash) => link.holds(session.alias, hash)) };
+      }));
+    });
     app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);
@@ -648,6 +671,7 @@ export class RackHub {
       await this.identity.deleteRackTokens(id);
       this.reports.delete(id);
       this.problems.delete(id);
+      this.meter.forget(id);
       this.forgetTierManifests();
       for (const sub of this.subscriptions.values()) {
         const lease = this.backend.peek(sub.repo, sub.id);

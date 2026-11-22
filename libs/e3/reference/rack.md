@@ -9,9 +9,9 @@ Part of the `e3` skill.
 | `e3 rack enroll --listen <host:port> [--allow <ip,...>] [--advertise-url <origin>] [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, the hub's certificate SHA-256, the matching release and a single-use token for the companion's hidden prompts. Waits for a new registration, not activation. Behind an SSH reverse tunnel, listen on the loopback and advertise the relay's origin. | `e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 --advertise-url https://relay.example:7401` |
 | `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--memory-limit <size>] [--gpu] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards; setting a rule again replaces it whole. Size: serverless (2 cores, 2 GiB), small (2, 4 GiB), medium (4, 8 GiB), large (8, 16 GiB), xlarge (16, 32 GiB). `--memory-limit 8G` is a ceiling on one piece's cap, never a request; `--gpu` asks for a rack's GPU. | `e3 rack policy . set 'train_*' rack --size large` |
 | `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
-| `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
+| `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally] [--no-weigh-fetch]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry, fetch weighed: a task or unit whose inputs the rack does not hold would take longer to fetch over its link (as the hub measures it; a gigabit until it has) than it last ran runs here. `--no-weigh-fetch` places by the rules alone. | `e3 rack policy . defaults --no-weigh-fetch` |
 | `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
-| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback: work waits two minutes for an unhealthy rack to come back, and is leased once more after a failed transfer, before it runs locally. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
+| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill and the fetch weighing but keeps infrastructure fallback: work waits two minutes for an unhealthy rack to come back, and is leased once more after a failed transfer, before it runs locally. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
 | `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity; a second Ctrl-C stops the watch at once. ❗ `--rack` and `--rack-only` require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
 | `e3 run <repo> <pkg.task> <inputs…> -o <out> --rack\|--rack-only` | Runs one task ad hoc on a rack, whatever the policy selects (a rule naming the task still sizes it); a split task's pieces and merges are leased, its planning stays here. Writes the cache and history a local run writes, says where it ran and why, and ends with the rack summary. A run the cache answers opens no rack session. Ctrl-C leaves its leases and stops the output's write, the file at `-o` left as it was (exit 130). ❗ Refused for remote URLs. | `e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack` |
 | `e3 call <repo> [-w <ws>] <fn> [args…] --rack\|--rack-only` · `e3 call <repo> --ir <file> [args…] --rack` | Runs one call on a rack, whatever the policy selects, named by `fn:<name>` (an IR file's by its name): its own lease, sized as a whole task, its value back inline or, past 192 KiB, as an object. What no rack can run runs here; `[RACK] fn:<name> → <rack>` or `[LOCAL] fn:<name> (<reason>)` goes to stderr. Its time is its `fn:<name>` rule's `--timeout` when a rule sets one, longer or shorter than the CLI's ten minutes, however long: its drafts and its function share it, the function's part counted from when its lease is queued. A call no rack may run is judged before a rack session opens, and runs here at once, starting no hub. Ctrl-C leaves the lease; a value that came as Ctrl-C did is still printed. ❗ Refused for remote URLs. | `e3 call . -w dev train_once @.inputs.sales --rack` |
@@ -34,7 +34,10 @@ given another try, `[LOCAL] <task> (<reason>)` for a rack's work this machine
 runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
 as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`, or
 `memory-limit-exceeded: needs 3 GB, limit 2 GB` for work whose cap passes its
-rule's limit or every rack's memory),
+rule's limit or every rack's memory, or `fetch-bound: 903 MB ≈ 90 s to fetch,
+ran 19 s` for a task or unit whose closure the rack does not hold would take
+longer to fetch than it last ran; a first run, with no run time recorded,
+follows its policy),
 `[RACK] <task> waiting: needs 1 core and 4 GB, <rack> has 0 cores and 1 GB
 free` for work queued with no rack having room for what it reserves,
 `[RACK] <task> outgrew its 3 GB cap on <rack>: runs again under 4.5 GB` for a
@@ -192,7 +195,7 @@ reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
 at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
 to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
 link cut short resumes; it keeps a rack's idle connection for 75 seconds.
-A hub and the e3 that calls it speak control protocol 5 exactly:
+A hub and the e3 that calls it speak control protocol 6 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
 an agent of another protocol is refused by name each time it asks, and

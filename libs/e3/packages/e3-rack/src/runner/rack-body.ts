@@ -8,6 +8,8 @@ import type { LeaseHandle } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
 import { RACK_LEASE_VERSION, leaseReserve, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
+import type { RackFetchCost } from '../protocol/placement.js';
+import { weighFetch } from './fetch-cost.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
   wholeResources, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
 
@@ -89,11 +91,11 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     };
     // A rack's result that gives its reason is placed by it: the reason's
     // code, and its cause or detail, are what the run prints.
-    const runLocal = async (reason: string, detail?: RackReason, said?: string): Promise<ExecutionResult> => {
+    const runLocal = async (reason: string, detail?: RackReason, said?: string, fetch?: RackFetchCost): Promise<ExecutionResult> => {
       leavingRack = true;
       await leaveLease(handle);
       const ids = handle === undefined ? request.ids : freshIds();
-      report.local(reason, detail);
+      report.local(reason, detail, fetch);
       // What went wrong is in the task's log: a rack's attempt, or the build
       // of its environment for a rack, in the build tool's own words.
       const line = reason.startsWith('fallback:') ? `e3: rack attempt failed on ${report.rackLabel}: ${reason.slice(9)} — running locally\n`
@@ -126,6 +128,15 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
+      // Work that would spend longer fetching what the racks do not hold of
+      // its closure than it last ran runs here; a first run follows its policy
+      if (delegation.weighsFetch) {
+        const ranMs = await delegation.runTimes.ranMs(request.storage, request.repo, request.taskHash, request.ids.inHash,
+          request.unit !== undefined && !request.unit.own);
+        const cost = ranMs === null ? null : await weighFetch({ links: (closed) => session.fetchCosts(closed), racks: fleet.racks().map((rack) => rack.rackId),
+          storage: request.storage, repo: request.repo, hashes, ranMs, times: delegation.runTimes });
+        if (cost !== null) return await runLocal('fetch-bound', undefined, undefined, cost);
+      }
       const closure = await recordClosure(request.storage, request.repo, hashes);
       const timeoutMs = Math.min(verdict.timeoutMinutes * 60000, request.options.timeout ?? Infinity);
       // A lease at a time, as the local body runs an attempt at a time: a

@@ -239,6 +239,7 @@ e3 rack policy . set 'ingest_*' local
 e3 rack policy . set 'score_*' rack --memory-limit 8G
 e3 rack policy . set 'embed_*' rack --size xlarge --gpu
 e3 rack policy . defaults --no-spill --claim-timeout 30
+e3 rack policy . defaults --no-weigh-fetch # place by the rules alone
 e3 dataflow run . dev --no-rack           # override the saved opt-in
 e3 dataflow run . dev --rack-only         # wait when compatible racks are busy
 e3 rack policy . unset 'train_*'
@@ -246,8 +247,9 @@ e3 rack policy . reset
 ```
 
 Defaults are disabled, opt-in selection, `large`, a 1440-minute timeout,
-capacity spill enabled, a 30-second claim recheck and no local retry of task
-failures. `--rack-only` disables capacity spill; infrastructure failures can
+capacity spill enabled, a 30-second claim recheck, no local retry of task
+failures, and fetch-bound work run here ([below](#work-that-would-fetch-longer-than-it-runs)).
+`--rack-only` disables capacity spill and the weighing of fetches; infrastructure failures can
 still fall back locally, after a wait: work whose racks are not healthy waits
 two minutes for one to come back, and work whose transfer failed its tries is
 leased once more. It does not force ineligible tasks onto a rack.
@@ -265,6 +267,45 @@ default: their dependencies may exist only on this machine. A task rule's
 `--allow-host-access` deliberately overrides that guard, for a rack that
 provides those resources itself. The companion agent's task VMs have no network
 device, host files or injected environment, so such a task fails there.
+
+### Work that would fetch longer than it runs
+
+A rack reads every object of a unit's closure it does not hold across the
+link to it. Before a task or a unit of a split task is leased, the launching
+machine weighs that: the bytes of its closure the rack is not known to hold,
+at the link's rate, against how long the work ran when e3 last recorded it.
+Work that would spend longer fetching than it ran runs here, and says so:
+
+```text
+  [LOCAL] scan_rows (fetch-bound: 903 MB ≈ 90 s to fetch, ran 19 s)
+```
+
+- **The link's rate** is the hub's to measure: every byte a rack reads
+  streams through it, so it counts what it sends each rack while any of the
+  rack's transfers is in flight, a sample each 16 MiB, smoothed as a moving
+  average. A rate no transfer has refreshed for thirty minutes is forgotten.
+  A rack whose link is not measured yet is taken to carry a gigabit (`at an
+  assumed 1 Gbit/s` on the line), so a first run keeps on the rack all but
+  what would be fetch-bound even over a LAN, and its transfers measure the
+  link.
+- **What a rack holds** is each object the hub served it whole, by
+  repository, since the hub started: what the next unit over the same
+  collection does not fetch again. An output a rack wrote is not counted.
+- **How long the work ran** is its execution records': the latest success of
+  the same inputs, else the task's latest success, and for a unit the median
+  of its task's units. Work that has not succeeded before follows its policy.
+  A record of work that ran on a rack counts its time there, its fetch among
+  it.
+- Each rack that could take the work is weighed, and the work runs here only
+  if every one of them would fetch it for longer than it ran. A hub that does
+  not answer weighs nothing.
+
+`--rack-only` keeps its work for the rack whatever it would fetch, as it does
+whatever the local machine has free. `e3 rack policy . defaults
+--no-weigh-fetch` places by the rules alone. A watch's runs share the hub,
+and so what it measured and what its racks hold. The weighing reads records
+and writes none: placement never changes a task's hash or its cache. A
+function call is not weighed: e3 records no run time of one.
 
 ### Tasks that declare an environment
 
@@ -507,6 +548,7 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
 | `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | A unit of a split task is leased again under a cap half as large again, and its stopped attempt is no failure in the task's history. A whole task fails, `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`, and is not run again unless the policy retries failures locally. |
 | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | A unit whose cap would pass its rule's `--memory-limit`, or every rack's memory, runs locally, under the local budget. |
+| `fetch-bound` (a placement's `fetch`) | `bytes`, `fetchMs`, `ranMs`, `measured` | The launching machine, before any lease. | A task or a unit whose closure would take longer to fetch than it last ran runs locally ([above](#work-that-would-fetch-longer-than-it-runs)). |
 | `requeued-pressure` | `peakBytes` | A rack that books what its leases reserve, when its host ran short of memory and it stopped the newest work it held. | A unit of a split task is leased again reserving what it reached, at least what it reserved; the dataflow raises `requeued` with reason `budget`, as for a unit a local run's guard stopped, and its stopped attempt is no failure in the task's history. A whole task reserves its cap, so a rack has no cause to stop it for this; one it does runs locally. |
 
 A result also lists the tries of its transfers that failed and were followed
@@ -515,7 +557,7 @@ build does not know is a rack's fault it cannot name, and the work runs
 locally. `e3 rack status` lists how the hub's last twenty leases ended, each
 with its reason. In code, `RackPlacementEvent` carries the same (`kind`
 `placed`, `waiting`, `retried`, `outgrew` or `stopped`, and a local
-placement's `detail`), and
+placement's `detail`, or its `fetch`), and
 `rack.takeSummary()` with `describeRackSummary` the line.
 
 A rack that admits work by its resources reports all it has and what is free,
@@ -631,7 +673,7 @@ e3 rack stop                           # stop the shared hub
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
-the same control protocol (5) exactly. A hub that an older e3 started is asked
+the same control protocol (6) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
 stop` with that e3, or ending its process, replaces it now. So every project
 that uses a rack from one machine runs the e3 release that machine's hub was

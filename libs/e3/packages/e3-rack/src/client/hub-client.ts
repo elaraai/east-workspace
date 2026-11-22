@@ -5,7 +5,7 @@
 
 import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, FetchCostRequestType, FetchCostResultType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
@@ -123,6 +123,16 @@ export class HubClient {
   /** Unsubscribes one session; only its final subscription cancels the lease. */
   cancelLease(id: string, leaseId: string): Promise<ValueTypeOf<typeof CancelLeaseResultType>> {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases/${encodeURIComponent(leaseId)}/cancel`, { responseType: CancelLeaseResultType });
+  }
+  /**
+   * Of each rack the hub has served: its link's rate, and which of these
+   * objects of the session's repository it holds.
+   * @param id - The session
+   * @param hashes - The objects
+   * @returns Each rack's link and holdings
+   */
+  fetchCosts(id: string, hashes: readonly string[]): Promise<ValueTypeOf<typeof FetchCostResultType>> {
+    return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType, body: { hashes: [...hashes] }, responseType: FetchCostResultType });
   }
   /** Polls ordered updates and refreshes the session's liveness. */
   events(id: string, after: bigint, waitMs = 20000, signal?: AbortSignal): Promise<ValueTypeOf<typeof SessionPollResultType>> {

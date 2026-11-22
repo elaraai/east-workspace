@@ -32,8 +32,14 @@ export const RackRuleType = StructType({
  * This is repository state: a shape change needs a repository upgrade under
  * WIRE_MIGRATION.md, not a fallback decoder or an in-place widening. A rule's
  * `memoryLimit` and `gpu` came with one: e3-core's local-repository step
- * `rack-policy-limits` carries a policy an earlier release stored into this
- * form when the repository is opened, and its frozen form is this type's.
+ * `rack-policy-limits` carries a policy an earlier release stored into the
+ * form with them when the repository is opened. `weighFetch` came with the
+ * next, `rack-policy-weigh-fetch`, which carries that form into this one, on
+ * by default; its frozen form is this type's.
+ *
+ * `weighFetch` weighs what a task or a unit would fetch against how long it
+ * last ran: one that would spend longer fetching its inputs over the link to
+ * the rack than it took to run runs here instead (`fetch-bound`).
  */
 export const RackPolicyType = StructType({
   enabled: BooleanType,
@@ -44,6 +50,7 @@ export const RackPolicyType = StructType({
   spill: BooleanType,
   claimTimeoutSeconds: IntegerType,
   retryTaskFailuresLocally: BooleanType,
+  weighFetch: BooleanType,
 });
 /** A repository's rack policy. */
 export type RackPolicy = ValueTypeOf<typeof RackPolicyType>;
@@ -73,10 +80,11 @@ export const RACK_SIZES: Readonly<Record<RackComputeSize, { readonly cores: numb
   xlarge: { cores: 16, memoryBytes: 32 * 1024 ** 3 },
 };
 
-/** Conservative defaults: disabled, with explicit task selection required. */
+/** Conservative defaults: disabled, with explicit task selection required;
+ *  a fetch-bound unit runs here. */
 export const DEFAULT_RACK_POLICY: RackPolicy = {
   enabled: false, mode: variant('optIn', null), rules: [], defaultSize: variant('large', null),
-  defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false,
+  defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false, weighFetch: true,
 };
 const encode = encodeBeast2For(RackPolicyType);
 const decode = decodeBeast2For(RackPolicyType);

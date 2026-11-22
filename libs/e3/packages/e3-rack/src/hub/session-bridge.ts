@@ -20,6 +20,7 @@ import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, Se
   SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import type { RackLogChunk } from '../protocol/rack-wire.js';
 import { RACK_TRANSFERS_AT_ONCE } from '../protocol/rack-json.js';
+import type { RackLinkMeter } from './link-meter.js';
 
 /** Identifies the session that currently owns repository I/O for a lease. */
 export interface SessionEndpoint {
@@ -110,6 +111,12 @@ export interface SessionBridgeOptions {
    * next is refused `429 busy`. By default {@link RACK_TRANSFERS_AT_ONCE}.
    */
   transfersAtOnce?: number;
+  /**
+   * Measures each rack's link from the reads it is served, and keeps which
+   * objects each was served whole ({@link RackLinkMeter}); nothing is
+   * measured unless given.
+   */
+  meter?: RackLinkMeter;
 }
 
 /** How long a rack that was refused a transfer waits before it asks again. */
@@ -127,7 +134,10 @@ const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
  * Every transfer streams through the launching process, so the hub bounds
  * how many it serves one rack at once, and a rack that asks for one more is
  * told to ask again. A read honours `Range: bytes=N-`, so a transfer that a
- * slow or broken link cut short goes on from the byte it reached.
+ * slow or broken link cut short goes on from the byte it reached. Given a
+ * {@link RackLinkMeter}, the bridge counts each read towards its rack's link
+ * rate, and notes each object a rack was sent whole, through its data URL
+ * or inline: what that rack holds.
  *
  * The layers of a lease's environment are served the same way, from where
  * its session keeps them: a lease reads the manifest of its own environment,
@@ -283,6 +293,11 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
       chunks.push(chunk as Buffer);
     }
     if (response.statusCode !== 200 || length !== size) throw new Error('Input object read failed');
+    // Sent whole in the answer: the rack holds it once it has the answer
+    if (this.options.meter !== undefined) {
+      const lease = await this.options.leases.get(repo, context.leaseId);
+      if (lease?.claimedBy !== undefined) this.options.meter.held(lease.claimedBy, repo, hash);
+    }
     return { kind: 'inline' as const, data: Buffer.concat(chunks) };
   }
 
@@ -505,6 +520,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
       if (release === null) return refuse(429, 'busy', `${this.transfersAtOnce} transfers are in flight for this rack`, BUSY_RETRY_MS);
       const remaining = Math.max(1, cap.expires - this.now());
       const signal = AbortSignal.any([cap.abort.signal, c.req.raw.signal, AbortSignal.timeout(remaining)]);
+      // A read is counted towards the link's rate; an object read to its last
+      // byte is one the rack now holds. A write goes the other way, and is not.
+      const transfer = cap.upload === undefined ? this.options.meter?.begin(lease.claimedBy ?? '') : undefined;
       try {
         const upload = cap.upload;
         const path = cap.layer !== undefined ? `/v1/env/layers/${cap.hash.slice('sha256:'.length)}?${new URLSearchParams({ manifest: cap.layer.manifest })}`
@@ -518,15 +536,25 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
           ...(upload === undefined ? {} : { rawBody: c.req.raw.body === null ? new Uint8Array() : Readable.fromWeb(c.req.raw.body) }),
         });
         // In flight until its last byte has left, or its stream was dropped.
-        response.once('close', release);
+        const read = response.statusCode === 200 || response.statusCode === 206;
+        let whole = false;
+        response.once('end', () => { whole = read; });
+        response.once('close', () => {
+          release();
+          transfer?.end(whole && cap.layer === undefined ? { repo: cap.repo, hash: cap.hash } : undefined);
+        });
         const headers = new Headers({ 'content-type': 'application/octet-stream' });
         for (const name of ['content-length', 'content-range', 'accept-ranges', 'x-amz-version-id']) {
           const value = response.headers[name];
           if (typeof value === 'string') headers.set(name, value);
         }
-        return new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, { status: response.statusCode ?? 502, headers });
+        const body = Readable.toWeb(response) as ReadableStream<Uint8Array>;
+        // Counted as the response's consumer reads it, so at the link's pace
+        if (transfer !== undefined && read) response.on('data', (chunk: Buffer) => transfer.add(chunk.length));
+        return new Response(body, { status: response.statusCode ?? 502, headers });
       } catch (err) {
         release();
+        transfer?.end();
         // A rack that went away is owed no answer, and a data URL that ended
         // under its transfer (its lease was reclaimed or ended, or its time
         // ran out) says so: the rack asks for the object's URL again. Neither

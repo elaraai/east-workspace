@@ -15,7 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { EnvironmentTargetRefused, LONGEST_TIMER_MS, type Budget, type StorageBackend } from '@elaraai/e3-core';
 import type { CreateLease } from '../protocol/control.js';
 import type { LeaseAttempt, LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
-import type { RackPlacementEvent } from '../protocol/placement.js';
+import type { RackFetchCost, RackPlacementEvent } from '../protocol/placement.js';
 import { describeRackReason, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import type { RackResources } from '../protocol/rack-json.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
@@ -23,6 +23,7 @@ import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
 import { envManifestKey } from '../server/env-publication.js';
 import { compatibleRacks, rackCapsUnits, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
 import { publishEnvLayers, type EnvLayerTarget, type RackEnvironmentEvent } from './environment.js';
+import { RecordedRunTimes } from './fetch-cost.js';
 
 /**
  * How long work that keeps its work for a rack (`--rack-only`) waits for one
@@ -157,7 +158,8 @@ export interface RackDelegationOptions {
   policy: RackPolicy;
   /** Workspace named on the rack's activity view. */
   workspace: string;
-  /** Disables capacity spill, but still permits infrastructure fallback:
+  /** Disables capacity spill and the weighing of what work would fetch
+   *  against how long it ran, but still permits infrastructure fallback:
    *  after a wait for a rack to be healthy, and one further lease for work
    *  whose transfer failed. */
   rackOnly?: boolean;
@@ -192,6 +194,13 @@ export interface RackDelegation {
   readonly rackOnly: boolean;
   /** How long its work waits for a rack to be healthy, in ms */
   readonly unreachableWaitMs: number;
+  /** Whether a task or a unit whose fetch would take longer than it last ran
+   *  runs here: the policy weighs it, and the run does not keep its work for
+   *  a rack */
+  readonly weighsFetch: boolean;
+  /** The run times e3 recorded of the run's tasks, and their objects' sizes,
+   *  read once */
+  readonly runTimes: RecordedRunTimes;
   /**
    * Whether work may run here now rather than wait for a rack: the policy
    * spills, the run does not keep its work for a rack, and this machine could
@@ -219,6 +228,8 @@ export function readDelegation(options: Pick<RackDelegationOptions, 'policy' | '
     builds: options.layerBuilds ?? new RackLayerBuilds(),
     rackOnly,
     unreachableWaitMs: options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS,
+    weighsFetch: options.policy.weighFetch && !rackOnly,
+    runTimes: new RecordedRunTimes(),
     spills: (budget, expectedBytes = 0) => options.policy.spill && !rackOnly && localIdle(budget, expectedBytes),
   };
 }
@@ -331,9 +342,10 @@ export class RackPlacementReport {
    * The work runs here.
    * @param reason - Why
    * @param detail - The rack's reason, when a rack gave one
+   * @param fetch - What fetching its inputs would have cost, when that is why
    */
-  local(reason: string, detail?: RackReason): void {
-    this.sink?.({ kind: 'placed', ...this.work, where: 'local', reason, ...(detail !== undefined && { detail }) });
+  local(reason: string, detail?: RackReason, fetch?: RackFetchCost): void {
+    this.sink?.({ kind: 'placed', ...this.work, where: 'local', reason, ...(detail !== undefined && { detail }), ...(fetch !== undefined && { fetch }) });
   }
 
   /**
