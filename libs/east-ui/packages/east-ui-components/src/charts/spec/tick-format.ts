@@ -7,11 +7,13 @@
  * How an axis prints a tick: a declared format through the shared format
  * module's one interpreter (#850), a date pattern through East's own printer
  * and parser. Shared with the `Slice.Rail` brush axis and the Deck (#190).
+ * And how the hover tooltip prints a row's value by its axis's format.
  *
  * @packageDocumentation
  */
 
-import { formatters, formatPattern, parsePattern, tickFormatOf } from "../../format/index.js";
+import { none, some, variant } from "@elaraai/east";
+import { formatters, formatPattern, parsePattern, tickFormatOf, type TickFormatOpt } from "../../format/index.js";
 import { instantOfKey, type ChartNumberText, type ScaleKind, type TickFormat } from "./context.js";
 
 /** Format a Date against an East datetime format pattern — the shared
@@ -79,6 +81,26 @@ export function measureFormatter(printer: ChartNumberText | undefined, fmt: Tick
     const dated = fmt !== undefined && (fmt.type === "date" || fmt.type === "time" || fmt.type === "datetime");
     if (printer === undefined || dated) return tickFormatter(fmt, "linear", locale);
     return v => printer(Number(v), fmt, of);
+}
+
+/** A share in a tooltip: a percent to two decimals — the figure its axis's whole percents round. */
+const SHARE: TickFormatOpt = variant("percent", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
+
+/**
+ * How a hover tooltip prints a row's value: by what kind of number its
+ * measure's axis says it is. A share — an axis whose format is a percent —
+ * prints a percent to two decimals, `19.5%`: the figure the axis's own ticks
+ * round to whole percents, never the fraction it is held as (`0.195`). Any
+ * other prints the number it is, whole and grouped: a tooltip is where the
+ * figure an axis says short is read in full.
+ *
+ * @param fmt - The format the row's axis declares, when it has one
+ * @param locale - The BCP 47 locale it prints in; the runtime's default when omitted
+ * @returns The printer
+ */
+export function tooltipFormatter(fmt: TickFormat | undefined, locale?: string): (n: number) => string {
+    const f = formatters(locale);
+    return fmt?.type === "percent" ? n => f.value(n, SHARE) : n => f.number(n);
 }
 
 /**

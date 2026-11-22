@@ -38,7 +38,7 @@ import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { AxisBMark, AxisLMark, AxisRMark, GridColsMark, GridRowsMark } from "./axes.js";
 import { collectLayers, collectLegend, collectScatterSizes, collectSeries, collectXKeys, walkY } from "./collect.js";
 import {
-    ScaleContext, T, domainBounds, instantOfKey, numberOfKey, xKeyOf,
+    ScaleContext, T, domainBounds, instantOfKey, numberOfKey, sideOf, xKeyOf,
     type Axis, type ChartMark, type ChartMarkHandler, type ChartMarkedTest, type ChartNumberText, type ChartStyle, type Margin, type Point, type ScaleKind, type Series, type SeriesMark, type Spec,
     type XCoord, type YScale,
 } from "./context.js";
@@ -52,10 +52,10 @@ import { chartMarking, markAttributes } from "./marking.js";
 import { AreaMark, BandAreaMark, BarsMark, LinePathMark, PointsMark, RefAreaMark, RefDotMark, RuleMark, SeriesMarks, TextMark } from "./marks.js";
 import { measuredFrame } from "./measured.js";
 import { PieFrame } from "./pie-frame.js";
-import { domainReach, measureFormatter, tickFormatter } from "./tick-format.js";
+import { domainReach, measureFormatter, tickFormatter, tooltipFormatter } from "./tick-format.js";
 
-/** Hover-tooltip payload: the focused x and each series' value there. */
-interface TooltipDatum { x: string; rows: Array<{ key: string; color: string; value: number }> }
+/** Hover-tooltip payload: the focused x and each series' value there, as its axis says what kind of number it is. */
+interface TooltipDatum { x: string; rows: Array<{ key: string; color: string; text: string }> }
 
 /** Render one ChartSpec node (recursive); marks read scales from context. */
 function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode {
@@ -202,6 +202,13 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                 axisRight: (v: Axis) => { axes.right = v; const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; y2TitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
                 axisBottom: (v: Axis) => { axes.bottom = v; const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; xTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
             }, undefined);
+
+            // A tooltip row's value, by the side its layer is read against: as that side's axis says what kind of number
+            // it is (`tooltipFormatter`) — a share a percent. A horizontal frame's measure is its bottom axis's.
+            const rowText = {
+                left: tooltipFormatter(getSomeorUndefined((horizontal ? axes.bottom : axes.left)?.tickFormat), words.locale),
+                right: tooltipFormatter(getSomeorUndefined(axes.right?.tickFormat), words.locale),
+            };
 
             // Margins: base, widened for axis titles + the right axis. A shared
             // plot gutter (#147, from the plot-gutter context) pins left/right exactly
@@ -397,7 +404,10 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                     if (focus === undefined) return;
                     // Touch (#354): tapping the focused band again dismisses.
                     if (toggleOnRepeat && tooltipData?.x === focus) { hideTooltip(); return; }
-                    const rows = series.flatMap(s => { const p = s.points.find(pt => xKeyOf(pt.x) === focus); return p ? [{ key: s.key, color: style.color(s.color), value: p.value }] : []; });
+                    const rows = layers.flatMap(layer => layer.data.flatMap((s) => {
+                        const p = s.points.find(pt => xKeyOf(pt.x) === focus);
+                        return p ? [{ key: s.key, color: style.color(s.color), text: rowText[sideOf(layer)](p.value) }] : [];
+                    }));
                     if (rows.length === 0) return;
                     showTooltip({
                         tooltipData: { x: focus, rows },
@@ -526,7 +536,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, ma
                                         <Box key={i} display="flex" alignItems="center" gap="{spacing.2}">
                                             <Box as="span" width="9px" height="9px" borderRadius="2px" background={rw.color} flexShrink="0" />
                                             <Box as="span" flex="1" minWidth="0" color="fg.muted">{rw.key}</Box>
-                                            <Box as="span" fontWeight="semibold" fontVariantNumeric="tabular-nums">{words.number(rw.value)}</Box>
+                                            <Box as="span" fontWeight="semibold" fontVariantNumeric="tabular-nums">{rw.text}</Box>
                                         </Box>
                                     ))}
                                 </Box>

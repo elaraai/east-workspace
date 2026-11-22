@@ -14,6 +14,9 @@
  *  - V2 every numeral is mono and tabular (TIL-5) — a value, a cell, a tick;
  *  - V3 no part paints a colour of its own: every colour a tile sets on an
  *    element is a token's — the theme's variable — or none (TIL-4, NFR-2).
+ *  - V4 a chart's tooltip says each value as its axis says what it is (a
+ *    manual test's finding, 22 November 2026): a share a percent, to two
+ *    decimals — never the fraction it is held as — and an amount whole.
  *
  * A colour is read the way it is painted: resolved by the page, composited
  * over the grounds beneath it on a one-pixel canvas and read back as sRGB, so
@@ -131,4 +134,21 @@ test.describe("Studio visuals (#1671)", () => {
             expect(bad).toEqual([]);
         });
     }
+
+    test("V4: a chart's tooltip says a share as a percent, to two decimals — never the fraction it is held as — and an amount whole, grouped", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        // The combo: each region's revenue in columns, and its average margin — a share — on the right axis.
+        const plot = grid.locator('[data-studio-placement="v-combo"] svg[data-chart-plot]');
+        await plot.scrollIntoViewIfNeeded();
+        // Its plot's box in its chart, as the chart says it: the pointer over the plot's middle, on its third region of five.
+        const [left, top, width, height] = (await plot.getAttribute("data-chart-plot"))!.split(" ").map(Number);
+        await plot.hover({ position: { x: left! + width! / 2, y: top! + height! / 2 } });
+        const tooltip = page.locator(".visx-tooltip");
+        await expect(tooltip).toBeVisible();
+        // Each row: its swatch, its series' name, its value.
+        const rows = await tooltip.evaluate((el) => [...el.querySelectorAll(":scope > div > div")].map((row) => [...row.children].map((part) => part.textContent ?? "")));
+        expect(rows.map((row) => row[1])).toEqual(["Revenue", "Average margin · right"]);
+        expect(rows[0]![2], "an amount, whole").toMatch(/^\d{1,3}(,\d{3})*\.\d+$/u);
+        expect(rows[1]![2], "a share").toMatch(/^\d+(\.\d{1,2})?%$/u);
+    });
 });
