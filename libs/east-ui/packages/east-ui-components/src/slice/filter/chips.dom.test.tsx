@@ -197,11 +197,18 @@ describe("a filter +N more holds is edited there", () => {
         render(<DraftRow foldChips={2} done={done} />);
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
         expect([popoverNow(), listed()]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: QLD"]]);
-        await press(screen.getByRole("button", { name: "Edit filter: Region: QLD" }));
+        const line = screen.getByRole("button", { name: "Edit filter: Region: QLD" });
+        line.focus();
+        await press(line);
         expect([popoverNow(), listed()]).toEqual([{ head: "Filter QLD", foot: ["Remove filter", "Cancel", "Apply (off)"] }, []]);
+        // The line pressed went with the list: the focus is kept in the popover, never dropped to the page.
+        expect(opened()!.contains(document.activeElement)).toBe(true);
         await press(inPopover("Pick NSW"));
-        await press(inPopover("Apply"));
+        const apply = inPopover("Apply");
+        apply.focus();
+        await press(apply);
         expect([popoverNow(), listed(), done]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: NSW"], ["QLD is NSW"]]);
+        expect(opened()!.contains(document.activeElement)).toBe(true);
     });
 
     test("Cancel gives the list back as it was; Remove filter takes the filter out and gives back what is left", async () => {

@@ -71,6 +71,7 @@ import { SliceEditPopover } from "../edit";
 import { SliceRailHold } from "../rail/hold.js";
 import type { SliceRailGroup } from "../rail/toolbar.js";
 import { usePressWait } from "../../pointer/press-wait.js";
+import { FOCUSABLE } from "../../primitives/focusable.js";
 import { chipOrder, foldedOrder } from "./groups.js";
 
 /**
@@ -189,6 +190,15 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
         setOpened(next);
     };
     const close = () => setOpen(null);
+    // `+N more`'s popover shows its list, or the editor of a filter it holds: the line pressed goes with the list, and the
+    // editor's button with the editor — the focus, left on what is gone, is kept in the popover, on its first control.
+    const moreContent = useRef<HTMLDivElement | null>(null);
+    useLayoutEffect(() => {
+        const content = moreContent.current;
+        if (open === null || content === null || content.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        if (active === null || active === document.body || !active.isConnected) content.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+    }, [open]);
     const btnOutline = btn({ variant: "outline", size: "xs" });
     /** An editor's foot's actions: Cancel, and — for one whose edits wait for it — its submit, off while it has nothing to do. */
     const actions = (cancel: () => void, submit: { readonly words: string; readonly run: (() => void) | undefined } | undefined, alone: string) => (
@@ -387,6 +397,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                             onOpenChange={o => setOpen(o ? "more" : null)}
                             label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size="lg"
+                            contentRef={moreContent}
                             {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
                                 footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,
                                 footActions: saving
