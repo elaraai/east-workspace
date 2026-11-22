@@ -20,6 +20,8 @@
  *   entries of the cells it does not hold in one more. The bars are those a
  *   Plan reading the jobs whole draws, and the interval index serves the
  *   rail's count, its range's bounds and the backlog — never a window of jobs.
+ *   No search asks for the jobs on no press: over paged rows a Plan draws no
+ *   Unassigned row (#1541), so it reads none of them (#1710).
  * - A pan within the tiles held reads nothing, and one into a new week reads
  *   that week alone, a range a press; a zoom reads only the tiles it does not
  *   hold, at each level whose run it grows; a scroll into presses further
@@ -99,9 +101,8 @@ const through = (index: RecordIndex) => (request: E3Request) =>
 const askedOf = (index: RecordIndex, since = 0) => h.requests().filter(through(index)).slice(since)
     .map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
 
-/** How many of a level's cells' searches the canvas asks for each block of fifty presses — a range a press — and with the jobs on none. */
+/** How many of a level's cells' searches the canvas asks for each block of fifty presses: a range a press, and none for the jobs on no press. */
 const BLOCK = 50;
-const BLOCK_AND_NONE = BLOCK + 1;
 /** The levels a week series index files at, a run each (#1433): the week, the month, the quarter and the year. */
 const LEVELS = 4;
 
@@ -429,8 +430,8 @@ describe("the jobs read a cell at a time (#1039)", () => {
         const { container } = await h.mount(seriesPlan);
         await settle();
         // A run of each level over the canvas's range, Saturday 3 to Wednesday 21 October — a range a press — by the first
-        // fifty presses, and by no press (#1433).
-        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`, "runs"]);
+        // fifty presses (#1433), and none by no press, whose jobs no row draws (#1710).
+        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(askedOf(SUMMARY)).toEqual([]);
         // The window's events counted exactly, from the source, as the rail counts them.
         expect(counted(container)).toBe("13 events");
@@ -455,7 +456,7 @@ describe("the jobs read a cell at a time (#1039)", () => {
         // Six days more: the range runs into the week of 26 October, so the week after it is wanted — a range a press over
         // that week alone, which holds no job: counted, and nothing read of it. No other level's run moves.
         await pan(container, "]", 6);
-        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK_AND_NONE}`]);
+        expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK}`]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => pan(c, "]", 7)));
     });
 
@@ -467,7 +468,7 @@ describe("the jobs read a cell at a time (#1039)", () => {
         // run grows a week either way, the month's a month either way and the quarter's a quarter back, the year's not at
         // all: five parts not held, a range a press over each, counted, and holding no job (#1433).
         await zoomTo(container, "week");
-        expect(askedOf(SERIES, opened)).toEqual([`find ${5 * BLOCK_AND_NONE}`]);
+        expect(askedOf(SERIES, opened)).toEqual([`find ${5 * BLOCK}`]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 
@@ -512,7 +513,7 @@ describe("the jobs read a cell at a time (#1039)", () => {
         await press(save(c));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
         await settle();
-        expect(askedOf(SERIES, before)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`, "runs"]);
+        expect(askedOf(SERIES, before)).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
         expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
         expect(drawn(c)).toEqual(await drawnWhole());
@@ -859,7 +860,7 @@ describe("past the budget (#1039)", () => {
         const { container: c } = await h.mount(seriesPlan);
         await settle();
         // Counted past the budget: no entry of a cell read, and no summary that divides a day.
-        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK_AND_NONE}`]);
+        expect(askedOf(SERIES)).toEqual([`find ${LEVELS * BLOCK}`]);
         expect(askedOf(SUMMARY)).toEqual([]);
         const banner = slot(c, "banners")!.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]');
         expect(banner?.textContent).toContain("10,014 print job events in view");

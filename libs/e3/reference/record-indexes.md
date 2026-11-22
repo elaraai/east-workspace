@@ -226,10 +226,12 @@ event kind changes.
 
 | Case | What happens, and what to do |
 |---|---|
-| The last leading field is not the group's key | The field holds the group's key at its type, or an Option of it. One of another type is filled nothing, and the kind is read as one past the event cap is: shaded from its summary index, never by its cells. One of the same type that holds something else is filled all the same, and its rows draw no events, with nothing to say why: check the field first when a Plan's rows are empty |
-| A leading field before the group's | The rail's to choose exactly, as any series index's leading field is; left unchosen, the index is not read |
-| Rows under no group, or a page of no groups | Read through a series index in key order listed beside it, or one in time order led by no field |
-| Events on no row (an Option key holding none) | Read through a series index in key order listed beside it. With none listed the whole kind shades from its summary index |
+| The last leading field's type | It holds the group's key at the key's type, or an Option of it. A field of another type is never filled, and the block is read through another series index the rail's narrowing serves. With none, the whole kind shades from its summary index, as one past 10,000 events does |
+| The last leading field holds something else | A field of the group's type that is not the group — a status the rail chooses — is filled with the group's key all the same, and the rows draw no events, with nothing to say why. Check this first when a Plan's rows are empty |
+| An event's group field disagrees with its row's group | It is read under the group its field names, where its row is not, and drawn nowhere. Keep the field in step: moving a resource to another group means writing its events' field too |
+| A leading field before the group's | The rail's to choose exactly, as for any series index. Left unchosen, the index serves no block |
+| Rows under no group, or a page of no groups | Read through a series index the rail's narrowing serves alone: one in key order listed beside it, or one in time order led by no field |
+| Events on no row (a resource field that may hold none) | Not read: over rows read a page at a time a Plan draws no Unassigned row. They need no index of their own |
 | Rows drawn in another order than their keys' | Still right: the Plan keeps the entries of the block's rows and drops the rest. It reads more, and what it counts before a read is at least the block's, so the kind may shade sooner |
 | One key's events | Not a range of it. Declare an index in key order beside it |
 | An event longer than its tile | Filed once at the level its length fits, as in key order; past a year, under each year it touches, so a read over years meets it once a year: keep it by its key |

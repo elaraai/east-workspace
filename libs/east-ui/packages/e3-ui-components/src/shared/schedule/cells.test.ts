@@ -64,7 +64,7 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
         Array.from({ length: n }, (_x, i) => ({ slot: "presses", key: `P-${String(from + i).padStart(4, "0")}` }));
     /** Paged rows of 200 a window: each window's resources, or `undefined` for one in flight. */
     const pagedOf = (windows: readonly (readonly ScheduleCellKey[] | undefined)[], narrowing?: string): ScheduleCellPaged => ({
-        kinds: ["presses"], window: 200, hidden: false,
+        kinds: ["presses"], window: 200, hidden: false, unassigned: false,
         keys: (offset) => {
             const keys = windows[Number(offset) / 200];
             return keys === undefined ? none : some(keys);
@@ -192,7 +192,7 @@ describe("a counted kind within the cap (#1039)", () => {
 describe("a window of the paged rows, as the reader reads it (#1039, #1541)", () => {
     /** Paged rows whose windows of 200 answer as `read` says, each window it is asked for kept in `asked`. */
     const pagedOf = (read: () => option<readonly ScheduleCellKey[]>, asked: [bigint, bigint][] = []): ScheduleCellPaged => ({
-        kinds: ["presses", "crews"], window: 200, hidden: false,
+        kinds: ["presses", "crews"], window: 200, hidden: false, unassigned: false,
         keys: (offset, limit) => { asked.push([offset, limit]); return read(); },
         total: () => some(2_000n),
         narrowing: () => undefined,

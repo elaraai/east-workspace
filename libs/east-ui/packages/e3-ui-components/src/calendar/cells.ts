@@ -121,6 +121,8 @@ export function calendarCellsPaged(paged: CalendarPagedValue): ScheduleCellPaged
         kinds: [paged.kind],
         window: CALENDAR_PAGE_SIZE,
         hidden: false,
+        // Its Unassigned row, beside its resources' rows or columns: the events on no resource are read with them.
+        unassigned: true,
         // Each of the kind's resources an entry of its window, its row the kind's.
         keys: (offset, limit) => {
             const keys = paged.keys(offset, limit);

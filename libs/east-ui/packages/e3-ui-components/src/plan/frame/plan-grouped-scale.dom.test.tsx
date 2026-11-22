@@ -29,6 +29,10 @@
  *   under their own hall, from the block's first press through its last — and
  *   draws the jobs the index in key order draws, which asks a range a press a
  *   level.
+ * - Some jobs are on no press. Over rows read a page at a time a Plan draws no
+ *   Unassigned row (#1541), so it reads none of them: no search asks for them,
+ *   through either index, and the index in time order is the only series index
+ *   its page lists (#1710).
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
@@ -41,7 +45,9 @@
 import { createHash } from "node:crypto";
 import { describe, test, expect, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
-import { DateTimeType, DictType, East, OptionType, StringType, StructType, VariantType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    DateTimeType, DictType, East, OptionType, StringType, StructType, VariantType, equalFor, none, printFor, some, variant, type ValueTypeOf,
+} from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
@@ -68,6 +74,8 @@ const PRESSES = sized("SCALE_PRESSES", 480);
 const TASKS = sized("SCALE_TASKS", 4);
 /** Jobs a press, in the window. */
 const JOBS = sized("SCALE_JOBS", 2);
+/** Jobs a hall on no press, in the window: drawn nowhere over rows read a page at a time. */
+const UNPLACED = 3;
 /** Whether the halls are bound beside their nested series index, which files nothing here: `0` binds them without it. */
 const NESTED = sized("SCALE_NESTED", 1) !== 0;
 const LOG = sized("SCALE_LOG", 0) !== 0;
@@ -103,7 +111,7 @@ const Press = StructType({ what: PressKind, tasks: DictType(StringType, Task) })
 const Hall = StructType({ name: OptionType(StringType), presses: DictType(StringType, Press) });
 const Halls = DictType(StringType, Hall);
 
-const Job = StructType({ hall: StringType, press: StringType, start: DateTimeType, end: DateTimeType, task: StringType, title: StringType });
+const Job = StructType({ hall: StringType, press: OptionType(StringType), start: DateTimeType, end: DateTimeType, task: StringType, title: StringType });
 const Jobs = DictType(StringType, Job);
 
 const FIRST = new Date("2026-07-15T00:00:00Z");
@@ -126,8 +134,13 @@ function jobs(): ValueTypeOf<typeof Jobs> {
         for (const code of codes) {
             for (let j = 0; j < JOBS; j++) {
                 const at = new Date(FIRST.getTime() + ((n + j * 5) % 14) * DAY + 9 * 3_600_000);
-                out.set(`J${pad(n++, 7)}`, { hall: hallKey(h), press: code, start: at, end: at, task: taskKey(j % TASKS), title: `Job ${n}` });
+                out.set(`J${pad(n++, 7)}`, { hall: hallKey(h), press: some(code), start: at, end: at, task: taskKey(j % TASKS), title: `Job ${n}` });
             }
+        }
+        // Its jobs on no press yet.
+        for (let j = 0; j < UNPLACED; j++) {
+            const at = new Date(FIRST.getTime() + ((n + j * 3) % 14) * DAY + 13 * 3_600_000);
+            out.set(`J${pad(n++, 7)}`, { hall: hallKey(h), press: none, start: at, end: at, task: taskKey(0), title: `Job ${n}` });
         }
     }
     return out as ValueTypeOf<typeof Jobs>;
@@ -296,6 +309,12 @@ const IN_TIME = "scale_jobs_by_hall_week";
 const SUMMARY = "scale_jobs_by_press_day";
 /** The levels the series index files a job at, from its week tile: week, month, quarter and year. */
 const LEVELS = 4;
+
+const printText = printFor(StringType);
+const printPress = printFor(OptionType(StringType));
+const textEqual = equalFor(StringType);
+/** A press as the jobs' indexes file a job on it: the `.east` text of the job's press. */
+const pressLiteral = (code: string) => printPress(some(code));
 
 /** The finds of one of the jobs' indexes since `from`. */
 const findsOf = (index: string, from: number): E3Request[] => h.requests().slice(from)
@@ -474,17 +493,20 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(asked).toBeGreaterThan(0);
             byKey.unmount();
 
-            // The same page through the index in time order.
+            // The same page through the index in time order: its jobs drawn — or, were it read as a kind past the cap is,
+            // its presses shaded from the summary.
             from = h.requests().length;
             let cpu0 = cpu();
             const { container } = await h.mount(inTime, { storageKey: "plan-in-time" });
-            await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length + findsOf(SUMMARY, from).length).toBeGreaterThan(0),
+                { timeout: 600_000 });
             await settle();
             report("open, in time order", from, cpu0, container);
+            // Never shaded: the jobs on no press, which the index led by the hall files under no press's hall, are not read.
+            expect(findsOf(SUMMARY, from)).toEqual([]);
             // The same jobs drawn, and none of them through the index in key order, which this page's source does not list.
             expect(marksOf(container)).toEqual(drawn);
             expect(findsOf(SERIES, from)).toEqual([]);
-            expect(findsOf(SUMMARY, from)).toEqual([]);
             // Each search a range a tile under one hall and one level: from a first press of that hall through a last.
             const searches = findsOf(IN_TIME, from).flatMap((request) => request.searches);
             expect(searches.length).toBeGreaterThan(0);
@@ -496,10 +518,12 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
                 const [hall, level, tile, first] = from;
                 expect(to).toEqual([hall, level, tile, expect.any(String), "true"]);
                 const last = to[3]!;
-                // The hall a search is under is the one its presses stand in: a press's code holds its hall's number.
-                const at = pressCodes.findIndex((codes) => codes.some((code) => JSON.stringify(code) === first));
-                expect(hall).toBe(JSON.stringify(hallKey(at)));
-                expect(pressCodes[at]!.some((code) => JSON.stringify(code) === last)).toBe(true);
+                // The hall a search is under is the one its presses stand in, and it runs from a press — never from the
+                // jobs on none.
+                const at = pressCodes.findIndex((codes) => codes.some((code) => textEqual(pressLiteral(code), first ?? "")));
+                expect(at).toBeGreaterThanOrEqual(0);
+                expect(hall).toBe(printText(hallKey(at)));
+                expect(pressCodes[at]!.some((code) => textEqual(pressLiteral(code), last))).toBe(true);
                 runs.add(`${hall} ${first} ${last}`);
             }
             // The first hall drawn, and where the margin past the view reaches beyond its presses the next one's first

@@ -19,16 +19,17 @@
  * # Cells
  *
  * A kind placed on the paged resource kind, whose source of the slice lists a
- * series index of its record, reads the events of the resources in view — and
- * of no resource, its Unassigned row's — a level at a time, never every event
- * over the range. The series index files each event once, at the level its
+ * series index of its record, reads the events of the resources in view — and,
+ * where the paged rows draw an Unassigned row, of no resource — a level at a
+ * time, never every event over the range. A Plan's own rows draw none (#1541),
+ * so it reads no event on no resource ({@link ScheduleCellPaged.unassigned}). The series index files each event once, at the level its
  * length fits (#1433), so a cell is a block of {@link SCHEDULE_CELL_BLOCK} of
  * the paged kind's resources, in the kind's order, over one level's run of
  * tiles (`levelRuns`: from two tiles before the range read to one after it):
  * one range a resource (`levelCellQueries`), whatever the range's width. The
  * cells wanted are the blocks meeting the rows in view and
  * {@link SCHEDULE_CELL_MARGIN} resources either side, each a level, with the
- * cells of no resource. The reader keeps what it read by block, level and
+ * Unassigned row's cells where one is drawn. The reader keeps what it read by block, level and
  * tile — a range's entries split by the tile each names — so a pan or a zoom
  * asks, a block a level, one range a resource over the tiles it does not hold
  * (two, when a zoom out grows the run both ways): their searches in one
@@ -63,8 +64,11 @@
  * resources under one such row. Each block is read through the series index
  * led by the most of what its narrowing then chooses (`seriesIndexFor`), so a
  * source that lists an index in time order led by its rows' group reads a
- * grouped page through it, and the events on no resource — and a page of no
- * groups — through an index in key order listed beside it. A range holds the
+ * grouped page through it, and a page of no groups through an index the
+ * narrowing alone serves — one in key order listed beside it. A Plan reads no
+ * event on no resource, so a source listing the index in time order alone reads
+ * a grouped Plan's every block; where no listed index serves a block, the kind
+ * is read as one past the cap is. A range holds the
  * entries of every key between the block's first and last, which are the
  * block's own where its rows run in their keys' order under their group; the
  * reader keeps the entries of the block's keys and drops any other's, and
@@ -371,6 +375,12 @@ export interface ScheduleCellPaged {
     readonly window: number;
     /** Whether the viewer hides it: none of its rows draws, so no cell of it is read. */
     readonly hidden: boolean;
+    /**
+     * Whether its layout draws an Unassigned row beside its resources' — the Calendar's paged kind does — whose events, a
+     * kind's on no resource, are read as a block of their own. `false` for a Plan's own rows, which draw none over rows
+     * read a page at a time (#1541): an event on no resource is in no window, so none is read (#1710).
+     */
+    readonly unassigned: boolean;
     /**
      * The resources its entries `[offset, offset + limit)` draw, each by its slot and its key's text, in the order its
      * rows draw them — one an entry of a resource kind's, any number of a Plan's entry whose rows nest them (#1541);
@@ -1392,7 +1402,8 @@ class CellsReader {
                         // The paged rows' blocks of the slots it lands on.
                         const blocks = blocksOfPaged();
                         read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where,
-                            blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), range, buckets, resolution, drafts, totals);
+                            blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
+                            resolution, drafts, totals);
                     }
                 } else {
                     read = this.countedKind(kind, range, buckets, resolution, totals, blocksOf);
@@ -1527,15 +1538,19 @@ class CellsReader {
     /**
      * A kind placed on the paged kind, read by its series index's cells: its
      * events while the cells hold at most the cap, its summary's shading past
-     * it (see the module docs).
+     * it (see the module docs). `unassigned` says whether the paged rows draw
+     * an Unassigned row, whose events — those on no resource — are read too.
      */
     private cellsKind(
-        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, blocks: readonly ScheduleCellBlock[], range: { from: Date; to: Date },
-        buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, drafts: ScheduleEventDraftsValue, totals: Totals,
+        kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, blocks: readonly ScheduleCellBlock[], unassigned: boolean,
+        range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, drafts: ScheduleEventDraftsValue,
+        totals: Totals,
     ): KindRead | typeof READING {
         const codec = this.codecOf(kind);
         const indexes = part.config.indexes;
-        // The groups read: each block of resources in view, and the events on none — each a run of each level (#1433).
+        // The groups read: each block of resources in view, and the events on none where an Unassigned row draws them —
+        // each a run of each level (#1433). Where none draws them they are read for nothing (#1710), and through an index
+        // in time order led by the rows' group, which no block of theirs stands under, none would serve them.
         const groups: CellGroup[] = [];
         for (const block of blocks) {
             const literals = block.keys.flatMap((key) => {
@@ -1544,8 +1559,8 @@ class CellsReader {
             });
             if (literals.length > 0) groups.push({ id: `${block.slot}:${block.id}`, literals, under: block.under ?? NO_UNDER });
         }
-        const unassigned = this.noResource(kind);
-        if (unassigned !== undefined) groups.push({ id: "none", literals: [unassigned], under: NO_UNDER });
+        const unplaced = unassigned ? this.noResource(kind) : undefined;
+        if (unplaced !== undefined) groups.push({ id: "none", literals: [unplaced], under: NO_UNDER });
         // The series index each group is read through, and the narrowing it is read under (#1710): the one led by the
         // most of the narrowing's choices, one in time order under the rows the group stands under. A range a key a
         // level, or through an index in time order a range a tile, under each combination of the leading values.

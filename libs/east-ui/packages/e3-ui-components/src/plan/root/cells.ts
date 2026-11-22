@@ -23,8 +23,9 @@
  * of the canvas; over rows read a page at a time, each window's — the root's
  * count of entries to a window (#1714), as many resources as they nest — read
  * through the root's own source, with its size and the narrowing its windows
- * belong to; then the range
- * the canvas reads and its scale's buckets. And it keeps the span store the
+ * belong to — and no Unassigned row: over rows read a page at a time an event
+ * on no resource is in no window (#1541), so none is read (#1710); then the
+ * range the canvas reads and its scale's buckets. And it keeps the span store the
  * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
  * never the overscan, the span standing while it shows only rows not read, or
@@ -291,6 +292,8 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
             kinds: landings.map((landing) => landing.key),
             window: windowEntries,
             hidden: false,
+            // No Unassigned row over rows read a page at a time (#1541): an event on no resource is in no window.
+            unassigned: false,
             keys: (offset, limit) => {
                 const read = source.page(offset, limit);
                 if (read.type !== "some") return none;
