@@ -301,6 +301,36 @@ describe("a filter's chip: short, and whole on hover (#1673)", () => {
     it("is its jq both ways where the condition is no form the rows write", () => {
         expect(chip(`.region | IN("SA", "NSW")`)).toEqual([`.region | IN("SA", "NSW")`, `.region | IN("SA", "NSW")`]);
     });
+
+    it("says a window of whole days once, as the days it holds — whole months, whole years, or the days, in the locale's own short forms — and its two conditions on its hover", () => {
+        // A locale's range is spaced with its own spaces — thin ones, about a dash: read here as plain ones.
+        const chip = (where: string) => {
+            const held = filterChip(condition(where), ORDERS_SOURCE, words);
+            return [held.words.replace(/\s/g, " "), held.whole];
+        };
+        const quarter = `.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`;
+        const QUARTER = "ordered at is on or after 2026-07-01 and ordered at is before 2026-10-01";
+        expect(chip(quarter)).toEqual(["Ordered at: July – Sept 2026", QUARTER]);
+        // Its sides in either order, and with what else the filter holds: the window is one of the things it counts.
+        expect(chip(`.ordered_at < "2026-10-01" and .ordered_at >= "2026-07-01"`)[0]).toBe("Ordered at: July – Sept 2026");
+        expect(chip(`${quarter} and .region == "SA"`)).toEqual(["Ordered at: July – Sept 2026 +1", `ordered at is on or after 2026-07-01, ordered at is before 2026-10-01 and region is SA`]);
+        expect(chip(`.region == "SA" and ${quarter}`)[0]).toBe("Region: SA +1");
+        // One month, months of two years, whole years, and days that make no whole month.
+        expect(chip(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-08-01"`)[0]).toBe("Ordered at: July 2026");
+        expect(chip(`.ordered_at >= "2025-11-01" and .ordered_at < "2026-02-01"`)[0]).toBe("Ordered at: Nov 2025 – Jan 2026");
+        expect(chip(`.ordered_at >= "2026-01-01" and .ordered_at < "2027-01-01"`)[0]).toBe("Ordered at: 2026");
+        expect(chip(`.ordered_at >= "2024-01-01" and .ordered_at < "2027-01-01"`)[0]).toBe("Ordered at: 2024–2026");
+        expect(chip(`.ordered_at >= "2026-06-29" and .ordered_at < "2026-07-06"`)[0]).toBe("Ordered at: 29 June – 5 July 2026");
+        expect(chip(`.ordered_at >= "2026-07-04" and .ordered_at < "2026-07-05"`)[0]).toBe("Ordered at: 4 July 2026");
+    });
+
+    it("says each side by itself where the two make no window of days: one side alone, either of which will do, an end no later than its start, a time of day, or a side said twice", () => {
+        expect(chip(`.ordered_at >= "2026-07-01"`)[0]).toBe("Ordered at: on or after 2026-07-01");
+        expect(chip(`.ordered_at >= "2026-07-01" or .ordered_at < "2026-01-01"`)[0]).toBe("Ordered at: on or after 2026-07-01 +1");
+        expect(chip(`.ordered_at >= "2026-10-01" and .ordered_at < "2026-07-01"`)[0]).toBe("Ordered at: on or after 2026-10-01 +1");
+        expect(chip(`.ordered_at >= "2026-07-01T09:00:00" and .ordered_at < "2026-10-01"`)[0]).toBe("Ordered at: on or after 2026-07-01T09:00:00 +1");
+        expect(chip(`.ordered_at >= "2026-07-01" and .ordered_at >= "2026-08-01" and .ordered_at < "2026-10-01"`)[0]).toBe("Ordered at: on or after 2026-07-01 +2");
+    });
 });
 
 describe("a filter as the query its condition rows edit", () => {

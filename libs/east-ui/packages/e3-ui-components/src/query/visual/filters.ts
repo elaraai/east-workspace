@@ -17,7 +17,8 @@
  * filter none of them for it, whose groups it marks ({@link markedBy}); the one condition
  * they are in a visual's program ({@link selectOf}) — every filter on the
  * visual's source, each of which a row must pass; a filter in words, as its
- * chip says it ({@link filterWords}); a filter as the query its condition
+ * chip says it ({@link filterChip}, {@link filterWords}) — a window of days
+ * once, as the days it holds; a filter as the query its condition
  * rows edit, and read back from it ({@link filterQuery}, {@link whereOf});
  * what an edit of those rows tells a host that applies it at once
  * ({@link conditionTold}), what they say as a draft, and what committing one
@@ -38,7 +39,7 @@
 import { ArrayType, DateTimeType, JqType, compareFor, equalFor, none, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { isoDateTime } from "@elaraai/east/internal";
 import type { StudioFilterType, StudioPageFilterType } from "@elaraai/e3-ui/internal";
-import { conditionChip, conditionWords } from "../model/step-words.js";
+import { conditionChip, conditionWords, windowChip } from "../model/step-words.js";
 import type { QueryWords } from "../model/words.js";
 import { newStep } from "../steps/edit.js";
 import { chain, pathNode, readCall, readChain, readPipe } from "../steps/jq.js";
@@ -197,19 +198,80 @@ export function rowsShape(source: PrintSource): Shape {
 
 /** A filter as its chip says it (#1673): short, and whole. */
 export interface FilterChip {
-    /** Its first condition, short — `Region: NSW` — and how many more it holds — `Region: NSW +1`. */
+    /**
+     * The first thing it holds, short — `Region: NSW`, or a window of days, `Ordered at: Jul – Sep 2026` — and how many
+     * more it holds — `Region: NSW +1`.
+     */
     readonly words: string;
     /** Every condition it holds, each once, in the query builder's words — `region is NSW and ordered at is in 2026`: what its hover says. */
     readonly whole: string;
 }
 
+/** One side of a window a test holds its field to: on or after an instant, or before one. */
+interface WindowSide {
+    readonly field: string;
+    readonly side: "from" | "to";
+    readonly at: Date;
+}
+
 /**
- * A filter as its chip says it (#1673): its first condition short, its field
- * then what it holds — `Region: NSW` — with how many more it holds — `+1`;
- * and whole, as its hover says it, in the query builder's words — `region is
- * NSW and ordered at is in 2026`, its conditions side by side as a Keep rows
- * where step says its own. A condition it holds twice is said once. A filter
- * in no form the builder's rows write is its jq, both ways.
+ * The side of a window a condition is: one of the two tests the query
+ * builder's rows write a window with — its field on or after a date, or
+ * before one.
+ *
+ * @param condition - The condition, as the query builder reads it; `undefined` for one it does not
+ * @returns Its field, which side it is, and its instant; `undefined` for any other condition
+ */
+function windowSide(condition: Condition | undefined): WindowSide | undefined {
+    if (condition === undefined || condition.type !== "test") return undefined;
+    const { field, cmp, value, inner, whole } = condition.value;
+    if (field.type === "none" || cmp.type === "none" || value.type === "none" || inner.type === "some" || whole) return undefined;
+    const kind = cmp.value.type;
+    const held = value.value;
+    if ((kind !== "onOrAfter" && kind !== "before") || held.type !== "text") return undefined;
+    const at = isoDateTime(held.value);
+    return at === undefined ? undefined : { field: field.value, side: kind === "onOrAfter" ? "from" : "to", at };
+}
+
+/**
+ * The windows among conditions every one of which a row must pass: a field
+ * held on or after one day and before a later one, by those two conditions
+ * and no other of its sides.
+ *
+ * @param parts - The conditions, in order
+ * @param shape - The rows they test
+ * @param words - The query builder's words
+ * @returns By a side's place among the conditions: the window's words at the
+ *   first of its two sides, and `undefined` at the second, which says nothing more
+ */
+function windowsOf(parts: readonly Condition[], shape: Shape, words: QueryWords): ReadonlyMap<number, string | undefined> {
+    const sides = parts.map(windowSide);
+    const found = new Map<number, string | undefined>();
+    sides.forEach((side, i) => {
+        if (side === undefined || side.side !== "from") return;
+        const same = sides.flatMap((held, j) => (held !== undefined && held.field === side.field ? [{ held, j }] : []));
+        const other = same.find((one) => one.j !== i);
+        if (same.length !== 2 || other === undefined || other.held.side !== "to") return;
+        const said = windowChip(side.field, side.at, other.held.at, shape, words);
+        if (said === undefined) return;
+        found.set(Math.min(i, other.j), said);
+        found.set(Math.max(i, other.j), undefined);
+    });
+    return found;
+}
+
+/**
+ * A filter as its chip says it (#1673): the first thing it holds short, its
+ * field then what it holds — `Region: NSW` — with how many more it holds —
+ * `+1`; and whole, as its hover says it, in the query builder's words —
+ * `region is NSW and ordered at is in 2026`, its conditions side by side as a
+ * Keep rows where step says its own. A condition it holds twice is said once.
+ * A filter in no form the builder's rows write is its jq, both ways.
+ *
+ * A window of whole days — a field on or after one day and before a later
+ * one, both of which a row must pass — is one thing its chip says, the days
+ * it holds: `Ordered at: Jul – Sep 2026`, never its first side and `+1`. Its
+ * hover says its two conditions, as the rows hold them.
  *
  * @param where - The filter's condition over one row
  * @param source - Its source, as the printer reads it
@@ -221,19 +283,26 @@ export function filterChip(where: JqNode, source: PrintSource, words: QueryWords
     const condition = readCondition(where, shape);
     const jq = printJq(where).text;
     if (condition === undefined) return { words: jq, whole: jq };
-    // Each condition once, in the order it holds them — brackets are for a group inside one.
-    const said: { readonly short: string; readonly whole: string }[] = [];
-    for (const part of condition.type === "group" ? condition.value.conds : [condition]) {
+    const parts = condition.type === "group" ? condition.value.conds : [condition];
+    const windows = condition.type === "group" && condition.value.match.type === "all" ? windowsOf(parts, shape, words) : new Map<number, string | undefined>();
+    // Each condition once, in the order it holds them — brackets are for a group inside one — and a window once, where its first side stands.
+    const shorts: string[] = [];
+    const wholes: string[] = [];
+    parts.forEach((part, i) => {
         const whole = conditionWords(part, shape, words);
-        if (whole !== "" && !said.some((held) => held.whole === whole)) said.push({ short: conditionChip(part, shape, words), whole });
-    }
-    const [first] = said;
-    if (first === undefined) return { words: jq, whole: jq };
+        if (whole === "" || wholes.includes(whole)) return;
+        wholes.push(whole);
+        const short = windows.has(i) ? windows.get(i) : conditionChip(part, shape, words);
+        if (short !== undefined) shorts.push(short);
+    });
+    const [first] = shorts;
+    const [whole] = wholes;
+    if (first === undefined || whole === undefined) return { words: jq, whole: jq };
     const m = words.messages;
-    const more = said.length - 1;
+    const more = shorts.length - 1;
     return {
-        words: more === 0 ? first.short : `${first.short} ${m.chipMore({ n: more, count: words.formatters.number(more) })}`,
-        whole: condition.type === "group" ? m.describeConditions({ match: condition.value.match.type, conditions: said.map((held) => held.whole) }) : first.whole,
+        words: more === 0 ? first : `${first} ${m.chipMore({ n: more, count: words.formatters.number(more) })}`,
+        whole: condition.type === "group" ? m.describeConditions({ match: condition.value.match.type, conditions: wholes }) : whole,
     };
 }
 
@@ -443,8 +512,8 @@ function boundOf(condition: Condition | undefined, range: string, now: Date): Bo
     switch (kind) {
         // `p >= "2026-07-01"`, `p < "2026-10-01"`
         case "onOrAfter": case "before": {
-            const at = held.type === "text" ? isoDateTime(held.value) : undefined;
-            return at === undefined ? undefined : kind === "onOrAfter" ? { from: at } : { to: at };
+            const side = windowSide(condition);
+            return side === undefined ? undefined : side.side === "from" ? { from: side.at } : { to: side.at };
         }
         // `(p | year) == 2026`
         case "inYear": {

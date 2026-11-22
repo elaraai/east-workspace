@@ -9,7 +9,8 @@
  *
  *  - F1 on a page the rail is a toolbar row over the grid: 28px, the grid 12
  *    under it, no border of its own; the page's starting filter its chip —
- *    the page of visuals starts in its latest quarter — then its `+ FILTER`
+ *    the page of visuals starts in its latest quarter, a window of days its
+ *    chip says once, `Ordered at: Jul – Sep 2026` — then its `+ FILTER`
  *    chip, after the rail's icon. A page with none is its `+ FILTER` chip
  *    alone (F5, F7).
  *  - F2 a filter is written with the query builder's condition rows in
@@ -146,7 +147,9 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
         expect(await railAtRest(rail)).toEqual({ ...AT_REST, chips: 1 });
-        // Every reader starts in the latest quarter.
+        // Every reader starts in the latest quarter: a window of days, which its chip says once — the months it holds —
+        // and its hover as the two conditions its rows hold.
+        await expect(rail.locator("[data-slice-clause]")).toHaveText("Ordered at: Jul – Sep 2026");
         await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "ordered at is on or after 2026-07-01 and ordered at is before 2026-10-01");
     });
 

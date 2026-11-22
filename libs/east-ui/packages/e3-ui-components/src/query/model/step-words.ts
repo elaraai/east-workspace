@@ -11,6 +11,7 @@
  * @packageDocumentation
  */
 
+import { DateTimeType, compareFor } from "@elaraai/east";
 import type { CheckedSteps } from "../steps/check.js";
 import { fieldByRef, itemRecordOf, type StepField } from "../steps/fields.js";
 import { scalarFieldsOf } from "../steps/print.js";
@@ -91,6 +92,35 @@ export function conditionChip(condition: Condition, shape: Shape, words: QueryWo
     if (condition.type === "group") return conditionWords(condition, shape, words);
     const parts = testParts(condition, shape, words);
     return parts === undefined ? "" : words.messages.chipCondition(parts);
+}
+
+const compareInstant = compareFor(DateTimeType);
+
+/** A day, in ms. */
+const DAY_MS = 86_400_000;
+
+/**
+ * A window of whole days as a filter's chip says it, once (#1673): its field,
+ * then the days it holds, by the periods they make — `Ordered at: Jul – Sep
+ * 2026` for whole months, `Ordered at: 2026` for whole years, `Ordered at: 29
+ * Jun – 5 Jul 2026` for any other days.
+ *
+ * @param field - the field the window is of, by its ref
+ * @param from - where it starts: the start of its first day
+ * @param to - what it ends before: the start of the day after its last
+ * @param shape - the rows it tests
+ * @param words - the words
+ * @returns the words; `undefined` for a window that is not of whole days, or that holds none
+ */
+export function windowChip(field: string, from: Date, to: Date, shape: Shape, words: QueryWords): string | undefined {
+    if (from.getTime() % DAY_MS !== 0 || to.getTime() % DAY_MS !== 0 || compareInstant(from, to) >= 0) return undefined;
+    const last = new Date(to.getTime() - DAY_MS);
+    const months = from.getUTCDate() === 1 && to.getUTCDate() === 1;
+    const years = months && from.getUTCMonth() === 0 && to.getUTCMonth() === 0;
+    const f = words.formatters;
+    const days = years ? f.periodRange(from, last, "year") : months ? f.periodRange(from, last, "month") : f.range(from, last);
+    // Its field, then what it holds, as a condition that holds one value is said.
+    return words.messages.chipCondition({ field: refLabel(shape, field), cmp: "eq", value: days });
 }
 
 /**
