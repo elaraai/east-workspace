@@ -158,6 +158,10 @@ const jobs = e3.record('jobs', JobsType, {
   indexes: (index) => ({
     jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
     jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+    // The same events, each entry carrying what a tile draws of its job and no more:
+    job_tiles_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+      value: East.function([StringType, JobType], JobTileType, ($, _id, job) => ({ press: job.press, title: job.title, start: job.start, end: job.end })),
+    }),
   }),
 });
 ```
@@ -177,7 +181,20 @@ tile holding its start; an instant at `tile`; past 365 days, under each year it
 touches. An event filed at a level ends within the tile after the one holding
 its start, so a reader reads a block of keys over any span from the index alone
 as one range a key a level — that level's tiles from two before the span to one
-after it — in one request, whatever the span's width. **A summary index** holds,
+after it — in one request, whatever the span's width.
+
+Declared with a `value` beside its spec — `index.series({ … }, { value })`, as a
+plain index takes one — each entry carries **what that gives of its row** in
+the row's place: a struct holding the event's start and end under the row's
+own names for them, which a reader tests a window by, beside whatever a view
+draws an event from. A cell then holds a small part of each event, and the
+rest of one is read by its key where it is opened. A write that changes
+nothing the value gives leaves the index's entries as they are, and beside a
+nested series index or an entries index it carries its own value, as a plain
+index's does. A value that gives no struct, or one holding no DateTime start
+or end under those names, is refused, naming what it gives.
+
+**A summary index** holds,
 under each key and tile, `{ count, ms }`: how many rows touch the tile, and the
 milliseconds of it they cover — a row's shares
 add up to its length, and an instant's is none. Each entry stands for every row
@@ -199,9 +216,11 @@ as 4,096: one touching more is refused where it is written, naming it and its
 span. A summary splits an event over its tiles, as many as 4,096 — eleven years
 of days — and one touching more is refused the same way, naming the tile:
 declare a coarser tile. Each option takes only the row's fields of its type, as
-the area index's do, and the definition checks them again; a `value` is
-refused, and so is an `on` field that is the key, the start or the end: the key
-follows the leading fields, and the tiles are cut by the start and the end.
+the area index's do, and the definition checks them again; a summary index's
+`value` is refused, as is a series index's written among its spec's fields
+rather than beside them, and so is an `on` field that is the key, the start or
+the end: the key follows the leading fields, and the tiles are cut by the start
+and the end.
 
 ## Nested series indexes — `index.nested`
 
@@ -435,7 +454,7 @@ parameter by it:
 | `index.on(['press', 'due'])` | `{ press, due }` | the row's key | nothing, or its `value` |
 | `index.key(fn)`, `index.keys(fn)` | what `fn` returns, or an element of its Set | the row's key | nothing, or its `value` |
 | `index.entries('byService')` | the field's key | the row's key | that key's value |
-| `index.interval`, `index.area`, `index.series` | the generated key above | the row's key | nothing for an interval; the row for an area or a series |
+| `index.interval`, `index.area`, `index.series` | the generated key above | the row's key | nothing for an interval; the row for an area or a series, or a series index's `value` |
 | `index.summary` | `{ on, key, tile }` | Null: an entry stands for every row of its key | `{ count, ms }` |
 | `index.nested` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
 

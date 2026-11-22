@@ -9,15 +9,16 @@
  * — once, at the level its length fits, or once a year past a year (#1433) —
  * each against a direct oracle written with the host's calendar rather than
  * East's; the keys and contributions they generate; their declared types;
- * their refusals; and how a write keeps them — a series index equals its
- * rebuild, and a summary's changes, added to the totals it held, equal the
- * totals a rebuild sums. That every runtime files an event alike is e3-core's
+ * their refusals; what a series index carries where it is given a `value`
+ * (#1710); and how a write keeps them — a series index equals its rebuild,
+ * and a summary's changes, added to the totals it held, equal the totals a
+ * rebuild sums. That every runtime files an event alike is e3-core's
  * series spec, which runs the programs on each.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet,
+  DateTimeType, DictType, East, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet,
   StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, equalFor, none,
   printFor, printType, some, variant,
   type ValueTypeOf,
@@ -30,11 +31,11 @@ import type { IndexKeyOf, IndexOn, SeriesIndexSpec, SummaryIndexSpec, SummaryKey
 import {
   MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, TILE_FNS, checkTile, type RecordTile,
 } from './record-tiles.js';
-import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
-import { functionAt } from './record-guards.js';
+import { builtIndex, summaryMergeProgram } from './record-programs.js';
+import { functionAt, type IndexFunction } from './record-guards.js';
 import { package_ } from './package.js';
-import { assertEast, at, seededStream } from './test-helpers.js';
-import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
+import { assertEast, assertMaintainedIsRebuilt, at, indexEntries, seededStream, writtenDelta as written } from './test-helpers.js';
+import type { RecordIndexDef } from './types.js';
 
 /** A print job: the press it runs on, the crews on it, its state, and when it runs, or not yet. */
 const JobRow = StructType({
@@ -48,6 +49,11 @@ const keyOrder = compareFor(StringType);
 const decodeJob = decodeBeast2For(JobRow);
 const encodeJob = encodeBeast2For(JobRow);
 
+/** What a tile draws of a job: its press, its title, and when it runs. */
+const JobTile = StructType({ press: StringType, title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/** A job's tile, `(K, V) → JobTile`: a series index's `value`. */
+const tileOf = East.function([StringType, JobRow], JobTile, (_$, _key, row) => ({ press: row.press, title: row.title, start: row.start, end: row.end }));
+
 /** A press's shift: always placed, its start and end plain DateTimes. */
 const ShiftRow = StructType({ press: StringType, start: DateTimeType, end: DateTimeType });
 const ShiftsType = DictType(StringType, ShiftRow);
@@ -55,6 +61,9 @@ const ShiftsType = DictType(StringType, ShiftRow);
 /** The series index the jobs record declares under `name`, as `e3.record` builds it. */
 const jobSeries = <const S extends SeriesIndexSpec<typeof JobsType>>(name: string, spec: S) =>
   record('jobs', JobsType, { indexes: (index) => ({ [name]: index.series(spec) }) }).indexes[name]!;
+/** The series index the jobs record declares under `name`, carrying what `value` gives of each job, as `e3.record` builds it. */
+const jobTiles = <const S extends SeriesIndexSpec<typeof JobsType>>(name: string, spec: S, value: IndexFunction = tileOf) =>
+  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.series(spec, { value }) }) }).indexes[name]!;
 /** The summary index the jobs record declares under `name`, as `e3.record` builds it. */
 const jobSummary = <const S extends SummaryIndexSpec<typeof JobsType>>(name: string, spec: S) =>
   record('jobs', JobsType, { indexes: (index) => ({ [name]: index.summary(spec) }) }).indexes[name]!;
@@ -230,17 +239,8 @@ function editedJobs(rows: Jobs): Jobs {
   return next;
 }
 
-/** The `[entry, value]` pairs an index's build program emits for `rows`. */
-function emitted(def: RecordIndexDef, rows: Jobs): [unknown, unknown][] {
-  const out: [unknown, unknown][] = [];
-  const run = indexBuildProgram(JobsType, def).compile([]) as (
-    piece: unknown, emit: (entry: unknown, value: unknown) => null) => unknown;
-  run(rows, (entry, value) => {
-    out.push([entry, value]);
-    return null;
-  });
-  return out;
-}
+/** The `[entry, value]` pairs an index's build program emits for `rows` of the jobs. */
+const emitted = (def: RecordIndexDef, rows: Jobs): [unknown, unknown][] => indexEntries(JobsType, def, rows);
 
 /** A summary's totals as its build sums them: each piece's contributions, equal keys folded by the summary's own merge. */
 function summed(def: RecordIndexDef, pieces: readonly Jobs[]): SortedMap<unknown, RecordSummaryTotals> {
@@ -253,19 +253,6 @@ function summed(def: RecordIndexDef, pieces: readonly Jobs[]): SortedMap<unknown
     }
   }
   return totals;
-}
-
-const diffJobs = East.compile(East.function([JobsType, JobsType], PatchType(JobsType), (_$, a, b) => East.diff(a, b)), []);
-
-/** The delta a write's program emits: each entry's target, its key there and its op. */
-function written(rec: RecordDef, patch: MutationDef, before: Jobs, after: Jobs): Array<{ target: string; key: unknown; op: variant<string, unknown> }> {
-  const changes: Array<{ target: string; key: unknown; op: variant<string, unknown> }> = [];
-  const run = buildMutationProgram(rec, patch).compile([]);
-  run(before, diffJobs(before, after), (key: variant<string, unknown>, op: variant<string, variant<string, unknown>>) => {
-    changes.push({ target: key.type, key: key.value, op: op.value });
-    return null;
-  });
-  return changes;
 }
 
 // ── The tiles ────────────────────────────────────────────────────────────────
@@ -508,7 +495,7 @@ describe('index.series — its declaration', () => {
       'its leading fields under on, the key, the level, then the tile');
     assert.deepEqual(fields, ['state']);
     assert.equal(printType(projection), printType(JobRow), 'it carries the whole row');
-    assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+    assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week', carries: 'row' });
     assert.equal(def.multi, true, 'an entry a place it is filed');
     assert.equal(def.summary, undefined);
     // The declared types, as the constructor's spec types them.
@@ -530,6 +517,52 @@ describe('index.series — its declaration', () => {
       const k = (entry as { k: string }).k;
       assert.ok(sameJob(value as Job, rows.get(k)!), `${k}'s projection is its row`);
     }
+  });
+
+  it('given a value, carries what it gives of each job in the row\'s place, filed where the row is (#1710)', () => {
+    const spec = { key: 'press', from: 'start', to: 'end', tile: 'week' } as const;
+    const def = jobTiles('job_tiles_by_press_week', spec);
+    const whole = jobSeries('jobs_by_press_week', spec);
+    assert.equal(printType(def.valueType), printType(JobTile), 'it carries what its value gives');
+    assert.equal(printType(def.keyType), printType(whole.keyType), 'under the key a series index files by');
+    assert.deepEqual(def.series, { ...spec, carries: 'value' });
+    assert.equal(def.valueFn, tileOf);
+    const rows = seededJobs();
+    const out = emitted(def, rows);
+    const entries = StructType({ ik: def.keyType, k: StringType });
+    const sameEntries = equalFor(SetType(entries));
+    const entriesOf = (pairs: [unknown, unknown][]) => new SortedSet(pairs.map(([entry]) => entry) as never, compareFor(entries));
+    assert.ok(sameEntries(entriesOf(out) as never, entriesOf(emitted(whole, rows)) as never), 'an entry wherever the row is filed');
+    const sameTile = equalFor(JobTile);
+    for (const [entry, value] of out) {
+      const k = (entry as { k: string }).k;
+      const row = rows.get(k)!;
+      assert.ok(sameTile(value as ValueTypeOf<typeof JobTile>, { press: row.press, title: row.title, start: row.start, end: row.end }), `${k}'s entry carries its tile`);
+    }
+  });
+
+  it('beside a nested series index, keeps the value it was given where a series index carrying its row carries the lean row', () => {
+    const Machine = StructType({
+      site: StringType, start: DateTimeType, end: DateTimeType, jobs: DictType(StringType, StructType({ start: DateTimeType, end: DateTimeType })),
+    });
+    const MachinesType = DictType(StringType, Machine);
+    const Stood = StructType({ site: StringType, start: DateTimeType, end: DateTimeType });
+    const machines = record('machines', MachinesType, {
+      initial: new Map(),
+      indexes: (index) => ({
+        machines_in_time: index.nested({ collections: { jobs: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'week' }),
+        machines_by_site: index.series({ key: 'site', from: 'start', to: 'end', tile: 'week' }),
+        stood_by_site: index.series({ key: 'site', from: 'start', to: 'end', tile: 'week' }, {
+          value: East.function([StringType, Machine], Stood, (_$, _key, machine) => ({ site: machine.site, start: machine.start, end: machine.end })),
+        }),
+      }),
+    });
+    const rows: RecordIndexDef = machines.indexes.machines_by_site;
+    const stood: RecordIndexDef = machines.indexes.stood_by_site;
+    assert.equal(builtIndex(machines, stood), stood, 'its own value, as declared');
+    const lean = builtIndex(machines, rows);
+    assert.equal(lean.valueFn, machines.indexes.machines_in_time.nested.lean, 'the row without the collections the nested index files');
+    assert.equal(printType(lean.valueType), printType(Machine));
   });
 
   describe('refuses, at definition time', () => {
@@ -561,10 +594,29 @@ describe('index.series — its declaration', () => {
         /e3\.record 'jobs': index\.summary 'totals_led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
     });
 
-    it('a value, and the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
-      // @ts-expect-error — a series index carries the whole row, and takes no value
-      assert.throws(() => jobSeries('valued', { key: 'press', from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
-        /a series index carries the whole row as its projection, so it takes no value/);
+    it('a value that is no struct holding the event\'s start and end, one among the spec\'s fields, and an option that is neither a value nor a runner', () => {
+      const spec = { key: 'press', from: 'start', to: 'end', tile: 'week' } as const;
+      const holds = /a series index's value is a struct holding the event's 'start' and 'end', as the row does, which a reader tests a window by/;
+      assert.throws(() => jobTiles('valued', spec, East.function([StringType, JobRow], StringType, (_$, k) => k)),
+        /e3\.record 'jobs': index\.series 'valued' value gives \.String: a series index's value is a struct holding the event's 'start' and 'end'/);
+      const Ended = StructType({ title: StringType, start: OptionType(DateTimeType) });
+      assert.throws(() => jobTiles('valued', spec, East.function([StringType, JobRow], Ended, (_$, _k, row) => ({ title: row.title, start: row.start }))),
+        /e3\.record 'jobs': index\.series 'valued' value gives .*, which holds no DateTime 'end': /);
+      const Worded = StructType({ start: StringType, end: OptionType(DateTimeType) });
+      const worded = () => jobTiles('valued', spec, East.function([StringType, JobRow], Worded, (_$, _k, row) => ({ start: row.title, end: row.end })));
+      assert.throws(worded, /which holds no DateTime 'start': /);
+      assert.throws(worded, holds);
+      assert.throws(() => jobTiles('valued', spec, East.function([StringType], JobTile, (_$, k) => ({ press: k, title: k, start: none, end: none }))),
+        /e3\.record 'jobs': index\.series 'valued' 'value' projection must take the record's entry/);
+      // @ts-expect-error — a series index's value is an option beside its spec
+      assert.throws(() => jobSeries('valued', { ...spec, value: tileOf }), /a series index's value is an option beside these: index\.series\(\{ … \}, \{ value \}\)/);
+      assert.throws(() => record('jobs', JobsType, {
+        // @ts-expect-error — a series index takes a value and a runner
+        indexes: (index) => ({ valued: index.series(spec, { values: tileOf }) }),
+      }), /e3\.record 'jobs': index\.series 'valued' takes value and runner, not values/);
+    });
+
+    it('the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
       // A row field named `__tile`, `tile` or `key` reserves nothing: the index builds, led by them.
       const Named = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, __tile: IntegerType, tile: StringType, key: StringType });
       const named = record('named', DictType(StringType, Named), {
@@ -656,26 +708,32 @@ describe('series and summary indexes — through a write and a rebuild', () => {
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
-    const indexes: RecordIndexDef[] = Object.values(rec.indexes);
-    const patch = rec.mutations.patch;
-    const assembled = package_('series_indexes', '1.0.0', rec).records.jobs!;
     const before = seededJobs();
-    const after = editedJobs(before);
-    const changes = written(assembled, patch, before, after);
-    for (const index of indexes) {
-      const keyType = StructType({ ik: index.keyType, k: StringType });
-      const collection = DictType(keyType, index.valueType);
-      const held = new SortedMap(emitted(index, before) as never, compareFor(keyType));
-      const rebuilt = new SortedMap(emitted(index, after) as never, compareFor(keyType));
-      const ops = new SortedMap(changes.filter((change) => change.target === index.name).map((change) => [change.key, change.op]) as never, compareFor(keyType));
-      assert.ok(ops.size > 0, `${index.name}: the write changes it`);
-      const apply = East.compile(East.function([collection, PatchType(collection)], collection, (_$, value, p) => East.applyPatch(value, p)), []);
-      const maintained = apply(held as never, variant('patch', ops) as never);
-      // Compared as e3 stores a collection, each entry's bytes its own: a
-      // rebuild hands every tile of an event the one row, and a write's updates
-      // hand each its own copy, which a whole-value encoding would tell apart.
-      assert.deepEqual(encodeBeast2PagedFor(collection)(maintained as never), encodeBeast2PagedFor(collection)(rebuilt as never), `${index.name}: maintained is rebuilt, byte for byte`);
-    }
+    assertMaintainedIsRebuilt(package_('series_indexes', '1.0.0', rec).records.jobs!, rec.mutations.patch, Object.values(rec.indexes), before, editedJobs(before));
+  });
+
+  it('maintains a series index carrying a value as a rebuild emits it, and writes it nothing for a change its value does not give (#1710)', () => {
+    const rec = record('jobs', JobsType, {
+      initial: new Map(),
+      indexes: (index) => ({
+        job_tiles_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, { value: tileOf }),
+        job_tiles_by_crew_press_day: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day' }, { value: tileOf }),
+        job_rows_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const patch = rec.mutations.patch;
+    const assembled = package_('series_values', '1.0.0', rec).records.jobs!;
+    const before = seededJobs();
+    assertMaintainedIsRebuilt(assembled, patch, Object.values(rec.indexes), before, editedJobs(before));
+
+    // Every scheduled job confirmed or proposed anew: a change no tile gives, and the whole row does.
+    const restated = new SortedMap<string, Job>([...before].map(([key, row]) => [key, { ...row, state: row.state === 'confirmed' ? 'proposed' : 'confirmed' }]), keyOrder);
+    const changes = written(assembled, patch, before, restated);
+    const targets = (name: string) => changes.filter((change) => change.target === name).length;
+    assert.equal(targets('job_tiles_by_press_week'), 0, 'no entry of a tile moves');
+    assert.equal(targets('job_tiles_by_crew_press_day'), 0, 'under any leading field');
+    assert.equal(targets('job_rows_by_press_week'), [...before.values()].filter((row) => row.start.type === 'some').length, 'each scheduled job\'s whole row is carried again');
   });
 
   it('changes each summary by what its rows took away and gave, a key once and never by nothing — to the totals a rebuild sums', () => {

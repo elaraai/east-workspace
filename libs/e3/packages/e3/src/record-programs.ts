@@ -101,7 +101,8 @@ export function summed(index: RecordIndexDef): boolean {
  * A record's index as it is built and bound (#1434, #1521): as declared, but,
  * beside a nested series index or an entries index of the record, one that
  * carries nothing — a plain or an interval index with no `value` — or the row
- * — an area index, a key-form series index — carries the lean row instead:
+ * — an area index, a series index declared with no `value` — carries the lean
+ * row instead:
  * its rows without the nested series index's collections, or with every field
  * the entries indexes file emptied, so a page of them reads no nested item, no
  * entry and no segment of the record's own. An index with a `value` of its
@@ -113,7 +114,7 @@ export function summed(index: RecordIndexDef): boolean {
  */
 export function builtIndex(rec: RecordDef, index: RecordIndexDef): RecordIndexDef {
   if (index.nested !== undefined || index.entries !== undefined || summed(index)) return index;
-  const carriesTheRow = index.area !== undefined || index.series !== undefined;
+  const carriesTheRow = index.area !== undefined || index.series?.carries === 'row';
   if (index.valueFn !== undefined && !carriesTheRow) return index;
   const lean = leanRowOf(rec);
   if (lean === undefined) return index;

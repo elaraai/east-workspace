@@ -17,8 +17,9 @@
  *   the event's length, under the tile of that level holding its start — or,
  *   past a year, under each year it touches (`eventFilings`). A reader reads a
  *   key one range a level, whatever the span. It is an ordinary maintained
- *   index whose keys the SDK generates, each entry carrying the row: mutation,
- *   rebuild, storage and transport are the ones every index has.
+ *   index whose keys the SDK generates, each entry carrying the row — or,
+ *   given a `value`, what that gives of the row (#1710): mutation, rebuild,
+ *   storage and transport are the ones every index has.
  * - **A summary index** keeps, for each key and tile, how many rows touch the
  *   tile and the milliseconds of it they cover, `{ on: { …on }, key, tile }`.
  *   Its keys come from a row's contributions, `(K, V) → Dict<IK, Totals>`: the
@@ -30,15 +31,17 @@
  * @packageDocumentation
  */
 import {
-  ArrayType, DateTimeType, DictType, East, NullType, SetType, StringType, StructType, variant, withLocationCapture,
+  ArrayType, DateTimeType, DictType, East, NullType, SetType, StringType, StructType, printType, variant, withLocationCapture,
   type EastType,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import {
-  INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor,
+  INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor, type IndexFunction,
 } from './record-guards.js';
-import { checkLeading, checkTimeField, fieldReader, leadingValues, type Leading, type OptionField, type RowType } from './record-keys.js';
+import {
+  checkLeading, checkTimeField, fieldReader, leadingValues, optionField, type Leading, type OptionField, type RowType,
+} from './record-keys.js';
 import { TILE_FNS, TileFilingType, TileShareType, checkTile, type RecordTile } from './record-tiles.js';
 import { lazyBuilds } from './lazy-build.js';
 
@@ -105,29 +108,65 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
 }
 
 /**
+ * What a series index's `value` gives of a row, once it passes (#1710): a pure
+ * function of the record's entry, giving a struct that holds the event's start
+ * and end under the names the index reads them by, each a DateTime or an
+ * Option of one. A reader tests a window by them, as it does the row's.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param spec - The declaration, for its start and end fields
+ * @param value - The function
+ * @returns What each entry carries
+ * @throws {Error} When the function is async, calls a platform function or does not take the record's entry; or when
+ *   it gives no struct, or one that holds no DateTime start or end under the index's names, naming what it gives
+ */
+function seriesValue(
+  constructor: IndexConstructor, name: string, keyType: EastType, rowType: RowType, spec: TimeTileSpec, value: IndexFunction,
+): RowType {
+  checkPure(`${constructor} '${name}' 'value' projection`, value, INDEX_PURITY);
+  const signature = signatureOf(value);
+  checkEntryParams(constructor, name, "'value' projection", keyType, rowType, signature.inputs);
+  const carried = signature.output;
+  const gives = `${constructor} '${name}' value gives ${printType(carried)}`;
+  const holds = `a series index's value is a struct holding the event's '${spec.from}' and '${spec.to}', as the row does, which a reader tests a window by`;
+  if (carried.type !== 'Struct') throw new Error(`${gives}: ${holds}`);
+  for (const field of [spec.from, spec.to]) {
+    if (optionField(carried, field, DateTimeType) === undefined) throw new Error(`${gives}, which holds no DateTime '${field}': ${holds}`);
+  }
+  return carried;
+}
+
+/**
  * A series index's definition (`index.series`): its key function,
  * `(K, V) → Set<IK>`, an entry per place a row's event is filed
  * (`eventFilings`: once, or once a year past a year), `{ on: { …on }, key,
  * level, tile }` — one per combination of its leading values, a Set among them
- * fanning out, as the interval index's do; and its projection, the whole row,
- * so a cell reads the index alone and no record segment. It stays an ordinary
- * maintained index: mutation, rebuild, storage and transport are shared.
+ * fanning out, as the interval index's do; and its projection: the whole row,
+ * or what its `value` gives of the row (#1710), so a cell reads the index
+ * alone and no record segment. It stays an ordinary maintained index:
+ * mutation, rebuild, storage and transport are shared, and a write that
+ * changes nothing its value gives leaves its entries as they are.
  *
  * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - The key, the start and the end, the tile, and the optional leading `on`
- * @param config - Its runner selection
+ * @param config - Its runner selection, and its `value`: what each entry carries of its row, `(K, V) -> P`
  * @returns The definition
  * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the tile is
- *   not one of the five; when the key, the start or the end is a leading field; or on any guard every index applies
+ *   not one of the five; when the key, the start or the end is a leading field; for a `value` that is not a pure function
+ *   of the record's entry giving a struct with the event's start and end; or on any guard every index applies
  */
 export function seriesDefinition(
-  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec,
+  config: { runner?: RecordIndexDef['runner']; value?: IndexFunction } | undefined,
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a series index carries the whole row as its projection, so it takes no value' : undefined);
+    'value' in spec ? `a series index's value is an option beside these: ${constructor.slice(constructor.lastIndexOf('index.'))}({ … }, { value })` : undefined);
   const fields = checkTimeTile(constructor, name, valueType, spec);
   const { rowType, leading } = fields;
   const indexType = StructType({ on: leading.onType, key: fields.key.type, level: RecordLevelType, tile: DateTimeType });
@@ -150,8 +189,10 @@ export function seriesDefinition(
     const filings = $.let(file(level, startOf(key, row), endOf(key, row), East.print(key)));
     return combinations(key, row).flattenToSet((_$, on) => under(on, eventKey, filings));
   });
-  // It carries its rows: each entry's projection is the whole row, so a cell reads the index alone and no record segment.
-  const valueFn = East.function([keyType, rowType], rowType, (_$, _key, row) => row);
+  // It carries its rows — each entry's projection the whole row — or what its `value` gives of each (#1710): either
+  // way a cell reads the index alone and no record segment.
+  const carried = config?.value === undefined ? undefined : seriesValue(constructor, name, keyType, rowType, spec, config.value);
+  const valueFn = config?.value ?? East.function([keyType, rowType], rowType, (_$, _key, row) => row);
   const runner = indexRunner(config);
   checkPure(`${constructor} '${name}' 'keys' function`, keyFn, INDEX_PURITY);
   checkEntryParams(constructor, name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
@@ -160,12 +201,12 @@ export function seriesDefinition(
     name,
     record: rec,
     on: Object.freeze([...(spec.on ?? [])]),
-    series: Object.freeze({ key: spec.key, from: spec.from, to: spec.to, tile: fields.tile }),
+    series: Object.freeze({ key: spec.key, from: spec.from, to: spec.to, tile: fields.tile, carries: carried === undefined ? 'row' as const : 'value' as const }),
     keyFn,
     valueFn,
     multi: true,
     keyType: indexType,
-    valueType: rowType,
+    valueType: carried ?? rowType,
     runner,
   };
 }

@@ -48,7 +48,7 @@ export interface PartRunner {
   readonly runner?: FunctionRunner;
 }
 
-/** A plain index's options: the projection its entries carry, and its runner. */
+/** A plain index's options, and a series index's: the projection its entries carry, and its runner. */
 export interface PlainIndexOptions extends PartRunner {
   /** `(K, V) -> P`: what a view renders from the index alone, so it never reads the record's segments. */
   readonly value?: IndexFunction;
@@ -81,7 +81,8 @@ export interface IndexDraft<
 /**
  * What a plain index carries beside a nested series index or an entries index
  * of its record: its own `value`, where it declares one, and else the lean
- * row, typed as the row.
+ * row, typed as the row. And what a series index carries anywhere: its own
+ * `value`, and else the row.
  */
 type PlainLeanOf<O, T> = 'value' extends keyof O ? ProjectionOf<O> : RowOf<T>;
 
@@ -288,19 +289,41 @@ export interface IndexBuilder<T extends EastType> {
    * days, 365 days — under that level's tile holding its start; past 365 days,
    * under each year it touches, as many as 4,096. An instant is filed at
    * `tile`; a row with no start is filed nowhere. Each entry carries its row, so
-   * a cell reads the index alone; it takes no `value`.
+   * a cell reads the index alone. Given a `value`, each carries what that gives
+   * of its row instead (#1710): a struct holding the event's start and end
+   * under the row's names for them, which a reader tests a window by, beside
+   * whatever a view draws an event from — so a cell holds a small part of each
+   * event, the rest read by its key where one is opened, and a write that
+   * changes nothing the value gives leaves the index's entries as they are.
    *
    * @param spec - `key`, the field naming what an event is on (any but a Set); `from` and `to`, its DateTime (or
    *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; and the optional
    *   exact leading `on` fields
-   * @param options - Its runner
-   * @returns The index, its projection the row
+   * @param options - `value`, what each entry carries of its row; its runner
+   * @returns The index, its projection the row, or what `value` gives
    * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the
-   *   tile is not one of the five; when the key is a leading field; or for `collections`, which are
-   *   {@link NestedBuilder | the nested index's}
+   *   tile is not one of the five; when the key is a leading field; for a `value` that is async, calls a platform
+   *   function, does not take the record's key and row, or gives no struct holding the event's start and end; or for
+   *   `collections`, which are {@link NestedBuilder | the nested index's}
+   *
+   * @example
+   * ```ts
+   * const JobTile = StructType({ press: StringType, title: StringType, start: DateTimeType, end: DateTimeType });
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // Each press's jobs in time, each entry carrying what a tile draws and no more:
+   *     jobs_by_press: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+   *       value: East.function([StringType, JobType], JobTile, ($, id, job) => ({
+   *         press: job.press, title: job.title, start: job.start, end: job.end,
+   *       })),
+   *     }),
+   *   }),
+   * });
+   * ```
    */
-  series<const S extends SeriesIndexSpec<T>>(spec: S, options?: PartRunner):
-    IndexDraft<IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>, { readonly series: TimeTileOf<S> }>;
+  series<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
+    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: TimeTileOf<S> }>;
   /** The nested series index, and the builders of the collections it files. */
   readonly nested: NestedBuilder<T>;
   /**
@@ -601,7 +624,8 @@ export const INDEX_BUILDER = {
     if (typeof spec === 'object' && spec !== null && 'collections' in spec) {
       throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nested({ collections, tile, summary? })`);
     }
-    return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], runnerOf(options));
+    const value = (options as PlainIndexOptions | undefined)?.value;
+    return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], { ...runnerOf(options), ...(value !== undefined && { value }) });
   }),
   nested: Object.assign(
     (spec: unknown, options?: unknown) => indexDraft('index.nested', options, (where, record, name) =>
@@ -613,6 +637,9 @@ export const INDEX_BUILDER = {
   entries: (field: unknown, options?: unknown) => indexDraft('index.entries', options, (where, record, name) =>
     entriesDefinition(where, name, record, field, runnerOf(options))),
 };
+
+/** The builders whose index carries a `value` its options give: the plain indexes', and a series index's (#1710). */
+const VALUED_BUILDERS: readonly string[] = ['index.on', 'index.key', 'index.keys', 'index.series'];
 
 /** Why a builder refuses an option, where it says more than that the builder does not take it. */
 const REFUSED_OPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -668,8 +695,7 @@ function indexDraft(
       part: 'index',
       build: (record, name) => {
         const where = wordsOf(record, builder);
-        checkOptions(where, name, options, builder === 'index.on' || builder === 'index.key' || builder === 'index.keys' ? ['value', 'runner'] : ['runner'],
-          REFUSED_OPTIONS[builder]);
+        checkOptions(where, name, options, VALUED_BUILDERS.includes(builder) ? ['value', 'runner'] : ['runner'], REFUSED_OPTIONS[builder]);
         return build(where, record, name);
       },
     },

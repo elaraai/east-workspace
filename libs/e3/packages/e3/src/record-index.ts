@@ -143,7 +143,7 @@ export interface SeriesIndexSpec<T extends EastType = EastType> {
   /** The finest level an event is filed at: `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC.
    *  An event is filed at it, or at the coarser level its length fits. */
   tile: RecordTile;
-  /** Refused: a series index carries the whole row as its projection. */
+  /** Refused here: a series index's `value` is an option beside its spec, `index.series({ … }, { value })`. */
   value?: never;
 }
 

@@ -506,12 +506,17 @@ describe("Data.bindPaged over an area index", () => {
 // binding's own.
 describe("Data.bindPaged over a series and a summary index", () => {
     const Job = StructType({ press: StringType, state: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
+    /** What a tile draws of a job: its press, and when it runs. */
+    const Tile = StructType({ press: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
     const jobs = e3.record("series_jobs", DictType(StringType, Job), {
         initial: new Map(),
         indexes: (index) => ({
             by_time: index.interval({ from: "start", to: "end" }),
             by_state: index.on(["state"]),
             by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+            tiles_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }, {
+                value: East.function([StringType, Job], Tile, (_$, _key, job) => ({ press: job.press, start: job.start, end: job.end })),
+            }),
             by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
             by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         }),
@@ -532,6 +537,17 @@ describe("Data.bindPaged over a series and a summary index", () => {
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })), Job), "a series beside a summary: the row");
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })), NullType),
             "beside an index that carries nothing: Null");
+    });
+
+    hostTest("a series index declared with a value carries that value, as a plain index does its own: beside a summary it is the binding's projection, and beside an index carrying another it is refused, naming it (#1710)", () => {
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["tiles_by_press_week", "by_press_month"] })), Tile), "its value, never the row");
+        assert.deepEqual(metadataOf(Data.bindPaged(jobs, { indexes: ["tiles_by_press_week"] }), "tiles_by_press_week"),
+            { fields: [], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week"] }, "a series index by its kind and its marker, whatever it carries");
+        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_time", "tiles_by_press_week"] }),
+            /'tiles_by_press_week' carries .* beside indexes that carry another projection — the indexes a binding lists carry one projection/,
+            "beside an index that carries nothing");
+        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_press_week", "tiles_by_press_week"] }),
+            /'tiles_by_press_week' carries .* beside indexes that carry another projection/, "beside a series index carrying its rows");
     });
 
     hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {

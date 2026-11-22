@@ -49,7 +49,8 @@ type IndexKind<D> = D extends { interval: { from: infer From extends string; to:
     : VariantType<{ plain: NullType }>;
 /** The projection a binding's entries carry (D29): the one every index carries,
  *  or Null where each carries the whole row, as an area or a series index does,
- *  or nothing. A summary index's totals are its own (#1039). */
+ *  or nothing. A summary index's totals are its own (#1039). A series index
+ *  declared with a `value` carries that value, as a plain index does (#1710). */
 type BindingProjection<V extends EastType, R extends EastType> =
     [V] extends [R] ? R
         : [Exclude<V, R>] extends [NullType] ? (R extends V ? NullType : V) : V;
@@ -165,7 +166,9 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * name. The indexes carry one projection, or each the whole row or nothing
  * (D29): an area index (`index.area`) and a series index (`index.series`,
  * #1039) carry their rows, and are read without a join, beside indexes that
- * carry nothing, read with one. A summary index (`index.summary`) carries its
+ * carry nothing, read with one; a series index declared with a `value`
+ * carries that value in its rows' place (#1710), as a plain index carries its
+ * own. A summary index (`index.summary`) carries its
  * totals, whatever the others carry, and is never joined: its entries name no
  * row. An entries index (`index.entries`, #1522) offers the Dict field it
  * files to the rail, its keys picked as a Set's elements are, and carries each
@@ -273,7 +276,9 @@ export const DataIndexedPrimitives = {
  * The projection a binding's entries carry (D29): the one every listed index
  * carries; or, where they differ, Null, each index then carrying the whole row
  * — as an area or a series index does, read without a join — or nothing. A
- * summary index's totals are its own, and count for neither (#1039).
+ * summary index's totals are its own, and count for neither (#1039). A series
+ * index declared with a `value` carries that value in its rows' place (#1710),
+ * so it is one projection among the others, as a plain index's value is.
  *
  * @param indexes - The listed indexes
  * @returns The binding's projection type
@@ -286,7 +291,8 @@ function bindingProjection(indexes: FieldIndexes<EastType>): EastType {
     const first = projected[0]!.valueType;
     if (projected.every(index => isTypeEqual(index.valueType, first))) return first;
     for (const index of projected) {
-        if (index.area === undefined && index.series === undefined && !isTypeEqual(index.valueType, NullType)) {
+        const carriesTheRow = index.area !== undefined || index.series?.carries === "row";
+        if (!carriesTheRow && !isTypeEqual(index.valueType, NullType)) {
             throw new Error(
                 `Data.bindPaged: '${index.name}' carries ${printType(index.valueType)} beside indexes that carry another projection — ` +
                 `the indexes a binding lists carry one projection, or each the whole row, as an area or a series index does, or nothing`,
