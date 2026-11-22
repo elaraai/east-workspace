@@ -2482,6 +2482,28 @@ await describe("Patch - Apply conflicts", (test) => {
         const field = $.const(East.diff(was, $.const({ source: "sales", where: edited }, FilterType)));
         $(assert.throws(East.applyPatch(now, field), /Cannot apply replace - base recursive value does not match expected/));
     });
+
+    test("a recursive value that holds itself is compared whole, as East's equality compares it: a replace made from one copy writes to another, and conflicts with a value that differs", $ => {
+        const LoopType = RecursiveType((self) => StructType({ value: IntegerType, children: ArrayType(self) }));
+        // Two copies of a tree that holds itself, built apart, as two reads of one value decode it: equal, though no
+        // part of the one is the other's.
+        const one = $.let({ value: 1n, children: [] }, LoopType);
+        $(one.unwrap().children.pushLast(one));
+        const copy = $.let({ value: 1n, children: [] }, LoopType);
+        $(copy.unwrap().children.pushLast(copy));
+        $(assert.equal(East.equal(one, copy), true));
+        $(assert.equal(East.diff(one, copy).getTag(), "unchanged"));
+        // A change made from the one writes to the copy.
+        const replaced = $.const({ value: 2n, children: [] }, LoopType);
+        const patch = $.let(East.diff(one, replaced));
+        $(assert.equal(East.equal(East.applyPatch(copy, patch), replaced), true));
+        // A tree that comes back to itself two steps round, the second holding 5: the change conflicts with it.
+        const other = $.let({ value: 1n, children: [] }, LoopType);
+        const step = $.let({ value: 5n, children: [] }, LoopType);
+        $(other.unwrap().children.pushLast(step));
+        $(step.unwrap().children.pushLast(other));
+        $(assert.throws(East.applyPatch(other, patch), /Cannot apply replace - base recursive value does not match expected/));
+    });
 });
 
 // =============================================================================

@@ -10,6 +10,7 @@
  */
 
 import type { EastTypeValue } from "../type_of_type.js";
+import { equalFor } from "../comparison.js";
 import type {
   EastType,
   NullType,
@@ -147,6 +148,35 @@ export interface MergeContext {
   /** Equality handlers for recursive types, keyed by type id. Threaded
    *  into every nested `equalFor(...)` call. */
   equal: Map<bigint, (a: any, b: any) => boolean>;
+}
+
+/**
+ * The equality of a type's values within one handler build: for a recursive
+ * type, the comparer registered under its id in the build's registry, where
+ * one is; else `equalFor`'s, which registers each recursive type it meets.
+ *
+ * @remarks
+ * A container's handler builds its own equality before its children's
+ * handlers, and that equality registers each recursive type it holds. An id
+ * names one type, as it is the hash of the type's table (`recursiveIdOf`,
+ * type_of_type.ts), so the comparer registered under it is this type's: a
+ * recursive type a container holds is compared by the comparer built with the
+ * container's, not built again for its element or for its own handler.
+ *
+ * @param type - The type
+ * @param registry - The build's comparers of recursive types, by id: a context's `equal`
+ * @returns The equality
+ * @internal
+ */
+export function equalWithin(
+  type: EastTypeValue,
+  registry: Map<bigint, (a: any, b: any) => boolean>
+): (a: any, b: any) => boolean {
+  if (type.type === "Recursive") {
+    const registered = registry.get(type.value.type === "wrapper" ? type.value.value.id : type.value.value);
+    if (registered !== undefined) return registered;
+  }
+  return equalFor(type, registry);
 }
 
 // ============================================================================

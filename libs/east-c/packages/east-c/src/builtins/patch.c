@@ -104,6 +104,24 @@ static EastValue *replace_after(EastValue *v)
 }
 
 /* ================================================================== */
+/*  Equality                                                           */
+/* ================================================================== */
+
+/* Whether two values of a type are equal, as East's `==` holds them. A type
+ * whose values can hold themselves (east_type_can_cycle, memoised on the
+ * type: a recursive type, or one holding a Ref or a function) is compared by
+ * the typed equality that keeps the pairs it has compared, as TypeScript's
+ * equalFor does, so two values that loop back on themselves compare rather
+ * than recurse until the stack runs out. Any other type is compared by the
+ * structural walk, which keeps none and is the quickest: its values close no
+ * cycle. A missing type compares structurally. */
+static bool values_equal(EastType *type, EastValue *a, EastValue *b)
+{
+    if (type && east_type_can_cycle(type)) return east_value_equal_for(type, a, b);
+    return east_value_equal(a, b);
+}
+
+/* ================================================================== */
 /*  Apply conflicts                                                    */
 /* ================================================================== */
 
@@ -213,10 +231,10 @@ size_t east_diff_array_compares(void)
 }
 
 /* The element equality an Array diff aligns by, counted. */
-static bool elements_equal(EastValue *x, EastValue *y)
+static bool elements_equal(EastType *type, EastValue *x, EastValue *y)
 {
     s_array_diff_compares++;
-    return east_value_equal(x, y);
+    return values_equal(type, x, y);
 }
 
 /* The pairs of positions an Array diff keeps from `before` and `after`: the
@@ -315,8 +333,8 @@ static bool walk_back(const int32_t *trace, int64_t steps, int64_t width, int64_
  *
  * Returns 1 with the matches in *out, 0 when no script of `bound` edits or
  * fewer exists, and -1, with the error set, when out of memory. */
-static int shortest_script(EastValue **a, EastValue **b, size_t offset, int64_t width,
-                           int64_t height, int64_t bound, ArrayAlignment *out)
+static int shortest_script(EastType *elem_type, EastValue **a, EastValue **b, size_t offset,
+                           int64_t width, int64_t height, int64_t bound, ArrayAlignment *out)
 {
     int64_t center = bound + 1;
     /* v[center + 1], diagonal 1, starts at 0: the first step's move down from it
@@ -354,7 +372,7 @@ static int shortest_script(EastValue **a, EastValue **b, size_t offset, int64_t 
                             : v[center + k - 1] + 1;
             int64_t y = x - k;
             while (x < width && y < height &&
-                   elements_equal(a[offset + (size_t)x], b[offset + (size_t)y])) {
+                   elements_equal(elem_type, a[offset + (size_t)x], b[offset + (size_t)y])) {
                 x++;
                 y++;
             }
@@ -385,13 +403,15 @@ static int shortest_script(EastValue **a, EastValue **b, size_t offset, int64_t 
  *
  * Returns false, with the error set, when out of memory; the caller frees
  * out->before_idx and out->after_idx otherwise. */
-static bool align_arrays(EastValue **a, size_t na, EastValue **b, size_t nb, ArrayAlignment *out)
+static bool align_arrays(EastType *elem_type, EastValue **a, size_t na, EastValue **b, size_t nb,
+                         ArrayAlignment *out)
 {
     size_t start = 0;
-    while (start < na && start < nb && elements_equal(a[start], b[start]))
+    while (start < na && start < nb && elements_equal(elem_type, a[start], b[start]))
         start++;
     size_t end = 0;
-    while (end < na - start && end < nb - start && elements_equal(a[na - 1 - end], b[nb - 1 - end]))
+    while (end < na - start && end < nb - start &&
+           elements_equal(elem_type, a[na - 1 - end], b[nb - 1 - end]))
         end++;
 
     out->start = start;
@@ -408,7 +428,8 @@ static bool align_arrays(EastValue **a, size_t na, EastValue **b, size_t nb, Arr
     size_t total = width + height;
     size_t quotient = ARRAY_DIFF_BUDGET / total;
     size_t bound = total < quotient ? total : quotient;
-    int found = shortest_script(a, b, start, (int64_t)width, (int64_t)height, (int64_t)bound, out);
+    int found = shortest_script(elem_type, a, b, start, (int64_t)width, (int64_t)height,
+                                (int64_t)bound, out);
     if (found < 0) return false;
     if (found > 0) return true;
 
@@ -424,7 +445,7 @@ static bool align_arrays(EastValue **a, size_t na, EastValue **b, size_t nb, Arr
     }
     size_t count = 0;
     for (size_t k = 0; k < shorter; k++) {
-        if (elements_equal(a[start + k], b[start + k])) {
+        if (elements_equal(elem_type, a[start + k], b[start + k])) {
             before_idx[count] = start + k;
             after_idx[count] = start + k;
             count++;
@@ -472,7 +493,7 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
     EastValue **b = after->data.array.items;
 
     ArrayAlignment al;
-    if (!align_arrays(a, na, b, nb, &al)) return NULL;
+    if (!align_arrays(elem_type, a, na, b, nb, &al)) return NULL;
     size_t end_a = na - al.end;
     size_t end_b = nb - al.end;
 
@@ -554,7 +575,7 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
 
 static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type)
 {
-    if (east_value_equal(before, after)) return mk_unchanged();
+    if (values_equal(type, before, after)) return mk_unchanged();
 
     EastType *elem_type = type->data.element;
 
@@ -606,7 +627,7 @@ static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type)
 
 static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
 {
-    if (east_value_equal(before, after)) return mk_unchanged();
+    if (values_equal(type, before, after)) return mk_unchanged();
 
     EastType *key_type = type->data.dict.key;
     EastType *val_type = type->data.dict.value;
@@ -625,7 +646,7 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
             east_dict_set(ops, key, op);
             east_value_release(op);
             del_count++;
-        } else if (!east_value_equal(bval, aval)) {
+        } else if (!values_equal(val_type, bval, aval)) {
             /* Updated */
             EastValue *vpatch = do_diff(bval, aval, val_type);
             if (!vpatch) {
@@ -676,7 +697,7 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
 
 static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *type)
 {
-    if (east_value_equal(before, after)) return mk_unchanged();
+    if (values_equal(type, before, after)) return mk_unchanged();
 
     size_t nf = type->data.struct_.num_fields;
     const char **names = malloc(nf * sizeof(char *));
@@ -722,7 +743,7 @@ static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *typ
 
 static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *type)
 {
-    if (east_value_equal(before, after)) return mk_unchanged();
+    if (values_equal(type, before, after)) return mk_unchanged();
 
     const char *btag = east_variant_case_name(before);
     const char *atag = east_variant_case_name(after);
@@ -759,9 +780,9 @@ static EastValue *diff_ref(EastValue *before, EastValue *after, EastType *type)
     if (before == after) return mk_unchanged();
     EastValue *bv = before->data.ref.value;
     EastValue *av = after->data.ref.value;
-    if (east_value_equal(bv, av)) return mk_unchanged();
-
     EastType *inner_type = type->data.element;
+    if (values_equal(inner_type, bv, av)) return mk_unchanged();
+
     EastValue *p = do_diff(bv, av, inner_type);
     if (!p) return NULL; /* the referenced value's diff failed — propagate */
     if (is_tag(p, "unchanged")) {
@@ -782,7 +803,7 @@ static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type)
 
     if (replace_only || !rt) {
         EastValue *result =
-            east_value_equal(before, after) ? mk_unchanged() : mk_replace(before, after);
+            values_equal(type, before, after) ? mk_unchanged() : mk_replace(before, after);
         return result;
     }
 
@@ -808,7 +829,7 @@ static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type)
         break;
     default:
         /* Primitives, functions, vectors, matrices — replace only */
-        result = east_value_equal(before, after) ? mk_unchanged() : mk_replace(before, after);
+        result = values_equal(rt, before, after) ? mk_unchanged() : mk_replace(before, after);
         break;
     }
 
@@ -851,7 +872,7 @@ static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *t
                                       (long long)pos, (long long)len);
             }
             EastValue *held = result->data.array.items[pos];
-            if (!east_value_equal(held, op->data.variant.value)) {
+            if (!values_equal(elem_type, held, op->data.variant.value)) {
                 char *expected = printed(op->data.variant.value, elem_type);
                 char *found = printed(held, elem_type);
                 apply_conflict("Cannot delete at index %lld - expected %s, found %s",
@@ -977,7 +998,7 @@ static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *ty
                 east_value_release(result);
                 return NULL;
             }
-            if (!east_value_equal(held, op->data.variant.value)) {
+            if (!values_equal(val_type, held, op->data.variant.value)) {
                 char *shown = printed(key, key_type);
                 char *expected = printed(op->data.variant.value, val_type);
                 char *found = printed(held, val_type);
@@ -1121,7 +1142,7 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type)
     if (is_tag(patch, "replace")) {
         /* A replace names the value it replaces; applied to any other it is a
          * conflict, not a write. */
-        if (replace_verifies(type) && !east_value_equal(base, replace_before(patch)))
+        if (replace_verifies(type) && !values_equal(type, base, replace_before(patch)))
             return replace_conflict(base, replace_before(patch), type);
         EastValue *after = replace_after(patch);
         east_value_retain(after);
@@ -1723,10 +1744,13 @@ static EastValue *do_invert(EastValue *patch, EastType *type)
  * embedded type so consumers (e.g. the east-py decoder) resolve cases by index.
  *
  * Originals embedded in the patch (replace's before/after, delete/insert
- * payloads) already carry their own non-NULL types — the type!=NULL gate stops
- * the walk there, so shared values are never mutated. Containers are traversed
- * only to reach nested variants; they decode from the threaded type, not an
- * embedded one. */
+ * payloads) already carry their own non-NULL types, and the builders make
+ * every struct, array and dict of a patch untyped — so the type!=NULL gate,
+ * on a container as on a variant, stops the walk at an original: shared
+ * values are never mutated, a large one is not walked, and one that holds
+ * itself is not walked round for ever. The patch's own containers are
+ * traversed only to reach nested variants; they decode from the threaded
+ * type, not an embedded one. */
 static void retype_patch(EastValue *v, EastType *type)
 {
     if (!v || !type) return;
@@ -1748,6 +1772,7 @@ static void retype_patch(EastValue *v, EastType *type)
         return;
     }
     case EAST_VAL_STRUCT: {
+        if (v->data.struct_.type != NULL) return; /* original — already typed */
         if (type->kind != EAST_TYPE_STRUCT) return;
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
             const char *fname = east_struct_field_name(v, i);
@@ -1763,6 +1788,7 @@ static void retype_patch(EastValue *v, EastType *type)
         return;
     }
     case EAST_VAL_DICT: {
+        if (v->data.dict.val_type != NULL) return; /* original — already typed */
         if (type->kind != EAST_TYPE_DICT) return;
         EastType *vt = type->data.dict.value;
         size_t len = east_dict_len(v);
@@ -1771,6 +1797,7 @@ static void retype_patch(EastValue *v, EastType *type)
         return;
     }
     case EAST_VAL_ARRAY: {
+        if (v->data.array.elem_type != NULL) return; /* original — already typed */
         if (type->kind != EAST_TYPE_ARRAY) return;
         EastType *et = type->data.element;
         size_t len = east_array_len(v);
