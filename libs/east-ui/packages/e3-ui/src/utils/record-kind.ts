@@ -441,7 +441,9 @@ export type KindKeyBuilder<R extends EastType, K extends EastType> = (row: ExprT
  * under, and moves the row to as an edit changes what it reads. It reads no
  * field its declaration's `keyField` names: that field holds a copy of the
  * key, which the builder keeps there, so a key built from it would be built
- * from itself.
+ * from itself. Beside a `keyField` it hands the row whole to no function that
+ * cannot be read where it is declared — a platform function, a function held
+ * in a value — which may read the field unseen.
  *
  * @param keyType - The record's key type
  * @param rowType - The record's row type
@@ -450,8 +452,9 @@ export type KindKeyBuilder<R extends EastType, K extends EastType> = (row: ExprT
  * @param fn - What the kind was given
  * @param keyField - The field its declaration says holds each row's key; `undefined` for a declaration naming none
  * @returns `(bytes)` → the key's text; `undefined` when not given
- * @throws {Error} When it is no function, builds a key of another type than the record's, naming both, or reads the
- *   field `keyField` names, naming it
+ * @throws {Error} When it is no function, builds a key of another type than the record's, naming both, reads the
+ *   field `keyField` names, naming it, or — beside a `keyField` — hands the row whole to a function that cannot be
+ *   read where it is declared, which may read it
  */
 export function keyBuilderOf(keyType: EastType, rowType: StructType, where: string, noun: string, fn: unknown,
     keyField: string | undefined): ExprType<FunctionType<[BlobType], StringType>> | undefined {
@@ -469,9 +472,17 @@ export function keyBuilderOf(keyType: EastType, rowType: StructType, where: stri
         throw new Error(`${where}: \`key\` builds ${noun}'s key, of the record's key type ${typeText(keyType)} — and this one builds ${typeText(builds)}`);
     }
     // The key field holds a copy of the key, kept there by the builder: a key that reads it is built from itself.
-    if (keyField !== undefined && rowReadIn(built, new Set([keyField]))?.kind === "reads") {
+    const read = keyField === undefined ? undefined : rowReadIn(built, new Set([keyField]));
+    if (read?.kind === "reads") {
         throw new Error(`${where}: \`key\` reads "${keyField}", the field \`keyField\` names — that field holds a copy of ${noun}'s key, kept there by its builder, ` +
             "so no key is built from it: leave `keyField` out, and `key` alone keys each one by what the field holds");
+    }
+    // A function handed the row whole that the walk cannot see into — a platform function, a function held in a value —
+    // may read the field: what cannot be told is refused, never let through.
+    if (read?.kind === "opaque") {
+        throw new Error(`${where}: \`key\` hands the row to a function that cannot be read where it is declared, so whether it reads "${keyField}", ` +
+            "the field `keyField` names, cannot be told — and a key built from that field is built from itself: read the row's fields in `key` itself, " +
+            "or leave `keyField` out");
     }
     const textOf = keyTextOf(keyType);
     return East.function([BlobType], StringType, ($, bytes) => {

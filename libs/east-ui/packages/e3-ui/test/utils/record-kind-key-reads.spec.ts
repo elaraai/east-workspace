@@ -13,6 +13,8 @@
  * and nets, the Plan's link kinds, an event kind and the Roster's targets —
  * refuses the pair where it is declared, naming both and saying to leave
  * `keyField` out. A Sheet's and a Record's are refused in the Sheet's spec.
+ * A `key` that hands the row whole to a function that cannot be read where it
+ * is declared may read the field unseen: beside a `keyField` it is refused too.
  *
  * e3-ui's specs read and write no e3: each record is a handle made by hand
  * (`record-handles.ts`).
@@ -107,6 +109,19 @@ describe("a declaration whose `key` reads the field its `keyField` names", () =>
         const codeOf = East.function([Lane], StringType, (_$, lane) => lane.code);
         assert.match(refusal(laned, { keyField: "code", key: (lane: ExprType<typeof Lane>) => codeOf(lane) }),
             /^Flowchart\.lanes: `key` reads "code", the field `keyField` names/);
+    });
+
+    test("ruling 8 — a `key` that hands the row whole to a function that cannot be read where it is declared is refused beside `keyField`, saying why and what to do; given a field of the row it stands, and alone it stands", () => {
+        const coded = East.platform("spec_key_reads_coded", [Lane], StringType);
+        const labelled = East.platform("spec_key_reads_labelled", [StringType], StringType);
+        assert.equal(refusal(laned, { keyField: "code", key: (lane: ExprType<typeof Lane>) => coded(lane) }),
+            'Flowchart.lanes: `key` hands the row to a function that cannot be read where it is declared, so whether it reads "code", ' +
+            "the field `keyField` names, cannot be told — and a key built from that field is built from itself: read the row's fields in `key` itself, " +
+            "or leave `keyField` out");
+        assert.deepEqual([
+            refusal(laned, { keyField: "code", key: (lane: ExprType<typeof Lane>) => labelled(lane.label) }),
+            refusal(laned, { key: (lane: ExprType<typeof Lane>) => coded(lane) }),
+        ], ["", ""]);
     });
 
     test("ruling 8 — a `key` that reads another field stands beside `keyField`: one of the row's own, or a field of the same name a step down", () => {
