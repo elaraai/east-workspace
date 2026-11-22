@@ -8,9 +8,9 @@
  * `Slice.rows(recordSlice)` over an indexed record, projected to those keys —
  * never a row predicate. `recordSources` reads each source of a builder's
  * `Slice.bindRecords` through it (#1340); the complete rows stay a separate
- * input, for the calculations a narrowing never changes. A builder that takes
- * records keyed by any type is shown each key's text — a String key as itself,
- * any other as East prints it (#1549).
+ * input, for the calculations a narrowing never changes. A record keyed by any
+ * type a Dict takes is shown each key's text — a String key as itself, any
+ * other as East prints it (#1549, #1696).
  *
  * @packageDocumentation
  */
@@ -23,18 +23,16 @@ import { buildRowSource, resolveRowSource } from "@elaraai/east-ui/internal";
  *
  * @param input - Original row keys, or indexed record windows
  * @param prop - What it was given as, for the refusal (`Roster.slice's people`)
- * @param anyKey - Whether a record Slice may be keyed by any type, each key shown as its text (#1549); by default, String keys alone
  * @returns The inline Set, or a source of original keys, each its text
- * @throws {Error} Naming `prop`, when it is neither a Set of String keys nor `Slice.rows` of a record Slice with String
- *   keys — or, `anyKey`, with keys of any type
+ * @throws {Error} Naming `prop`, when it is neither a Set of String keys nor `Slice.rows` of a record Slice
  */
-export function keyVisibility(input: unknown, prop: string, anyKey = false) {
+export function keyVisibility(input: unknown, prop: string) {
     const resolved = resolveRowSource(input, prop);
     if (resolved.kind === "inline" && isTypeEqual(resolved.collectionType, SetType(StringType))) {
         return { inline: resolved.rows as ExprType<SetType<StringType>> };
     }
-    if (resolved.kind !== "ordered" || !resolved.pinned || !(anyKey || isTypeEqual(resolved.keyType, StringType))) {
-        throw new Error(`${prop} requires a Set of String keys or Slice.rows of a record Slice with ${anyKey ? "" : "String "}primary keys`);
+    if (resolved.kind !== "ordered" || !resolved.pinned) {
+        throw new Error(`${prop} requires a Set of String keys or Slice.rows of a record Slice`);
     }
     // Each key as its text: a String key as itself, any other as East prints it.
     const printed = !isTypeEqual(resolved.keyType, StringType);

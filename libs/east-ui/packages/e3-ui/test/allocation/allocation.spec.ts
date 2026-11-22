@@ -15,7 +15,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, printType, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SetType, StringType, StructType, VariantType, none, printType, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
@@ -28,7 +28,7 @@ import {
     type AllocationProps,
 } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
-import { Delivery, Kiln, KilnBin } from "./kiln-yard.js";
+import { Bay, Delivery, Kiln, KilnBin } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
@@ -350,6 +350,39 @@ describe("the narrowing, the library and the columns", () => {
             assert.doesNotThrow(() => payload((base) => ({ ...("bin" in sources ? { events: withEntries(base) } : {}),
                 slice: { slice: Slice.bindRecords("spec.yard", sources as never) } })), Object.keys(sources).join(", "));
         }
+    });
+
+    test("#1696 — the bins' source over bins keyed by a struct — a composite's key is a variant — builds as one keyed by String does: the slice refuses no key type", () => {
+        const Key = StructType({ bay: StringType, seq: IntegerType });
+        const placed = e3.record("allocation_spec_placed_bins", DictType(Key, KilnBin), {
+            initial: new Map(),
+            indexes: (index) => ({ allocation_spec_placed_bins_by_time: index.interval({ from: "at", to: "at" }) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        // The fit asked and answered at the bins' key type (ruling 12 of #1709).
+        const byPlace = e3.function("allocation_spec_fit_by_place", East.function([Allocation.Types.FitRequest({ key: Key })], Allocation.Types.FitResult({ key: Key }),
+            (_$, req) => ({ ask: req.ask, resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none" })));
+        assert.doesNotThrow(() => payload(() => ({
+            fit: Func.bind(byPlace),
+            events: { bin: Schedule.events(Record.bind(placed), {
+                name: "Bin", icon: "box", entries: Data.bindPaged(placed), at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+                // A struct's key is made by the app's own rule (ruling 10 of #1709).
+                newKey: East.function([SetType(Key)], Key, (_$, taken) => ({ bay: "new", seq: taken.size() })),
+            }) },
+            slice: { slice: Slice.bindRecords("spec.placed", { bin: { source: Data.bindPaged(placed, { indexes: ["allocation_spec_placed_bins_by_time"] }), range: "at" } }) },
+        } as never)));
+    });
+
+    test("#1696 — the lanes' source over bays keyed by a struct is refused by the Allocation, whose bins name a lane by a String key — never by the slice", () => {
+        const placed = e3.record("allocation_spec_placed_bays", DictType(StructType({ area: StringType, row: IntegerType }), Bay), {
+            initial: new Map(),
+            indexes: (index) => ({ allocation_spec_placed_bays_by_area: index.on(["area"]) }),
+        });
+        assert.throws(() => payload((base) => ({
+            resources: { ...base.props.resources, bays: Schedule.resources(Data.bind(placed).read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }) },
+            slice: { slice: Slice.bindRecords("spec.placed.bays", { bays: { source: Data.bindPaged(placed, { indexes: ["allocation_spec_placed_bays_by_area"] }) } }) },
+        })), /Allocation: events\.bin's resource field holds String keys of resources\.bays, which is keyed by \.Struct .* — key the resources by String/);
     });
 
     test("a library tab listed twice is refused, and so is a column key", () => {

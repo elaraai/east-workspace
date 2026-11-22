@@ -8,7 +8,8 @@
  * rows' sources — a record's entries, one entry's rows, its groups, groups
  * with loose rows between them, a window of a large one; the host's rows, an
  * array, a bind handle or a paged source; and the `rows` source of its
- * `Slice.bindRecords` (#1345) — its panes, each an optional prop, absent and
+ * `Slice.bindRecords` (#1345), over a record keyed by any type (#1696) — its
+ * panes, each an optional prop, absent and
  * present, the templates, each list a record of its own naming its source of
  * the slice, a template's seed, built by `newRow`'s and `newGroup`'s own code,
  * the library (#1186, SB59, SB60): its tabs in order, an author's cards
@@ -22,7 +23,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
+    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType,
     compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
@@ -724,6 +725,24 @@ describe("its narrowing (#1345)", () => {
         });
         // The columns are declared over the `rows` source's rows, as over any rows: over another type, refused.
         assert.throws(() => inBlock(() => sheet({ ...stressSlice(), columns: DATA_COLUMNS, readOnly: true })), /different row type/);
+    });
+
+    test("#1696 — the `rows` source over a record keyed by a variant — a composite's key — gives the sheet its rows, saved through the record handed beside the rail: the payload builds", () => {
+        const sourced = e3.record("sheet_spec_sourced_jobs", DictType(VariantType({ erp: StringType, own: StringType }), ex.StressJob), {
+            initial: new Map(),
+            indexes: (index) => ({ sheet_spec_sourced_jobs_by_activity: index.on(["activity"]) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        inBlock(($) => {
+            const jobs = $.let(Record.bind(sourced));
+            const payload = Sheet.Payload({
+                slice: { slice: Slice.bindRecords("spec.sourced", { rows: { source: Data.bindPaged(sourced, { indexes: ["sheet_spec_sourced_jobs_by_activity"] }) } }) },
+                columns: STRESS_COLUMNS, record: jobs,
+                // A variant's key is made by the app's own rule, which this sheet gives none of: it adds no rows.
+                edits: { insertRows: false },
+            });
+            assert.ok(isTypeEqual(typeOf(payload), SheetPayloadType));
+        });
     });
 
     test("with no `rows` source the slice narrows only what names its sources, and the rows come from `record` or `data`", () => {

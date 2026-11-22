@@ -22,7 +22,7 @@ import e3 from "@elaraai/e3";
 import { Data, Roster, Schedule } from "@elaraai/e3-ui";
 import { Func, FuncBindingType, Record, RosterPayloadType, createRosterPayload, rosterEdits, rosterFitBinding, type RosterProps } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
-import { WarehouseCover, WarehouseDuty } from "./warehouse.js";
+import { WarehouseCover, WarehouseDuty, WarehousePerson } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
@@ -255,6 +255,35 @@ describe("the narrowing and the library", () => {
         // The duties' source reads them through their interval index; without `entries` beside it, a duty is never read by its key.
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.duty", { duty: { source: dutySource(), range: "start" } }) } })),
             /the builder's source "duty" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
+    });
+
+    test("#1696 — the duties' source over duties keyed by a struct — a composite's key is a variant — builds as one keyed by String does: the slice refuses no key type", () => {
+        const Key = StructType({ person: StringType, seq: IntegerType });
+        const placed = e3.record("roster_spec_placed_duties", DictType(Key, WarehouseDuty), {
+            initial: new Map(),
+            indexes: (index) => ({ roster_spec_placed_duties_by_time: index.interval({ from: "start", to: "end" }) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        assert.doesNotThrow(() => payload(() => ({
+            events: { duty: Schedule.events(Record.bind(placed), {
+                name: "Duty", icon: "user-clock", entries: Data.bindPaged(placed), start: "start", end: "end",
+                resource: { field: "who", of: { staff: "people", agency: "agencies" } }, shift: "shift", group: "team",
+                // A struct's key is made by the app's own rule (ruling 10 of #1709).
+                newKey: East.function([SetType(Key)], Key, (_$, taken) => ({ person: "new", seq: taken.size() })),
+            }) },
+            slice: { slice: Slice.bindRecords("spec.placed", { duty: { source: Data.bindPaged(placed, { indexes: ["roster_spec_placed_duties_by_time"] }), range: "start" } }) },
+        })));
+    });
+
+    test("#1696 — the people's source over staff keyed by a struct is refused by the Roster, whose duties name a person by a String key — never by the slice", () => {
+        const placed = e3.record("roster_spec_placed_staff", DictType(StructType({ site: StringType, badge: IntegerType }), WarehousePerson), {
+            initial: new Map(),
+            indexes: (index) => ({ roster_spec_placed_staff_by_name: index.on(["name"]) }),
+        });
+        assert.throws(() => payload((base) => ({
+            resources: { ...base.props.resources, people: Schedule.resources(Data.bind(placed).read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team }) },
+            slice: { slice: Slice.bindRecords("spec.placed.staff", { people: { source: Data.bindPaged(placed, { indexes: ["roster_spec_placed_staff_by_name"] }) } }) },
+        })), /Roster: events\.duty's resource field holds String keys of resources\.people, which is keyed by \.Struct .* — key the resources by String/);
     });
 
     test("an app's tab drops Schedule.patch over the duty row type, its cards following the source it names; a tab listed twice is refused", () => {

@@ -521,9 +521,8 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     }
     const tabSources = flowchartTabSources(given.library);
     const names = [...new Set(["states", ...(transitions === undefined ? [] : ["transitions"]), ...cardSources, ...tabSources, ...weighing])];
-    // Each source may narrow a record keyed by any type, its shown keys their text (#1549).
     const sources = recordSources(narrowing, {
-        builder: "Flowchart", names, anyKey: true,
+        builder: "Flowchart", names,
         what: "its states and its transitions, each by the source named after it, and the cards lists, tabs and details that name a source",
     });
     const library = buildFlowchartLibrary(given.library, {
