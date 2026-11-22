@@ -21,7 +21,8 @@
  */
 
 import type {
-  DateTimeType, DictType, EastType, Expr, FloatType, FunctionExpr, FunctionType, IntegerType, OptionType, SetType, StructType, VariantType,
+  BooleanType, DateTimeType, DictType, EastType, Expr, FloatType, FunctionExpr, FunctionType, IntegerType, OptionType, SetType, StructType,
+  VariantType,
 } from '@elaraai/east';
 import { East, NullType, printType } from '@elaraai/east';
 import type { NestedEntryKeyType, RecordLevelType, RecordNestedTotalsType } from '@elaraai/e3-types';
@@ -145,8 +146,9 @@ export interface SeriesIndexSpec<T extends EastType = EastType> {
   tile: RecordTile;
   /** The order the entries are filed in (#1710). `'key'`, the default: a key's events together, `{ on, key, level,
    *  tile }`, so one key's events over any span are a range a level. `'time'`: a tile's events together in their keys'
-   *  order, `{ on, level, tile, key }`, so the events of a run of neighbouring keys over a span are a range a level a
-   *  tile, whatever each key's history holds — what a board of many rows reads a screen through. */
+   *  order, `{ on, level, tile, key, past }`, so the events of a run of neighbouring keys over a span are a range a
+   *  level a tile, whatever each key's history holds — what a board of many rows reads a screen through. `past` is
+   *  false in every entry, so a range reads through its last key: `to: { …, key: last, past: true }`. */
   order?: 'key' | 'time';
   /** Refused here: a series index's `value` is an option beside its spec, `index.series({ … }, { value })`. */
   value?: never;
@@ -222,7 +224,7 @@ type OutputOf<F> = F extends Expr<FunctionType<unknown[], infer O>> ? (O extends
  * The index key a spec declares (#1432): a generated index's row fields under
  * `on` and e3's own parts beside them — an area index's `{ on, area }`, a
  * series index's `{ on, key, level, tile }` (#1433) or, filed in time order,
- * `{ on, level, tile, key }` (#1710), an interval index's
+ * `{ on, level, tile, key, past }` (#1710), an interval index's
  * `{ on, node, at }` — or a plain index's row fields, `key`'s return, or the
  * element of the Set `keys` returns. A summary index's spec is a series
  * index's; its key is {@link SummaryKeyOf}.
@@ -240,7 +242,7 @@ export type IndexKeyOf<S, T extends EastType = EastType> =
   S extends { cell: number }
     ? StructType<{ on: StructType<LeadingFields<S, T>>; area: IntegerType }>
   : S extends { tile: string; key: infer KF extends keyof RowFields<T> & string; order: 'time' }
-    ? StructType<{ on: StructType<LeadingFields<S, T>>; level: RecordLevelType; tile: DateTimeType; key: RowFields<T>[KF] }>
+    ? StructType<{ on: StructType<LeadingFields<S, T>>; level: RecordLevelType; tile: DateTimeType; key: RowFields<T>[KF]; past: BooleanType }>
   : S extends { tile: string; key: infer KF extends keyof RowFields<T> & string }
     ? StructType<{ on: StructType<LeadingFields<S, T>>; key: RowFields<T>[KF]; level: RecordLevelType; tile: DateTimeType }>
   : S extends { from: infer F extends keyof RowFields<T> & string; to: string }

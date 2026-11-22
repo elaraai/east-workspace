@@ -438,9 +438,10 @@ export interface RecordIndexDef<
    *  row: a struct holding the event's start and end beside whatever a view
    *  draws an event from (#1710). Its `order` is the order of its key's parts:
    *  `'key'`, a key's events together, as above; or `'time'`, `{ on, level,
-   *  tile, key }`, a tile's events together in their keys' order, which a run
-   *  of neighbouring keys reads as one range a level a tile (#1710). Authoring
-   *  metadata only: ordinary maintained index programs store it. */
+   *  tile, key, past }`, a tile's events together in their keys' order, which
+   *  a run of neighbouring keys reads as one range a level a tile, through its
+   *  last key by `past` (#1710). Authoring metadata only: ordinary maintained
+   *  index programs store it. */
   readonly series?: {
     readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year';
     readonly carries: 'row' | 'value';

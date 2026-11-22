@@ -72,7 +72,8 @@ import { createServer, type Server } from '@elaraai/e3-api-server';
 import { decodedSegmentStats } from '@elaraai/e3-api-server/handlers';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import {
-  ArrayType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SortedSet, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2PagedFor,
+  ArrayType, BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SortedSet, StringType, StructType, compareFor, decodeBeast2For,
+  encodeBeast2PagedFor,
   equalFor, printFor, variant,
   type ValueTypeOf,
 } from '@elaraai/east';
@@ -148,12 +149,13 @@ const decodeBlocks = decodeBeast2For(BlockWindowType);
 const CellKeyType = StructType({ hall: StringType, presses: StringType, block: IntegerType, press: StringType, start: DateTimeType });
 const decodeCells = decodeBeast2For(ArrayType(StructType({ ik: CellKeyType, key: StringType, value: JobTileType, row: OptionType(JobType) })));
 const printInteger = printFor(IntegerType);
+const printBoolean = printFor(BooleanType);
 
 const decodeSeries = decodeBeast2For(SeriesWindowType);
 const decodeTiles = decodeBeast2For(TilesWindowType);
 /** A window of the series index in time order: each entry's key — its hall, its level and tile, then its press — its job's key and the job's tile. */
 const decodeInTime = decodeBeast2For(ArrayType(StructType({
-  ik: StructType({ on: StructType({ hall: StringType }), level: RecordLevelType, tile: DateTimeType, key: StringType }),
+  ik: StructType({ on: StructType({ hall: StringType }), level: RecordLevelType, tile: DateTimeType, key: StringType, past: BooleanType }),
   key: StringType, value: JobTileType, row: OptionType(JobType),
 })));
 const sameTile = equalFor(JobTileType);
@@ -258,8 +260,8 @@ function inTimeSearches(runs: readonly HallRun[], from: number, to: number): Dat
     for (const level of levelRuns(from, to)) {
       for (let tile = level.from; tile < level.to; tile = tileStep(level.level, tile, 1)) {
         const lead = [printString(run.hall), printLevel(variant(level.level, null)), printDateTime(new Date(tile))];
-        // `~` sorts after every character of a press's key: the bound is past the last press's entries, and before the next press's.
-        searches.push({ from: [...lead, printString(run.first)], to: [...lead, printString(`${run.last}~`)] });
+        // Through the last press: `past` is false in every entry, so an end that gives it true is after the last press's entries.
+        searches.push({ from: [...lead, printString(run.first)], to: [...lead, printString(run.last), printBoolean(true)] });
       }
     }
   }

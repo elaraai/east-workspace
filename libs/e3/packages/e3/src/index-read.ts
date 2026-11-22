@@ -395,7 +395,7 @@ export interface SeriesReaders<IK extends EastType = EastType, P extends EastTyp
  * The readers of a series index filed in time order (`index.series`, `order:
  * 'time'`, #1710).
  *
- * @typeParam IK - The index's key type, `{ on, level, tile, key }`
+ * @typeParam IK - The index's key type, `{ on, level, tile, key, past }`
  * @typeParam P - What the index carries: the row, or its value
  * @typeParam K - The row's key type
  */

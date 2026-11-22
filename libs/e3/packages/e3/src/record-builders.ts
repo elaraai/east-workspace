@@ -297,13 +297,15 @@ export interface IndexBuilder<T extends EastType> {
    * changes nothing the value gives leaves the index's entries as they are.
    *
    * Declared `order: 'time'` (#1710), the same entries are filed with the tile
-   * before the key, `{ on: { …on }, level, tile, key }`: a tile's events
+   * before the key, `{ on: { …on }, level, tile, key, past }`: a tile's events
    * together, in their keys' order. One key's events are then no range; the
    * events of a run of neighbouring keys over a span are one range a level a
    * tile, however long each key's history — what a board of many rows reads a
    * screen of them through, where an index in key order reads the part of
    * itself each row's whole history lies in. Lead it by the group the keys
-   * stand in (`on`), so a group's keys are neighbours.
+   * stand in (`on`), so a group's keys are neighbours. `past` is false in
+   * every entry: a range's end that gives it true lies after every entry of
+   * its key, so a run of keys is read through its last, whatever their type.
    *
    * @param spec - `key`, the field naming what an event is on (any but a Set); `from` and `to`, its DateTime (or
    *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; the optional

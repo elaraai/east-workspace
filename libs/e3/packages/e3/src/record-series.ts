@@ -27,18 +27,21 @@
  *   (`tileShares`).
  *
  * A series index declared `order: 'time'` (#1710) files the same entries the
- * other way about, `{ on: { …on }, level, tile, key }`: a tile's events
+ * other way about, `{ on: { …on }, level, tile, key, past }`: a tile's events
  * together, in their keys' order, so the events a run of neighbouring keys
  * hold over a span of time lie together whatever each key's history holds — a
  * board reads a screen of its rows as one range a level a tile, where filed by
- * key it reads the part of the index each row's whole history lies in.
+ * key it reads the part of the index each row's whole history lies in. Its
+ * last part, `past`, is false in every entry: a bound that gives it true lies
+ * after every entry of its key, so a range reads through a last key, `to:
+ * { …, key: last, past: true }`, whatever the key's type.
  *
  * A row with no start is in neither: it has no time to file it by.
  *
  * @packageDocumentation
  */
 import {
-  ArrayType, DateTimeType, DictType, East, NullType, SetType, StringType, StructType, printType, variant, withLocationCapture,
+  ArrayType, BooleanType, DateTimeType, DictType, East, NullType, SetType, StringType, StructType, printType, variant, withLocationCapture,
   type EastType,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
@@ -180,7 +183,8 @@ function seriesValue(
  * `(K, V) → Set<IK>`, an entry per place a row's event is filed
  * (`eventFilings`: once, or once a year past a year), `{ on: { …on }, key,
  * level, tile }` — or, declared `order: 'time'`, `{ on: { …on }, level, tile,
- * key }`, the same parts with the tile before the key (#1710) — one per
+ * key, past }`, the same parts with the tile before the key, and `past`, false
+ * in every entry, which a range through a last key is bounded by (#1710) — one per
  * combination of its leading values, a Set among them
  * fanning out, as the interval index's do; and its projection: the whole row,
  * or what its `value` gives of the row (#1710), so a cell reads the index
@@ -211,7 +215,7 @@ export function seriesDefinition(
   const { rowType, leading } = fields;
   // East orders a struct by its fields as they are declared: the order of the key's parts is the order of the index.
   const indexType = order === 'time'
-    ? StructType({ on: leading.onType, level: RecordLevelType, tile: DateTimeType, key: fields.key.type })
+    ? StructType({ on: leading.onType, level: RecordLevelType, tile: DateTimeType, key: fields.key.type, past: BooleanType })
     : StructType({ on: leading.onType, key: fields.key.type, level: RecordLevelType, tile: DateTimeType });
   const level = variant(fields.tile, null);
   const readKey = fieldReader(keyType, rowType, fields.key);
@@ -221,7 +225,7 @@ export function seriesDefinition(
   // An event's entries under one combination of its leading values: one a place it is filed, its key's parts in the index's order.
   const filedUnder = East.function([leading.onType, fields.key.type, ArrayType(TileFilingType)], SetType(indexType), (_$, on, key, filings) =>
     filings.toSet((_$, filing) => (order === 'time'
-      ? { on, level: filing.level, tile: filing.tile, key }
+      ? { on, level: filing.level, tile: filing.tile, key, past: false }
       : { on, key, level: filing.level, tile: filing.tile })));
   const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
     const keyOf = $.const(readKey);

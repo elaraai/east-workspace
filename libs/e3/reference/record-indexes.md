@@ -64,7 +64,7 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 |---|---|---|
 | interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
 | area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
-| series | `{ on, key, level, tile }`; in time order, `{ on, level, tile, key }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
+| series | `{ on, key, level, tile }`; in time order, `{ on, level, tile, key, past }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
 | summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
@@ -196,8 +196,8 @@ index's does. A value that gives no struct, or one holding no DateTime start
 or end under those names, is refused, naming what it gives.
 
 Declared `order: 'time'`, a series index files the same entries with the tile
-before the key, `{ on, level, tile, key }`: **a tile's events together, in
-their keys' order**. In key order the events of a block of keys over a span lie
+before the key, `{ on, level, tile, key, past }`: **a tile's events together,
+in their keys' order**. In key order the events of a block of keys over a span lie
 in the part of the index each key's whole history fills, a part a key however
 narrow the span — so what a board's screen reads grows with its rows'
 histories. In time order the events of a run of neighbouring keys over a span
@@ -208,6 +208,12 @@ by the group the keys stand in, so a group's keys are neighbours:
 // A hall's jobs a week at a time, in their presses' order, each entry a tile:
 job_tiles_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, { value: tileOf }),
 ```
+
+`past` is false in every entry, so a range's end that gives it true lies after
+every entry of its key: a run of keys is read through its last one, whatever
+their type — a search from `[…on, level, tile, first]` to `[…on, level, tile,
+last, true]`, or in a task `entries.range({ from: { ik: { on, level, tile, key:
+first } }, to: { ik: { on, level, tile, key: last, past: true } } })`.
 
 One key's events are then no range, so its reader (below) reads every key's
 under the leading fields and takes no `key`: declare an index in key order

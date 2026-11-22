@@ -18,7 +18,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet,
+  BooleanType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet,
   StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, equalFor, none,
   printFor, printType, some, variant,
   type ValueTypeOf,
@@ -546,9 +546,12 @@ describe('index.series — its declaration', () => {
     const spec = { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' } as const;
     const inTime = jobSeries('jobs_by_state_week', { ...spec, order: 'time' });
     const byKey = jobSeries('jobs_by_state_press_week', spec);
-    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; level: typeof RecordLevelType; tile: typeof DateTimeType; key: typeof StringType }> = inTime.keyType;
-    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), level: RecordLevelType, tile: DateTimeType, key: StringType })),
-      'its leading fields under on, the level, the tile, then the key');
+    const keyType: StructType<{
+      on: StructType<{ state: typeof StringType }>; level: typeof RecordLevelType; tile: typeof DateTimeType; key: typeof StringType; past: typeof BooleanType;
+    }> = inTime.keyType;
+    assert.equal(printType(keyType),
+      printType(StructType({ on: StructType({ state: StringType }), level: RecordLevelType, tile: DateTimeType, key: StringType, past: BooleanType })),
+      'its leading fields under on, the level, the tile, the key, then past');
     const orders: readonly ['time', 'key'] = [inTime.series.order, byKey.series.order];
     assert.deepEqual(orders, ['time', 'key']);
     assert.deepEqual(inTime.series, { key: 'press', from: 'start', to: 'end', tile: 'week', carries: 'row', order: 'time' });
@@ -577,6 +580,37 @@ describe('index.series — its declaration', () => {
       assert.ok(keyOrder(a.key, b.key) <= 0, `within a tile, ${a.key} is filed before ${b.key}`);
     }
     assert.ok(tilesMet > 20 && shared > 20, `the jobs fill many tiles, several presses to a tile: ${tilesMet} tiles, ${shared} entries beside another of their tile`);
+    assert.ok(filed.every((ik) => !ik.past), 'past is false in every entry');
+
+    // A range through a last press: its end gives `past` true, after every entry of that press and before the next press's.
+    const every = jobSeries('jobs_by_week', { key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' });
+    const entryType = StructType({ ik: every.keyType, k: StringType });
+    const through = East.compile(East.function([DictType(entryType, JobRow), RecordLevelType, DateTimeType, StringType, StringType], SetType(StringType),
+      ($, entries, level, tile, first, last) => {
+        // Led by no field: its `on` the empty struct, given as a value.
+        const on = $.const({}, StructType({}));
+        return entries.range({
+          from: { ik: { on, level, tile, key: first } },
+          to: { ik: { on, level, tile, key: last, past: true } },
+        }).keys().toSet((_$2, entry) => entry.ik.key);
+      }), []);
+    const held = new SortedMap(emitted(every, rows), compareFor(entryType) as never);
+    // The tile, of any level, holding jobs on the most presses, and the presses filed under it, in order.
+    const sameTileOf = equalFor(StructType({ level: RecordLevelType, tile: DateTimeType }));
+    const pressesUnder = (at: { level: ValueTypeOf<typeof RecordLevelType>; tile: Date }): string[] => [...new SortedSet(
+      [...held.keys()].map((entry) => (entry as ValueTypeOf<typeof entryType>).ik).filter((ik) => sameTileOf({ level: ik.level, tile: ik.tile }, at)).map((ik) => ik.key),
+      keyOrder)];
+    let fullest: { level: ValueTypeOf<typeof RecordLevelType>; tile: Date } | undefined;
+    for (const entry of held.keys()) {
+      const { level, tile } = (entry as ValueTypeOf<typeof entryType>).ik;
+      if (fullest === undefined || pressesUnder({ level, tile }).length > pressesUnder(fullest).length) fullest = { level, tile };
+    }
+    const presses = pressesUnder(fullest!);
+    assert.ok(presses.length >= 3, `one tile holds jobs on several presses: ${presses.join(', ')}`);
+    const read = (first: string, last: string) => through(held as never, fullest!.level, fullest!.tile, first, last);
+    assertEast(SetType(StringType), read(presses[0]!, presses[1]!), new SortedSet(presses.slice(0, 2), keyOrder), 'from the first press through the second: both, and no third');
+    assertEast(SetType(StringType), read(presses[1]!, presses[presses.length - 1]!), new SortedSet(presses.slice(1), keyOrder), 'through the last press: its entries too');
+    assertEast(SetType(StringType), read(presses[1]!, presses[1]!), new SortedSet([presses[1]!], keyOrder), 'one press, from it through it');
   });
 
   it('in time order, its reader gives a window\'s events on every press under its leading fields, each once (#1710)', () => {
