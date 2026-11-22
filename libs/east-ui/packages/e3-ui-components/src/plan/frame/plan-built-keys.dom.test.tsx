@@ -85,11 +85,14 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         expect([job(c, "Quay Books")!.getAttribute("aria-pressed"), customerBox(c).getAttribute("value")]).toEqual(["true", "Quay Books"]);
         // Its copy would build the key it now stands under: Duplicate is off.
         expect(duplicateOff(c)).toBe(true);
-        // One step: Undo puts the job back under J-2001, and nothing is left to save.
+        // One step: Undo puts the job back under J-2001, and nothing is left to save — the job selected still, under the key
+        // it is back under, the inspector on it.
         await press(c, editingMessages.undo());
         expect([job(c, "J-2001") !== null, job(c, "Quay Books"), pending(c)]).toEqual([true, null, "0 pending"]);
+        expect([job(c, "J-2001")!.getAttribute("aria-pressed"), inspected(c)]).toEqual(["true", "Catalogue covers"]);
+        // And Redo takes its selection back with it.
         await press(c, editingMessages.redo());
-        expect(job(c, "Quay Books")).not.toBeNull();
+        expect([job(c, "Quay Books")?.getAttribute("aria-pressed"), inspected(c)]).toEqual(["true", "Catalogue covers"]);
         await press(c, editingMessages.apply());
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
         const [jobs, flows] = [await h.read(ex.planLinkCaseJobs), await h.read(ex.planLinkFlows)];

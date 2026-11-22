@@ -35,6 +35,7 @@ import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import { builtKeyOrigins, settleBuiltKeys, type TouchedEntry } from "../shared/built-keys.js";
+import { newsOf, useLatestOf } from "../shared/use-latest.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import { closedOver } from "./standing-rows.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -165,8 +166,9 @@ export interface SheetEditingResult {
     readByKeys: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
     /**
      * Each entry the last gesture to move one put under another key, by the key it left — over a record whose rows' keys
-     * the app builds from them (`key`), where the gesture made a row or changed what a row's key reads. What the ring
-     * keeps to its row by.
+     * the app builds from them (`key`), where the gesture made a row or changed what a row's key reads — or the last
+     * Undo or Redo of such a gesture put back under the key it had, whichever came last. What the ring keeps to its row
+     * by.
      */
     moved: ReadonlyMap<string, string>;
     /**
@@ -342,6 +344,14 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, keys, underKey, autosave, entryOf: shownEntry });
     sessionRef.current = session;
+    // What the ring follows: the entries the last gesture moved under another key, or the last Undo or Redo put back
+    // under the key each had (`EditSession.rekeyed`) — whichever came last. Of an Undo, only one since the session was
+    // first heard here (`newsOf`): one kept from before says still what its last Undo moved.
+    const heardRekeyed = useRef(new WeakMap<SheetTransactions, ReadonlyMap<string, string>>());
+    const stepped = useRef(NO_MOVES);
+    const said = newsOf(heardRekeyed.current, session, session.rekeyed);
+    if (said !== undefined && said.size > 0) stepped.current = said;
+    const rekeyed = useLatestOf([moved, stepped.current], NO_MOVES);
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.
     const copies = useMemo(() => {
@@ -596,5 +606,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, drafts, codecs, awaiting]);
     return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, shown, project: wireOf, readByKeys: pinned?.readCurrentAll,
-        moved, under, available: available && !replacing && !retained, version };
+        moved: rekeyed, under, available: available && !replacing && !retained, version };
 }

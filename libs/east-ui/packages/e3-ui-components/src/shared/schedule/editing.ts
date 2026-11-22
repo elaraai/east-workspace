@@ -32,6 +32,7 @@ import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/inter
 import { breachIssue, isBounded } from "../bounds.js";
 import { builtKeyOrigins, settleBuiltKeys } from "../built-keys.js";
 import { givenKeys } from "../given-keys.js";
+import { newsOf, useLatestOf } from "../use-latest.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
 
@@ -269,8 +270,9 @@ export type ScheduleLanded = ReadonlyMap<string, ScheduleLandedRows>;
 /**
  * The entries that last went on under another key, by the kind's slot or the record's key, then by the key each had:
  * the new events a carry-over of a kind's drafts gave another key (#1583, `EditSession.renumbered`) — the key made for
- * each was taken by another Save's own new event — or the rows a gesture moved under the key their fields build
- * (east-workspace#1709), a new row's from the key made for it.
+ * each was taken by another Save's own new event — the rows a gesture moved under the key their fields build
+ * (east-workspace#1709), a new row's from the key made for it, or the rows an Undo or a Redo of such a gesture put
+ * back under the key each had (`EditSession.rekeyed`).
  */
 export type ScheduleRenumbered = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
@@ -342,10 +344,11 @@ export interface ScheduleEditing<I extends Item = Item> {
     readonly landed: ScheduleLanded;
     /**
      * The entries that last went on under another key — whichever came last: the new events a carry-over of each
-     * kind's drafts gave another key ({@link ScheduleEditingArgs.rekeys}), or the rows a gesture moved under the key
-     * their fields build (east-workspace#1709) — what a builder moves on to the new key with them: its selection. The
-     * same object until a carry-over or a gesture gives an entry another key, so a builder follows each once; one
-     * empty object while none has.
+     * kind's drafts gave another key ({@link ScheduleEditingArgs.rekeys}), the rows a gesture moved under the key
+     * their fields build (east-workspace#1709), or the rows an Undo or a Redo of such a gesture put back under the key
+     * each had — what a builder moves on to the new key with them: its selection. The same object until a carry-over,
+     * a gesture, an Undo or a Redo gives an entry another key, so a builder follows each once; one empty object while
+     * none has.
      */
     readonly renumbered: ScheduleRenumbered;
     /** The history's version: it moves with every change of it or of its sessions. */
@@ -417,7 +420,8 @@ export interface ScheduleEditing<I extends Item = Item> {
      * removed. What a builder that keeps its record's rows itself — the Roster's stored week, the Allocation's stored
      * day — files each moved row's stored version under, as {@link ScheduleEditing.held} gives it. A move holds while
      * the drafts do: undone, the row is back under the key it had and the move gone; redone, back. A key its record
-     * holds a row under itself is never one of them.
+     * holds a row under itself is never one of them. They are the session's, with its drafts (`EditSession.moved`): a
+     * builder that mounts again and a page that loads again find them as the drafts stand.
      *
      * @param kind - The kind's slot, or the record's key
      * @returns The moves; the same object while they hold, one empty object while there are none
@@ -1062,23 +1066,32 @@ export function useScheduleEditing<I extends Item = Item>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, keys, history, version]);
 
-    // The rows a gesture moved under the key their fields build, and whichever of the two came last: a builder follows
-    // each once, so one it has followed is never met again beside the other — the key a carry-over left may since be
-    // another session's event's.
-    const [moved, setMoved] = useState<ScheduleRenumbered>(NO_RENUMBERED);
-    const lastUnder = useRef({ carried, moved, last: NO_RENUMBERED });
-    if (lastUnder.current.carried !== carried) lastUnder.current = { carried, moved, last: carried };
-    else if (lastUnder.current.moved !== moved) lastUnder.current = { carried, moved, last: moved };
-    const renumbered = lastUnder.current.last;
+    // The rows the last Undo or Redo put back under another key (east-workspace#1709): each part's session says its own,
+    // a new map at each that moves one (`EditSession.rekeyed`). Only what a session says after it is first heard here is
+    // new (`newsOf`): the history takes its sessions up after the first render, each saying still what its last Undo
+    // moved before this builder mounted, and the key an entry left then may be another row's since.
+    const heardRekeyed = useRef(new WeakMap<EditSession<ScheduleEntryRef>, ReadonlyMap<string, string>>());
+    const heldStepped = useRef<ScheduleRenumbered>(NO_RENUMBERED);
+    const stepped = useMemo((): ScheduleRenumbered => {
+        const out = new Map<string, ReadonlyMap<string, string>>();
+        parts.forEach((part, i) => {
+            const session = history.session(keys[i]!);
+            const said = session === undefined ? undefined : newsOf(heardRekeyed.current, session, session.rekeyed);
+            if (said !== undefined && said.size > 0) out.set(part.key, said);
+        });
+        if (out.size > 0) heldStepped.current = out;
+        return heldStepped.current;
+        // The sessions are mutable: the history's version records each Undo and Redo.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [parts, keys, history, version]);
 
-    // Each move a gesture made of a row its record holds — or of a row such a move left where it stands — as the gesture
-    // is recorded: by the part's key, then by the key the row moved to, to the key its record holds it under
-    // (east-workspace#1709). What its drafts are compared with is the row its record holds there
-    // ({@link ScheduleEditing.movedFrom}). A move holds while the drafts do, so an Undo and a Redo of it, which move only
-    // the drafts, need nothing kept here; one that can never hold again goes (`movesNow`).
-    const movesRef = useRef(new Map<string, Map<string, string>>());
-    // The moves that hold, by the part's key, as last asked: the same object while they hold, at whatever version.
-    const movedRef = useRef(new Map<string, { readonly version: number; readonly moves: ReadonlyMap<string, string> }>());
+    // The rows a gesture moved under the key their fields build, and whichever of the three came last: a builder follows
+    // each once, so one it has followed is never met again beside another — the key a carry-over left may since be
+    // another session's event's. What stood as the editing mounted is none of them: a builder that mounts again follows
+    // only what moves from then on.
+    const [moved, setMoved] = useState<ScheduleRenumbered>(NO_RENUMBERED);
+    const renumbered = useLatestOf([carried, moved, stepped], NO_RENUMBERED);
+
     // What the last gesture recorded moved, by the part's key, then by the key each row had ({@link ScheduleEditing.under}).
     const lastMovesRef = useRef<ScheduleRenumbered>(NO_RENUMBERED);
 
@@ -1148,42 +1161,13 @@ export function useScheduleEditing<I extends Item = Item>({
         return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
     };
     /**
-     * The moves the drafts hold of a part's rows now ({@link ScheduleEditing.movedFrom}): each key a row moved to, to the
-     * key its record holds it under — a move holds while the row stands under the key it went to and none under that
-     * one. A kept move that can never hold again goes: its record holds a row under the key it went to — a Save took
-     * it — or, with no step left to undo or redo, it does not hold now.
+     * The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}): its session's own
+     * (`EditSession.moved`), with its drafts — the same object while they hold — so a builder that mounts again, or a
+     * page that loads again, finds them as the drafts stand.
      */
-    const movesNow = (kind: string): Map<string, string> => {
-        const now = new Map<string, string>();
-        const i = indexOf(kind);
-        const links = i < 0 ? undefined : movesRef.current.get(kind);
-        if (links === undefined) return now;
-        // What stands under a key with the drafts in place: a row, or none — the drafts removed it; else neither is known.
-        const at = (id: string): "row" | "gone" | undefined => {
-            const entry = state.original(keys[i]!, id);
-            return entry === undefined ? undefined : rowOf(entry) === undefined ? "gone" : "row";
-        };
-        const settled = !history.canUndo && !history.canRedo;
-        for (const [to, from] of links) {
-            if (heldRow(kind, to) !== undefined) links.delete(to);
-            else if (at(to) === "row" && at(from) === "gone") now.set(to, from);
-            else if (settled) links.delete(to);
-        }
-        if (links.size === 0) movesRef.current.delete(kind);
-        return now;
-    };
-    /** The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}), as last asked: the same object while they hold. */
     const movedOf = (kind: string): ReadonlyMap<string, string> => {
-        const kept = movedRef.current.get(kind);
-        if (kept !== undefined && kept.version === version) return kept.moves;
-        const now = movesNow(kind);
-        const same = kept !== undefined && kept.moves.size === now.size && [...now].every(([to, from]) => {
-            const was = kept.moves.get(to);
-            return was !== undefined && stringEqual(was, from);
-        });
-        const moves = same ? kept.moves : now.size === 0 ? NO_MOVES : now;
-        movedRef.current.set(kind, { version, moves });
-        return moves;
+        const i = indexOf(kind);
+        return (i < 0 ? undefined : history.session(keys[i]!)?.moved) ?? NO_MOVES;
     };
     /** A row as its record holds it, or — moved by the drafts under the key its fields build — as it holds it under the key it had ({@link ScheduleEditing.held}). */
     const heldNow = (kind: string, id: string): unknown => {
@@ -1510,24 +1494,8 @@ export function useScheduleEditing<I extends Item = Item>({
                     return { key, updates: [...entries].map(([id, versions]) => ({ id, ...versions, from: came.get(id) })) };
                 })
                 .filter((part) => part.updates.length > 0);
-            // The moves that hold as the gesture is made: a row one left where it stands moves on from the key its record
-            // holds it under.
-            const holding = new Map([...made.moves.keys()].map((kind) => [kind, movesNow(kind)] as const));
             if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
             lastMovesRef.current = made.moves.size === 0 ? NO_RENUMBERED : made.moves;
-            // Each move of a row its record holds, or of a row such a move left — kept, to the key its record holds it
-            // under, for what the row's drafts are compared with ({@link ScheduleEditing.movedFrom}). A new row's, from the
-            // key made for it, keeps none: from then on the key it takes holds a new row, never one moved there before.
-            for (const [kind, byKey] of made.moves) {
-                const before = holding.get(kind);
-                for (const [from, to] of byKey) {
-                    const home = before?.get(from) ?? (heldRow(kind, from) === undefined ? undefined : from);
-                    const links = movesRef.current.get(kind);
-                    if (home === undefined) links?.delete(to);
-                    else if (links === undefined) movesRef.current.set(kind, new Map([[to, home]]));
-                    else links.set(to, home);
-                }
-            }
             if (made.moves.size > 0) setMoved(made.moves);
             return true;
         },

@@ -25,7 +25,8 @@
  * whose kind builds each one's key from its row (`key`): a new visit stands
  * under the key its row builds, an edit of what the key reads moves it, and a
  * key another visit holds refuses the gesture, saying which; a moved visit is
- * the visit it was, edited, until a new visit takes the key its move gave it.
+ * the visit it was, edited, until a new visit takes the key its move gave it —
+ * through its builder mounting again and its page loading again.
  * Over records deployed to e3 itself.
  */
 
@@ -40,7 +41,7 @@ import { Editing } from "@elaraai/east-ui";
 import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
-import { e3Harness, settle } from "../../e3-web-mount.test-utils.js";
+import { e3Harness, reloadPage, settle } from "../../e3-web-mount.test-utils.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef } from "./editing.js";
 import { windowRead } from "./records.js";
 
@@ -414,6 +415,28 @@ describe("the shared editing over an event kind that builds each event's key fro
         await settle();
         expect([visitDraft("V-5")?.type, editing().held("visits", "V-5"), [...editing().movedFrom("visits")], visitDraft("V-1")?.type])
             .toEqual(["value", undefined, [], "missing"]);
+    });
+
+    test.each<[string, () => void]>([
+        ["its builder mounted again, its sessions kept", () => undefined],
+        ["the page loaded again, its drafts kept by the tab", reloadPage],
+    ])("ruling 1 — a visit an edit moved under another key is the visit its record holds under the key it had still, %s", async (_how, leave) => {
+        const view = <EventsProbe kind={visitsKind} storageKey="schedule-built-key-kept" />;
+        const first = await h.mount({ fn: visitsKind }, { view });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([...editing().movedFrom("visits")]).toEqual([["V-5", "V-1"]]);
+        // The builder goes, and comes back to the drafts it left: the survey under V-5, none under V-1.
+        first.unmount();
+        probe.editing = undefined;
+        leave();
+        await h.mount({ fn: visitsKind }, { view });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        await waitFor(() => expect([visitDraft("V-5")?.type, visitDraft("V-1")?.type]).toEqual(["value", "missing"]));
+        const held = editing().held("visits", "V-5");
+        expect([[...editing().movedFrom("visits")], held !== undefined && jobEqual(held as ValueTypeOf<typeof Job>, stored)]).toEqual([[["V-5", "V-1"]], true]);
     });
 
     test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {

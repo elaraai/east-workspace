@@ -126,6 +126,12 @@ async function paste(c: HTMLElement, at: HTMLElement, words: string): Promise<vo
     await settle();
 }
 
+/** A press of one of the history's buttons, by its name, and what it leads to settled. */
+async function press(c: HTMLElement, name: string): Promise<void> {
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name })); });
+    await settle();
+}
+
 /** The blank row's cell under a column. */
 const blank = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-blank] [data-key="${key}"]`)!;
 /** The key of the row the ring is on; `null` where it is on none. */
@@ -156,6 +162,11 @@ test("ruling 6 — a lane typed into the blank row stands under the key its row 
     await paste(c, cellOf(c, "304", "aisle"), "0");
     expect(ids(c)).toEqual(["4", "101", "102", "207"]);
     expect(ringOn(c)).toBe("4");
+    // Undo puts the lane back under the key it had, and Redo under the other again: the ring with it both ways.
+    await press(c, editingMessages.undo());
+    expect([ids(c), ringOn(c)]).toEqual([["101", "102", "207", "304"], "304"]);
+    await press(c, editingMessages.redo());
+    expect([ids(c), ringOn(c)]).toEqual([["4", "101", "102", "207"], "4"]);
     await paste(c, cellOf(c, "4", "aisle"), "3");
     expect(ids(c)).toEqual(["101", "102", "207", "304"]);
     expect(ringOn(c)).toBe("304");
