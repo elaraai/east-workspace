@@ -436,11 +436,15 @@ export interface RecordIndexDef<
    *  once, at the level its length fits, or once a year past a year (#1433).
    *  It `carries` the row, or, declared with a `value`, what that gives of the
    *  row: a struct holding the event's start and end beside whatever a view
-   *  draws an event from (#1710). Authoring metadata only: ordinary maintained
-   *  index programs store it. */
+   *  draws an event from (#1710). Its `order` is the order of its key's parts:
+   *  `'key'`, a key's events together, as above; or `'time'`, `{ on, level,
+   *  tile, key }`, a tile's events together in their keys' order, which a run
+   *  of neighbouring keys reads as one range a level a tile (#1710). Authoring
+   *  metadata only: ordinary maintained index programs store it. */
   readonly series?: {
     readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year';
     readonly carries: 'row' | 'value';
+    readonly order: 'key' | 'time';
   } | undefined;
   /** What a summary index totals a record's events by (#1039): the same
    *  fields and tile as a series index's. It holds, under each key and tile,

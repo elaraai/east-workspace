@@ -392,6 +392,30 @@ export interface SeriesReaders<IK extends EastType = EastType, P extends EastTyp
 }
 
 /**
+ * The readers of a series index filed in time order (`index.series`, `order:
+ * 'time'`, #1710).
+ *
+ * @typeParam IK - The index's key type, `{ on, level, tile, key }`
+ * @typeParam P - What the index carries: the row, or its value
+ * @typeParam K - The row's key type
+ */
+export interface SeriesInTimeReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * The events under the leading fields that overlap `[from, to)`, on every
+   * key, by the edges a series index in key order reads by. One run a level,
+   * in the index's order of its levels, a tile's events together in their
+   * keys' order. It takes no key: one key's events are a series index in key
+   * order's to read.
+   *
+   * @param window - The leading fields, each exactly, and the window
+   * @returns The read: each event's row once, and its key
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them, or
+   *   a `key` is given
+   */
+  events(window: LeadingOn<IK> & TimeWindow): IndexRead<P, K>;
+}
+
+/**
  * A summary index's readers (`index.summary`).
  *
  * @typeParam IK - The index's key type, `{ on, key, tile }`
@@ -516,7 +540,15 @@ function spanGiven<Ret>(
   return overlaps.and(() => East.equal(tile, window.first).or(() => startMs.greaterEqual(tile.toEpochMilliseconds())));
 }
 
-function seriesReaders(entries: Entries): SeriesReaders {
+/**
+ * A series index's read of a window's events, in either order: what its
+ * `events` reader is made of.
+ *
+ * @param entries - The index's entries
+ * @returns The read of a window, given what leads its runs
+ * @throws {Error} When what the index carries holds no start and end to test a window by
+ */
+function seriesEvents(entries: Entries) {
   const series = entries.def.series!;
   const rowType = entries.carried as RowType;
   const start = optionField(rowType, series.from, DateTimeType);
@@ -525,12 +557,13 @@ function seriesReaders(entries: Entries): SeriesReaders {
     throw new Error(`${entries.name}: a series index carries its rows, and these carry no '${series.from}' and '${series.to}' to test a window by`);
   }
   const levels = levelsFrom(series.tile);
-  return {
-    events: (window) => {
-      const written = keyWindow(entries, 'events', window);
-      return readOf(entries.k, entries.carried, ($, give) => {
-      const on = $.const(written.on);
-      const key = $.const(written.key);
+  /**
+   * The events of a window, a run a level: the tiles of the level from the one before the window's first to its last,
+   * under what leads them — the leading fields and a key, or, in time order, the leading fields alone.
+   */
+  return (written: { from: ExprType<DateTimeType>; to: ExprType<DateTimeType> }, lead: <Ret>($: BlockBuilder<Ret>) => Record<string, Expr>) =>
+    readOf(entries.k, entries.carried, ($, give) => {
+      const led = lead($);
       const from = $.const(written.from);
       const to = $.const(written.to);
       $.if(East.less(from, to), ($) => {
@@ -539,13 +572,40 @@ function seriesReaders(entries: Entries): SeriesReaders {
         const toMs = $.const(to.toEpochMilliseconds());
         $.for($.const(levels, ArrayType(RecordLevelType)), ($, level) => {
           const { first, after } = tilesOver($, tiles, level, from, to, true);
-          const run = entries.dict.range({ from: { ik: { on, key, level, tile: first } }, to: { ik: { on, key, level, tile: after } } } as never);
+          const run = entries.dict.range({ from: { ik: { ...led, level, tile: first } }, to: { ik: { ...led, level, tile: after } } } as never);
           $.for(run as Entries['dict'], ($, row, entry) => {
             $.if(spanGiven($, row, start, end, entry, { from, fromMs, toMs, first }), ($) => { give($, row, rowKey(entry)); });
           });
         });
       });
-      });
+    });
+}
+
+function seriesReaders(entries: Entries): SeriesReaders {
+  const eventsOf = seriesEvents(entries);
+  return {
+    events: (window) => {
+      const written = keyWindow(entries, 'events', window);
+      return eventsOf(written, ($) => ({ on: $.const(written.on), key: $.const(written.key) }));
+    },
+  };
+}
+
+function seriesInTimeReaders(entries: Entries): SeriesInTimeReaders {
+  const eventsOf = seriesEvents(entries);
+  return {
+    events: (window) => {
+      const given = (window ?? {}) as { on?: unknown; key?: unknown; from?: unknown; to?: unknown };
+      if (given.key !== undefined) {
+        throw new Error(
+          `${entries.name} events: the index is filed in time order, a tile's events together, and reads the events of every key ` +
+          `under its leading fields — it takes no \`key\`: one key's events are read through a series index in key order`,
+        );
+      }
+      const written = {
+        on: leadingOn(entries, 'events', given.on), from: instant(entries, 'events', 'from', given.from), to: instant(entries, 'events', 'to', given.to),
+      };
+      return eventsOf(written, ($) => ({ on: $.const(written.on) }));
     },
   };
 }
@@ -1148,7 +1208,8 @@ type RecordKeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K 
 type RecordRowOf<T> = T extends DictType<unknown, infer V extends EastType> ? V : EastType;
 
 /**
- * The readers of an index, by its kind: a series index's `events`, a summary
+ * The readers of an index, by its kind: a series index's `events` — a key's,
+ * or, of one filed in time order, every key's — a summary
  * index's `totals`, an interval index's `overlapping` and `unset`, an area
  * index's `within` and `unplaced`, an entries index's `of`, a nested series
  * index's `items`, `totals`, `subtotals`, `subtree` and `subtreeTotals`, and
@@ -1163,7 +1224,8 @@ type RecordRowOf<T> = T extends DictType<unknown, infer V extends EastType> ? V 
  */
 export type IndexReadersOf<D> =
   D extends RecordIndexDef<string, infer T, infer IK, EastType, readonly string[] | undefined, infer C>
-    ? D extends { readonly series: object } ? SeriesReaders<IK, C, RecordKeyOf<T>>
+    ? D extends { readonly series: { readonly order: 'time' } } ? SeriesInTimeReaders<IK, C, RecordKeyOf<T>>
+      : D extends { readonly series: object } ? SeriesReaders<IK, C, RecordKeyOf<T>>
       : D extends { readonly summary: object } ? SummaryReaders<IK>
       : D extends { readonly interval: object } ? IntervalReaders<IK, C, RecordKeyOf<T>>
       : D extends { readonly area: object } ? AreaReaders<IK, C, RecordKeyOf<T>>
@@ -1218,7 +1280,7 @@ function readersOf(name: string, input: IndexInputDef, entries: Expr): object {
     name, def: input.index, dict: entries as Entries['dict'], ik: type.key.fields.ik, k: type.key.fields.k, carried: type.value,
   };
   const def = input.index;
-  if (def.series !== undefined) return seriesReaders(held);
+  if (def.series !== undefined) return def.series.order === 'time' ? seriesInTimeReaders(held) : seriesReaders(held);
   if (def.summary !== undefined) return summaryReaders(held);
   if (def.interval !== undefined) return intervalReaders(held);
   if (def.area !== undefined) return areaReaders(held);

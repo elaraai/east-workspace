@@ -518,6 +518,7 @@ describe("Data.bindPaged over a series and a summary index", () => {
                 value: East.function([StringType, Job], Tile, (_$, _key, job) => ({ press: job.press, start: job.start, end: job.end })),
             }),
             by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+            by_state_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
             by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         }),
     });
@@ -548,6 +549,12 @@ describe("Data.bindPaged over a series and a summary index", () => {
             "beside an index that carries nothing");
         assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_press_week", "tiles_by_press_week"] }),
             /'tiles_by_press_week' carries .* beside indexes that carry another projection/, "beside a series index carrying its rows");
+    });
+
+    hostTest("a series index in time order is refused, naming it: a binding's views read a key's events together (#1710)", () => {
+        const refused = /^Error: Data\.bindPaged: 'by_state_week' is a series index in time order \(order: "time"\), a tile's events together, which a binding's views do not read — list the record's series index in key order, a key's events together$/;
+        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_state_week"] }), refused);
+        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_state_press_week", "by_state_week"] }), refused, "beside the one in key order too");
     });
 
     hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {

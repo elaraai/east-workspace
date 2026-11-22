@@ -20,7 +20,7 @@ import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './typ
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
   AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
-  ProjectionOf, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf, TimeTileOf,
+  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, TimeTileOf,
 } from './record-index.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
@@ -296,15 +296,24 @@ export interface IndexBuilder<T extends EastType> {
    * event, the rest read by its key where one is opened, and a write that
    * changes nothing the value gives leaves the index's entries as they are.
    *
+   * Declared `order: 'time'` (#1710), the same entries are filed with the tile
+   * before the key, `{ on: { …on }, level, tile, key }`: a tile's events
+   * together, in their keys' order. One key's events are then no range; the
+   * events of a run of neighbouring keys over a span are one range a level a
+   * tile, however long each key's history — what a board of many rows reads a
+   * screen of them through, where an index in key order reads the part of
+   * itself each row's whole history lies in. Lead it by the group the keys
+   * stand in (`on`), so a group's keys are neighbours.
+   *
    * @param spec - `key`, the field naming what an event is on (any but a Set); `from` and `to`, its DateTime (or
-   *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; and the optional
-   *   exact leading `on` fields
+   *   Option<DateTime>) start and end fields; `tile`, `day`, `week`, `month`, `quarter` or `year`; the optional
+   *   exact leading `on` fields; and the optional `order`, `'key'` (the default) or `'time'`
    * @param options - `value`, what each entry carries of its row; its runner
    * @returns The index, its projection the row, or what `value` gives
    * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the
-   *   tile is not one of the five; when the key is a leading field; for a `value` that is async, calls a platform
-   *   function, does not take the record's key and row, or gives no struct holding the event's start and end; or for
-   *   `collections`, which are {@link NestedBuilder | the nested index's}
+   *   tile is not one of the five; when the key is a leading field; for an `order` that is neither; for a `value`
+   *   that is async, calls a platform function, does not take the record's key and row, or gives no struct holding
+   *   the event's start and end; or for `collections`, which are {@link NestedBuilder | the nested index's}
    *
    * @example
    * ```ts
@@ -318,12 +327,14 @@ export interface IndexBuilder<T extends EastType> {
    *         press: job.press, title: job.title, start: job.start, end: job.end,
    *       })),
    *     }),
+   *     // A hall's jobs a week at a time, in their presses' order: a screen of presses is a range a week.
+   *     jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
    *   }),
    * });
    * ```
    */
   series<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
-    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: TimeTileOf<S> }>;
+    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: SeriesOf<S> }>;
   /** The nested series index, and the builders of the collections it files. */
   readonly nested: NestedBuilder<T>;
   /**

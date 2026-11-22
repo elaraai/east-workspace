@@ -174,7 +174,7 @@ export { addObject } from './export.js';
 export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex, indexMaintenance } from './record-programs.js';
 export type { IndexMaintenance } from './record-programs.js';
 export type {
-  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
+  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
   IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf, EntriesOf,
 } from './record-index.js';
 export type {

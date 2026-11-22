@@ -26,6 +26,7 @@ import {
 import {
   RecordLevelType, RecordSummaryOpType, RecordSummaryTotalsType, type RecordSummaryOp, type RecordSummaryTotals,
 } from '@elaraai/e3-types';
+import { index as indexInput } from './index-input.js';
 import { record } from './record.js';
 import type { IndexKeyOf, IndexOn, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf } from './record-index.js';
 import {
@@ -495,7 +496,7 @@ describe('index.series — its declaration', () => {
       'its leading fields under on, the key, the level, then the tile');
     assert.deepEqual(fields, ['state']);
     assert.equal(printType(projection), printType(JobRow), 'it carries the whole row');
-    assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week', carries: 'row' });
+    assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week', carries: 'row', order: 'key' });
     assert.equal(def.multi, true, 'an entry a place it is filed');
     assert.equal(def.summary, undefined);
     // The declared types, as the constructor's spec types them.
@@ -525,7 +526,7 @@ describe('index.series — its declaration', () => {
     const whole = jobSeries('jobs_by_press_week', spec);
     assert.equal(printType(def.valueType), printType(JobTile), 'it carries what its value gives');
     assert.equal(printType(def.keyType), printType(whole.keyType), 'under the key a series index files by');
-    assert.deepEqual(def.series, { ...spec, carries: 'value' });
+    assert.deepEqual(def.series, { ...spec, carries: 'value', order: 'key' });
     assert.equal(def.valueFn, tileOf);
     const rows = seededJobs();
     const out = emitted(def, rows);
@@ -539,6 +540,92 @@ describe('index.series — its declaration', () => {
       const row = rows.get(k)!;
       assert.ok(sameTile(value as ValueTypeOf<typeof JobTile>, { press: row.press, title: row.title, start: row.start, end: row.end }), `${k}'s entry carries its tile`);
     }
+  });
+
+  it('declared in time order, files the entries a series index in key order files, the tile before the key (#1710)', () => {
+    const spec = { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' } as const;
+    const inTime = jobSeries('jobs_by_state_week', { ...spec, order: 'time' });
+    const byKey = jobSeries('jobs_by_state_press_week', spec);
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; level: typeof RecordLevelType; tile: typeof DateTimeType; key: typeof StringType }> = inTime.keyType;
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), level: RecordLevelType, tile: DateTimeType, key: StringType })),
+      'its leading fields under on, the level, the tile, then the key');
+    const orders: readonly ['time', 'key'] = [inTime.series.order, byKey.series.order];
+    assert.deepEqual(orders, ['time', 'key']);
+    assert.deepEqual(inTime.series, { key: 'press', from: 'start', to: 'end', tile: 'week', carries: 'row', order: 'time' });
+    const tiles = jobTiles('job_tiles_by_week', { key: 'press', from: 'start', to: 'end', tile: 'day', order: 'time' });
+    assert.deepEqual([tiles.series.order, tiles.series.carries, printType(tiles.valueType)], ['time', 'value', printType(JobTile)], 'and carries a value as one in key order does');
+
+    // Each entry is one the index in key order files, its key's parts in the other order, carrying the same row.
+    const rows = editedJobs(seededJobs());
+    const keyed = StructType({ ik: byKey.keyType, k: StringType });
+    const asKeyed = (pairs: [unknown, unknown][]) => new SortedMap(pairs.map(([entry, value]): [unknown, unknown] => {
+      const { ik, k } = entry as { ik: ValueTypeOf<typeof byKey.keyType>; k: string };
+      return [{ ik: { on: ik.on, key: ik.key, level: ik.level, tile: ik.tile }, k }, value];
+    }), compareFor(keyed) as never);
+    assertEast(DictType(keyed, JobRow), asKeyed(emitted(inTime, rows)) as never, asKeyed(emitted(byKey, rows)) as never, 'the same entries, each with its row');
+
+    // In its own order, a tile's jobs lie together in their presses' order: under a state, a level and a tile, the presses ascend.
+    const filed = [...new SortedMap(emitted(inTime, rows), compareFor(StructType({ ik: inTime.keyType, k: StringType })) as never).keys()]
+      .map((entry) => (entry as { ik: ValueTypeOf<typeof inTime.keyType> }).ik);
+    const sameTile = equalFor(StructType({ on: StructType({ state: StringType }), level: RecordLevelType, tile: DateTimeType }));
+    let tilesMet = 1;
+    let shared = 0;
+    for (let i = 1; i < filed.length; i++) {
+      const [a, b] = [filed[i - 1]!, filed[i]!];
+      if (!sameTile({ on: a.on, level: a.level, tile: a.tile }, { on: b.on, level: b.level, tile: b.tile })) { tilesMet += 1; continue; }
+      shared += 1;
+      assert.ok(keyOrder(a.key, b.key) <= 0, `within a tile, ${a.key} is filed before ${b.key}`);
+    }
+    assert.ok(tilesMet > 20 && shared > 20, `the jobs fill many tiles, several presses to a tile: ${tilesMet} tiles, ${shared} entries beside another of their tile`);
+  });
+
+  it('in time order, its reader gives a window\'s events on every press under its leading fields, each once (#1710)', () => {
+    const rec = record('jobs', JobsType, {
+      initial: new Map(),
+      indexes: (index) => ({ jobs_by_state_week: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }) }),
+    });
+    const series = indexInput(rec.indexes.jobs_by_state_week);
+    const events = East.compile(East.function([series.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, state, from, to) =>
+      series.read(entries).events({ on: { state }, from, to }).collect($)), []);
+    const counted = East.compile(East.function([series.type, StringType, DateTimeType, DateTimeType], IntegerType, ($, entries, state, from, to) => {
+      const given = $.let(0n);
+      series.read(entries).events({ on: { state }, from, to }).each($, ($) => { $.assign(given, given.add(1n)); });
+      return given;
+    }), []);
+    const rows = editedJobs(seededJobs());
+    // A job a year and a half long, filed under each year it touches: a window across the turn meets it twice, and is given it once.
+    rows.set('X-long', job(2, OCT_5 - 200n * DAY, OCT_5 + 340n * DAY));
+    const held = new SortedMap(emitted(rec.indexes.jobs_by_state_week, rows), compareFor(series.type.key) as never);
+    // The edges a series index in key order reads by: an instant inside from `from` and outside at `to`, a span where it starts before `to` and ends after `from`.
+    const time = compareFor(DateTimeType);
+    const overlaps = (row: Job, from: Date, to: Date): boolean => {
+      if (row.start.type !== 'some') return false;
+      const start = row.start.value;
+      const end = row.end.type === 'some' ? row.end.value : start;
+      return time(end, start) <= 0 ? time(start, from) >= 0 && time(start, to) < 0 : time(start, to) < 0 && time(end, from) > 0;
+    };
+    const windows: Array<[string, string]> = [
+      ['2026-10-05T00:00:00.000', '2026-10-12T00:00:00.000'], ['2026-10-07T09:00:00.000', '2026-10-07T10:00:00.000'],
+      ['2026-08-01T00:00:00.000', '2027-02-01T00:00:00.000'], ['2026-12-28T00:00:00.000', '2027-01-04T00:00:00.000'],
+      ['2026-10-12T00:00:00.000', '2026-10-12T00:00:00.000'], ['2026-10-19T00:00:00.000', '2026-10-12T00:00:00.000'],
+    ];
+    let given = 0;
+    for (const [from, to] of windows) {
+      for (const state of ['confirmed', 'proposed']) {
+        const expected = new SortedMap<string, Job>(
+          [...rows].filter(([, row]) => row.state === state && time(at(from), at(to)) < 0 && overlaps(row, at(from), at(to))), keyOrder);
+        assertEast(JobsType, events(held as never, state, at(from), at(to)), expected, `the ${state} jobs in [${from}, ${to})`);
+        assert.equal(counted(held as never, state, at(from), at(to)), BigInt(expected.size), `each once in [${from}, ${to})`);
+        given += expected.size;
+      }
+    }
+    assert.ok(given > 50, `the windows hold jobs: ${given}`);
+    assert.ok(events(held as never, 'confirmed', at('2026-12-28T00:00:00.000'), at('2027-01-04T00:00:00.000')).has('X-long'), 'the job across the year\'s turn');
+    // One key's events are an index in key order's to read.
+    assert.throws(() => East.function([series.type], JobsType, ($, entries) =>
+      // @ts-expect-error — in time order the reader takes the leading fields and the window, and no key
+      series.read(entries).events({ on: { state: 'confirmed' }, key: 'P-1001', from: at('2026-10-05T00:00:00.000'), to: at('2026-10-12T00:00:00.000') }).collect($)),
+    /e3\.index 'jobs\.jobs_by_state_week' events: the index is filed in time order, a tile's events together, .* it takes no `key`/);
   });
 
   it('beside a nested series index, keeps the value it was given where a series index carrying its row carries the lean row', () => {
@@ -581,6 +668,15 @@ describe('index.series — its declaration', () => {
       // @ts-expect-error — a tile is one of the five
       assert.throws(() => jobSeries('hourly', { key: 'press', from: 'start', to: 'end', tile: 'hour' }), /takes a tile: "day", "week", "month", "quarter", "year" — got "hour"/);
       assert.throws(() => jobSeries('led_by_key', { on: ['press'], key: 'press', from: 'start', to: 'end', tile: 'week' }), /'press' follows the leading fields, and cannot be one/);
+    });
+
+    it('an order that is neither by key nor by time, naming the two; and an order on a summary, which is filed by key', () => {
+      // @ts-expect-error — an order is 'key' or 'time'
+      assert.throws(() => jobSeries('by_row', { key: 'press', from: 'start', to: 'end', tile: 'week', order: 'row' }),
+        /e3\.record 'jobs': index\.series 'by_row' order is 'key' — a key's events together, .* — or 'time' — a tile's events together in their keys' order, .* — not "row"/);
+      // @ts-expect-error — a summary index is filed by key
+      assert.throws(() => jobSummary('totals_in_time', { key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+        /e3\.record 'jobs': index\.summary 'totals_in_time' takes on, key, from, to, tile, not order — a summary index is filed by key, a key's tiles together: an order is a series index's/);
     });
 
     it('the start or the end among the leading fields: a leading field is matched exactly, before the tile they are cut by', () => {
@@ -705,6 +801,9 @@ describe('series and summary indexes — through a write and a rebuild', () => {
         jobs_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
         jobs_by_state_press_week: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
         jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
+        // In time order, the tile before the key (#1710): the same filings, so the same writes, at other places.
+        jobs_by_state_week_in_time: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+        job_tiles_by_crew_day_in_time: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day', order: 'time' }, { value: tileOf }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });

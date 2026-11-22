@@ -26,6 +26,13 @@
  *   count 1 and the row's share of each tile it touches, under each
  *   (`tileShares`).
  *
+ * A series index declared `order: 'time'` (#1710) files the same entries the
+ * other way about, `{ on: { …on }, level, tile, key }`: a tile's events
+ * together, in their keys' order, so the events a run of neighbouring keys
+ * hold over a span of time lie together whatever each key's history holds — a
+ * board reads a screen of its rows as one range a level a tile, where filed by
+ * key it reads the part of the index each row's whole history lies in.
+ *
  * A row with no start is in neither: it has no time to file it by.
  *
  * @packageDocumentation
@@ -57,6 +64,35 @@ export interface TimeTileSpec {
   readonly to: string;
   /** The tile. */
   readonly tile: RecordTile;
+}
+
+/** The order a series index files its entries in: by key, then time; or by time, then key. */
+export type SeriesOrder = 'key' | 'time';
+
+const SERIES_ORDERS: readonly SeriesOrder[] = ['key', 'time'];
+
+/** What a series index's declaration names (`index.series`): a summary's fields, and its order. */
+export interface SeriesSpec extends TimeTileSpec {
+  /** `'key'`, a key's events together (the default); `'time'`, a tile's events together, in their keys' order. */
+  readonly order?: SeriesOrder;
+}
+
+/**
+ * The order a series index is declared in, once it passes.
+ *
+ * @param constructor - The constructor, as a refusal names it
+ * @param name - The index
+ * @param order - What the declaration gives
+ * @returns The order: `'key'` where none is given
+ * @throws {Error} For any other, naming the two
+ */
+function checkOrder(constructor: IndexConstructor, name: string, order: unknown): SeriesOrder {
+  if (order === undefined) return 'key';
+  if (typeof order === 'string' && (SERIES_ORDERS as readonly string[]).includes(order)) return order as SeriesOrder;
+  throw new Error(
+    `${constructor} '${name}' order is 'key' — a key's events together, a range a level for one key — or 'time' — a tile's events ` +
+    `together in their keys' order, a range a level a tile for a run of keys — not ${JSON.stringify(order)}`,
+  );
 }
 
 /** A series or summary declaration's fields, once they pass. */
@@ -143,7 +179,9 @@ function seriesValue(
  * A series index's definition (`index.series`): its key function,
  * `(K, V) → Set<IK>`, an entry per place a row's event is filed
  * (`eventFilings`: once, or once a year past a year), `{ on: { …on }, key,
- * level, tile }` — one per combination of its leading values, a Set among them
+ * level, tile }` — or, declared `order: 'time'`, `{ on: { …on }, level, tile,
+ * key }`, the same parts with the tile before the key (#1710) — one per
+ * combination of its leading values, a Set among them
  * fanning out, as the interval index's do; and its projection: the whole row,
  * or what its `value` gives of the row (#1710), so a cell reads the index
  * alone and no record segment. It stays an ordinary maintained index:
@@ -153,31 +191,38 @@ function seriesValue(
  * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
- * @param spec - The key, the start and the end, the tile, and the optional leading `on`
+ * @param spec - The key, the start and the end, the tile, the optional leading `on`, and the optional `order`
  * @param config - Its runner selection, and its `value`: what each entry carries of its row, `(K, V) -> P`
  * @returns The definition
  * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the tile is
- *   not one of the five; when the key, the start or the end is a leading field; for a `value` that is not a pure function
- *   of the record's entry giving a struct with the event's start and end; or on any guard every index applies
+ *   not one of the five; when the key, the start or the end is a leading field; for an `order` that is neither `'key'`
+ *   nor `'time'`; for a `value` that is not a pure function of the record's entry giving a struct with the event's start
+ *   and end; or on any guard every index applies
  */
 export function seriesDefinition(
-  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec,
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: SeriesSpec,
   config: { runner?: RecordIndexDef['runner']; value?: IndexFunction } | undefined,
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
-  onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
+  onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile', 'order'],
     'value' in spec ? `a series index's value is an option beside these: ${constructor.slice(constructor.lastIndexOf('index.'))}({ … }, { value })` : undefined);
   const fields = checkTimeTile(constructor, name, valueType, spec);
+  const order = checkOrder(constructor, name, spec.order);
   const { rowType, leading } = fields;
-  const indexType = StructType({ on: leading.onType, key: fields.key.type, level: RecordLevelType, tile: DateTimeType });
+  // East orders a struct by its fields as they are declared: the order of the key's parts is the order of the index.
+  const indexType = order === 'time'
+    ? StructType({ on: leading.onType, level: RecordLevelType, tile: DateTimeType, key: fields.key.type })
+    : StructType({ on: leading.onType, key: fields.key.type, level: RecordLevelType, tile: DateTimeType });
   const level = variant(fields.tile, null);
   const readKey = fieldReader(keyType, rowType, fields.key);
   const readStart = fieldReader(keyType, rowType, { option: fields.start });
   const readEnd = fieldReader(keyType, rowType, { option: fields.end });
   const leads = leadingValues(keyType, rowType, leading);
-  // An event's entries under one combination of its leading values: one a place it is filed.
+  // An event's entries under one combination of its leading values: one a place it is filed, its key's parts in the index's order.
   const filedUnder = East.function([leading.onType, fields.key.type, ArrayType(TileFilingType)], SetType(indexType), (_$, on, key, filings) =>
-    filings.toSet((_$, filing) => ({ on, key, level: filing.level, tile: filing.tile })));
+    filings.toSet((_$, filing) => (order === 'time'
+      ? { on, level: filing.level, tile: filing.tile, key }
+      : { on, key, level: filing.level, tile: filing.tile })));
   const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
     const keyOf = $.const(readKey);
     const startOf = $.const(readStart);
@@ -201,7 +246,9 @@ export function seriesDefinition(
     name,
     record: rec,
     on: Object.freeze([...(spec.on ?? [])]),
-    series: Object.freeze({ key: spec.key, from: spec.from, to: spec.to, tile: fields.tile, carries: carried === undefined ? 'row' as const : 'value' as const }),
+    series: Object.freeze({
+      key: spec.key, from: spec.from, to: spec.to, tile: fields.tile, carries: carried === undefined ? 'row' as const : 'value' as const, order,
+    }),
     keyFn,
     valueFn,
     multi: true,
@@ -258,7 +305,8 @@ export function summaryDefinition(
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a summary index holds its totals, so it takes no value' : undefined);
+    'value' in spec ? 'a summary index holds its totals, so it takes no value'
+      : 'order' in spec ? 'a summary index is filed by key, a key\'s tiles together: an order is a series index\'s' : undefined);
   const fields = checkTimeTile(constructor, name, valueType, spec);
   const { rowType, leading } = fields;
   const indexType = StructType({ on: leading.onType, key: fields.key.type, tile: DateTimeType });

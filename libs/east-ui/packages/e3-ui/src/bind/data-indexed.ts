@@ -345,6 +345,13 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         if (computed && index.multi && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length !== 1) {
             throw new Error(`Data.bindPaged: computed keys index '${index.name}' needs one named field for Slice so exact membership cannot duplicate records; use { index } for an arbitrary compound fan-out`);
         }
+        // A series index in time order files a tile's events together, in their keys' order (#1710). The readers a
+        // binding gives its views read a key's events as a range a level, which is no run of it, so it is refused here
+        // rather than read by the wrong ranges.
+        if (index.series?.order === "time") {
+            throw new Error(`Data.bindPaged: '${index.name}' is a series index in time order (order: "time"), a tile's events together, which a ` +
+                `binding's views do not read — list the record's series index in key order, a key's events together`);
+        }
         // A generated index may be led by no field: its key's `on` is then empty (#1432).
         const generated = index.interval !== undefined || index.area !== undefined || index.series !== undefined || index.summary !== undefined;
         if (!generated && index.entries === undefined && index.on?.length === 0) throw new Error(`Data.bindPaged: index '${index.name}' needs at least one field`);

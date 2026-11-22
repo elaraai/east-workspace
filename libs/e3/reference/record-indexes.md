@@ -64,7 +64,7 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 |---|---|---|
 | interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
 | area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
-| series | `{ on, key, level, tile }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
+| series | `{ on, key, level, tile }`; in time order, `{ on, level, tile, key }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
 | summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
@@ -172,6 +172,7 @@ const jobs = e3.record('jobs', JobsType, {
 | `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is filed nowhere; no end, or one at or before the start, is an instant |
 | `tile` | a series index's finest level, and a summary index's tile: `day`, `week`, `month`, `quarter` or `year` |
 | `on` | exact leading fields, before the key; a Set field fans out |
+| `order` | a series index's alone: `'key'` (the default), a key's events together; `'time'`, a tile's events together in their keys' order |
 
 **A series index** is an ordinary index whose keys the SDK generates, and it
 **carries its rows**, as the area index does. It files each event **once**, at
@@ -193,6 +194,25 @@ nothing the value gives leaves the index's entries as they are, and beside a
 nested series index or an entries index it carries its own value, as a plain
 index's does. A value that gives no struct, or one holding no DateTime start
 or end under those names, is refused, naming what it gives.
+
+Declared `order: 'time'`, a series index files the same entries with the tile
+before the key, `{ on, level, tile, key }`: **a tile's events together, in
+their keys' order**. In key order the events of a block of keys over a span lie
+in the part of the index each key's whole history fills, a part a key however
+narrow the span — so what a board's screen reads grows with its rows'
+histories. In time order the events of a run of neighbouring keys over a span
+are one range a level a tile, and what a screen reads is what it shows. Lead it
+by the group the keys stand in, so a group's keys are neighbours:
+
+```typescript
+// A hall's jobs a week at a time, in their presses' order, each entry a tile:
+job_tiles_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, { value: tileOf }),
+```
+
+One key's events are then no range, so its reader (below) reads every key's
+under the leading fields and takes no `key`: declare an index in key order
+beside it for a reader of one key. An `order` that is neither is refused,
+naming the two, and so is a summary index's, which is filed by key.
 
 **A summary index** holds,
 under each key and tile, `{ count, ms }`: how many rows touch the tile, and the
@@ -511,6 +531,7 @@ in the index's own order.
 | `index.on`, `index.key`, `index.keys` | `of(key)`: the rows under an index key, or under its first fields (`{ owner }` of `['owner', 'due']`). `between({ from?, to? })`: the rows from one index key up to another | what the index carries, and the row's key | one |
 | `index.interval` | `overlapping({ on?, from, to })`: the rows that overlap `[from, to)`. `unset({ on? })`: the rows with no start | what the index carries, and the row's key | at most 55, in the index's order: the starts in the window, then one a tree node above its first instant |
 | `index.series` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
+| `index.series`, `order: 'time'` | `events({ on?, from, to })`: the events on every key under `on` that overlap `[from, to)`; it takes no `key` | what the index carries, and the row's key | one a level, a tile's events together in their keys' order |
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
 | `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport, in the index's order: a cell before the cells inside it |
 | `index.entries` | `of(key)`: that key's entry on every row that holds one | the entry's value, and the row's key | one |
