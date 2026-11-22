@@ -12,14 +12,18 @@
  * under is refused, and the footer says why; and Save writes each lane under
  * the key it builds. And a sheet over a record whose rows hold their own key
  * in a field (`keyField`, east-workspace#1705): docks keyed by number, a dock
- * typed into the blank row holding its key in its number from the first.
+ * typed into the blank row holding its key in its number from the first. And
+ * docks keyed by a variant, as a composite record keys its rows, paged from
+ * the rail's `rows` source (east-workspace#1696): the narrowing shows the rows
+ * it keeps, and a typed cell is saved under its row's own key.
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DictType, East, IntegerType, StringType, StructType, equalFor, printFor } from "@elaraai/east";
+import { DictType, East, IntegerType, SortedMap, StringType, StructType, VariantType, compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
+import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { act, settle, sheetHarness, slot } from "./frame/harness.test-utils.js";
 
@@ -43,11 +47,26 @@ const docks = e3.record("key_field_docks", DictType(IntegerType, Dock), {
     }),
 });
 
-const h = sheetHarness({ modules: { "sheet/built-key": { lanes, docks } }, frame: 2000 });
+/** A dock's key as a composite record keys its rows: a variant of the source each came from. */
+const Sourced = VariantType({ erp: StringType, own: StringType });
+const D1 = variant("erp", "D-1"), D2 = variant("own", "D-2");
+/** The docks again, keyed by the source each came from, and filed by their note: what the rail narrows them through. */
+const sourcedDocks = e3.record("sourced_docks", DictType(Sourced, Dock), {
+    initial: new SortedMap<ValueTypeOf<typeof Sourced>, ValueTypeOf<typeof Dock>>([[D1, { no: 1n, note: "North" }], [D2, { no: 2n, note: "South" }]], compareFor(Sourced)),
+    indexes: (index) => ({
+        sourced_docks_by_note: index.on(["note"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = sheetHarness({ modules: { "sheet/built-key": { lanes, docks, sourcedDocks } }, frame: 2000 });
 const laneEqual = equalFor(Lane);
 const dockEqual = equalFor(Dock);
 const printLanes = printFor(lanes.type);
 const printDocks = printFor(docks.type);
+const printSourced = printFor(Sourced);
 
 /** The lanes, each keyed by the number its aisle and its slot build. */
 const lanesKeyed = East.function([], SheetPayloadType, ($) => {
@@ -75,6 +94,24 @@ const docksKeyed = East.function([], SheetPayloadType, ($) => {
     });
 });
 
+/**
+ * The docks keyed by their source, paged from the rail's `rows` source, which opens on the South docks: saved through
+ * their record. A variant's key is made by the app's own rule, which this sheet gives none of: it adds no rows.
+ */
+const docksSourced = East.function([], SheetPayloadType, ($) => {
+    const held = $.let(Record.bind(sourcedDocks));
+    const slice = $.const(Slice.bindRecords("test.sheet.sourcedDocks", {
+        rows: { source: Data.bindPaged(sourcedDocks, { indexes: ["sourced_docks_by_note"] }), fields: { note: { label: "Note", hints: ["North", "South"] } }, initial: { note: ["South"] } },
+    }));
+    return Sheet.Payload({
+        record: held, name: "docksSourced", slice: { slice }, edits: { insertRows: false },
+        columns: {
+            no: Sheet.column.integer(Dock, { header: "No" }),
+            note: Sheet.column.text(Dock, { header: "Note" }),
+        },
+    });
+});
+
 /** The sheet's rows, by their keys, in order. */
 const ids = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.getAttribute("data-row-id"));
 /** The footer's message. */
@@ -93,8 +130,8 @@ async function paste(c: HTMLElement, at: HTMLElement, words: string): Promise<vo
 const blank = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-blank] [data-key="${key}"]`)!;
 /** The key of the row the ring is on; `null` where it is on none. */
 const ringOn = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="cell"][data-selected]')?.closest<HTMLElement>('[data-slot="row"]')?.getAttribute("data-row-id") ?? null;
-/** A lane's cell under a column. */
-const cellOf = (c: HTMLElement, id: string, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-row-id="${id}"] [data-key="${key}"]`)!;
+/** A row's cell under a column, by the row's key: a key East prints with quotes in it, a variant's, quoted as CSS reads it. */
+const cellOf = (c: HTMLElement, id: string, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-row-id=${JSON.stringify(id)}] [data-key="${key}"]`)!;
 
 test("ruling 6 — a lane typed into the blank row stands under the key its row builds at once, a cell not typed yet read as empty, and moves as its cells are filled, the ring with it; one that builds a key another stands under is refused, saying so; and Save writes each under the key it builds", async () => {
     const { container: c } = await h.mountPayload(lanesKeyed, { storageKey: "sheet-built-key" });
@@ -138,4 +175,15 @@ test("ruling 1 — holding its key in a field (`keyField`), a dock typed into th
     await waitFor(async () => expect([...(await h.read(docks)).keys()]).toEqual([1n, 2n, 3n]));
     const saved = await h.read(docks);
     expect([dockEqual(saved.get(3n)!, { no: 3n, note: "East" }), dockEqual(saved.get(2n)!, { no: 0n, note: "South" })], printDocks(saved)).toEqual([true, true]);
+});
+
+test("#1696 — over docks keyed by a variant, as a composite record keys its rows, the rail's `rows` source pages the rows its narrowing keeps, and a typed cell is saved under its row's own key", async () => {
+    const { container: c } = await h.mountPayload(docksSourced, { storageKey: "sheet-sourced-docks" });
+    // The rail opens on the South docks: the North one is not drawn.
+    await waitFor(() => expect(ids(c)).toEqual([printSourced(D2)]));
+    await paste(c, cellOf(c, printSourced(D2), "no"), "22");
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
+    await waitFor(async () => expect((await h.read(sourcedDocks)).get(D2)?.no).toBe(22n));
+    const saved = await h.read(sourcedDocks);
+    expect([saved.size, dockEqual(saved.get(D2)!, { no: 22n, note: "South" }), dockEqual(saved.get(D1)!, { no: 1n, note: "North" })]).toEqual([2, true, true]);
 });

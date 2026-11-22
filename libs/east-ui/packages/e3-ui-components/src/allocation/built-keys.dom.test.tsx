@@ -19,13 +19,17 @@
  * the key Reserve there would make — the next number, or the number its row
  * builds — the day with it a draft of the bins under that number, and says so
  * where the bins' rule makes none (ruling 13): the key made once for the
- * drafts, however often the list draws.
+ * drafts, however often the list draws. And over bins keyed by a struct, read a
+ * day at a time through the slice's bin source (east-workspace#1696), a bin is
+ * drawn and unlinked, and Save writes it under its own key.
  */
 import { expect, test, vi } from "vitest";
 import { waitFor, within } from "@testing-library/react";
-import { DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
+import {
+    DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, equalFor, none, printFor, some, variant, type ExprType, type ValueTypeOf,
+} from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Func, Record, Schedule, type KindRowKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import * as fx from "@elaraai/e3-ui/fixtures/allocation/allocation-bounds";
@@ -72,7 +76,19 @@ const numberedFit = e3.function("yard_numbered_fit", {
     return answer(request, read, rule, "ranked by load, kind and spare days");
 });
 
-const h = e3Harness({ "allocation/allocation": ex, "allocation/allocation-bounds": fx, "allocation/key-field": { codedBins, numberedBins, numberedFit } },
+/** A bin's key as a yard keys its rows: the lot it holds, and its place in the lot — a struct, no String. */
+const Placed = StructType({ lot: StringType, seq: IntegerType });
+/** Bins keyed by a struct, filed by their time, which the board reads a day of through its slice: none until a test writes some. */
+const placedBins = e3.record("kiln_placed_bins", DictType(Placed, fx.MoistureBin), {
+    initial: new SortedMap([], compareFor(Placed)),
+    indexes: (index) => ({ kiln_placed_bins_by_time: index.interval({ from: "at", to: "at" }) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+/** Their fit, asked and answered at their key type (ruling 12): it ranks nothing. */
+const placedFit = e3.function("yard_placed_fit", East.function([Allocation.Types.FitRequest({ key: Placed })], Allocation.Types.FitResult({ key: Placed }),
+    (_$, request) => ({ ask: request.ask, resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none" })));
+
+const h = e3Harness({ "allocation/allocation": ex, "allocation/allocation-bounds": fx, "allocation/key-field": { codedBins, numberedBins, numberedFit, placedBins, placedFit } },
     { main: "data-allocation-main" });
 /** The numbered bins' fit, as the board asks it: a bin by its number. */
 const numberedCalls = fitCalls(h, { request: Allocation.Types.FitRequest({ key: IntegerType }), result: Allocation.Types.FitResult({ key: IntegerType }) });
@@ -87,8 +103,8 @@ type BinKeys = { readonly key: (bin: ExprType<typeof fx.MoistureBin>) => ExprTyp
     | { readonly numbered: KindRowKeys<typeof fx.MoistureBin, IntegerType> };
 /** What a test's board is over: the bins and their fit, and whether it has the Library. */
 interface Over {
-    readonly bins: typeof fx.moistureBins | typeof numberedBins;
-    readonly fit: typeof fx.moistureFit | typeof numberedFit;
+    readonly bins: typeof fx.moistureBins | typeof numberedBins | typeof placedBins;
+    readonly fit: typeof fx.moistureFit | typeof numberedFit | typeof placedFit;
     readonly library?: boolean;
 }
 
@@ -97,22 +113,32 @@ interface Over {
  *
  * @param keys - How the bins are keyed; `undefined`, by the board
  * @param layout - The layout it opens in
- * @param over - The bins and their fit: the moisture bins and theirs, or the bins keyed by number and theirs; and the Library
+ * @param over - The bins and their fit: the moisture bins and theirs, the bins keyed by number and theirs, or the bins
+ *   keyed by a struct and theirs, read a day at a time through the slice's bin source; and the Library
  * @returns The example
  */
 const yardKeyed = (keys: BinKeys | undefined, layout: "timeline" | "table", over: Over = { bins: fx.moistureBins, fit: fx.moistureFit }) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const placed = over.bins === placedBins;
     const bins = $.let(Record.bind(over.bins as typeof fx.moistureBins, ["patch"]));
+    // The bins keyed by a struct: read a day at a time through the slice's bin source, each by its key, a new one keyed by the app's rule (east-workspace#1696).
+    const slice = placed ? $.let(Slice.bindRecords("test.allocation.placedBins", {
+        bin: { source: Data.bindPaged(placedBins, { indexes: ["kiln_placed_bins_by_time"] }), range: "at" },
+    })) : undefined;
+    const entries = placed ? $.let(Data.bindPaged(placedBins)) : undefined;
+    const newPlace = placed ? $.const(East.function([SetType(Placed)], Placed, (_$2, taken) => ({ lot: "new", seq: taken.size().add(1n) }))) : undefined;
     const loads = $.let(Data.bind(ex.arrivals));
     const yard = $.let(Data.bind(ex.kilns));
     const bays = $.let(Data.bind(ex.yardBays));
     const fit = $.let(Func.bind(over.fit as typeof fx.moistureFit));
     return Allocation({
         id: "keyedYard", fit, inspector: true, view: { layout, date: TUE },
+        ...(slice === undefined ? {} : { slice: { slice } }),
         ...(over.library === true ? { library: [Allocation.library.arrivals(), Allocation.library.resources()] } : {}),
         events: { bin: Schedule.events(bins, {
             name: "Bin", icon: "box",
             at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
             quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+            ...(entries === undefined ? {} : { entries: entries as never, newKey: newPlace as never }),
             ...(keys === undefined ? {} : "newKey" in keys ? { newKey: $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`N-${taken.size().add(1n)}`)) }
                 // The bins keyed by number stand in the moisture bins' binding above: the page holds their options to their own key type.
                 : "numbered" in keys ? keys.numbered as unknown as KindRowKeys<typeof fx.MoistureBin> : keys),
@@ -336,4 +362,19 @@ test("ruling 1 — a bin an edit moves under another key is the bin it was, edit
     await press(save(c));
     const saved = await h.read(fx.moistureBins);
     expect([sameBin(saved.get("3113")!, before.get("3113")!), saved.has("B-2/0"), saved.has("B-2/1"), saved.size]).toEqual([true, false, false, before.size]);
+});
+
+test("#1696 — over bins keyed by a struct, read a day at a time through the slice's bin source, a bin is drawn and unlinked, and Save writes it under its own key", async () => {
+    // The moisture bins, each keyed by its lot: bin 3113 at (3113, 1).
+    const before = await h.read(fx.moistureBins);
+    await h.patch(placedBins, new SortedMap([...before].map(([key, bin]): [ValueTypeOf<typeof Placed>, ValueTypeOf<typeof fx.MoistureBin>] => [{ lot: key, seq: 1n }, bin]), compareFor(Placed)));
+    const { container: c } = await h.mount(yardKeyed(undefined, "timeline", { bins: placedBins, fit: placedFit }));
+    const lot = printFor(Placed)({ lot: "3113", seq: 1n });
+    await waitFor(() => expect(card(c, lot)).not.toBeNull(), { timeout: 8_000 });
+    await press(card(c, lot));
+    await press(button(details(c), "Unlink"));
+    await press(save(c));
+    await waitFor(async () => expect((await h.read(placedBins)).get({ lot: "3113", seq: 1n })?.kilns.size).toBe(0));
+    const saved = await h.read(placedBins);
+    expect([saved.size, saved.get({ lot: "3113", seq: 1n })!.bay]).toEqual([before.size, before.get("3113")!.bay]);
 });

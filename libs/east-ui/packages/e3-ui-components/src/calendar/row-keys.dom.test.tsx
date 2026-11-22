@@ -14,12 +14,18 @@
  * rule is told the key of every booking the day shows. Over bookings keyed by
  * number, Search Records reads a key typed as a number. A booking keyed by its
  * reference, the reference typed in its Details, moves under the key it then
- * builds, the booking it was, edited.
+ * builds, the booking it was, edited. Read through a rail's source, bookings
+ * keyed by a struct, and by a variant — a composite's key — draw, are
+ * selected, move from their Details and save under their own keys
+ * (east-workspace#1696).
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, equalFor } from "@elaraai/east";
+import userEvent from "@testing-library/user-event";
+import {
+    DateTimeType, DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, VariantType, compareFor, equalFor, printFor, variant,
+} from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
@@ -71,7 +77,35 @@ const counted = e3.record("calendar_counted_bookings", DictType(IntegerType, Boo
     }),
 });
 
-const h = e3Harness({ "calendar/row-keys": { bookings, numbered, counted } }, { main: "data-calendar-main" });
+/** A booking's key as a desk keys its queue: the desk, and the booking's place in it — a struct, no String. */
+const Placed = StructType({ desk: StringType, seq: IntegerType });
+const A1 = { desk: "A", seq: 1n };
+/** The desk's one booking, keyed by its place in desk A's queue. */
+const placed = e3.record("calendar_placed_bookings", DictType(Placed, Booking), {
+    initial: new SortedMap([[A1, { ref: "A-1", title: "Safety check", start: NINE, end: TEN }]], compareFor(Placed)),
+    indexes: (index) => ({
+        calendar_placed_bookings_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** A booking's key as a composite record keys its rows: a variant of the source each came from. */
+const Sourced = VariantType({ erp: StringType, own: StringType });
+const PO7 = variant("erp", "PO-7");
+/** The desk's one booking, keyed by the source it came from. */
+const sourced = e3.record("calendar_sourced_bookings", DictType(Sourced, Booking), {
+    initial: new SortedMap([[PO7, { ref: "PO-7", title: "Safety check", start: NINE, end: TEN }]], compareFor(Sourced)),
+    indexes: (index) => ({
+        calendar_sourced_bookings_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "calendar/row-keys": { bookings, numbered, counted, placed, sourced } }, { main: "data-calendar-main" });
 const sameBooking = equalFor(Booking);
 
 /** The bookings' day, under the app's own rule for a new booking's key: B-1, B-2, … */
@@ -155,8 +189,47 @@ const countedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end" }) } });
 }))) };
 
+/** The placed bookings' day, read a window at a time through the rail's `booking` source, each booking by its key. */
+const placedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(placed, ["patch"]));
+    const entries = $.let(Data.bindPaged(placed));
+    const indexed = $.let(Data.bindPaged(placed, { indexes: ["calendar_placed_bookings_by_time"] }));
+    const slice = $.let(Slice.bindRecords("test.calendar.placedKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries }) } });
+}))) };
+
+/** The sourced bookings' day, read as the placed bookings' are. */
+const sourcedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(sourced, ["patch"]));
+    const entries = $.let(Data.bindPaged(sourced));
+    const indexed = $.let(Data.bindPaged(sourced, { indexes: ["calendar_sourced_bookings_by_time"] }));
+    const slice = $.let(Slice.bindRecords("test.calendar.sourcedKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries }) } });
+}))) };
+
 /** The keys of the bookings the day draws. */
 const drawn = (c: HTMLElement): string[] => [...c.querySelectorAll<HTMLElement>("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")!);
+
+/**
+ * Moves a booking an hour later from its Details, as a planner does: selected, its start's hour one up, taken as the
+ * focus leaves the field; then presses Save.
+ */
+async function laterAnHourAndSaved(c: HTMLElement, key: string): Promise<void> {
+    await waitFor(() => expect(event(c, "booking", key)).not.toBeNull(), { timeout: 8_000 });
+    await act(async () => { fireEvent.click(event(c, "booking", key)); });
+    await settle();
+    const start = slot(c, "end").querySelector<HTMLElement>('[data-field="start"]')!;
+    const user = userEvent.setup();
+    await user.click(start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="hour"]')!);
+    await user.keyboard("{ArrowUp}");
+    while (start.contains(document.activeElement)) await user.tab();
+    await settle();
+    expect(event(c, "booking", key).hasAttribute("data-drafted")).toBe(true);
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+    await settle();
+}
 
 /** Duplicates the booking B-1 from its Details. */
 async function duplicate(c: HTMLElement): Promise<void> {
@@ -267,6 +340,24 @@ describe("a Calendar over bookings keyed by number (east-workspace#1709)", () =>
         };
         expect(await listed("12")).toEqual(["12"]);
         expect(await listed("1..200")).toEqual(["2", "12", "120"]);
+    });
+});
+
+describe("a Calendar's event kind keyed by any type, read through its source of the slice (east-workspace#1696)", () => {
+    test("#1696 — a booking keyed by a struct draws through its source, is selected, moves an hour later from its Details, and Save writes it under its own key", async () => {
+        const { container: c } = await h.mount(placedDay);
+        await laterAnHourAndSaved(c, printFor(Placed)(A1));
+        await waitFor(async () => expect((await h.read(placed)).get(A1)?.start.getTime()).toBe(TEN.getTime()), { timeout: 8_000 });
+        const rows = await h.read(placed);
+        expect([rows.size, rows.get(A1)!.ref, rows.get(A1)!.title]).toEqual([1, "A-1", "Safety check"]);
+    });
+
+    test("#1696 — a booking keyed by a variant, as a composite record keys its rows, draws through its source, is selected, moves an hour later from its Details, and Save writes it under its own key", async () => {
+        const { container: c } = await h.mount(sourcedDay);
+        await laterAnHourAndSaved(c, printFor(Sourced)(PO7));
+        await waitFor(async () => expect((await h.read(sourced)).get(PO7)?.start.getTime()).toBe(TEN.getTime()), { timeout: 8_000 });
+        const rows = await h.read(sourced);
+        expect([rows.size, rows.get(PO7)!.ref, rows.get(PO7)!.title]).toEqual([1, "PO-7", "Safety check"]);
     });
 });
 

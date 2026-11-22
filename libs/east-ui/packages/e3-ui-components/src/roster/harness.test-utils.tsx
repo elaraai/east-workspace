@@ -233,8 +233,10 @@ export function warehouseRoster(options: {
     }))) };
 }
 
-export const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment="${id}"]`)!;
-export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card="${id}"]`)!;
+/** A duty drawn on the board, by its key: a key East prints with quotes in it, a struct's or a variant's, quoted as CSS reads it. */
+export const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment=${JSON.stringify(id)}]`)!;
+/** A duty's card, on a phone, by its key, quoted as `assignment` quotes it. */
+export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card=${JSON.stringify(id)}]`)!;
 
 const byString = compareFor(StringType);
 const byDate = compareFor(DateTimeType);
