@@ -14,7 +14,8 @@
  * rule is told the key of every booking the day shows. Over bookings keyed by
  * number, Search Records reads a key typed as a number. A booking keyed by its
  * reference, the reference typed in its Details, moves under the key it then
- * builds, the booking it was, edited. Read through a rail's source, bookings
+ * builds, the booking it was, edited — and read through a rail's source, it
+ * stays on the board under that key until Save. Read through a rail's source, bookings
  * keyed by a struct, and by a variant — a composite's key — draw, are
  * selected, move from their Details and save under their own keys
  * (east-workspace#1696).
@@ -182,6 +183,16 @@ const byRef = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
         events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", key: (booking) => booking.ref }) } });
 }))) };
 
+/** `byRef`'s day read a window at a time, through a rail's source over the bookings' interval index, each booking by its key. */
+const byRefRailed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(bookings, ["patch"]));
+    const entries = $.let(Data.bindPaged(bookings));
+    const indexed = $.let(Data.bindPaged(bookings, { indexes: ["calendar_keyed_bookings_by_time"] }));
+    const slice = $.let(Slice.bindRecords("test.calendar.refKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
+    return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, key: (booking) => booking.ref }) } });
+}))) };
+
 /** The day of the bookings keyed by number, their record read whole. */
 const countedDay = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const rows = $.let(Record.bind(counted, ["patch"]));
@@ -322,6 +333,24 @@ describe("a Calendar whose events' keys their rows build (east-workspace#1709)",
         await waitFor(async () => expect((await h.read(bookings)).has("B-9")).toBe(true), { timeout: 8_000 });
         const rows = await h.read(bookings);
         expect([[...rows.keys()], sameBooking(rows.get("B-9")!, { ref: "B-9", title: "Safety check", start: NINE, end: TEN })]).toEqual([["B-9"], true]);
+    });
+
+    test("ruling 1 — read through a rail's source, a booking whose reference is typed stays on the board under the key it then builds — one booking drawn, never none until Save — its Details pending; and Save writes it there", async () => {
+        const { container: c } = await h.mount(byRefRailed);
+        await waitFor(() => expect(event(c, "booking", "B-1")).not.toBeNull(), { timeout: 8_000 });
+        await act(async () => { fireEvent.click(event(c, "booking", "B-1")); });
+        await settle();
+        const box = within(slot(c, "end").querySelector<HTMLElement>('[data-field="ref"]')!).getByRole("textbox");
+        await act(async () => { fireEvent.change(box, { target: { value: "B-9" } }); fireEvent.blur(box); });
+        await settle();
+        // Its window holds no row under B-9, and the record holds it under B-1: it is the booking it was, drawn where it stands.
+        expect([drawn(c).length, event(c, "booking", "B-1"), event(c, "booking", "B-9") !== null, slot(c, "end").querySelector("[data-state]")?.getAttribute("data-state")])
+            .toEqual([1, null, true, "pending"]);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await waitFor(async () => expect((await h.read(bookings)).has("B-9")).toBe(true), { timeout: 8_000 });
+        const rows = await h.read(bookings);
+        expect([[...rows.keys()], sameBooking(rows.get("B-9")!, { ref: "B-9", title: "Safety check", start: NINE, end: TEN })]).toEqual([["B-9"], true]);
+        await waitFor(() => expect(drawn(c)).toHaveLength(1));
     });
 });
 

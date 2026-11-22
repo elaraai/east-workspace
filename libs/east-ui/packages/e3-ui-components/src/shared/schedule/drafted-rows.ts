@@ -54,7 +54,7 @@
 
 import { StringType, equalFor, type EastTypeValue } from "@elaraai/east";
 import type { EntryVersion } from "@elaraai/east-ui-components";
-import type { ScheduleEntryRef } from "./editing.js";
+import type { ScheduleEditing, ScheduleEntryRef } from "./editing.js";
 import { kindKeys } from "./kind-keys.js";
 import { draftedRow, rowCodec } from "./records.js";
 
@@ -129,6 +129,21 @@ function sameRows(a: DraftedRows<unknown>, b: DraftedRows<unknown>): boolean {
         if (other === undefined || !stringEqual(other[0], key) || !Object.is(other[1], row)) return false;
     }
     return true;
+}
+
+/**
+ * Whether a drafted event is one its draft adds, as its editing says it: what a reader of a narrowed kind's window asks
+ * before it draws a draft the window holds no row of (`cells.ts`' `isNew`). One its session began from no stored row
+ * (#1343) — and one its drafts moved under the key its fields build (east-workspace#1709): its record holds no row under
+ * that key, so it draws where its fields place it, the event it was, never nowhere until Save.
+ *
+ * @param held - The row each drafted event's session began from ({@link ScheduleEditing.held})
+ * @param movedFrom - The rows the drafts moved under another key, by kind ({@link ScheduleEditing.movedFrom})
+ * @param kind - The kind's slot
+ * @returns Whether an event of the kind, by its key's text, is one its draft adds
+ */
+export function draftAdds(held: ScheduleEditing["held"], movedFrom: ScheduleEditing["movedFrom"], kind: string): (id: string) => boolean {
+    return (id) => held(kind, id) === undefined || movedFrom(kind).has(id);
 }
 
 /** Nothing lets a row show that its builder's read holds none of. */
