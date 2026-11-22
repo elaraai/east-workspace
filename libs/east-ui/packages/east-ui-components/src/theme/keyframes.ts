@@ -22,13 +22,31 @@
  *  - `optimise-*`          — the Optimise run (#1409): the eye's echo, halo
  *    and blink, the banner's fade, and the landing of a run's result on a
  *    builder's entries.
+ *  - `refused-a`, `refused-b` — a row a gesture was refused on
+ *    (`refused-mark.ts`): one flash, under two names.
  *
  * @packageDocumentation
  */
 
 import { defineKeyframes } from "@chakra-ui/react";
 
+/**
+ * A row a gesture was refused on (`refused-mark.ts`): the danger ring inside its edge and the danger wash — the wash
+ * an invalid cell wears, 17% over the paper — held, then gone: the ring to nothing, the wash back to the row's own
+ * paper, which the last step leaves to the row.
+ */
+const REFUSED = {
+    "0%, 30%": {
+        outline: "2px solid var(--chakra-colors-status-neg)", outlineOffset: "-2px",
+        backgroundColor: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))",
+    },
+    "100%":    { outline: "2px solid transparent", outlineOffset: "-2px" },
+};
+
 export const keyframes = defineKeyframes({
+    // A refused row's flash, under two names: a row refused again takes the other, so its flash starts over.
+    "refused-a": REFUSED,
+    "refused-b": REFUSED,
     // A banner's entrance (the design system's Banner: in over --dur-base, --ease-out): it fades in where it stands.
     "banner-in": {
         "0%":   { opacity: 0 },

@@ -13,7 +13,8 @@
  * it does in every builder's toolbar; then the title's count goes, then Add
  * and Delete fold to their icons, and the history folds last. The status
  * line takes the row's slack and nothing more, so it never holds a fold back:
- * a row short of room cuts its words with an ellipsis, down to nothing.
+ * a row short of room cuts its words with an ellipsis, down to nothing. It
+ * says a refused gesture's words in the danger tone.
  *
  * In a phone's frame (`Mobile Builder Frame Spec.md` FR2) the row is the
  * title, the rail's summary and its Filters button, and Add as its icon at
@@ -49,6 +50,8 @@ export interface RecordToolbarProps {
     count: string | undefined;
     /** The status line's words. */
     status: string;
+    /** Whether they say a gesture was refused: said in the danger tone. */
+    refused: boolean;
     /** The Record's word for its rows. */
     noun: RecordNoun;
     /** Add, where the Record adds rows; `undefined` hides it. */
@@ -103,7 +106,7 @@ function RecordAction({ css, icon, label, tip, disabled, labelled, part, onClick
  * @returns The items, a falsy entry for each the Record has no use for
  */
 export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { styles, parts, title, count, status, noun, onAdd, onDelete, ticked, tickedCount, writable } = props;
+    const { styles, parts, title, count, status, refused, noun, onAdd, onDelete, ticked, tickedCount, writable } = props;
     const buttonRecipe = useRecipe({ key: "button" });
     const iconRecipe = useRecipe({ key: "iconButton" });
     const phoneStyles = useSlotStyles("toolbarPhone");
@@ -131,7 +134,8 @@ export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<
     const statusItem: ToolbarItem = {
         key: "record-status",
         side: "end",
-        forms: [<Box as="span" css={styles.status} data-slot="status" role="status" aria-live="polite" title={status === "" ? undefined : status}>{status}</Box>],
+        forms: [<Box as="span" css={styles.status} data-slot="status" data-tone={refused ? "refused" : undefined} role="status" aria-live="polite"
+            title={status === "" ? undefined : status}>{status}</Box>],
         grow: true,
         // A phone's row has no room for them: its footer's band says them.
         phone: { form: null },

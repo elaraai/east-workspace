@@ -356,11 +356,19 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // draws the sheet again.
     const gestureCount = useRef(0);
     const recordSession = editingState.record;
+    // The message that stands as a gesture begins: the sheet's as it was last drawn — what a gesture leaves itself is
+    // drawn only after it.
+    const stood = useRef(ui.msg);
+    stood.current = ui.msg;
     const recordGesture = useCallback<typeof recordSession>((events, placements, originOverride, draftEdits, seeds, label, joins, held) => {
         const recorded = recordSession(events, placements, originOverride, draftEdits, seeds, label, joins, held);
-        if (recorded) gestureCount.current += 1;
+        if (recorded) {
+            gestureCount.current += 1;
+            // A gesture taken: a refusal's words before it go with it, and its row's mark (`refusal.ts`).
+            dispatchStore({ t: "taken", stood: stood.current });
+        }
         return recorded;
-    }, [recordSession]);
+    }, [recordSession, dispatchStore]);
     const drafts = editingState.drafts;
     // The session's rows, each with its cells from data read over its draft (#1559) — a Save's landed rows over theirs.
     const layerDrafts = editingState.layerDrafts;

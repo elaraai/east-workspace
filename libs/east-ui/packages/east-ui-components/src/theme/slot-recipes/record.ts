@@ -13,7 +13,8 @@
  *
  *   - Toolbar: the title, mono 10/600 at 0.14em in ink, and the count after
  *     it on `bg.subtle`, inset on a phone's row as its pager is; the status
- *     line, mono 11 in `fg.muted`, right-aligned and one line; Add and Delete,
+ *     line, mono 11 in `fg.muted`, right-aligned and one line — in the danger
+ *     ink while it says a gesture was refused; Add and Delete,
  *     the outline buttons, Delete off in `fg.faint` until rows are ticked.
  *   - Header: the group row 24 tall, each group's label mono 9.5/600 at 0.14em
  *     over a `border.strong` rule inset 6 at each end, cut with an ellipsis
@@ -29,6 +30,8 @@
  *     any row's number outside its field's bounds. A
  *     conflict not yet chosen: the warn ring inside its cell — active, inside
  *     the brand's 2px at its edge — and a row that is one itself its warn edge.
+ *     A row a gesture was refused on — its key another row's — flashes the
+ *     danger ring and wash once (`refused-mark.ts`).
  *   - Cells: the title 13/500 with neutral initials before it; the chips of a
  *     cycle or a toggle 22 tall (15 compact and condensed), each look a scale
  *     step of the heat ramp or a valence's 6% wash, edge and text step; the
@@ -68,6 +71,7 @@ import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
+import { refusedRow, refusedTone } from "../refused-mark.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
@@ -193,6 +197,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         status: {
             display: "block", width: "100%", minWidth: "0", textAlign: "right", fontFamily: "mono", fontSize: "label.lg",
             color: "fg.muted", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            ...refusedTone,
         },
         actions: { flex: "none", display: "flex", alignItems: "center", gap: "8px" },
         /* Add and Delete: the outline buttons, each icon the label's size; Delete off in `fg.faint` on the paper, no hover. */
@@ -250,6 +255,8 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-selected]": { background: "bg.subtle", _hover: { background: "bg.subtle" } },
             "&[data-draft]": { background: DRAFT_WASH, _hover: { background: DRAFT_WASH } },
             "&[data-still]:not([data-selected]):not([data-draft])": { _hover: { background: "bg.surface" } },
+            /* A row a gesture was refused on: it flashes, and holds what it held. */
+            ...refusedRow,
             /* A row that is a conflict itself — both added it, or one side removed it — its warn edge inside, as the Sheet's. */
             "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
         },
@@ -417,7 +424,7 @@ export const recordSlotRecipe = defineSlotRecipe({
            the toolbar's line says them. */
         footerLive: {
             display: "none",
-            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted" },
+            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted", ...refusedTone },
         },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
         legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },

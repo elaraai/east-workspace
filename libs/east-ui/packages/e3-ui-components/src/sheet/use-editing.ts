@@ -294,7 +294,8 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     }, [editing]);
     // Each entry a gesture leaves goes under the key its row builds, in the gesture, by the one rule every builder
     // follows (`../shared/built-keys.ts`). A key another row stands under, and one that fails as it is built, refuse the
-    // whole gesture, and the footer says why. Answers each entry moved, by the key it left.
+    // whole gesture, and the footer says why, naming the entry refused, which the grid marks where it draws it. Answers
+    // each entry moved, by the key it left.
     const rekey = useCallback((updates: Map<string, TouchedEntry<SheetRowValue>>, startOf: (id: string) => EntryVersion): ReadonlyMap<string, string> => {
         if (builtKey === undefined) return NO_MOVES;
         const settled = settleBuiltKeys(updates, {
@@ -304,9 +305,12 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             underKey,
         });
         if (!("refused" in settled)) return settled.all;
-        const why = settled.refused.why;
+        const { id, why } = settled.refused;
         if ("failed" in why) console.error("[Sheet] a row's key could not be built from the row:", why.failed);
-        throw new SheetRefused({ id: "keyRefused", what: editing.children.type === "some" ? "group" : "row", noun, why });
+        // The entry refused, where it stood before the gesture: one its fields would have moved. A row the gesture would
+        // have added stood nowhere, and names none.
+        const row = updates.get(id)?.before.draft !== undefined ? id : undefined;
+        throw new SheetRefused({ id: "keyRefused", what: editing.children.type === "some" ? "group" : "row", noun, why, row });
     }, [builtKey, underKey, noun, editing]);
     // What the last gesture recorded moved, for a caller that holds a row by the key it made it under; and the last
     // gesture's that moved any, which the ring follows.

@@ -23,7 +23,10 @@
  *
  * Of the three, the line says whichever spoke last and still has words
  * ({@link useRecordStatusLine}): a notice the Sheet has cleared has none, nor a
- * step a gesture has come after, nor the ticks once none is ticked.
+ * step a gesture has come after, nor the ticks once none is ticked. Where the
+ * words are a notice's that a gesture was refused, the line says them in the
+ * danger tone (east-workspace#1709): a change that did not happen is never read
+ * as one that did.
  *
  * @packageDocumentation
  */
@@ -35,6 +38,7 @@ import { DRAFT_ISSUE_TEXT } from "@elaraai/east-ui-components/internal";
 import type { SheetNotice } from "../sheet/sheet-types.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { noticeText, type SheetWords } from "../sheet/words.js";
+import { noticeRefuses } from "../sheet/refusal.js";
 import { keyRefusedText } from "../shared/schedule/words.js";
 import { recordMessages as m, type RecordTally } from "./messages.js";
 import type { RecordTicks } from "./ticks.js";
@@ -239,14 +243,23 @@ export interface RecordStatusInput {
     noun: RecordNoun;
 }
 
+/** What the status line says: its words — empty while no voice has any — and whether they say a gesture was refused. */
+export interface RecordStatusLine {
+    readonly text: string;
+    readonly refused: boolean;
+}
+
+/** The line while no voice has words. */
+const SILENT: RecordStatusLine = { text: "", refused: false };
+
 /**
  * The status line's words (FR5): the notice, the step or the ticks — whichever
  * spoke last and still has words — see the module docs.
  *
  * @param input - The voices, and what their words are made of
- * @returns The words; empty while no voice has any
+ * @returns The words, and whether they say a gesture was refused
  */
-export function useRecordStatusLine(input: RecordStatusInput): string {
+export function useRecordStatusLine(input: RecordStatusInput): RecordStatusLine {
     const { status, notice, gestures, ticks, ticked, of, issues, words, noun } = input;
     const said = useSyncExternalStore(status.subscribe, status.said);
     const version = useSyncExternalStore(ticks.subscribe, ticks.version);
@@ -259,12 +272,14 @@ export function useRecordStatusLine(input: RecordStatusInput): string {
     if (said !== undefined && said.seq !== next.step.seq) next = { ...next, n: next.n + 1, step: { seq: said.seq, at: next.n + 1, gestures } };
     if (version !== next.ticks.version) next = { ...next, n: next.n + 1, ticks: { version, at: next.n + 1 } };
     if (next !== order) setOrder(next);
-    const voices: readonly { at: number; text: string | undefined }[] = [
-        { at: next.notice.at, text: notice === null ? undefined : recordNoticeText(notice, words, noun, issues) },
-        { at: next.step.at, text: said === undefined || gestures !== next.step.gestures ? undefined : stepText(said.step, words, noun) },
-        { at: next.ticks.at, text: ticked === 0 ? undefined : m.selected({ count: words.number(ticked), of: words.number(of) }) },
+    const voices: readonly { at: number; text: string | undefined; refused: boolean }[] = [
+        { at: next.notice.at, text: notice === null ? undefined : recordNoticeText(notice, words, noun, issues), refused: noticeRefuses(notice) },
+        { at: next.step.at, text: said === undefined || gestures !== next.step.gestures ? undefined : stepText(said.step, words, noun), refused: false },
+        { at: next.ticks.at, text: ticked === 0 ? undefined : m.selected({ count: words.number(ticked), of: words.number(of) }), refused: false },
     ];
-    let spoken: { at: number; text: string } | undefined;
-    for (const voice of voices) if (voice.text !== undefined && (spoken === undefined || voice.at > spoken.at)) spoken = { at: voice.at, text: voice.text };
-    return spoken?.text ?? "";
+    let spoken: { at: number; line: RecordStatusLine } | undefined;
+    for (const voice of voices) {
+        if (voice.text !== undefined && (spoken === undefined || voice.at > spoken.at)) spoken = { at: voice.at, line: { text: voice.text, refused: voice.refused } };
+    }
+    return spoken?.line ?? SILENT;
 }

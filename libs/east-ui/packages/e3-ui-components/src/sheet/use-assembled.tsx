@@ -26,6 +26,7 @@ import { liftDraft, normalizeDraft } from "./draft-values.js";
 import { landSheetOptimise, sheetOptimisePeriod, sheetOptimiseRequest, type SheetOptimiseRequest } from "./optimise.js";
 import type { EntryVersion } from "./transactions.js";
 import { noticeText } from "./words.js";
+import { noticeRefuses } from "./refusal.js";
 import { editUnchanged } from "./sheet-state.js";
 import { SheetInsertLayer, SheetInsertStrip } from "./Insertion.js";
 import { SheetHeader } from "./Header.js";
@@ -251,7 +252,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const pagesRetry = paging.retry;
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
     const footer: SheetFooterProps = {
-        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), loading: line, noun: rowsNoun, onRetry: retrySource,
+        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), refused: noticeRefuses(ui.msg), loading: line, noun: rowsNoun, onRetry: retrySource,
         optimise: { line: optimiseParts.line, legend: optimiseParts.legend },
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };

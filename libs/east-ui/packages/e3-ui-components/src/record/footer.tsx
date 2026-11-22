@@ -159,6 +159,8 @@ export interface RecordFooterProps {
     legend: RecordLegend;
     /** The status line's words: what a phone's band says, its toolbar having no room for them. */
     live: string;
+    /** Whether they say a gesture was refused: said in the danger tone. */
+    refused: boolean;
     /** What a paged source reads now, or could not read. */
     loading: SheetLoadingLine | undefined;
     /** What the rail counts the rows in: what the loading line names them by. */
@@ -171,7 +173,7 @@ export interface RecordFooterProps {
 const NO_RETRY = () => undefined;
 
 /** Renders the footer — see the module docs. */
-export const RecordFooter = memo(function RecordFooter({ styles, count, saved, stale, recordSlice, legend, live, loading, noun, onRetry }: RecordFooterProps) {
+export const RecordFooter = memo(function RecordFooter({ styles, count, saved, stale, recordSlice, legend, live, refused, loading, noun, onRetry }: RecordFooterProps) {
     // The loading line, in the Sheet's words, on the frame's one reveal clock (CL4) — else, alone, a clock of its own.
     const words = useSheetWords();
     const line = useMemo(() => pagedLoadingLine(loading, noun, words.m, words.number, onRetry ?? NO_RETRY), [loading, noun, words, onRetry]);
@@ -208,7 +210,8 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
             )}
             <FooterMore shown={fit.kept < units} />
             {/* The status line's words, seen and heard on a phone alone: elsewhere the toolbar's line says them. */}
-            <Box as="span" css={styles.footerLive} data-slot="footerLive" data-footer-live={live === "" ? undefined : ""} role="status" aria-live="polite">{live}</Box>
+            <Box as="span" css={styles.footerLive} data-slot="footerLive" data-footer-live={live === "" ? undefined : ""}
+                data-tone={refused ? "refused" : undefined} role="status" aria-live="polite">{live}</Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>
     );

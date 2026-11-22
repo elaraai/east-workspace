@@ -10,8 +10,9 @@
  * code still empty read as empty, and moves under its code as it is typed —
  * in the step of the edit, which Undo takes back with it — and is saved under
  * it. A second rack that builds a key another stands under is refused, and
- * the status line says why, in the Record's word for its rows. A code typed
- * over moves its rack; one another rack has is refused; and a rack stored
+ * the status line says why, in the Record's word for its rows and in the
+ * danger tone. A code typed over moves its rack; one another rack has is
+ * refused, the rack marked where it stands, again each time; and a rack stored
  * apart from the key its row builds stays where it is until its code changes.
  */
 
@@ -73,6 +74,10 @@ const grid = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-record] [ro
 const toolbar = (c: HTMLElement) => slot(c, "toolbar")!;
 /** The status line's words. */
 const status = (c: HTMLElement) => toolbar(c).querySelector('[data-slot="status"]')?.textContent;
+/** The status line's tone; `null` where it has none. */
+const tone = (c: HTMLElement) => toolbar(c).querySelector('[data-slot="status"]')?.getAttribute("data-tone") ?? null;
+/** The rows marked as refused, each by its key and the refusal's turn. */
+const refused = (c: HTMLElement) => rows(c).filter((row) => row.hasAttribute("data-refused")).map((row) => [row.getAttribute("data-row-id"), row.getAttribute("data-refused")]);
 /** A button of the history bar, by its name. */
 const history = (c: HTMLElement, name: string) => within(toolbar(c)).getByRole("button", { name }) as HTMLButtonElement;
 
@@ -109,10 +114,14 @@ describe("a record whose rows' keys are built from them", () => {
         await add(c);
         expect(ids(c)).toEqual(["", "OLD", "R-1", "R-2"]);
         expect(status(c)).toBe('Another rack is keyed "" already');
+        // …in the danger tone; the rack refused was never added, so no row is marked — never the rack that holds the key.
+        expect([tone(c), refused(c)]).toEqual(["refused", []]);
         // Its code typed: the rack goes under it, in the step of the edit.
         await type(c, "", "code", "R-3");
         expect(ids(c)).toEqual(["OLD", "R-1", "R-2", "R-3"]);
         expect([cell(c, "R-3", "code"), cell(c, "R-3", "bay")]).toEqual(["R-3", "Dock"]);
+        // A gesture taken says its own words, in the line's own ink.
+        expect(tone(c)).toBeNull();
         await press(c, editingMessages.undo());
         expect(ids(c)).toEqual(["", "OLD", "R-1", "R-2"]);
         await press(c, editingMessages.redo());
@@ -124,7 +133,7 @@ describe("a record whose rows' keys are built from them", () => {
         await waitFor(() => expect(ids(c)).toEqual(["OLD", "R-1", "R-2", "R-3"]));
     });
 
-    test("ruling 1 — a code typed over moves its rack under the key it builds; a code another rack has is refused, saying so; a rack stored apart from the key its row builds stays until its code changes", async () => {
+    test("ruling 1 — a code typed over moves its rack under the key it builds; a code another rack has is refused, saying so in the danger tone, the rack marked where it stands; a rack stored apart from the key its row builds stays until its code changes", async () => {
         const { container: c } = await h.mount({ fn: racksKeyed }, { storageKey: "record-built-key-moved" });
         expect(ids(c)).toEqual(["OLD", "R-1", "R-2"]);
         // A bay typed changes nothing the key reads: the rack stored under another scheme's key stays there.
@@ -136,9 +145,16 @@ describe("a record whose rows' keys are built from them", () => {
         expect(status(c)).toBe('Another rack is keyed "R-1" already');
         expect(ids(c)).toEqual(["OLD", "R-1", "R-2"]);
         expect(cell(c, "R-2", "code")).toBe("R-2");
+        // The line says so in the danger tone, and the rack is marked where it stands — again, on the other turn, as it
+        // is refused again, so its flash starts over.
+        expect([tone(c), refused(c)]).toEqual(["refused", [["R-2", "1"]]]);
+        await type(c, "R-2", "code", "R-1");
+        expect([tone(c), refused(c)]).toEqual(["refused", [["R-2", "0"]]]);
         await type(c, "R-2", "code", "R-5");
         expect(ids(c)).toEqual(["OLD", "R-1", "R-5"]);
         expect([cell(c, "R-5", "code"), cell(c, "R-5", "bay")]).toEqual(["R-5", "South"]);
+        // The rack moved: its mark and the line's tone went with the refusal's words.
+        expect([tone(c), refused(c)]).toEqual([null, []]);
         await press(c, editingMessages.apply());
         await waitFor(async () => expect([...(await h.read(racks)).keys()]).toEqual(["OLD", "R-1", "R-5"]));
         const saved = await h.read(racks);

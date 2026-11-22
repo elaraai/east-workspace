@@ -65,10 +65,14 @@ export function useSheetWrites(sheetDecode: SheetDecode, sheetSession: SheetSess
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);
     const emitEdit = useCallback((edit: SheetEditValue) => { gestureEvents.current.push(edit); }, []);
+    // How many gestures a row's key has refused: each told which it is, so the row's mark starts over with it.
+    const keyRefusals = useRef(0);
     /** A gesture that failed: one the sheet refuses says why in the footer, in its words (#1536); anything else is logged, and says its own. */
     const failed = useCallback((error: unknown) => {
         if (error instanceof SheetRefused) {
-            dispatchStore({ t: "patch", patch: { msg: error.notice } });
+            const notice = error.notice;
+            if (notice.id === "keyRefused") keyRefusals.current += 1;
+            dispatchStore({ t: "patch", patch: { msg: notice.id === "keyRefused" ? { ...notice, nth: keyRefusals.current } : notice } });
             return;
         }
         console.error("Sheet transaction failure", error);

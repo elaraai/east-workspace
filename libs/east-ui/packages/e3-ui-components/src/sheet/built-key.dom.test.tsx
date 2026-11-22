@@ -9,8 +9,9 @@
  * aisle and their slot build. A lane typed into the blank row stands under
  * the key its row builds at once — a cell not typed yet read as empty — and
  * moves as its cells are filled; one that builds a key another lane stands
- * under is refused, and the footer says why; and Save writes each lane under
- * the key it builds. And a sheet over a record whose rows hold their own key
+ * under is refused, and the footer says why, in the danger tone — a lane the
+ * sheet draws marked where it stands, again each time it is refused; and Save
+ * writes each lane under the key it builds. And a sheet over a record whose rows hold their own key
  * in a field (`keyField`, east-workspace#1705): docks keyed by number, a dock
  * typed into the blank row holding its key in its number from the first. And
  * docks keyed by a variant, as a composite record keys its rows, paged from
@@ -116,6 +117,10 @@ const docksSourced = East.function([], SheetPayloadType, ($) => {
 const ids = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.getAttribute("data-row-id"));
 /** The footer's message. */
 const said = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="footerMessage"]')?.textContent;
+/** The footer's message's tone; `null` where it has none. */
+const tone = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="footerMessage"]')?.getAttribute("data-tone") ?? null;
+/** The rows marked as refused, each by its key and the refusal's turn. */
+const refused = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-slot="row"][data-refused]')].map((row) => [row.getAttribute("data-row-id"), row.getAttribute("data-refused")]);
 /** What takes the pastes. */
 const card = (c: HTMLElement) => c.querySelector("[data-sheet-card]")!;
 
@@ -139,7 +144,7 @@ const ringOn = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="cel
 /** A row's cell under a column, by the row's key: a key East prints with quotes in it, a variant's, quoted as CSS reads it. */
 const cellOf = (c: HTMLElement, id: string, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-row-id=${JSON.stringify(id)}] [data-key="${key}"]`)!;
 
-test("ruling 6 — a lane typed into the blank row stands under the key its row builds at once, a cell not typed yet read as empty, and moves as its cells are filled, the ring with it; one that builds a key another stands under is refused, saying so; and Save writes each under the key it builds", async () => {
+test("ruling 6 — a lane typed into the blank row stands under the key its row builds at once, a cell not typed yet read as empty, and moves as its cells are filled, the ring with it; one that builds a key another stands under is refused, saying so in the danger tone, a lane the sheet draws marked where it stands; and Save writes each under the key it builds", async () => {
     const { container: c } = await h.mountPayload(lanesKeyed, { storageKey: "sheet-built-key" });
     await waitFor(() => expect(ids(c)).toEqual(["101", "102"]));
     // A whole lane typed: aisle 2, slot 5.
@@ -149,6 +154,20 @@ test("ruling 6 — a lane typed into the blank row stands under the key its row 
     await paste(c, blank(c, "aisle"), "1\t1\tAgain");
     expect(said(c)).toBe('Another row is keyed "101" already');
     expect(ids(c)).toEqual(["101", "102", "205"]);
+    // The footer says so in the danger tone; the lane refused is none the sheet draws, so no row is marked — never the
+    // lane that holds the key.
+    expect([tone(c), refused(c)]).toEqual(["refused", []]);
+    // A slot typed over that builds another lane's key: the lane keeps its slot and its key, and is marked where it
+    // stands — and again, on the other turn, as it is refused again, so its flash starts over.
+    await paste(c, cellOf(c, "102", "slot"), "1");
+    expect([said(c), tone(c), ids(c), cellOf(c, "102", "slot").textContent]).toEqual(['Another row is keyed "101" already', "refused", ["101", "102", "205"], "2"]);
+    expect(refused(c)).toEqual([["102", "0"]]);
+    await paste(c, cellOf(c, "102", "slot"), "1");
+    expect(refused(c)).toEqual([["102", "1"]]);
+    // The next gesture taken says its own words, and the mark and the tone go with the refusal's.
+    await paste(c, cellOf(c, "102", "note"), "Picks");
+    await paste(c, cellOf(c, "102", "note"), "Picking");
+    expect([tone(c), refused(c)]).toEqual([null, []]);
     // Its aisle alone typed: the key an empty slot builds — then its slot, and the lane moves under the key it builds.
     await paste(c, blank(c, "aisle"), "3");
     expect(ids(c)).toEqual(["101", "102", "205", "300"]);
@@ -173,7 +192,8 @@ test("ruling 6 — a lane typed into the blank row stands under the key its row 
     await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
     await waitFor(async () => expect([...(await h.read(lanes)).keys()]).toEqual([101n, 102n, 207n, 304n]));
     const saved = await h.read(lanes);
-    expect([laneEqual(saved.get(207n)!, { aisle: 2n, slot: 7n, note: "Dock" }), laneEqual(saved.get(304n)!, { aisle: 3n, slot: 4n, note: "Returns" })], printLanes(saved)).toEqual([true, true]);
+    expect([laneEqual(saved.get(207n)!, { aisle: 2n, slot: 7n, note: "Dock" }), laneEqual(saved.get(304n)!, { aisle: 3n, slot: 4n, note: "Returns" }),
+        laneEqual(saved.get(102n)!, { aisle: 1n, slot: 2n, note: "Picking" })], printLanes(saved)).toEqual([true, true, true]);
 });
 
 test("ruling 1 — holding its key in a field (`keyField`), a dock typed into the blank row holds its own key in its number at once, though only its note was typed, and Save writes it so; a dock whose field never held its key keeps what it holds", async () => {
