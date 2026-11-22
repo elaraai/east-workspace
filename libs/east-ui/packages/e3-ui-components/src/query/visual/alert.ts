@@ -27,9 +27,12 @@
  * refused when it is saved.
  *
  * The condition rows edit a query of two steps: the visual's rows, a jq step
- * that makes them from every row of its source — no filter narrows what a row
- * holds, so its fields and their types are the check's — then one Keep rows
- * where step, read and written as a page filter's is (`filters.ts`).
+ * that makes them from its source's rows — narrowed as the check narrows them,
+ * by the alert's filters, so the fields, the ranges and the values the rows
+ * offer are of the rows the alert checks (ruled 22 November 2026) — then one
+ * Keep rows where step, read and written as a page filter's is
+ * (`filters.ts`). A filter narrows which rows there are, never what one holds:
+ * their fields and their types are the same with none.
  *
  * It imports neither React nor the renderers.
  *
@@ -152,6 +155,34 @@ function recordsRows(records: RecordsView, source: PrintSource): AlertRows {
 // ─── The check's program ─────────────────────────────────────────────────────
 
 /**
+ * A visual's rows as an alert's check reads them: the stages that read its
+ * source and narrow it — its own filter, then the alert's, each value over its
+ * period — those that make its rows of them, whether they read `$now`, and
+ * the values they hold, by index.
+ */
+interface CheckedRows {
+    readonly rows: readonly string[];
+    readonly made: AlertRows;
+    readonly readsNow: boolean;
+    readonly values: readonly number[];
+}
+
+/** A visual's rows as its alert's check reads them ({@link CheckedRows}), or why it has none to check. */
+function checkedRows(visual: Visual, source: PrintSource, state: PrintState): CheckedRows | UnprintedVisual {
+    const shape = viewShape(visual.view);
+    if ("records" in shape) {
+        const refused = recordsRefusal(shape.records, source);
+        if (refused !== undefined) return refused;
+        const { where, now } = narrowingOf(visual, state);
+        return { rows: rowsOf(source, where, undefined, now), made: recordsRows(shape.records, source), readsNow: now, values: [] };
+    }
+    const reads = visualReads(visual, shape, source, state);
+    if ("kind" in reads) return reads;
+    const merged = periodsRows(source, reads.periods, reads.rowsOfPeriod);
+    return { rows: merged.rows, made: groupedRows(shape, source, merged.values), readsNow: merged.readsNow, values: merged.values.map((ask) => ask.index) };
+}
+
+/**
  * An alert's program, printed: what its check asks, and the fields of the
  * rows it checks; or why its visual has no rows to check.
  */
@@ -180,19 +211,8 @@ export type PrintedAlert =
  * ```
  */
 export function printAlert(visual: Visual, source: PrintSource, state: PrintState, condition: JqNode): PrintedAlert {
-    const shape = viewShape(visual.view);
-    let read: { readonly rows: readonly string[]; readonly made: AlertRows; readonly readsNow: boolean; readonly values: readonly number[] };
-    if ("records" in shape) {
-        const refused = recordsRefusal(shape.records, source);
-        if (refused !== undefined) return refused;
-        const { where, now } = narrowingOf(visual, state);
-        read = { rows: rowsOf(source, where, undefined, now), made: recordsRows(shape.records, source), readsNow: now, values: [] };
-    } else {
-        const reads = visualReads(visual, shape, source, state);
-        if ("kind" in reads) return reads;
-        const merged = periodsRows(source, reads.periods, reads.rowsOfPeriod);
-        read = { rows: merged.rows, made: groupedRows(shape, source, merged.values), readsNow: merged.readsNow, values: merged.values.map((ask) => ask.index) };
-    }
+    const read = checkedRows(visual, source, state);
+    if ("kind" in read) return read;
     // A condition that counts back from now — a date's "in the last 7 days" — reads `$now`, bound first.
     const conditionNow = readsVariable(condition, NOW_FIELD);
     const bind = conditionNow && !read.readsNow ? [bindSegment(NOW_FIELD)] : [];
@@ -208,29 +228,47 @@ export function printAlert(visual: Visual, source: PrintSource, state: PrintStat
 
 /**
  * A visual's rows as its alert's condition rows read them: the stage that
- * makes them from every row of its source, and their fields.
+ * makes them from its source's rows, and their fields.
  *
  * @property stage - The stages after the source is read, in the pipeline layout: a jq step's text
  * @property fields - The fields of each row, in order
+ * @property readsNow - Whether the stage reads `$now` — a filter of the alert's counts back from it — which a program of it binds first
  */
 export interface AlertRowsStage {
     /** The stages after the source is read, in the pipeline layout. */
     readonly stage: string;
     /** The fields of each row, in order. */
     readonly fields: readonly AlertField[];
+    /** Whether the stage reads `$now`, which a program of it binds first. */
+    readonly readsNow: boolean;
 }
 
 /**
- * A visual's rows from every row of its source (#1674): what its alert's
- * condition rows offer its fields from, and their values. No filter narrows
- * them — a filter narrows which rows there are, never what one holds — and a
- * value over one of several periods may be none, as the check's is.
+ * A visual's rows as its alert's condition rows read them (#1674): what they
+ * offer its fields from, and their ranges and values.
+ *
+ * Given the alert's filters, they are the rows its check reads (ruled 22
+ * November 2026) — the visual's own filter, then the alert's, each value over
+ * its period — so a range or a suggested value is of what the alert watches,
+ * never of rows it will not see. Given none — where only the rows' fields are
+ * wanted, to read a kept firing's rows by — every row of its source: a filter
+ * narrows which rows there are, never what one holds. A value over one of
+ * several periods may be none, as the check's is.
  *
  * @param visual - The visual
  * @param source - Its source, as the printer reads it
- * @returns The stage and the fields; or the wells the visual needs filled, or the fields its source lacks
+ * @param state - The alert's filters on its source, as the printer reads them (`printStateOf`); `undefined` for every row
+ * @returns The stage and the fields; or the wells the visual needs filled, the fields its source lacks, or — given
+ *   filters — that a value over another period needs a date range or a window
  */
-export function alertRowsStage(visual: Visual, source: PrintSource): AlertRowsStage | UnprintedVisual {
+export function alertRowsStage(visual: Visual, source: PrintSource, state?: PrintState): AlertRowsStage | UnprintedVisual {
+    if (state !== undefined) {
+        const read = checkedRows(visual, source, state);
+        if ("kind" in read) return read;
+        // The check's stages after its source is read: a step is given the source's rows, and its program binds `$now`.
+        const narrowing = read.rows.slice(read.rows.indexOf(`.${source.key}`) + 1);
+        return { stage: [...narrowing, ...read.made.stages].join(SEP), fields: read.made.fields, readsNow: read.readsNow };
+    }
     const shape = viewShape(visual.view);
     const keyed = source.keyed ? ["[.[]]"] : [];
     let made: AlertRows;
@@ -247,7 +285,7 @@ export function alertRowsStage(visual: Visual, source: PrintSource): AlertRowsSt
         const values = [...periods.values()].flat().sort((a, b) => a.index - b.index).map((ask): ValueAsk => (several ? { ...ask, period: "true" } : ask));
         made = groupedRows(shape, source, values);
     }
-    return { stage: [...keyed, ...made.stages].join(SEP), fields: made.fields };
+    return { stage: [...keyed, ...made.stages].join(SEP), fields: made.fields, readsNow: false };
 }
 
 /**
@@ -260,7 +298,7 @@ export function alertRowsStage(visual: Visual, source: PrintSource): AlertRowsSt
  * @returns The type of one row; `undefined` where the stage does not check
  */
 export function alertRowType(stage: AlertRowsStage, source: PrintSource, root: EastType): StructType | undefined {
-    const check = checkJq(parseJq(`.${source.key}${SEP}${stage.stage}`), root, { root: true });
+    const check = checkJq(parseJq([...(stage.readsNow ? [bindSegment(NOW_FIELD)] : []), `.${source.key}`, stage.stage].join(SEP)), root, { root: true });
     const row = check.elementType === null || check.multiplicity !== "one" ? undefined : rowOf(check.elementType);
     return row?.type === "Struct" ? row : undefined;
 }
@@ -309,8 +347,8 @@ export function alertStart(visual: Visual, fields: readonly AlertField[], row: S
 
 /**
  * The query an alert's condition rows edit (#1674): its visual's rows, a jq
- * step that makes them from every row of its source, then one Keep rows where
- * step — the condition, or where a new one starts.
+ * step that makes them from its source's rows ({@link alertRowsStage}), then
+ * one Keep rows where step — the condition, or where a new one starts.
  *
  * @param stage - The visual's rows ({@link alertRowsStage})
  * @param row - Their type ({@link alertRowType})

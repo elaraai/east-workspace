@@ -11,8 +11,9 @@
  * - **The list** ({@link AlertList}): each alert by its name and where it
  *   stands (`alert-row.tsx`: the row every flush popover's list draws).
  * - **The editor** ({@link AlertEditor}): its name; its condition, the query
- *   builder's condition rows over the visual's rows — its groups, then its
- *   values (`filter-editor.tsx`); whether it is paused; and Now, the rows over
+ *   builder's condition rows over the visual's rows, as its check reads them
+ *   under its filters — its groups, then its values (`filter-editor.tsx`), their
+ *   ranges and the values offered those rows' own; whether it is paused; and Now, the rows over
  *   the line now as a table — its numbers in their fields' formats
  *   (`alert-rows.ts`) — asked as the editor opens and on Run, never on an edit. Its condition is a draft: what its rows say as they stand, so
  *   one with no finished row — its last removed, or its only one being
@@ -157,8 +158,21 @@ export function AlertEditor({ visual, name, read, placement, studio, alerts, hel
     const source = useVisualSource(visual.source);
     const save = useSaveAlerts(studio.handle);
     const pageFilters = usePageFilters()?.filters ?? NO_FILTERS;
-    // The visual's rows as the condition rows read them, their type, and where a new alert starts.
-    const stage = useMemo(() => alertRowsStage(visual, read), [visual, read]);
+    // A new alert's filters are the page's as it is made; an alert's own stay its own.
+    const [filters] = useState<readonly PageFilter[]>(held?.alert.filters ?? pageFilters);
+    // The alert's filters as the printer reads them, at a minute of the page's.
+    const stateAt = useCallback((at: Date | undefined): PrintState => (at === undefined ? { filters: [] } : printStateOf(filters, visual.source, read, at)), [filters, visual.source, read]);
+    const stateOf = useCallback((): PrintState => stateAt(minute), [stateAt, minute]);
+    // The visual's rows as the condition rows read them — the rows its check reads, under the alert's filters, so the
+    // ranges and the values they offer are of what it watches (ruled 22 November 2026) — their type, and where a new
+    // alert starts. Read at the minute the editor opened, as its condition rows hold them from then: a minute moving on
+    // reads none again. Where the filters leave the check no rows to read — a value over another period, on a page with
+    // no dates — every row of the source: its condition can still be written, and Now says why it cannot be checked.
+    const [openedAt] = useState(minute);
+    const stage = useMemo(() => {
+        const checked = alertRowsStage(visual, read, stateAt(openedAt));
+        return "kind" in checked ? alertRowsStage(visual, read) : checked;
+    }, [visual, read, stateAt, openedAt]);
     const rows = "kind" in stage ? undefined : stage;
     const row = useMemo(() => (rows === undefined || root === undefined ? undefined : alertRowType(rows, read, root.type)), [rows, read, root]);
     const start = useMemo(() => (rows === undefined || row === undefined || held !== undefined ? undefined : alertStart(visual, rows.fields, row)), [rows, row, held, visual]);
@@ -166,14 +180,11 @@ export function AlertEditor({ visual, name, read, placement, studio, alerts, hel
     const [alertName, setAlertName] = useState(held?.name ?? m.alertNameFor({ name }));
     const [condition, setCondition] = useState<JqNode | undefined>(opened);
     const [paused, setPaused] = useState(held?.alert.paused ?? false);
-    // A new alert's filters are the page's as it is made; an alert's own stay its own.
-    const [filters] = useState<readonly PageFilter[]>(held?.alert.filters ?? pageFilters);
     // Now: asked for the condition it opened with, then each one Run asks for — never an edit.
     const [now, setNow] = useState<JqNode | undefined>(opened);
     const [busy, setBusy] = useState(false);
     const [refused, setRefused] = useState<string | undefined>(undefined);
     const [confirming, setConfirming] = useState(false);
-    const stateOf = useCallback((): PrintState => (minute === undefined ? { filters: [] } : printStateOf(filters, visual.source, read, minute)), [filters, visual.source, read, minute]);
     const query = useCallback((): StepQuery => alertQuery(rows!, row!, read, held?.alert.condition ?? start), [rows, row, read, held, start]);
     const conditionOf = useCallback((edited: StepQuery) => alertConditionOf(edited, row!), [row]);
     // Its condition is what its rows say as they stand: none, while no row is finished.

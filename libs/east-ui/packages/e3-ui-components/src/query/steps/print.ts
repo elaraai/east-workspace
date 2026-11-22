@@ -26,7 +26,7 @@ import { fieldByRef, fieldsOfRecord, itemRecordOf, pathOfUnknown, type StepField
 import {
     IDENTITY, arrayNode, at, binary, bind, booleanLiteral, call, chain, chainedPath, fieldNode, floatLiteral, ifElse, index,
     integerLiteral, isVariableName, iterate, negate, nullLiteral, numberLiteral, objectNode, pathNode, pipe, pipeAll,
-    pipedPath, sliceTo, stringLiteral, updateNode, valueLiteral, variable,
+    pipedPath, readsVariable, sliceTo, stringLiteral, updateNode, valueLiteral, variable,
 } from "./jq.js";
 import { UNKNOWN, shapeOf, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
@@ -172,15 +172,25 @@ function readsNow(condition: Condition): boolean {
 }
 
 /**
+ * Whether a jq step's text, as written, reads `$now`: a step a host writes —
+ * an alert's rows, narrowed by a filter that counts back from now (#1674) —
+ * or a person does. Text that does not parse reads nothing to bind.
+ */
+function jqReadsNow(text: string): boolean {
+    const parsed = parseJq(text.trim());
+    return parsed.program.type === "some" && readsVariable(parsed.program.value, NOW_FIELD);
+}
+
+/**
  * Whether a query reads the minute it is asked (#1670): a finished Keep rows
- * where step with an "is in the last" condition, whose program binds
- * `.now as $now` first.
+ * where step with an "is in the last" condition, or a jq step whose text reads
+ * `$now` — whose program binds `.now as $now` first.
  *
  * @param query - the query
  * @returns whether its program reads `.now`
  */
 export function queryReadsNow(query: StepQuery): boolean {
-    return query.steps.some(s => s.type === "filter" && isComplete(s) && s.value.conds.some(readsNow));
+    return query.steps.some(s => (s.type === "filter" && isComplete(s) && s.value.conds.some(readsNow)) || (s.type === "jq" && jqReadsNow(s.value.text)));
 }
 
 /** jq's operator for each comparison that is one. */
@@ -797,7 +807,7 @@ export function layOutSteps(query: StepQuery, root: EastType): StepLayout {
  *
  * @remarks
  * The program starts with `.now as $now` when a finished "is in the last"
- * condition reads the minute the query is asked (#1670), and `.ds as $ds` for
+ * condition or a jq step's text reads the minute the query is asked (#1670), and `.ds as $ds` for
  * each dataset a finished Look up reads, then the data source; each finished
  * step follows on its own line. Unfinished steps are left out. A jq step's
  * text is printed as written.

@@ -11,7 +11,9 @@
  * condition, and how many rows there are — asked in memory over the visual
  * tests' orders, and split over a large dataset's pieces; and the query its
  * condition rows edit, read back — its slots offered the visual's rows'
- * fields, and a number typed read as one.
+ * fields, and a number typed read as one; and, given the alert's filters, the
+ * rows those slots are offered from: the rows its check reads (ruled 22
+ * November 2026).
  */
 
 import { describe, expect, it } from "vitest";
@@ -24,8 +26,11 @@ import { applySlot } from "../model/slot-edits.js";
 import { slotItems } from "../model/slots.js";
 import { queryWords } from "../model/words.js";
 import { draftPlan } from "../plan.js";
+import { SEP, printSteps } from "../steps/print.js";
 import { alertConditionOf, alertQuery, alertRowType, alertRowsStage, alertStart, printAlert, type AlertRowsStage } from "./alert.js";
-import { ORDERS_ROOT, ORDERS_SOURCE, QUARTER, alertAnswered, condition, visualOf } from "./visual.test-utils.js";
+import { printStateOf } from "./filters.js";
+import type { PrintState } from "./print.js";
+import { ORDERS_ROOT, ORDERS_SOURCE, QUARTER, QUARTER_NOW, alertAnswered, asked, condition, visualOf } from "./visual.test-utils.js";
 
 const v = Studio.visual;
 
@@ -146,6 +151,52 @@ describe("the alert's condition rows (#1674)", () => {
         const types = typesOf(row);
         expect(types.map(([name]) => name)).toEqual(["ordered_at", "revenue", "mean_margin"]);
         expect(types.every(([name, type]) => isTypeEqual(type, name === "ordered_at" ? DateTimeType : name === "revenue" ? FloatType : OptionType(FloatType)))).toBe(true);
+    });
+
+    it("read the rows its check reads, given the alert's filters: the quarter's regions and their revenue — never a region of another year, nor its revenue (ruled 22 November 2026)", async () => {
+        const content = v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] }));
+        /** The rows the condition's slots are offered from: the stage's, over the orders. */
+        const rowsUnder = async (state?: PrintState) => {
+            const stage = alertRowsStage(visualOf(content), ORDERS_SOURCE, state);
+            if ("kind" in stage) throw new Error(`stage ${stage.kind}`);
+            return rowsOf(await asked([`.${ORDERS_SOURCE.key}`, stage.stage, "{rows: ., groups: length, n: length}"].join(SEP))).rows;
+        };
+        // With no filters, every row of the source: Queensland's order of a year before, and Victoria's of both years.
+        expect(await rowsUnder()).toEqual([
+            { region: "NSW", revenue: 50 }, { region: "QLD", revenue: 10 }, { region: "SA", revenue: 170 }, { region: "VIC", revenue: 70 }, { region: "WA", revenue: 20 },
+        ]);
+        // Under the alert's filters, the quarter: its four regions, each as its check reads it.
+        expect(await rowsUnder(QUARTER)).toEqual([
+            { region: "NSW", revenue: 50 }, { region: "SA", revenue: 170 }, { region: "VIC", revenue: 30 }, { region: "WA", revenue: 20 },
+        ]);
+        // Their fields and their types are the same either way: a filter narrows which rows there are, never what one holds.
+        const typed = (state?: PrintState) => {
+            const stage = alertRowsStage(visualOf(content), ORDERS_SOURCE, state);
+            if ("kind" in stage) throw new Error(`stage ${stage.kind}`);
+            return [stage.fields, typesOf(alertRowType(stage, ORDERS_SOURCE, ORDERS_ROOT.type)!).map(([name, type]) => [name, type.type])];
+        };
+        expect(typed(QUARTER)).toEqual(typed());
+    });
+
+    it("bind the minute for a filter that counts back from it: its rows still check, and the query they edit binds it first", () => {
+        const content = v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] }));
+        const lately = printStateOf([{ source: "orders", where: condition(`.ordered_at >= ($now | datetime_add(-30; "day"))`), from: none }], "orders", ORDERS_SOURCE, QUARTER_NOW);
+        const stage = alertRowsStage(visualOf(content), ORDERS_SOURCE, lately);
+        if ("kind" in stage) throw new Error(`stage ${stage.kind}`);
+        expect([stage.readsNow, stage.stage.includes("$now")]).toEqual([true, true]);
+        const row = alertRowType(stage, ORDERS_SOURCE, ORDERS_ROOT.type);
+        expect(row === undefined ? undefined : typesOf(row).map(([name]) => name)).toEqual(["region", "revenue"]);
+        // The query its condition rows edit: a jq step that reads `$now`, bound before the source is read.
+        const printed = printSteps(alertQuery(stage, row!, ORDERS_SOURCE, condition(".revenue > 40")), ORDERS_ROOT.type);
+        expect(printed.text.startsWith(`.now as $now${SEP}.orders`)).toBe(true);
+    });
+
+    it("refuse as the check does where the alert's filters leave a value no window: a value over another period, on a page with no dates", () => {
+        const kpi = v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) }));
+        expect(alertRowsStage(visualOf(kpi), ORDERS_SOURCE, { filters: [] })).toEqual({ kind: "window" });
+        // With no filters given, every row: its fields, to read a kept firing's rows by.
+        const bare = alertRowsStage(visualOf(kpi), ORDERS_SOURCE);
+        expect("kind" in bare ? bare.kind : bare.fields.map((field) => field.name)).toEqual(["revenue_previous"]);
     });
 
     it("give a value over one of several periods the check's type: it may be none", () => {

@@ -32,10 +32,13 @@
  *    rows over the line shown now; Save adds it to the visual's alerts, and the
  *    page's check fires it. Delete asks first, in the popover, then takes it
  *    off.
- *  - A6 an alert's condition is edited over its visual's rows: its field's
- *    list offers the rows' fields, its comparison's a number's comparisons,
- *    its value's the rows' own numbers — and a number typed is compared as a
- *    number: Run answers the rows under it, with no error.
+ *  - A6 an alert's condition is edited over its visual's rows, as its check
+ *    reads them under its filters (ruled 22 November 2026): its field's list
+ *    offers the rows' fields, each with the range the quarter's rows hold;
+ *    its comparison's a number's comparisons; its value's the quarter's own
+ *    lowest, median, average and highest — never two years' — and a number
+ *    typed is compared as a number: Run answers the rows under it, with no
+ *    error.
  *  - A7 a new alert on a visual with no goal starts with its number still to
  *    write: Now says to finish the condition, and Run waits. The number
  *    written, Run stands on and Now says no more of finishing (a manual test's
@@ -330,17 +333,19 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await expect(slots).toHaveText(["revenue", "is less than", "130000"]);
         /** What the list a slot opened offers: the popover over the editor's. */
         const offers = () => popover(page).last().locator("[role=option]");
-        // Its field: the fields of the visual's rows — a month, and its revenue — each with its kind.
+        // Its field: the fields of the visual's rows — a month, and its revenue — each with its kind, and the range the
+        // alert's rows hold: the quarter's three months, August's 118,646.78 to September's.
         await slots.nth(0).click();
-        await expect(offers()).toHaveText([/^ordered at\s*date/, /^revenue\s*number/]);
+        await expect(offers()).toHaveText([/^ordered at\s*date/, /^revenue\s*number\s*118,646\.78 – 146,831\.77$/]);
         await escapeLayer(page);
         // Its comparison: a number's.
         await slots.nth(1).click();
         await expect(offers()).toHaveText(["is", "is not", "is at least", "is at most", "is more than", "is less than"]);
         await escapeLayer(page);
-        // Its value: the rows' own numbers, then the number typed — read as a number.
+        // Its value: the rows' own numbers — the quarter's months', as the alert checks them — then the number typed,
+        // read as a number.
         await slots.nth(2).click();
-        await expect(offers()).toHaveText([/lowest$/, /median$/, /average$/, /highest$/]);
+        await expect(offers()).toHaveText([/^118,646\.78\s*lowest$/, /^127,009\.95\s*median$/, /^130,829\.50\s*average$/, /^146,831\.77\s*highest$/]);
         await page.keyboard.type("120000");
         await expect(offers()).toHaveText(["Use “120000”"]);
         await page.keyboard.press("Enter");
