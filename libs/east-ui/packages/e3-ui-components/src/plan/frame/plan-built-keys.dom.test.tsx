@@ -16,19 +16,26 @@
  * only — its flows cannot follow it. Duplicate is off for a job standing
  * under the key its row builds, whose copy would build that key too. A link
  * kind that builds its links' keys says a refused key the same way, under the
- * field of the link's own form.
+ * field of the link's own form. And over presses the rail's `rows` source
+ * pages, jobs keyed by a variant — a composite's key — read a cell at a time
+ * through their own source of the rail (`planTypedKeysPaged`,
+ * east-workspace#1696): a job is drawn, selected, carried a day on, and saved
+ * under its typed key.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, equalFor, none, some, variant } from "@elaraai/east";
+import { DateTimeType, East, OptionType, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import * as windows from "@elaraai/e3-ui/examples/plan/plan-windows";
 import { retypeNumber } from "../../e3-web-mount.test-utils.js";
+import { boundFrame } from "../../sheet/frame.test-utils.js";
+import { carryRun } from "../plan-move.test-utils.js";
 import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot } from "./harness.test-utils.js";
 import { flowsPlan, type FlowsPlanOptions } from "./flows.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-events": ex, "plan/plan-windows": windows });
 
 /** Press A1's landing row of bars. */
 const A1 = entry("presses", "a1");
@@ -145,6 +152,34 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
             await retypeNumber(within(sheets()).getByRole("spinbutton"), "30");
             expect(sheets().textContent).toContain('Another flow is keyed "30.0k" already');
             expect(flow("posters")).not.toBeUndefined();
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("a Plan over rows read a page at a time, its jobs keyed by a variant (east-workspace#1696)", () => {
+    const sameStart = equalFor(OptionType(DateTimeType));
+
+    test("#1696 — the rail's `rows` source pages the presses, and the jobs, keyed by a variant, are read a cell at a time through their own source: a job is drawn, selected and shown in the inspector, carried a day on, a draft, and Save writes it under its typed key", async () => {
+        // The example's frame is bounded, its rows drawn as tall as a browser lays them.
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(windows.planTypedKeysPaged, { drag: true });
+            await settle();
+            // The trade price list, an order's: on Press 1002, Wednesday 7 October from six.
+            const PRICE_LIST = variant("order", "J-8002");
+            const bar = () => c.querySelector<HTMLElement>(el("data-run", "job", printFor(ex.PrintJobKey)(PRICE_LIST)));
+            await waitFor(() => expect(bar()).not.toBeNull(), { timeout: 10_000 });
+            fireEvent.click(bar()!);
+            await settle();
+            expect(inspected(c)).toBe("Trade price list");
+            await carryRun(bar()!, { key: "ArrowRight" });
+            expect([bar()!.hasAttribute("data-draft"), pending(c)]).toEqual([true, "1 pending"]);
+            await press(c, editingMessages.apply());
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const held = await h.read(windows.planKeyedWindowJobs);
+            expect([held.size, sameStart(held.get(PRICE_LIST)!.start, some(new Date("2026-10-08T06:00:00Z")))]).toEqual([4, true]);
         } finally {
             restore();
         }

@@ -11,7 +11,9 @@ import {
     IntegerType,
     OptionType,
     SetType,
+    SortedMap,
     StringType,
+    compareFor,
     example,
     none,
     some,
@@ -21,7 +23,7 @@ import {
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
-import { PrintJob, PrintPress } from "./plan-events.examples.js";
+import { PrintJob, PrintJobKey, PrintKeyedJobs, PrintPress } from "./plan-events.examples.js";
 
 // A Plan over records too large to read whole (#1199, `Plan Builder Spec.md`
 // §9.11, PB54–PB55, #1541): a print works of 2,000 presses and the jobs on them,
@@ -435,6 +437,98 @@ export const planSeriesByHall = example({
                         }),
                     }}
                     library={[Plan.library.backlog()]}
+                    style={{ height: "480px" }}
+                />
+            );
+        }}</Reactive>);
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planTypedKeysPaged — planTypedKeys' jobs on presses read a page at a time (#1696)
+// ============================================================================
+
+/**
+ * The jobs of `planTypedKeys` again — each keyed by which it is, an order by its number or a sample by its own, as a
+ * composite record keys its rows by the source each came from — on the first presses of `planSeriesByHall`'s 2,000,
+ * filed as the windows' jobs are: by their times, by press and week, and each press's busy share by month.
+ */
+export const planKeyedWindowJobs = e3.record("plan_keyed_window_jobs", PrintKeyedJobs, {
+    initial: new SortedMap<ValueTypeOf<typeof PrintJobKey>, ValueTypeOf<typeof PrintJob>>([
+        [variant("order", "J-8001"), { title: "Trade catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T18:00:00Z")), press: some("P-1001"), state: variant("confirmed", null), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none }],
+        [variant("order", "J-8002"), { title: "Trade price list", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T14:00:00Z")), press: some("P-1002"), state: variant("confirmed", null), sheets: 24000.0, customer: "", stock: variant("coated", null), due: none }],
+        [variant("sample", 1n), { title: "Catalogue proof", start: some(new Date("2026-10-05T09:00:00Z")), end: some(new Date("2026-10-05T11:00:00Z")), press: some("P-1001"), state: variant("confirmed", null), sheets: 200.0, customer: "", stock: variant("coated", null), due: none }],
+        [variant("sample", 2n), { title: "Price list proof", start: some(new Date("2026-10-06T13:00:00Z")), end: some(new Date("2026-10-06T15:00:00Z")), press: some("P-1002"), state: variant("confirmed", null), sheets: 100.0, customer: "", stock: variant("coated", null), due: none }],
+    ], compareFor(PrintJobKey)),
+    indexes: (index) => ({
+        // What the rail's `job` source narrows them through: the window, its count, and the backlog.
+        plan_keyed_window_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        // The cells the canvas reads them by: the presses around the rows in view, over the weeks the window touches.
+        plan_keyed_window_jobs_by_press_week: index.series({
+            key: "press", from: "start", to: "end", tile: "week",
+        }),
+        // What the canvas shades zoomed out past what it draws.
+        plan_keyed_window_jobs_by_press_month: index.summary({
+            key: "press", from: "start", to: "end", tile: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // Their patch door: every Save commits through it, each job by its typed key.
+        patch: mutation.patch(),
+    }),
+});
+
+/**
+ * `planTypedKeys` over rows read a page at a time (#1696): its jobs, keyed by a variant, on the 2,000 presses of
+ * `planSeriesByHall` — the rail's `rows` source paging them by hall — and read a cell at a time through their own source
+ * of the rail, its series and its summary beside its interval index. A record keyed by any type a Dict takes is a source
+ * of the rail in every builder: a composite record's key is a variant, and its rows page through the rail as these do.
+ * Each job is drawn, selected, dragged and saved under its own key: the canvas holds a key as its text, and reads it
+ * back at its own type.
+ */
+export const planTypedKeysPaged = example({
+    keywords: [
+        "Plan", "keyType", "variant key", "typed key", "composite", "Slice", "Slice.bindRecords", "rows source", "source",
+        "interval index", "series index", "summary index", "paged", "Data.bindPaged", "Schedule.events", "entries", "#1696",
+    ],
+    description: "planTypedKeys over rows read a page at a time: its jobs keyed by a variant — an order's number or a sample's, as a composite record keys its rows by their source — on the 2,000 presses of planSeriesByHall, the rail's `rows` source paging them by hall, and the jobs read a cell at a time through their own source of the rail (interval, series and summary indexes): a record keyed by any type a Dict takes is a source of the rail in every builder, and each job is drawn, selected, dragged and saved under its own typed key",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (<Reactive>{$ => {
+            const jobs = $.let(Record.bind(planKeyedWindowJobs));
+            const jobEntries = $.let(Data.bindPaged(planKeyedWindowJobs));
+            // The presses paged by hall through the `rows` source; the jobs, keyed by a variant, a cell at a time through theirs.
+            const slice = $.let(Slice.bindRecords("ex.plan.typedKeysPaged", {
+                rows: { source: Data.bindPaged(planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), label: "Presses",
+                    icon: { prefix: "fas", name: "print" },
+                    fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "Hall 5", "Hall 6", "Hall 7", "Hall 8"] } } },
+                job: { source: Data.bindPaged(planKeyedWindowJobs, { indexes: ["plan_keyed_window_jobs_by_time", "plan_keyed_window_jobs_by_press_week", "plan_keyed_window_jobs_by_press_month"] }),
+                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
+            }));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
+                resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    id="typed-keys-paged"
+                    axis={axis}
+                    slice={{ slice }}
+                    vocabulary={{ rows: { one: "Press", other: "Presses" } }}
+                    series={[Plan.series.resources(PrintPress, {
+                        key: "presses", title: "Presses", icon: "print", label: p => p.name,
+                        sub: (p, key) => some(East.str`${key} · ${p.hall}`),
+                    })]}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            state: "state", quantity: { field: "sheets", unit: "sheets" },
+                            entries: jobEntries,
+                        }),
+                    }}
+                    inspector
                     style={{ height: "480px" }}
                 />
             );
