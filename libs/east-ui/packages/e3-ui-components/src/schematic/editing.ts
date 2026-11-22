@@ -46,7 +46,9 @@
  *   until the viewer types its key in the inspector, the app's check asked of
  *   the rows under keys alone; and by any other, none: the kind adds no row
  *   (`untyped`). A row whose kind builds its key from its fields moves under
- *   the key a gesture's edit of them builds (`moves`), its details row with it.
+ *   the key a gesture's edit of them builds (`moves`), its details row with it,
+ *   by the one rule every builder follows (`shared/built-keys.ts`); one whose
+ *   key fails as it is built refuses the gesture.
  * - **A number its field's bounds don't hold (#1585).** Each record's form
  *   goes with it (`fields`): a changed row whose number is under its least or
  *   over its most holds Save, as the app's check does, and Issues names it.
@@ -87,6 +89,7 @@ import {
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec, windowRead } from "../shared/schedule/records.js";
+import { rowMovesOf } from "../shared/schedule/row-moves.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
@@ -130,6 +133,15 @@ export interface SchematicMove {
     readonly ref: SchematicRef;
     /** The key its row builds after the gesture. */
     readonly to: string;
+}
+
+/**
+ * A row whose kind's `key` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
+ * records nothing — the footer says no key can be made for it.
+ */
+export interface SchematicMoveFailed {
+    /** The row: its kind's slot, and the key it stands under. */
+    readonly failed: SchematicRef;
 }
 
 /** The Schematic's editing: its history, every kind's drafts, and how a gesture is recorded. */
@@ -213,11 +225,13 @@ export interface SchematicEditing {
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
      * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
      * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
+     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `key` built none of as the gesture
+     * found it moves under the key the edit gives it, and one it fails on as the gesture leaves it refuses the gesture.
      *
      * @param edits - The gesture's edits
-     * @returns Each row it moves, and the key it moves under
+     * @returns Each row it moves, and the key it moves under; or the row its kind's `key` failed on
      */
-    moves(edits: readonly SchematicEdit[]): SchematicMove[];
+    moves(edits: readonly SchematicEdit[]): readonly SchematicMove[] | SchematicMoveFailed;
     /**
      * Whether a kind builds a new row's key from its row: its `key` (#1549).
      *
@@ -294,6 +308,9 @@ const READY: Readiness = variant("ready", null);
 
 /** No key a gesture has made. */
 const NO_MINTED: ReadonlySet<string> = new Set<string>();
+
+/** A gesture that moves no row. */
+const NO_MOVES: readonly SchematicMove[] = [];
 
 /**
  * The Schematic's sessions over its records, and their drafts (see the module
@@ -666,53 +683,22 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             taken: (key) => taken(slot, key), stands: (key) => stands(slot, key), madeUp: mintKey,
         });
     }, [changesOf, taken, stands]);
-    const moves = useCallback((edits: readonly SchematicEdit[]): SchematicMove[] => {
+    const moves = useCallback((edits: readonly SchematicEdit[]): readonly SchematicMove[] | SchematicMoveFailed => {
         const { value: payload } = latest.current;
         const changes = changesOf(edits);
-        // A gesture touching no kind that builds its keys moves no row: its edits are never composed.
-        if (changes === undefined || !changes.some((change) => builderOf(kindOf(payload, change.kind)) !== undefined)) return [];
-        // Each row the gesture touches as it leaves it, the edits composed in order over the row as it finds it.
-        const at = (record: string, key: string): string => `${record}\u0000${key}`;
-        const found = (record: string, key: string): Uint8Array | undefined => {
+        if (changes === undefined) return NO_MOVES;
+        // The one walk every builder that asks before it records makes (`shared/schedule/row-moves.ts`): each row as the
+        // gesture finds it — drafted, else as its record holds it — and as its edits leave it. A details record builds none.
+        const moved = rowMovesOf(changes, (record, key) => {
             const got = rowNow(record, key);
             return got.state === "held" ? got.row : undefined;
-        };
-        const now = new Map<string, Uint8Array | undefined>();
-        const made = new Set<string>();
-        const touched: { record: string; key: string }[] = [];
-        const seen = new Set<string>();
-        for (const change of changes) {
-            const id = at(change.kind, change.id);
-            if (!seen.has(id)) { seen.add(id); touched.push({ record: change.kind, key: change.id }); }
-            const was = now.has(id) ? now.get(id) : found(change.kind, change.id);
-            if ("remove" in change) now.set(id, undefined);
-            else if ("row" in change) {
-                now.set(id, change.row);
-                if (change.created === true) made.add(id);
-            } else if ("rewrite" in change && was !== undefined) {
-                try {
-                    now.set(id, change.rewrite(was) ?? was);
-                } catch {
-                    now.set(id, was);
-                }
-            }
+        }, (record) => builderOf(kindOf(payload, record)));
+        if ("failed" in moved) {
+            const { kind, key, error } = moved.failed;
+            console.error(`[Schematic] ${kindOf(payload, kind)?.name ?? kind}'s key could not be built from ${key}'s row:`, error);
+            return { failed: { kind, key } };
         }
-        const out: SchematicMove[] = [];
-        for (const { record, key } of touched) {
-            const id = at(record, key);
-            const kind = kindOf(payload, record);
-            const build = builderOf(kind);
-            const was = found(record, key);
-            const after = now.get(id);
-            if (made.has(id) || build === undefined || was === undefined || after === undefined) continue;
-            try {
-                const to = build(after);
-                if (!stringEqual(build(was), to) && !stringEqual(key, to)) out.push({ ref: { kind: record, key }, to });
-            } catch (err) {
-                console.error(`[Schematic] ${kind?.name ?? record}'s key could not be built from ${key}'s row:`, err);
-            }
-        }
-        return out;
+        return moved.map(({ kind, key, to }): SchematicMove => ({ ref: { kind, key }, to }));
     }, [changesOf, rowNow]);
     const builds = useCallback((slot: string): boolean => builderOf(kindOf(latest.current.value, slot)) !== undefined, []);
     const untyped = useCallback((slot: string): string | undefined => {

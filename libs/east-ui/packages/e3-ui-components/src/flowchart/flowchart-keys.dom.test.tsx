@@ -30,6 +30,10 @@
  *   own rule (`newKey`, east-workspace#1709) keys each new row by it, whatever
  *   its key type would make — read through the rail, the rule told the key of
  *   every row the rail's read holds.
+ * - **A key that fails as it is built** (east-workspace#1709): a step renamed
+ *   to a name its kind's `key` builds no key of is refused, the footer saying
+ *   so, and nothing is recorded — as in every builder; and a step stored under
+ *   a key its name builds none of moves under the key its new name builds.
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
  *   it is refused, saying why, and records nothing; its choices cleared, the
@@ -76,7 +80,15 @@ const codedStations = e3.record("flowchart_coded_stations", DictType(StringType,
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
-const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx, "flowchart/key-field": { codedStations } });
+/** A step keyed by the number its name reads as: the steps' `key` reads the name as one, and fails on a name that is none. */
+const NumberedStep = StructType({ name: StringType, station: IntegerType });
+/** The numbered steps at the bench: 10, named so; and one an app stored under 30 whose name, Proof, builds no key. */
+const numberedSteps = e3.record("flowchart_numbered_steps", DictType(IntegerType, NumberedStep), {
+    initial: new SortedMap([[10n, { name: "10", station: 2n }], [30n, { name: "Proof", station: 2n }]], compareFor(IntegerType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const h = flowchartHarness({ "flowchart/flowchart-keys.fixtures": fx, "flowchart/key-field": { codedStations, numberedSteps } });
 // The trays' Steps tab lays its cards out: each Library alone measured, the canvas as jsdom has it.
 measureLibrary();
 
@@ -493,6 +505,32 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         ]);
         placed.delete({ station: 2n, name: "Mix" });
         expect(printFor(fx.placedSteps.type)(await h.read(fx.placedSteps))).toBe(printFor(fx.placedSteps.type)(placed));
+    });
+
+    test("east-workspace#1709 — keyed by the number its name reads as: a step renamed to a name that reads as none is refused, the footer saying no key can be made, and nothing is recorded; a step stored under a key its name builds none of moves under the key its new name builds, and Save writes it there", async () => {
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(numberedSteps));
+            const stationsBound = $.let(Data.bind(fx.keyedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => step.name.parse(IntegerType) }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+            };
+        }, "10");
+        const untouched = pending(c);
+        const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            // Mix reads as no number: the key fails on the step as the rename leaves it.
+            await renameStep(c, "10", "Mix");
+            expect([footer(c), node(c, "10")?.textContent?.includes("Mix"), pending(c)]).toEqual([m.gestureRefused({ refusal: "unkeyed", sort: "states" }), false, untouched]);
+            // Proof read as none either: renamed 31, the step goes under the key it builds now.
+            await renameStep(c, "30", "31");
+            expect([footer(c), node(c, "30"), node(c, "31") !== null]).toEqual(["", null, true]);
+        } finally {
+            logged.mockRestore();
+        }
+        expect(await save()).toEqual([numberedSteps.name]);
+        const saved = await h.read(numberedSteps);
+        expect([[...saved.keys()], saved.get(31n)?.name]).toEqual([[10n, 31n], "31"]);
     });
 
     test("keyed by DateTime, a new shift and a new batch are held under placeholders — Save waiting, Issues listing each at its key field, and no batch taken into the shift — until each key is typed in the inspector, and Save writes each under it", async () => {

@@ -434,6 +434,11 @@ describe("a key built from the row follows the row (#1549)", () => {
         expect(followBuiltKeys(blocked, { edits: [label("a", "b"), label("b", "c")] })).toEqual({ edits: [], refused: { refusal: "taken", sort: "states", key: "c" } });
     });
 
+    test("east-workspace#1709 — a row its kind's `key` fails on as the gesture leaves it refuses the gesture, as in every builder: no key can be made for it, and nothing is recorded", () => {
+        const holding = holdingOf(BUILT, { moves: () => ({ failed: { sort: "states", key: "Sorted" } }) });
+        expect(followBuiltKeys(holding, renameState(holding, "Sorted", "Done")!)).toEqual({ edits: [], refused: { refusal: "unkeyed", sort: "states" } });
+    });
+
     test("a gesture refused is as it was", () => {
         const holding = holdingOf(BUILT, { moves: () => { throw new Error("asked"); } });
         const refused = { edits: [], refused: { refusal: "untyped", sort: "lanes", type: "Blob" } } as const;

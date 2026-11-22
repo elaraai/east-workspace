@@ -13,7 +13,7 @@
 import { describe, expect, test } from "vitest";
 import { none } from "@elaraai/east";
 import type { EntryVersion } from "@elaraai/east-ui-components";
-import { settleBuiltKeys, type BuiltKeyRule, type TouchedEntry } from "./built-keys.js";
+import { builtKeyOf, settleBuiltKeys, type BuiltKeyRule, type TouchedEntry } from "./built-keys.js";
 
 type Version = EntryVersion<string>;
 
@@ -41,6 +41,29 @@ function ruleOver(stored: Readonly<Record<string, string>>, shown: readonly stri
 /** What a gesture's entries hold after it: each key, and the code of the row under it — `null` for none. */
 const held = (entries: ReadonlyMap<string, TouchedEntry<string>>): [string, unknown][] =>
     [...entries].map(([id, { after }]): [string, unknown] => [id, after.draft ?? null]);
+
+describe("where an edit of a row puts it (east-workspace#1709)", () => {
+    /** A code's key: the code, and none for one that begins `!`. */
+    const build = (code: string): string => {
+        if (code.startsWith("!")) throw new Error(`no key for ${code}`);
+        return code;
+    };
+
+    test("under the key its row builds as the gesture leaves it; where it stands, where that is the key it stands under, or the key its row built as the gesture found it", () => {
+        expect(builtKeyOf(build, "A", "A", "B")).toEqual({ to: "B" });
+        expect(builtKeyOf(build, "A", "B", "A")).toBeUndefined();
+        // Stored apart from its key: what it builds as it was, it stays.
+        expect(builtKeyOf(build, "OLD", "C", "C")).toBeUndefined();
+        // A row the gesture makes was found nowhere: it goes under the key it builds.
+        expect(builtKeyOf(build, "made-1", undefined, "A")).toEqual({ to: "A" });
+    });
+
+    test("a row its key was built none of as the gesture found it moves under the key the edit gives it; one it fails on as the gesture leaves it says what building it threw", () => {
+        expect(builtKeyOf(build, "OLD", "!", "A")).toEqual({ to: "A" });
+        const failed = builtKeyOf(build, "A", "A", "!");
+        expect(failed !== undefined && "failed" in failed && failed.failed instanceof Error).toBe(true);
+    });
+});
 
 describe("a row stands under the key its row builds (east-workspace#1709)", () => {
     test("ruling 1 — a row the gesture makes stands under the key its row builds, nothing left under the key it was made under", () => {

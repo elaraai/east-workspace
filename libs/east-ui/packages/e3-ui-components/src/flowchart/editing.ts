@@ -47,7 +47,8 @@
  *   placeholder — a text no key prints as — which holds Save, `incomplete` at
  *   the row's key field, until the viewer types its key; and by any other,
  *   none: the kind adds no row (`untyped`). A row whose kind builds its key from its fields moves under
- *   the key a gesture's edit of them builds (`moves`).
+ *   the key a gesture's edit of them builds (`moves`), by the one rule every builder follows
+ *   (`shared/built-keys.ts`); one whose key fails as it is built refuses the gesture.
  * - **A number its field's bounds don't hold (#1585).** Each kind's form goes
  *   with its record (`fields`): a changed row whose number is under its least
  *   or over its most holds Save, as the app's check does, and Issues names it.
@@ -86,6 +87,7 @@ import {
 import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { newRowKey, newRowKeyRule, type NewRowKey } from "../shared/schedule/new-row-key.js";
 import { draftedRow, keptAtRevision, madeFromValues, mintKey, rowCodec, windowRead } from "../shared/schedule/records.js";
+import { rowMovesOf } from "../shared/schedule/row-moves.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { NONE_LANDED, NO_DRAFTS, NO_LANDED, type FlowchartDrafts, type FlowchartLanded, type KindDrafts, type KindLanded, type LandedRow } from "./drafted.js";
@@ -164,6 +166,15 @@ export interface FlowchartMove {
     readonly key: string;
     /** The key its row builds after the gesture. */
     readonly to: string;
+}
+
+/**
+ * A row whose kind's `key` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
+ * records nothing — the footer says no key can be made for it.
+ */
+export interface FlowchartMoveFailed {
+    /** The row: its kind, and the key it stands under. */
+    readonly failed: { readonly sort: FlowchartSort; readonly key: string };
 }
 
 /** The Flowchart's editing: its history, every kind's drafts, and how a gesture is recorded. */
@@ -261,11 +272,13 @@ export interface FlowchartEditing {
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
      * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
      * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
+     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `key` built none of as the gesture
+     * found it moves under the key the edit gives it, and one it fails on as the gesture leaves it refuses the gesture.
      *
      * @param edits - The gesture's edits
-     * @returns Each row it moves, and the key it moves under
+     * @returns Each row it moves, and the key it moves under; or the row its kind's `key` failed on
      */
-    moves(edits: readonly FlowchartEdit[]): FlowchartMove[];
+    moves(edits: readonly FlowchartEdit[]): readonly FlowchartMove[] | FlowchartMoveFailed;
     /**
      * Whether a kind builds a new row's key from its row: its `key`, which a key field never edits (#1549).
      *
@@ -312,6 +325,9 @@ const READY: Readiness = variant("ready", null);
 
 /** No key a gesture has made. */
 const NO_MINTED: ReadonlySet<string> = new Set<string>();
+
+/** A gesture that moves no row. */
+const NO_MOVES: readonly FlowchartMove[] = [];
 
 /**
  * The function a kind builds a new row's key from its row with (#1549): its `key`.
@@ -636,53 +652,22 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
             taken: (key) => taken(sort, key), stands: (key) => stands(sort, key), madeUp,
         });
     }, [changesOf, taken, stands]);
-    const moves = useCallback((edits: readonly FlowchartEdit[]): FlowchartMove[] => {
+    const moves = useCallback((edits: readonly FlowchartEdit[]): readonly FlowchartMove[] | FlowchartMoveFailed => {
         const { value: payload, schedule: editing, held: read } = latest.current;
         const changes = changesOf(edits);
-        // A gesture touching no kind that builds its keys moves no row: its edits are never composed.
-        if (changes === undefined || !changes.some((change) => builderOf(kindOf(payload, change.kind as FlowchartSort)) !== undefined)) return [];
-        // Each row the gesture touches as it leaves it, the edits composed in order over the row as it finds it.
-        const at = (sort: string, key: string): string => `${sort}\u0000${key}`;
-        const found = (sort: FlowchartSort, key: string): Uint8Array | undefined => {
-            const kind = kindOf(payload, sort);
-            return kind === undefined ? undefined : rowNow(editing, read, kind, sort, key);
-        };
-        const now = new Map<string, Uint8Array | undefined>();
-        const made = new Set<string>();
-        const touched: { sort: FlowchartSort; key: string }[] = [];
-        const seen = new Set<string>();
-        for (const change of changes) {
-            const sort = change.kind as FlowchartSort;
-            const id = at(sort, change.id);
-            if (!seen.has(id)) { seen.add(id); touched.push({ sort, key: change.id }); }
-            const was = now.has(id) ? now.get(id) : found(sort, change.id);
-            if ("remove" in change) now.set(id, undefined);
-            else if ("row" in change) {
-                now.set(id, change.row);
-                if (change.created === true) made.add(id);
-            } else if ("rewrite" in change && was !== undefined) {
-                try {
-                    now.set(id, change.rewrite(was) ?? was);
-                } catch {
-                    now.set(id, was);
-                }
-            }
+        if (changes === undefined) return NO_MOVES;
+        // The one walk every builder that asks before it records makes (`shared/schedule/row-moves.ts`): each row as the
+        // gesture finds it — drafted, else as the read holds it — and as its edits leave it.
+        const moved = rowMovesOf(changes, (sort, key) => {
+            const kind = kindOf(payload, sort as FlowchartSort);
+            return kind === undefined ? undefined : rowNow(editing, read, kind, sort as FlowchartSort, key);
+        }, (sort) => builderOf(kindOf(payload, sort as FlowchartSort)));
+        if ("failed" in moved) {
+            const { kind, key, error } = moved.failed;
+            console.error(`[Flowchart] ${kindOf(payload, kind as FlowchartSort)?.name ?? kind}'s key could not be built from ${key}'s row:`, error);
+            return { failed: { sort: kind as FlowchartSort, key } };
         }
-        const out: FlowchartMove[] = [];
-        for (const { sort, key } of touched) {
-            const id = at(sort, key);
-            const build = builderOf(kindOf(payload, sort));
-            const was = found(sort, key);
-            const after = now.get(id);
-            if (made.has(id) || build === undefined || was === undefined || after === undefined) continue;
-            try {
-                const to = build(after);
-                if (!stringEqual(build(was), to) && !stringEqual(key, to)) out.push({ sort, key, to });
-            } catch (err) {
-                console.error(`[Flowchart] ${kindOf(payload, sort)?.name ?? sort}'s key could not be built from ${key}'s row:`, err);
-            }
-        }
-        return out;
+        return moved.map(({ kind, key, to }): FlowchartMove => ({ sort: kind as FlowchartSort, key, to }));
     }, [changesOf]);
     const builds = useCallback((sort: FlowchartSort): boolean => builderOf(kindOf(latest.current.value, sort)) !== undefined, []);
     const untyped = useCallback((sort: FlowchartSort): string | undefined => {

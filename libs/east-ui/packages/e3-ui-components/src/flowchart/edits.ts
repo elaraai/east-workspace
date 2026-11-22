@@ -46,7 +46,8 @@
  *   a gesture writing the fields its kind's `key` reads moves the row under the
  *   key they build, and what names the row follows — refused, naming the row,
  *   where another row holds that key once the gesture is made, so a swap or a
- *   shift passes (#1581), and while a kind that may name it isn't held whole
+ *   shift passes (#1581), where the key fails as it is built
+ *   (east-workspace#1709), and while a kind that may name it isn't held whole
  *   (#1580): the rail hides some of its rows, its page's scope holds only some
  *   (#1621), or it takes no edit now — a Save in flight — so what it leaves
  *   would keep the old key.
@@ -67,7 +68,7 @@
 import { StringType, equalFor, none, some } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { SourceUnheld } from "../shared/schedule/unheld.js";
-import type { FlowchartEdit, FlowchartFieldWrites, FlowchartMove, FlowchartNewKey, FlowchartTransitionWrite } from "./editing.js";
+import type { FlowchartEdit, FlowchartFieldWrites, FlowchartMove, FlowchartMoveFailed, FlowchartNewKey, FlowchartTransitionWrite } from "./editing.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import type { FlowchartModel, FlowchartRow, FlowchartRows, FlowchartTransitionRoles, ModelNode } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -152,11 +153,12 @@ export interface FlowchartHolding {
     readonly newKey: (sort: FlowchartSort, made: FlowchartEdit, madeUp: (taken: (key: string) => boolean) => string,
         minted?: ReadonlySet<string>) => FlowchartNewKey | undefined;
     /**
-     * The rows a gesture moves under the keys their fields build once it writes them (#1549; `editing.ts`' `moves`).
+     * The rows a gesture moves under the keys their fields build once it writes them (#1549; `editing.ts`' `moves`), or
+     * the row its kind's `key` failed on as the gesture leaves it.
      *
      * @param edits - The gesture's edits
      */
-    readonly moves: (edits: readonly FlowchartEdit[]) => FlowchartMove[];
+    readonly moves: (edits: readonly FlowchartEdit[]) => readonly FlowchartMove[] | FlowchartMoveFailed;
     /**
      * Why the flowchart may not hold every row of a kind it writes (#1580): the rail hides some, its page's scope holds only
      * some (#1621), or the kind takes no edit now — a Save in flight, or its rows not read; `undefined` where it holds them
@@ -188,7 +190,10 @@ export type FlowchartRefusal =
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort; readonly key: string }
     /** Its kind's keys are of a type the form can't type, by the type's name, and its kind builds none. */
     | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
-    /** No key could be made for the row it adds (east-workspace#1709): its kind's `key`, or the app's `newKey`, failed. */
+    /**
+     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `key` failed on
+     * the row, or the app's `newKey` did.
+     */
     | { readonly refusal: "unkeyed"; readonly sort: FlowchartSort }
     /**
      * A row whose key the gesture moves, which rows of another kind name — by that kind (`by`) — that the flowchart doesn't
@@ -865,12 +870,13 @@ function heldOnceMoved(holding: FlowchartHolding, moves: readonly FlowchartMove[
  * naming that key — one a row moves off is free, so a swap or a shift passes,
  * the row copied onto it replacing the one moving off, whose key it leaves
  * standing (#1581); so does a kind that may name a moving row the flowchart
- * doesn't hold whole (#1580).
+ * doesn't hold whole (#1580), and a row its kind's `key` fails on as the
+ * gesture leaves it (east-workspace#1709), as in every builder.
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
- * @returns The edits with every move, and the rows moved; the refusal, with no edits, where a key is taken or what may
- *   name a moving row isn't held
+ * @returns The edits with every move, and the rows moved; the refusal, with no edits, where a key is taken, a key fails
+ *   as it is built, or what may name a moving row isn't held
  */
 export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): GestureEdits {
     if (made.refused !== undefined || made.edits.length === 0) return made;
@@ -878,6 +884,7 @@ export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): 
     const moved: FlowchartMove[] = [];
     for (let pass = 0; pass < FOLLOWS; pass++) {
         const moves = holding.moves(edits);
+        if ("failed" in moves) return refusedFor({ refusal: "unkeyed", sort: moves.failed.sort });
         if (moves.length === 0) break;
         for (const move of moves) {
             if (heldOnceMoved(holding, moves, move)) return refusedFor({ refusal: "taken", sort: move.sort, key: move.to });

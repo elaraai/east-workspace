@@ -114,6 +114,40 @@ export interface BuiltKeyRefusal {
 }
 
 /**
+ * Where an edit of a row puts it (see the module docs): under the key its row
+ * builds as the gesture leaves it, where that is another than the key it
+ * stands under and another than the key its row built as the gesture found
+ * it. What every builder asks of a row a gesture changes: {@link settleBuiltKeys}
+ * of a gesture's entries, and a builder that asks before it records
+ * (`schedule/row-moves.ts`).
+ *
+ * @typeParam V - A row, as the builder holds one
+ * @param build - The key a row builds, as its text
+ * @param id - The key the row stands under
+ * @param found - The row as the gesture found it; `undefined` for one it found none of — a row it makes
+ * @param after - The row as the gesture leaves it
+ * @returns The key it moves under; what building its key threw, which refuses the gesture; `undefined` for a row that
+ *   stays where it stands
+ */
+export function builtKeyOf<V>(build: (row: V) => string, id: string, found: V | undefined, after: V): { readonly to: string } | { readonly failed: unknown } | undefined {
+    let to: string;
+    try {
+        to = build(after);
+    } catch (error) {
+        return { failed: error };
+    }
+    if (stringEqual(to, id)) return undefined;
+    if (found !== undefined) {
+        // The key its row built before the gesture. One its `key` failed on built none: the edit that gives it a key
+        // moves it, and is never refused for what the row held before.
+        let was: string | undefined;
+        try { was = build(found); } catch { was = undefined; }
+        if (was !== undefined && stringEqual(was, to)) return undefined;
+    }
+    return { to };
+}
+
+/**
  * Moves each entry a gesture touches under the key its row builds (see the
  * module docs), in the gesture's own entries: nothing is moved where any is
  * refused.
@@ -131,23 +165,12 @@ export function settleBuiltKeys<W>(entries: Map<string, TouchedEntry<W>>, rule: 
     const going: { readonly from: string; readonly to: string; readonly before: EntryVersion<W>; readonly after: EntryVersion<W> }[] = [];
     for (const [id, { before, after }] of entries) {
         if (!rule.holds(after)) continue;
-        let to: string;
-        try {
-            to = rule.build(id, after);
-        } catch (error) {
-            return { refused: { id: made(id, before) ? "" : id, why: { failed: error } } };
-        }
-        if (stringEqual(to, id)) continue;
         // The row as the gesture found it: drafted, else — the drafts removed it — as its record holds it.
         const found = rule.holds(before) ? before : rule.stored?.(id);
-        if (found !== undefined && rule.holds(found)) {
-            // The key its row built before the gesture. One its `key` failed on built none: the edit that gives it a key
-            // moves it, and is never refused for what the row held before.
-            let was: string | undefined;
-            try { was = rule.build(id, found); } catch { was = undefined; }
-            if (was !== undefined && stringEqual(was, to)) continue;
-        }
-        going.push({ from: id, to, before, after });
+        const moved = builtKeyOf((version) => rule.build(id, version), id, found !== undefined && rule.holds(found) ? found : undefined, after);
+        if (moved === undefined) continue;
+        if ("failed" in moved) return { refused: { id: made(id, before) ? "" : id, why: { failed: moved.failed } } };
+        going.push({ from: id, to: moved.to, before, after });
     }
     const leaving = new Set(going.map((move) => move.from));
     const arriving = new Set<string>();
