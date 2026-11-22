@@ -54,7 +54,10 @@
  * memo, its local state), its DOM element and its measured height wherever it
  * moves. Measured rows carry `data-slot="virtualRow"` so a host recipe can
  * style the wrappers (a transform transition), and are sized to whole device
- * pixels ({@link devicePixels}) so every row sits on the pixel grid. A row a
+ * pixels ({@link devicePixels}) so every row sits on the pixel grid — by the
+ * height the layout gives them, never the box an ancestor's transform draws
+ * (`row-height.ts`): a frame mounted in a popover on its way in places its
+ * rows as it will once the popover is in. A row a
  * hidden ancestor takes out of the layout — a closed tab's panel, a collapsed
  * pane — keeps the size it last had ({@link sizeWhileHidden}): shown again,
  * the rows and the scroll are where they were (#1389).
@@ -197,6 +200,7 @@ import {
 } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
+import { rowLayoutHeight } from "./row-height.js";
 import { RowTopContext, RowsScrollContext, createRowsScroll } from "./rows-scroll.js";
 
 /**
@@ -977,10 +981,12 @@ export function sizeWhileHidden<S extends Element | Window>(el: Element, instanc
 
 /**
  * A mounted row's height, on the device-pixel grid ({@link devicePixels}) —
- * or, out of the layout, the size it keeps ({@link sizeWhileHidden}).
+ * its layout's own, whatever transform an ancestor draws it under
+ * (`rowLayoutHeight`) — or, out of the layout, the size it keeps
+ * ({@link sizeWhileHidden}).
  */
-function measureRect<S extends Element | Window>(el: Element, _entry: ResizeObserverEntry | undefined, instance: Virtualizer<S, Element>): number {
-    return sizeWhileHidden(el, instance) ?? devicePixels(el.getBoundingClientRect().height);
+function measureRect<S extends Element | Window>(el: Element, entry: ResizeObserverEntry | undefined, instance: Virtualizer<S, Element>): number {
+    return sizeWhileHidden(el, instance) ?? devicePixels(rowLayoutHeight(el, entry));
 }
 
 /** An item's identity to the virtualizer — its key. */
