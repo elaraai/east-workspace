@@ -17,6 +17,9 @@
  *  - V4 a chart's tooltip says each value as its axis says what it is (a
  *    manual test's finding, 22 November 2026): a share a percent, to two
  *    decimals — never the fraction it is held as — and an amount whole.
+ *  - V5 a table's number is drawn in the case it is written (a manual
+ *    test's finding, 22 November 2026): a group's row is set in upper case,
+ *    and its numbers are not — `117k`, never `117K`.
  *
  * A colour is read the way it is painted: resolved by the page, composited
  * over the grounds beneath it on a one-pixel canvas and read back as sRGB, so
@@ -150,5 +153,27 @@ test.describe("Studio visuals (#1671)", () => {
         expect(rows.map((row) => row[1])).toEqual(["Revenue", "Average margin · right"]);
         expect(rows[0]![2], "an amount, whole").toMatch(/^\d{1,3}(,\d{3})*\.\d+$/u);
         expect(rows[1]![2], "a share").toMatch(/^\d+(\.\d{1,2})?%$/u);
+    });
+
+    test("V5: a table's number is drawn in the case it is written — a group's row in upper case, its numbers not: 117k, never 117K", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        // The summary: revenue by region and category, each region a group's row over its categories.
+        const summary = grid.locator('[data-studio-placement="v-summary"]');
+        await summary.scrollIntoViewIfNeeded();
+        const read = await summary.evaluate((tile) => {
+            const head = tile.querySelector("tbody tr[data-row-head]")!;
+            const numbers = [...tile.querySelectorAll("tbody [data-numeric]")];
+            return {
+                // The group's row is the group-head voice: its name in upper case.
+                head: getComputedStyle(head.querySelector("td")!).textTransform,
+                // Its number, as written: a thousand's small `k`.
+                said: head.querySelector("[data-numeric]")!.textContent,
+                cased: numbers.filter((number) => getComputedStyle(number).textTransform !== "none").map((number) => number.textContent),
+                count: numbers.length,
+            };
+        });
+        expect(read.head).toBe("uppercase");
+        expect(read.said).toMatch(/^\d+k$/u);
+        expect([read.count > 0, read.cased]).toEqual([true, []]);
     });
 });

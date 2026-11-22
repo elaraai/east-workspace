@@ -21,7 +21,7 @@
  *     its value.
  *   - A group's head, as its host marks it (`data-row-head`, #1671): mono
  *     10/600/0.1em uppercase, then its count on `--paper-3` in mono 9.5
- *     `--ink-3`.
+ *     `--ink-3`. Its numbers keep the case they are written in: `117k`.
  *   - Its pager (`pagination`, under the rows): the design system's footer
  *     band, the `pageFoot` recipe's — `Showing 26–50 of 120`, then the
  *     Pagination's page buttons at `sm`. None of it is this recipe's.
@@ -297,7 +297,9 @@ export const tableSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "&[data-numeric], &[data-date]": { fontFamily: "mono", fontSize: "12px" },
-            "&[data-numeric]": { textAlign: "right" },
+            /* A number is drawn in the case it is written, whatever its row's voice: a group's head sets its row in upper
+               case, and a thousand's `k` is no `K`. */
+            "&[data-numeric]": { textAlign: "right", textTransform: "none" },
             /* A group's head's: its row's voice, a number's too. */
             "tr[data-row-head] &": { fontSize: "label.sm" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
