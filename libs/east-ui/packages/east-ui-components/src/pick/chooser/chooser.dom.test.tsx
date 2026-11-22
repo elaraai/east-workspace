@@ -10,10 +10,12 @@
  * which the host runs (A49). And as the one picker of the query builder's slots
  * and a filter's condition rows (#1673): options its host filters, the
  * highlight held by key across the lists it gives, its label, an option's icon
- * and words, Tab, ⌘ Enter left to its host, and its bare form.
+ * and words, Tab, ⌘ Enter left to its host, and its bare form — and its search
+ * holding the focus by the end of the commit that draws it, so a key pressed as
+ * its host draws it afresh is never lost.
  */
 
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { faFilter } from "@fortawesome/free-solid-svg-icons";
@@ -216,6 +218,27 @@ describe("the Chooser", () => {
             expect([step!.querySelector("[data-words]") !== null, id!.querySelector("[data-words]")]).toEqual([true, null]);
             const root = document.querySelector("[data-chooser]")!;
             expect([root.getAttribute("data-surface"), root.textContent!.includes("Enter chooses")]).toEqual(["bare", false]);
+        });
+
+        test("drawn afresh while its search holds the focus — its host's key moves as its offers arrive — its search has the focus by the end of that commit: a key pressed next is its own", () => {
+            const seen: string[] = [];
+            /** What holds the focus as a commit's layout effects end, after the Chooser's own: where the next key pressed goes. */
+            function Probe({ at }: { at: string }) {
+                useLayoutEffect(() => { seen.push(`${at}: ${document.activeElement?.getAttribute("role") ?? "nothing"}`); }, [at]);
+                return null;
+            }
+            /** A value slot's picker, the number typed held by its host: keyed by whether its offers have arrived, as the query builder keys it. */
+            const draw = (generation: string) => (
+                <ChakraProvider value={system}>
+                    <Chooser key={generation} autoFocus sections={offers("100000")} placeholder="Type or pick a value" label="Value" onChoose={vi.fn()} query="100000" onQuery={vi.fn()} />
+                    <Probe at={generation} />
+                </ChakraProvider>
+            );
+            const { rerender } = render(draw("waiting"));
+            rerender(draw("arrived"));
+            // Each time its search — the combobox — holds the focus before anything else runs: never the page, between the two.
+            expect(seen).toEqual(["waiting: combobox", "arrived: combobox"]);
+            expect((document.activeElement as HTMLInputElement).value).toBe("100000");
         });
 
         test("a short list its host offers whole draws no search: its options alone, chosen by a click", () => {

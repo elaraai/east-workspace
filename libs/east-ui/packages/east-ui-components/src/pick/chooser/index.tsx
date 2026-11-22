@@ -25,7 +25,9 @@
  *   highlights it; typing puts the highlight back on the first. The highlight
  *   is held by the option's key, so a list given again as text is typed keeps
  *   it while the option is there. ⌘ or Ctrl Enter is the host's, never a
- *   choice; Tab chooses where the host asks.
+ *   choice; Tab chooses where the host asks. Told to take the focus
+ *   (`autoFocus`), its search holds it by the end of the commit that draws
+ *   it, so no key typed as its host draws it afresh is lost.
  * - Current wears a check, an option refused a × and its reason in the warning
  *   text; a disabled one (taken elsewhere) is only muted. An option's label is
  *   data in the mono face — an ID, a number — or words in the body face
@@ -36,7 +38,7 @@
  * @packageDocumentation
  */
 
-import { memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
@@ -144,7 +146,10 @@ export const Chooser = memo(function Chooser({
     // The highlighted option, by its key: `undefined` puts it on the first a choice can take.
     const [highlight, setHighlight] = useState<string | undefined>(initialKey);
     const inputRef = useRef<HTMLInputElement | null>(null);
-    useEffect(() => { if (autoFocus === true) inputRef.current?.focus({ preventScroll: true }); }, [autoFocus]);
+    // Its search takes the focus in the commit that draws it, before the page hears another key: a host draws it afresh
+    // as its offers arrive (the query builder's, by its key), the search that held the focus gone with the old one — and
+    // a key pressed before the focus was given again, a digit of a number or its Enter, went to the page and was lost.
+    useLayoutEffect(() => { if (autoFocus === true) inputRef.current?.focus({ preventScroll: true }); }, [autoFocus]);
     // The sections the search leaves — a host's own, as given — and the options a choice can take in order.
     const shown = useMemo(() => {
         if (hosted) return sections.filter((s) => s.options.length > 0);
