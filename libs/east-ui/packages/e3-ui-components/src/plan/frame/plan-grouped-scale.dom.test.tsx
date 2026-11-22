@@ -490,9 +490,12 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             expect(searches.length).toBeGreaterThan(0);
             const runs = new Set<string>();
             for (const search of searches) {
-                const [hall, level, tile, first] = search.from ?? [];
-                expect(search.to).toEqual([hall, level, tile, expect.any(String), "true"]);
-                const last = search.to![3]!;
+                // A range, both its ends given: a search of another form holds no bounds.
+                const from = "from" in search ? search.from ?? [] : [];
+                const to = "to" in search ? search.to ?? [] : [];
+                const [hall, level, tile, first] = from;
+                expect(to).toEqual([hall, level, tile, expect.any(String), "true"]);
+                const last = to[3]!;
                 // The hall a search is under is the one its presses stand in: a press's code holds its hall's number.
                 const at = pressCodes.findIndex((codes) => codes.some((code) => JSON.stringify(code) === first));
                 expect(hall).toBe(JSON.stringify(hallKey(at)));
