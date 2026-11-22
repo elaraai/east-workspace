@@ -16,9 +16,8 @@
  * The canvas draws the drafted entries by deriving their rows again, so a
  * draft looks exactly as the saved batch will: inline, the whole canvas with
  * the drafts in their entries' place (`editing.derive`); paged, a source whose
- * windows are derived with the drafts in them — ONE wrapper per source (a host
- * function is equivalent only to itself, so a new wrapper would drop the
- * driver's windows) that reads the latest drafts through a ref and names a new
+ * windows are derived with the drafts in them — ONE wrapper per source
+ * (`root/wrapped-source.ts`) that reads the latest drafts and names a new
  * revision per drafts version, which the paging driver reads as its snapshot
  * moving: it keeps the rows it has as stand-ins until the drafted windows land
  * (#821). A drafted row that differs from its entry's rows as the source holds
@@ -40,7 +39,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, fromEastTypeValue, none, parseFor, printFor, some,
+    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some,
     toEastTypeValue, variant, type PatchPath, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
@@ -51,10 +50,10 @@ import {
 import { type EditSource, kindOfIssue, standingBeforeSave, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
-import { windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
+import { ownRefresh, usePagedWrapper, wrappedRows } from "./root/wrapped-source.js";
 import { mintKey } from "../shared/schedule/records.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import type { PlanWholeRows } from "./root/nested.js";
@@ -206,8 +205,6 @@ const INERT: EditingValue = {
     readEntry: () => none, onPatch: none, onApply: none, toDraft: none,
 };
 
-/** Whether two paged sources derive the same rows — the paging driver's test (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 const rowEqual = equalFor(Plan.Types.Row);
 const NO_MARKS: ReadonlyMap<RowKey, PlanDraftMark> = new Map();
 const NO_ROWS: ReadonlySet<RowKey> = new Set();
@@ -494,61 +491,41 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             return undefined;
         }
     }, [editing, data.rows, drafts]);
-    // Paged: one wrapper per source, reading the latest source and what its windows are drawn with.
-    const latest = useRef({ src: paged, editing, drafts: drawn });
-    latest.current = { src: paged, editing, drafts: drawn };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined || editing === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
-            page: (offset, limit) => {
-                const l = latest.current;
-                if (l.src === undefined) return none;
-                return l.editing === undefined || l.drafts.drafts.size === 0
-                    ? l.src.page(offset, limit)
-                    : l.editing.derive(offset, limit, new Map(l.drafts.drafts));
-            },
-            total: () => latest.current.src?.total() ?? none,
-            // A new drafts version is a new revision: the driver reads its
-            // windows again, the rows it has standing in until they land.
-            revision: () => {
-                const l = latest.current;
-                const r = l.src?.revision?.() ?? none;
-                if (l.drafts.drafts.size === 0) return r;
-                return some(`${r.type === "some" ? r.value : ""}#drafts-${l.drafts.version}`);
-            },
-            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
-            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
-            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
-            // A window standing in while it is read again is drawn from the entries it carried, the drafts and what a Save
-            // landed in their place (#1599), reading nothing: a change made meanwhile is drawn at once.
-            redraft: (entries) => {
-                const l = latest.current;
-                return l.editing === undefined ? undefined : l.editing.deriveWindow([...entries], new Map(l.drafts.drafts));
-            },
-            redrafted: () => String(latest.current.drafts.version),
-        };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged, editing]);
+    // Paged: one wrapper per source, reading the latest source and what its windows are drawn with; none without editing.
+    const wrapped = usePagedWrapper(editing === undefined ? undefined : paged, { editing, drafts: drawn }, (_source, latest) => ({
+        page: (offset, limit) => {
+            const l = latest();
+            if (l.src === undefined) return none;
+            return l.editing === undefined || l.drafts.drafts.size === 0
+                ? l.src.page(offset, limit)
+                : l.editing.derive(offset, limit, new Map(l.drafts.drafts));
+        },
+        // A new drafts version is a new revision: the driver reads its
+        // windows again, the rows it has standing in until they land.
+        revision: () => {
+            const l = latest();
+            const r = l.src?.revision?.() ?? none;
+            if (l.drafts.drafts.size === 0) return r;
+            return some(`${r.type === "some" ? r.value : ""}#drafts-${l.drafts.version}`);
+        },
+        refresh: ownRefresh(latest),
+        // A window standing in while it is read again is drawn from the entries it carried, the drafts and what a Save
+        // landed in their place (#1599), reading nothing: a change made meanwhile is drawn at once.
+        redraft: (entries) => {
+            const l = latest();
+            return l.editing === undefined ? undefined : l.editing.deriveWindow([...entries], new Map(l.drafts.drafts));
+        },
+        redrafted: () => String(latest().drafts.version),
+    }));
     // The wrapper rides the source's own arm: a pinned source stays pinned, a live one live.
     const shownData = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...data, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...data, rows: wrappedRows(data, wrapped) };
         return data;
     }, [data, inlineBlocks, wrapped]);
     const shownValue = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...value, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...value, rows: wrappedRows(value, wrapped) };
         return value;
     }, [value, inlineBlocks, wrapped]);
 

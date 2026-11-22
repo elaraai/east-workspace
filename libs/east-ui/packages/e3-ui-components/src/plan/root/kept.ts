@@ -36,18 +36,15 @@
  * @packageDocumentation
  */
 
-import { useMemo, useRef } from "react";
-import { IntegerType, StringType, equalFor, equivalentFor, none, printFor, some, variant } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { IntegerType, StringType, equalFor, none, printFor, some } from "@elaraai/east";
 import { getStore, trackKey, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { PlanRootValue } from "../model.js";
-import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
+import type { PlanPagedSourceValue } from "../use-plan-paging.js";
+import { ownRefresh, usePagedRoots, usePagedWrapper } from "./wrapped-source.js";
 
 /** How many windows the layer keeps beside those its reader says it holds: the one asked longest ago is let go first. */
 export const KEPT_WINDOWS = 8;
 
-/** Whether two paged sources derive the same rows — the paging driver's test (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 const printInteger = printFor(IntegerType);
 const stringEqual = equalFor(StringType);
 /** Whether two of a source's texts are one: none being none. */
@@ -75,16 +72,13 @@ interface KeptWindow {
 /** No window held: before a reader has said which it holds. */
 const NONE_HELD: ReadonlySet<string> = new Set();
 
-/** A source's refresh, as the layer passes it through. */
-type Refresh = NonNullable<PlanPagedSourceValue["refresh"]>;
 /** A source's redraw of a window standing in, as the layer passes it through. */
 type Redraft = NonNullable<PlanPagedSourceValue["redraft"]>;
 
 /**
  * The root with its paged rows read through the layer (see the module docs):
- * ONE wrapper per source, as the nested series' and the event kinds' are — a
- * host function is equivalent only to itself, so a new wrapper would drop the
- * driver's windows.
+ * ONE wrapper per source, as the nested series' and the event kinds' are
+ * (`wrapped-source.ts`).
  *
  * @param value - The latest root
  * @param data - Its data-stable twin
@@ -97,13 +91,7 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
     const paged: PlanPagedSourceValue | undefined = active ? windowedSourceOf(value.rows) : undefined;
     // The State key a pick's series are switched on and off under: the window function reads which are on as it makes a window.
     const pick = data.pick.type === "some" ? data.pick.value.key : undefined;
-    const latest = useRef({ src: paged, pick });
-    latest.current = { src: paged, pick };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
+    const wrapped = usePagedWrapper(paged, { pick }, (source, latest) => {
         // The windows the source gave, by their offset and size, the one asked last at the end.
         const kept = new Map<string, KeptWindow>();
         // The windows the reader says it holds, by their offsets: kept while it names them.
@@ -119,10 +107,9 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
                 loose -= 1;
             }
         };
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
+        return {
             page: (offset, limit) => {
-                const { src, pick } = latest.current;
+                const { src, pick } = latest();
                 if (src === undefined) return none;
                 // Which series show, read as the source's page reads it — the reader that asks follows a switch — at its
                 // version now.
@@ -152,27 +139,15 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
                 held = new Set(offsets.map((offset) => printInteger(offset)));
                 trim();
             },
-            total: () => latest.current.src?.total() ?? none,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
             // The source's own, where it has them: a pinned source stays pinned, a live one live.
-            ...(paged.revision === undefined ? {} : { revision: () => latest.current.src?.revision?.() ?? none }),
-            ...(paged.refresh === undefined ? {} : { refresh: (revision: Parameters<Refresh>[0]) => latest.current.src?.refresh?.(revision) ?? null }),
-            ...(paged.query === undefined ? {} : { query: () => latest.current.src?.query?.() ?? "" }),
-            ...(paged.snapshot === undefined ? {} : { snapshot: () => latest.current.src?.snapshot?.() ?? none }),
-            ...(paged.redraft === undefined || paged.redrafted === undefined ? {} : {
-                redraft: (entries: Parameters<Redraft>[0]) => latest.current.src?.redraft?.(entries),
-                redrafted: () => latest.current.src?.redrafted?.() ?? "",
+            ...(source.revision === undefined ? {} : { revision: () => latest().src?.revision?.() ?? none }),
+            ...(source.refresh === undefined ? {} : { refresh: ownRefresh(latest) }),
+            ...(source.snapshot === undefined ? {} : { snapshot: () => latest().src?.snapshot?.() ?? none }),
+            ...(source.redraft === undefined || source.redrafted === undefined ? {} : {
+                redraft: (entries: Parameters<Redraft>[0]) => latest().src?.redraft?.(entries),
+                redrafted: () => latest().src?.redrafted?.() ?? "",
             }),
         };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged]);
-    const shownData = useMemo(() => (wrapped === undefined ? data : { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, data]);
-    const shownValue = useMemo(() => (wrapped === undefined ? value : { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, value]);
-    return useMemo(() => ({ value: shownValue, data: shownData }), [shownValue, shownData]);
+    });
+    return usePagedRoots(value, data, wrapped);
 }

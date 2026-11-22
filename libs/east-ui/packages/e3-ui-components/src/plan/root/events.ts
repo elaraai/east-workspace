@@ -33,8 +33,7 @@
  * # Joined into the rows
  *
  * Inline, the root's blocks are placed once, the Unassigned rows after them.
- * Paged, the root's source is ONE wrapper per source (a host function is
- * equivalent only to itself, so a new wrapper would drop the driver's windows)
+ * Paged, the root's source is ONE wrapper per source (`wrapped-source.ts`)
  * that places each window the source serves — and a window standing in, as
  * the canvas's editing redraws it (#1599) — and names a new revision when the
  * events move, so the driver reads its windows again and keeps the rows it
@@ -71,7 +70,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
-    SortedMap, StringType, compareFor, equalFor, equivalentFor, none, some, variant, type ValueTypeOf,
+    SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
@@ -79,16 +78,17 @@ import {
 } from "@elaraai/e3-ui/internal";
 import { printEventRef } from "../../shared/schedule/event-ref.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
+import { windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
-import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
+import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, type PlanLandingValue } from "./landings.js";
+import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
 
 /** The payload's seam, decoded: the events of a range, filed, and how they join any rows (#1541). */
 export type PlanEventSeamValue = ValueTypeOf<typeof PlanEventSeamType>;
@@ -162,9 +162,6 @@ const rowIdEqual = equalFor(Plan.Types.RowId);
 const NO_LANDINGS: readonly PlanLandingValue[] = [];
 /** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
 const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): PlanPagedSourceValue | undefined => source;
-
-/** Whether two paged sources derive the same rows — the paging driver's test (#809). */
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /** A `time` instant's epoch ms; `undefined` for an instant of another arm. */
 function timeMs(t: PlanInstantValue): number | undefined {
@@ -593,24 +590,18 @@ export function usePlanEventRoot(
     // Paged: one wrapper per source, placing each window it serves with the latest events.
     const paged = seam !== undefined ? windowedSourceOf(value.rows) : undefined;
     const landings = events?.landings;
-    const latest = useRef({ src: paged, seam, placed, shading, hidden, landings, version: lead?.version ?? 0 });
-    latest.current = { src: paged, seam, placed, shading, hidden, landings, version: lead?.version ?? 0 };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
+    const wrapped = usePagedWrapper(paged, { seam, placed, shading, hidden, landings, version: lead?.version ?? 0 }, (source, latest) => {
         // A window's blocks with the latest events joined in: no Unassigned row, an event on no row of the canvas's being
         // in no window.
         const placedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
-            const l = latest.current;
+            const l = latest();
             return l.seam === undefined ? [...blocks] : l.seam.place([...blocks], l.placed, l.shading, [...l.hidden], false);
         };
         // Each window as last joined, by the blocks the source under this one gave: the same while they hold, which the
         // kept layer gives (`kept.ts`), so new events alone join again only the rows whose events moved (#1712).
         const windows = new WeakMap<readonly PlanWireBlock[], PlacedWindow>();
         const joinedIn = (blocks: readonly PlanWireBlock[]): PlanWireBlock[] => {
-            const l = latest.current;
+            const l = latest();
             if (l.seam === undefined) return [...blocks];
             const now: PlacedWith = { seam: l.seam, placed: l.placed, shading: l.shading, hidden: l.hidden };
             const was = windows.get(blocks);
@@ -623,55 +614,39 @@ export function usePlanEventRoot(
             else windows.set(blocks, { ...index, joined, with: now });
             return joined;
         };
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
+        return {
             page: (offset, limit) => {
-                const l = latest.current;
+                const l = latest();
                 if (l.src === undefined) return none;
                 const read = l.src.page(offset, limit);
                 // The window's own entries stay beside its blocks.
                 return read.type === "some" ? some({ rows: joinedIn(read.value.rows), entries: read.value.entries }) : read;
             },
-            total: () => latest.current.src?.total() ?? none,
             // New events are a new revision: the driver reads its windows again, the rows it has standing in until they land.
             revision: () => {
-                const l = latest.current;
+                const l = latest();
                 const r = l.src?.revision?.() ?? none;
                 return some(`${r.type === "some" ? r.value : ""}#events-${l.version}`);
             },
             // A window standing in is drawn as it is composed now: the events joined into the data's own rows (#1599) —
             // where the source under this one, the canvas's editing's, says how it draws one.
-            ...(under(paged)?.redraft === undefined || under(paged)?.redrafted === undefined ? {} : {
+            ...(under(source)?.redraft === undefined || under(source)?.redrafted === undefined ? {} : {
                 redraft: (entries: Parameters<NonNullable<PlanPagedSourceValue["redraft"]>>[0]) => {
-                    const own = under(latest.current.src)?.redraft?.(entries);
+                    const own = under(latest().src)?.redraft?.(entries);
                     return own === undefined ? undefined : placedIn(own);
                 },
-                redrafted: () => `${under(latest.current.src)?.redrafted?.() ?? ""}#events-${latest.current.version}`,
+                redrafted: () => `${under(latest().src)?.redrafted?.() ?? ""}#events-${latest().version}`,
             }),
-            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
-            // The snapshot of `data` itself (#1199): its own revision — and a live source's narrowing with it, whose rows a
-            // key search's answer names (#1354) — which new events over it leave.
-            snapshot: () => {
-                const src = latest.current.src;
-                return src === undefined ? none : snapshotOf(src) ?? none;
-            },
-            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
-            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
+            refresh: ownRefresh(latest),
+            // The snapshot of `data` itself (#1199), which new events over it leave.
+            snapshot: ownSnapshot(latest),
             // The windows the driver holds, said on to the source under this one where it keeps what it made for each
             // (#1712): this wrapper keeps a window by the blocks that source gave, so it keeps what that one does.
-            ...(under(paged)?.retain === undefined ? {} : {
-                retain: (offsets: readonly bigint[]) => { under(latest.current.src)?.retain?.(offsets); },
+            ...(under(source)?.retain === undefined ? {} : {
+                retain: (offsets: readonly bigint[]) => { under(latest().src)?.retain?.(offsets); },
             }),
         };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged]);
+    });
     const links = useMemo(
         () => (seam === undefined ? data.links
             : inline !== undefined ? resolveEventLinks(data.links, inline)
@@ -679,7 +654,7 @@ export function usePlanEventRoot(
         [seam, inline, data.links, placed, landings]);
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
-        if (wrapped !== undefined) return variant(windowedArm(root.rows), wrapped) as PlanRootValue["rows"];
+        if (wrapped !== undefined) return wrappedRows(root, wrapped);
         return root.rows;
     }, [inline, wrapped]);
     const active = seam !== undefined;

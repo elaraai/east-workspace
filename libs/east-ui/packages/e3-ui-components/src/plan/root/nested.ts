@@ -55,7 +55,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, printFor, some, variant,
+    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -63,7 +63,7 @@ import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-
 import { nestedPathCases, nestedPathValue, nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
@@ -71,9 +71,9 @@ import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
 import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
-import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import { bucketsOver } from "./cells.js";
 import { eventReadRange } from "./events.js";
+import { ownRefresh, ownSnapshot, usePagedRoots, usePagedWrapper } from "./wrapped-source.js";
 
 /** The seam a Plan's root carries over paged rows beside their nested series index, decoded. */
 export type PlanNestedValue = ValueTypeOf<typeof PlanNestedType>;
@@ -1257,11 +1257,10 @@ export function usePlanWholeRows(seam: PlanNestedValue | undefined): PlanWholeRo
 const NOTHING_DRAFTED = { drafts: new Map<string, Uint8Array>(), version: 0 };
 /** No rows read whole for their links. */
 const NO_ROWS_WHOLE: ReadonlyMap<string, Uint8Array> = new Map();
-const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /**
  * The root with its paged rows drawn through the seam (#1438): ONE wrapper per
- * source, as the event kinds' is, each window its lean rows filled with the
+ * source, as the event kinds' is (`wrapped-source.ts`), each window its lean rows filled with the
  * cells read and the series run over them, the shading in place — its
  * revision naming the reader's version beside the source's own, so the driver
  * reads its windows again when what was read moves, the rows it holds
@@ -1287,47 +1286,23 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
     const whole = useMemo(() => [...readWhole.keys()].join("|"), [readWhole]);
     // A pick's series switched on or off names it too: the window function reads which are on as it draws a window.
     const picked = useSliceReactivity(data.pick.type === "some" ? data.pick.value.key : undefined);
-    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version, whole, picked });
-    latest.current = { src: paged, lead, seam, rows, version: drafted.version, whole, picked };
-    const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
-    const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
-        if (paged === undefined) return undefined;
-        const prior = wrapperOf.current;
-        if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
-        const next: PlanPagedSourceValue = {
-            id: paged.id,
-            page: (offset, limit) => {
-                const l = latest.current;
-                if (l.seam === undefined || l.lead === undefined) return none;
-                const read = l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading);
-                // A window of lean rows carries no entry: none of them is a row whole, and an edit reads its row whole by key.
-                return read.type === "some" ? some({ rows: read.value, entries: [] }) : none;
-            },
-            total: () => latest.current.src?.total() ?? none,
-            // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.
-            revision: () => {
-                const l = latest.current;
-                const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}-${l.picked}`);
-            },
-            refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
-            seek: paged.seek.type === "some"
-                ? some((query) => {
-                    const s = latest.current.src?.seek;
-                    return s !== undefined && s.type === "some" ? s.value(query) : none;
-                })
-                : none,
-            // The snapshot of the rows themselves, which what is read of them leaves.
-            snapshot: () => {
-                const src = latest.current.src;
-                return src === undefined ? none : snapshotOf(src) ?? none;
-            },
-            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
-        };
-        wrapperOf.current = { src: paged, wrapped: next };
-        return next;
-    }, [paged]);
-    const shownData = useMemo(() => (wrapped === undefined ? data : { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, data]);
-    const shownValue = useMemo(() => (wrapped === undefined ? value : { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] }), [wrapped, value]);
-    return { value: shownValue, data: shownData };
+    const wrapped = usePagedWrapper(paged, { lead, seam, rows, version: drafted.version, whole, picked }, (_source, latest) => ({
+        page: (offset, limit) => {
+            const l = latest();
+            if (l.seam === undefined || l.lead === undefined) return none;
+            const read = l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading);
+            // A window of lean rows carries no entry: none of them is a row whole, and an edit reads its row whole by key.
+            return read.type === "some" ? some({ rows: read.value, entries: [] }) : none;
+        },
+        // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.
+        revision: () => {
+            const l = latest();
+            const r = l.src?.revision?.() ?? none;
+            return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}-${l.picked}`);
+        },
+        refresh: ownRefresh(latest),
+        // The snapshot of the rows themselves, which what is read of them leaves.
+        snapshot: ownSnapshot(latest),
+    }));
+    return usePagedRoots(value, data, wrapped);
 }
