@@ -11,7 +11,8 @@
  * page's filters, as its reader's, to the alert's, marks the page opened for
  * it, and tells the host's `onOpen` the page's key; the page draws a banner
  * naming the alert and when it fired ({@link AlertOpenedBanner}), whose Show
- * rows gives the rows that met it.
+ * rows gives the rows that met it, their numbers in their fields' formats as
+ * its editor's Now prints them (`alert-rows.ts`).
  *
  * @packageDocumentation
  */
@@ -26,13 +27,17 @@ import {
 } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraTable, SliceEditPopover, implementUIComponent, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { resultTable } from "../query/results-table.js";
+import { alertRowsStage } from "../query/visual/alert.js";
+import { useVisualSource } from "../query/visual/answers.js";
+import { printSourceOf } from "../query/visual/source.js";
 import { useQueryWords } from "../query/words.js";
 import { changeStoredValue, forgetStoredValue, storedCodec, useStoredValue } from "../shared/stored-value.js";
 import { useAlertsRead, useStudioAlerts } from "./alert-context.js";
 import { AlertRow } from "./alert-row.js";
+import { alertRowsTable } from "./alert-rows.js";
 import { isFiring, type Alert } from "./alerts.js";
 import { useStudioMessages } from "./messages.js";
+import { usePageClicks } from "./page-clicks.js";
 
 /** The renderer's payload, decoded. */
 type StudioAlertBellValue = ValueTypeOf<typeof StudioAlertBellComponent.schema>;
@@ -127,8 +132,9 @@ export interface AlertOpenedBannerProps {
 
 /**
  * The banner over a page opened for an alert: its name and when it fired,
- * how many rows met it, Show rows — the rows, as a result table in a popover
- * hanging from it — and Dismiss, which puts it away. Nothing on a page not
+ * how many rows met it, Show rows — the rows, as a table in a popover hanging
+ * from it, their numbers in the formats of the visual the page holds — and
+ * Dismiss, which puts it away. Nothing on a page not
  * opened for one, or for one that no longer fires.
  *
  * @param props - The page
@@ -146,11 +152,18 @@ export function AlertOpenedBanner({ page }: AlertOpenedBannerProps) {
     const [showing, setShowing] = useState(false);
     const alert = opened === undefined ? undefined : alerts?.get(opened);
     const firing = alert?.firing.type === "some" ? alert.firing.value : undefined;
+    // The alert's visual, as the page holds it, and its source: whose formats its rows' numbers print in.
+    const placed = usePageClicks()?.cells.find((cell) => cell.key === alert?.cell)?.content;
+    const visual = placed?.type === "visual" ? placed.value : undefined;
+    const source = useVisualSource(visual?.source ?? "");
     const table = useMemo(() => {
         if (firing === undefined) return undefined;
         const decoded = decodeBeast2(firing.rows);
-        return resultTable({ type: fromEastTypeValue(decoded.type), value: decoded.value }, words);
-    }, [firing, words]);
+        const read = source === undefined ? undefined : printSourceOf(source);
+        const stage = visual === undefined || read === undefined ? undefined : alertRowsStage(visual, read);
+        const fields = stage === undefined || "kind" in stage ? [] : stage.fields;
+        return alertRowsTable({ type: fromEastTypeValue(decoded.type), value: decoded.value }, visual, source, fields, words, m);
+    }, [firing, visual, source, words, m]);
     if (opened === undefined || firing === undefined || table === undefined) return null;
     const count = Number(firing.count);
     const rows = (

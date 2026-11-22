@@ -13,8 +13,8 @@
  * - **The editor** ({@link AlertEditor}): its name; its condition, the query
  *   builder's condition rows over the visual's rows — its groups, then its
  *   values (`filter-editor.tsx`); whether it is paused; and Now, the rows over
- *   the line now as a result table, asked as the editor opens and on Run, never
- *   on an edit. Its condition is a draft: what its rows say as they stand, so
+ *   the line now as a table — its numbers in their fields' formats
+ *   (`alert-rows.ts`) — asked as the editor opens and on Run, never on an edit. Its condition is a draft: what its rows say as they stand, so
  *   one with no finished row — its last removed, or its only one being
  *   rewritten — says a condition is needed, and Save waits for it. Save writes
  *   one patch on the alerts record; Delete confirms in place. A new alert
@@ -37,10 +37,9 @@ import { Box, Button as ChakraButton, chakra, useRecipe } from "@chakra-ui/react
 import { ArrayType, StructType, none, some, type JqNode } from "@elaraai/east";
 import { EastChakraCheckbox, EastChakraTable, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { resultTable } from "../query/results-table.js";
-import { ALERT_ROW_LIMIT, alertConditionOf, alertQuery, alertRowType, alertRowsStage, alertStart, printAlert } from "../query/visual/alert.js";
+import { ALERT_ROW_LIMIT, alertConditionOf, alertQuery, alertRowType, alertRowsStage, alertStart, printAlert, type AlertField } from "../query/visual/alert.js";
 import type { VisualAnswer } from "../query/visual/ask.js";
-import { useVisualAnswers, useVisualAsk, useVisualMinute, useVisualRoot } from "../query/visual/answers.js";
+import { useVisualAnswers, useVisualAsk, useVisualMinute, useVisualRoot, useVisualSource } from "../query/visual/answers.js";
 import { printStateOf, type ConditionDraft, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource, PrintState, VisualAsk } from "../query/visual/print.js";
 import type { StepQuery } from "../query/steps/values.js";
@@ -48,15 +47,18 @@ import { useQueryWords } from "../query/words.js";
 import { messageOf } from "../shared/message.js";
 import { useSaveAlerts, type StudioAlerts } from "./alert-context.js";
 import { AlertRow } from "./alert-row.js";
+import { alertRowsTable } from "./alert-rows.js";
 import { alertChanges, alertNameRefusal, isFiring, type Alert, type AlertWrite, type Alerts } from "./alerts.js";
 import { ConditionEditor } from "./filter-editor.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 import { usePageFilters } from "./page-filters.js";
 import { problemOf } from "./visual/notes.js";
-import type { Visual } from "./visual/values.js";
+import type { Visual, VisualSource } from "./visual/values.js";
 
 /** No programs: what Now asks while its condition is unfinished. */
 const NO_ASKS: readonly VisualAsk[] = [];
+/** No fields: Now's rows' while its condition is unfinished. */
+const NO_FIELDS: readonly AlertField[] = [];
 /** No filters: a new alert's on a page that holds none. */
 const NO_FILTERS: readonly PageFilter[] = [];
 
@@ -151,6 +153,8 @@ export function AlertEditor({ visual, name, read, placement, studio, alerts, hel
     const root = useVisualRoot();
     const minute = useVisualMinute();
     const ask = useVisualAsk(visual.source);
+    // Its source, as the surface lists it: the formats Now prints its numbers in.
+    const source = useVisualSource(visual.source);
     const save = useSaveAlerts(studio.handle);
     const pageFilters = usePageFilters()?.filters ?? NO_FILTERS;
     // The visual's rows as the condition rows read them, their type, and where a new alert starts.
@@ -283,7 +287,8 @@ export function AlertEditor({ visual, name, read, placement, studio, alerts, hel
                         {condition === undefined && <Box as="span" css={edit.hint}>{m.alertUnfinished()}</Box>}
                     </Box>
                     <EastChakraCheckbox value={pausedBox} />
-                    <AlertNow asked={asked} waiting={now === undefined} words={words} onRun={condition === undefined ? undefined : () => setNow(condition)} />
+                    <AlertNow asked={asked} waiting={now === undefined} words={words} visual={visual} source={source}
+                        fields={printedNow?.kind === "ask" ? printedNow.fields : NO_FIELDS} onRun={condition === undefined ? undefined : () => setNow(condition)} />
                     {refused !== undefined && <Box as="span" role="alert" css={edit.hintError} data-studio-alert-refused="">{refused}</Box>}
                 </chakra.form>
             )}
@@ -299,18 +304,24 @@ interface AlertNowProps {
     readonly waiting: boolean;
     /** The query builder's words, which its table prints with. */
     readonly words: ReturnType<typeof useQueryWords>;
+    /** The visual, whose values' formats its numbers print in. */
+    readonly visual: Visual;
+    /** Its source, as the surface lists it: the fields' formats; `undefined` for one it does not list. */
+    readonly source: VisualSource | undefined;
+    /** The fields of the rows asked for, as the check's program names them. */
+    readonly fields: readonly AlertField[];
     /** Runs it again for the condition as it stands; `undefined` while that is unfinished. */
     readonly onRun: (() => void) | undefined;
 }
 
-/** Now: the visual's rows that meet the condition now, as a result table, and how many of how many. */
-function AlertNow({ asked, waiting, words, onRun }: AlertNowProps) {
+/** Now: the visual's rows that meet the condition now, as a table — its numbers in their fields' formats — and how many of how many. */
+function AlertNow({ asked, waiting, words, visual, source, fields, onRun }: AlertNowProps) {
     const m = useStudioMessages();
     const f = useFormatters();
     const styles = useSlotStyles("studioVisual");
     const answer: VisualAnswer | undefined = asked.status === "answered" ? asked.answers[0] : undefined;
     const table = useMemo(() => (answer?.kind !== "answered" ? undefined
-        : resultTable({ type: ArrayType(StructType([...answer.columns])), value: answer.rows }, words)), [answer, words]);
+        : alertRowsTable({ type: ArrayType(StructType([...answer.columns])), value: answer.rows }, visual, source, fields, words, m)), [answer, visual, source, fields, words, m]);
     let note: string | undefined;
     if (waiting) note = m.alertNowWaits();
     else if (asked.status === "failed") note = asked.message;

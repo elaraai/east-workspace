@@ -32,7 +32,8 @@
  *   the name, the unit and a check once a well holds it.
  * - a visual's **alerts** (#1674), where the builder was given their record:
  *   the popover list's rows in a box of the tab's own, New alert under them;
- *   one edited, its fields 12px apart over a foot of its actions.
+ *   one edited, its fields 12px apart over a foot of its actions — its Now's
+ *   table edge to edge in the pane, as a narrow Table is drawn to stand.
  *
  * A field or a well an edit changed is tinted until the page is saved
  * (EDT-10), as a changed field of a form is (`fieldForm`). A form drawn inside
@@ -530,7 +531,14 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             overflow: "hidden", minWidth: 0,
         },
         /* One alert, edited in place: its fields 12px apart, as its popover's body runs them, then its foot. */
-        alertEditor: { display: "flex", flexDirection: "column", gap: "{spacing.3}", minWidth: 0 },
+        alertEditor: {
+            display: "flex", flexDirection: "column", gap: "{spacing.3}", minWidth: 0,
+            /* Now's table runs edge to edge in the pane, past the section's 16 either side, with no edge of its own there: a
+               narrow Table keeps 16 before its first column's words and after its last's, so they stand on the section's own
+               edges, and its columns have the pane's whole width — a row of three stands side by side, which the 32 an
+               inset box took put a page of columns away. */
+            "& [data-studio-alert-rows]": { marginInline: "calc(-1 * {spacing.4})", borderInlineWidth: "0" },
+        },
         /* Its foot: Delete at its start, Cancel and Save at its end — over a hairline, 12px under its fields. */
         alertFoot: {
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.2}", minWidth: 0,

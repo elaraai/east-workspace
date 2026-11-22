@@ -20,12 +20,13 @@
  *    in `--neg`; watching; paused. Its head holds its close ×.
  *  - A3 an alert opened in it is its editor: its name, its condition in the
  *    query builder's rows, its pause, and Now — the rows that meet it now, a
- *    table of them, and how many of how many. Its foot's Cancel leaves it:
+ *    table of them, its numbers in their fields' formats, and how many of how
+ *    many. Its foot's Cancel leaves it:
  *    its head holds no close ×, over its condition's rows' ×s.
  *  - A4 the bar's bell lists the alerts firing, and opening one sets the
  *    page's filters to the alert's, over a reader's who had cleared them, and
- *    draws its banner: its name, how many rows met it, Show rows — those rows
- *    — and Dismiss, which puts it away.
+ *    draws its banner: its name, how many rows met it, Show rows — those rows,
+ *    printed as Now prints them — and Dismiss, which puts it away.
  *  - A5 New alert starts from the visual's first value, under its goal, its
  *    rows over the line shown now; Save adds it to the visual's alerts, and the
  *    page's check fires it. Delete asks first, in the popover, then takes it
@@ -50,8 +51,11 @@
  *  - B2 an alert opened there is edited in place, at the pane's width: each
  *    condition row's × at the section's end on the row's first line, whatever
  *    the row wraps to — one too wide for the pane wraps inside itself; Now's
- *    table the section's width; and a foot of its own — Delete at its start,
- *    Cancel and Save at its end, on one line. Cancel gives the list back.
+ *    table edge to edge in the pane, its first column's words and its last's
+ *    on the section's edges, every column of the rows side by side — no page
+ *    of columns — and its numbers in their fields' formats, a share to two
+ *    decimals; and a foot of its own — Delete at its start, Cancel and Save at
+ *    its end, on one line. Cancel gives the list back.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -120,6 +124,12 @@ const listed = (open: Locator) => open.locator("[data-studio-alert]").evaluateAl
     };
 }));
 
+/** A table's rows as it prints them: each row's cells' words. */
+const printedRows = (table: Locator) => table.locator("tbody tr").evaluateAll((rows) => rows.map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent)));
+
+/** July's and August's revenue, the months under their goal of 130,000: each an amount, grouped, as its field's format says — never a float's every digit. */
+const MONTHS_UNDER = [["2026-07-01", "127,009.95"], ["2026-08-01", "118,646.78"]];
+
 /** How the row of a flush popover's list is drawn — the pick panel's: padded 8 12, its name 12.5 / 600, its line mono 9.5. */
 const POPOVER_ROW = ["8px", "12px", "8px", "12px", "12.5px", "600", "9.5px", true];
 
@@ -146,10 +156,14 @@ async function openInspector(page: Page, key: string): Promise<Locator> {
     return section;
 }
 
-/** Whether any drawn part of a section passes its start or its end — a control hidden for assistive technology aside. */
+/**
+ * Whether any drawn part of a section passes its start or its end — a control hidden for assistive technology aside,
+ * and Now's table, which runs edge to edge in the pane.
+ */
 const passes = (section: Locator) => section.evaluate((el) => {
     const own = el.getBoundingClientRect();
     return [...el.querySelectorAll("*")].some((part) => {
+        if (part.closest("[data-studio-alert-rows]") !== null) return false;
         const box = part.getBoundingClientRect();
         // A ghost button hangs its padding 4 before the section's start, so its words stand on the start.
         return box.width > 1 && box.height > 1 && (box.right > own.right + 0.5 || box.left < own.left - 4.5);
@@ -225,6 +239,8 @@ test.describe("A Studio page's alerts (#1674)", () => {
         // Now: July and August under the month's goal of 130,000, of the quarter's three months.
         await expect(open.locator("[data-studio-alert-now]")).toContainText("2 of 3 rows meet it now", { timeout: 30_000 });
         await expect.poll(() => open.locator("[data-studio-alert-rows] tbody tr").count()).toBe(2);
+        // Its numbers in their field's format.
+        expect(await printedRows(open.locator("[data-studio-alert-rows]"))).toEqual(MONTHS_UNDER);
         await expect(open.locator("[data-studio-alert-save]")).toBeEnabled();
         await expect(open.locator("[data-studio-alert-delete]")).toBeVisible();
     });
@@ -252,6 +268,8 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await page.getByRole("button", { name: "Show rows" }).click();
         await expect(popover(page)).toBeVisible();
         await expect.poll(() => popover(page).locator("[data-studio-alert-fired-rows] tbody tr").count()).toBe(2);
+        // The rows the firing kept, printed as the alert's editor prints Now.
+        expect(await printedRows(popover(page).locator("[data-studio-alert-fired-rows]"))).toEqual(MONTHS_UNDER);
         await escapeLayer(page);
         await expect(popover(page)).toHaveCount(0);
         await page.getByRole("button", { name: "Dismiss" }).click();
@@ -361,7 +379,7 @@ test.describe("The builder's inspector's alerts (#1674)", () => {
         expect(await passes(section)).toBe(false);
     });
 
-    test("B2: an alert opened in the inspector is edited in place at the pane's width — each condition row's × at the section's end on the row's first line, a row too wide wrapping inside itself; Now's table the section's width; its foot Delete at the start, Cancel and Save at the end, on one line; Cancel gives the list back", async ({ page }) => {
+    test("B2: an alert opened in the inspector is edited in place at the pane's width — each condition row's × at the section's end on the row's first line, a row too wide wrapping inside itself; Now's table edge to edge in the pane, every column side by side, its numbers in their formats; its foot Delete at the start, Cancel and Save at the end, on one line; Cancel gives the list back", async ({ page }) => {
         const section = await openInspector(page, "v-combo");
         await section.locator('[data-studio-alert="Margin under 19%"]').click();
         await expect(section.locator("[data-studio-alert-name]")).toHaveValue("Margin under 19%");
@@ -383,13 +401,31 @@ test.describe("The builder's inspector's alerts (#1674)", () => {
                     lines: Math.round(box.height / 28),
                 };
             });
-            const table = el.querySelector("[data-studio-alert-rows]")!.getBoundingClientRect();
+            const now = el.querySelector("[data-studio-alert-rows]")!;
+            const [table, pane] = [now.getBoundingClientRect(), el.closest("[data-studio-configure]")!.getBoundingClientRect()];
+            /** Where a cell's words stand: the box of what it holds. */
+            const words = (cell: Element) => {
+                const range = document.createRange();
+                range.selectNodeContents(cell);
+                return range.getBoundingClientRect();
+            };
+            const cells = [...now.querySelectorAll("tbody tr:first-of-type td")];
             const foot = ["[data-studio-alert-delete]", "[data-studio-alert-save]"].map((mark) => el.querySelector(mark)!);
             const cancel = foot[1]!.previousElementSibling!;
             const [remove, keep, save] = [foot[0]!.getBoundingClientRect(), cancel.getBoundingClientRect(), foot[1]!.getBoundingClientRect()];
             return {
                 rows,
-                table: [table.left - own.left, own.right - table.right],
+                now: {
+                    // Edge to edge in the pane: past the section's 16 either side.
+                    table: [table.left - pane.left, pane.right - table.right, own.left - table.left, table.right - own.right],
+                    // Every column of the rows, side by side: no page of columns over them.
+                    heads: [...now.querySelectorAll("thead th")].map((head) => head.textContent),
+                    paged: now.querySelector("[data-table-pager-columns]") !== null,
+                    // Its numbers in their fields' formats: an amount grouped, a share to two decimals.
+                    cells: cells.map((cell) => cell.textContent),
+                    // Its first column's words start on the section's edge, and its last's end on it.
+                    edges: [Math.round(words(cells[0]!).left - own.left), Math.round(own.right - words(cells[cells.length - 1]!).right)],
+                },
                 foot: {
                     says: [foot[0]!.textContent, cancel.textContent, foot[1]!.textContent],
                     // Delete at the section's start; Cancel 8 before Save, at its end; one line of the row controls' 26, under the table.
@@ -404,7 +440,7 @@ test.describe("The builder's inspector's alerts (#1674)", () => {
                 // Three slots are wider than the pane leaves a row: its value goes to a second line, its × stays on the first.
                 { says: ["mean margin", "is less than", "0.19"], cross: [0, true, true], lines: 2 },
             ],
-            table: [0, 0],
+            now: { table: [0, 0, 16, 16], heads: ["region", "revenue", "mean margin"], paged: false, cells: ["QLD", "80,902.44", "18.92%"], edges: [0, 0] },
             foot: { says: ["Delete", "Cancel", "Save"], at: [0, 8, 0], line: [true, 26, true] },
         });
         expect(await passes(section)).toBe(false);
