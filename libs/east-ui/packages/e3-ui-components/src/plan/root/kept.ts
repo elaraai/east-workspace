@@ -21,10 +21,17 @@
  * wants each time it reads: both are handed what the source gave, so neither
  * makes a row again that would be the same, and the reader's keys, kept by the
  * rows' identity, hold too. A window in flight, or one whose read throws, is
- * kept by nothing; of more than {@link KEPT_WINDOWS}, the one asked longest ago
- * goes first. Everything else is the source's own, passed through as it has
- * it: its count, its key search, its revision and its refresh, its narrowing,
- * its snapshot, and how it redraws a window standing in (#1599).
+ * kept by nothing.
+ *
+ * What is kept follows the paging driver: before it reads its windows it says
+ * which it holds (`retain`), and those are kept for as long as it names them,
+ * however many — at each new revision it reads every one of them again, in
+ * order, so a layer that kept fewer would keep none of them. Beside them — a
+ * window the driver has let go, or one read before it has said anything — no
+ * more than {@link KEPT_WINDOWS} are kept, the one asked longest ago going
+ * first. Everything else is the source's own, passed through as it has it: its
+ * count, its key search, its revision and its refresh, its narrowing, its
+ * snapshot, and how it redraws a window standing in (#1599).
  *
  * @packageDocumentation
  */
@@ -36,7 +43,7 @@ import { getStore, trackKey, windowedSourceOf } from "@elaraai/east-ui-component
 import type { PlanRootValue } from "../model.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 
-/** How many windows the layer keeps: the one asked longest ago is let go first. */
+/** How many windows the layer keeps beside those its reader says it holds: the one asked longest ago is let go first. */
 export const KEPT_WINDOWS = 8;
 
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
@@ -61,7 +68,12 @@ interface KeptWindow {
     readonly picked: number;
     /** What it gave. */
     readonly window: PagedWindow;
+    /** Its offset, as East prints it: what the reader names a window it holds by. */
+    readonly offset: string;
 }
+
+/** No window held: before a reader has said which it holds. */
+const NONE_HELD: ReadonlySet<string> = new Set();
 
 /** A source's refresh, as the layer passes it through. */
 type Refresh = NonNullable<PlanPagedSourceValue["refresh"]>;
@@ -94,6 +106,19 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
         if (prior !== undefined && pagedSourceEquivalent(prior.src, paged)) return prior.wrapped;
         // The windows the source gave, by their offset and size, the one asked last at the end.
         const kept = new Map<string, KeptWindow>();
+        // The windows the reader says it holds, by their offsets: kept while it names them.
+        let held = NONE_HELD;
+        // Of the windows it does not hold, no more than the layer keeps beside them: the one asked longest ago goes first.
+        const trim = (): void => {
+            let loose = 0;
+            for (const window of kept.values()) if (!held.has(window.offset)) loose += 1;
+            for (const [at, window] of kept) {
+                if (loose <= KEPT_WINDOWS) break;
+                if (held.has(window.offset)) continue;
+                kept.delete(at);
+                loose -= 1;
+            }
+        };
         const next: PlanPagedSourceValue = {
             id: paged.id,
             page: (offset, limit) => {
@@ -103,7 +128,8 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
                 // version now.
                 if (pick !== undefined) trackKey(pick);
                 const shown = pick === undefined ? 0 : getStore().getKeyVersion(pick);
-                const at = `${printInteger(offset)}\u0000${printInteger(limit)}`;
+                const place = printInteger(offset);
+                const at = `${place}\u0000${printInteger(limit)}`;
                 const r = src.revision?.();
                 const revision = r?.type === "some" ? r.value : undefined;
                 const query = src.query?.();
@@ -117,9 +143,14 @@ export function usePlanKeptRoot(value: PlanRootValue, data: PlanRootValue, activ
                 // A window in flight is kept by nothing, and one whose read throws throws on.
                 const read = src.page(offset, limit);
                 if (read.type !== "some") return read;
-                kept.set(at, { src, revision, query, picked: shown, window: read.value });
-                if (kept.size > KEPT_WINDOWS) kept.delete(kept.keys().next().value!);
+                kept.set(at, { src, revision, query, picked: shown, window: read.value, offset: place });
+                trim();
                 return read;
+            },
+            // What the reader holds now: those kept while it names them, the rest as many as the layer keeps beside them.
+            retain: (offsets) => {
+                held = new Set(offsets.map((offset) => printInteger(offset)));
+                trim();
             },
             total: () => latest.current.src?.total() ?? none,
             seek: paged.seek.type === "some"

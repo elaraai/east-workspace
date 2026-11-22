@@ -767,6 +767,43 @@ describe("paging driver — bounded retention", () => {
     });
 });
 
+describe("paging driver — what it holds is said to its source (#1712)", () => {
+    /** {@link source}, recording what the driver says it holds — each window by its place — beside each window it asks. */
+    function keeping(windows: number, rowsPer = 2) {
+        const { value } = source(windows, rowsPer);
+        const said: number[][] = [];
+        const log: string[] = [];
+        const kept = {
+            ...value,
+            page: (offset: bigint, limit: bigint) => { log.push(`page ${Number(offset) / PLAN_PAGE_SIZE}`); return value.page(offset, limit); },
+            retain: (offsets: readonly bigint[]) => { said.push(offsets.map((offset) => Number(offset) / PLAN_PAGE_SIZE)); log.push("retain"); },
+        } as unknown as PlanPagedSourceValue;
+        return { value: kept, said, log };
+    }
+
+    test("it says which windows it holds before it reads them, each by its offset, and again as its run moves: a window that left the run is named no more", () => {
+        const { value, said, log } = keeping(250, 100);
+        const { snap, report } = drive(value);
+        // The first paint's run: said before a window of it is asked.
+        expect(said[said.length - 1]).toEqual([0, 1, 2]);
+        expect(log.indexOf("retain")).toBeLessThan(log.indexOf("page 0"));
+        expect(log.lastIndexOf("retain")).toBeGreaterThan(log.indexOf("page 0"));
+        // Walked far on, its head evicted: what it holds is the run it draws, and the first window is in it no more.
+        for (let i = 0; i < 60; i++) report(band("tail"));
+        const [from, to] = span(snap());
+        expect(from).toBeGreaterThan(0);
+        const run = Array.from({ length: (to - from) / PLAN_PAGE_SIZE }, (_x, i) => from / PLAN_PAGE_SIZE + i);
+        expect(said[said.length - 1]).toEqual(run);
+    });
+
+    test("a source that keeps nothing is asked nothing of it", () => {
+        const { value, asked } = source(50);
+        expect((value as { retain?: unknown }).retain).toBeUndefined();
+        drive(value);
+        expect([...asked].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    });
+});
+
 describe("paging driver — a derived source whose rows change (#590)", () => {
     /** A source whose id and row-label are independent, so the two can be
      *  varied separately — which is the whole question here. */

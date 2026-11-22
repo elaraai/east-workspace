@@ -663,6 +663,11 @@ export function usePlanEventRoot(
             },
             // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
             ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
+            // The windows the driver holds, said on to the source under this one where it keeps what it made for each
+            // (#1712): this wrapper keeps a window by the blocks that source gave, so it keeps what that one does.
+            ...(under(paged)?.retain === undefined ? {} : {
+                retain: (offsets: readonly bigint[]) => { under(latest.current.src)?.retain?.(offsets); },
+            }),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;

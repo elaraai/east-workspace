@@ -57,7 +57,9 @@
  * (its tracked channel firing) — runs ONE settle: read the demanded windows,
  * teach the ledgers what landed, advance the demand, and read again while the
  * demand moved, until it holds still. Only then is the snapshot published, and
- * only when it differs (#815).
+ * only when it differs (#815). Each read says first which windows the cache
+ * holds (`retain`, #1712): a source that keeps what it made for a window keeps
+ * as many as the driver does, and no window the driver has let go.
  *
  * # A band report carries pixels
  *
@@ -834,6 +836,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 }
             }
             if (sourceError === undefined) dataSnapshot = data;
+            // What the cache holds of the source's windows, said before they are read (#1712): a source that keeps what
+            // it made for each keeps those, however many, and lets go of every window that has left them.
+            src.retain?.([...keptWindows()].map((w) => BigInt(w * windowEntries)));
             let t: number | undefined;
             try {
                 const read = src.total();

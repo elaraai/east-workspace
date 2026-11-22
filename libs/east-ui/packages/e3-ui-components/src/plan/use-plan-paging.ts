@@ -41,6 +41,13 @@ export type PlanPagedSourceValue = WindowedSourceValue<PlanRootValue["rows"]> & 
     readonly redraft?: ((entries: readonly CarriedEntry[]) => readonly PlanWireBlock[] | undefined) | undefined;
     /** What a redraft draws from, as text that moves when it does: a window standing in is drawn again only then. */
     readonly redrafted?: (() => string) | undefined;
+    /**
+     * The windows the canvas holds of the source, each by its offset, said before it reads them (#1712): its driver's
+     * runs, and what stands in beside them. A source that keeps what it made for a window — the canvas's own kept rows
+     * (`root/kept.ts`) — keeps those for as long as they are named, however many they are. A source that keeps nothing
+     * has none, and one the canvas composes over another says it on.
+     */
+    readonly retain?: ((offsets: readonly bigint[]) => void) | undefined;
 };
 
 /**

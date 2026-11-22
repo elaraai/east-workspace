@@ -150,6 +150,32 @@ describe("the canvas's own rows, each window kept while what it is made from hol
         expect(pages).toHaveLength(asked);
     });
 
+    test("the windows its reader says it holds are kept however many they are, and of those it has let go no more than the layer keeps beside them (#1712)", () => {
+        const pages: number[] = [];
+        const root = rootOf(variant("pinned", pinnedSource(pages)));
+        const { result } = renderHook(() => usePlanKeptRoot(root, root, true));
+        const source = () => sourceOf(result.current.data);
+        const windows = (from: number, count: number) => Array.from({ length: count }, (_x, i) => BigInt((from + i) * 200));
+        // The paging driver's pass at a revision: what it holds, said first, then each window of it, in order.
+        const pass = (held: readonly bigint[]) => { source().retain!(held); for (const offset of held) source().page(offset, 200n); };
+        const run = windows(0, 15);
+        expect(run.length).toBeGreaterThan(KEPT_WINDOWS);
+        pass(run);
+        // New events: every window it holds is read again, and none reaches the source.
+        pass(run);
+        pass(run);
+        expect(pages).toHaveLength(run.length);
+        // The view goes far on: the fifteen it held are let go, and as many again are held in their place.
+        pass(windows(15, 15));
+        expect(pages).toHaveLength(2 * run.length);
+        // Of those let go, the ones asked longest ago are the source's to make again; the last few are kept still.
+        source().page(0n, 200n);
+        expect(pages.filter((offset) => offset === 0)).toHaveLength(2);
+        const asked = pages.length;
+        source().page(BigInt(14 * 200), 200n);
+        expect(pages).toHaveLength(asked);
+    });
+
     test("every other part of the source is its own, as it has it: a paged source names no revision, a live one its revision and its narrowing, as they move", () => {
         const plain = { id: "rows-paged", page: counting([]), total: () => some(2n), seek: none };
         const paged = rootOf(variant("paged", plain));
@@ -230,5 +256,34 @@ describe("over the nested series' wrapper, read by the event kinds' wrapper and 
         driver();
         reader();
         expect(made).toEqual([0, 0, 0, 0]);
+    });
+
+    test("what the driver holds is said on through the event kinds' wrapper: more windows than the layer keeps beside them are made once each, new events or not (#1712)", () => {
+        const made: number[] = [];
+        const src = {
+            id: "rows-held", page: () => some({ rows: BLOCKS, entries: [] }), total: () => some(4_000n), seek: none,
+            revision: () => some("R1"), refresh: () => null,
+        };
+        const seam = { rows: (offset: bigint) => { made.push(Number(offset)); return some(BLOCKS); } };
+        const root = { rows: variant("pinned", src), links: [], nested: some(seam), pick: none } as unknown as PlanRootValue;
+        const events: PlanEventRows = { seam: { placed: () => none, place: (blocks) => blocks }, landings: [], paged: true };
+        const { result, rerender } = renderHook(({ cells, drafts, lead }) => {
+            const nested = usePlanNestedRoot(root, root, cells, drafts);
+            const kept = usePlanKeptRoot(nested.value, nested.data, true);
+            return usePlanEventRoot(kept.value, kept.data, lead, events);
+        }, { initialProps: { cells: readAt(1), drafts: draftedAt(0), lead: leadAt(1) } });
+        const held = Array.from({ length: KEPT_WINDOWS + 4 }, (_x, w) => BigInt(w * 200));
+        // The paging driver's pass, through the event kinds' wrapper: what it holds, then each window of it.
+        const pass = () => {
+            const driver = sourceOf(result.current.data);
+            driver.retain!(held);
+            for (const offset of held) driver.page(offset, 200n);
+        };
+        pass();
+        rerender({ cells: readAt(1), drafts: draftedAt(0), lead: leadAt(2) });
+        pass();
+        rerender({ cells: readAt(1), drafts: draftedAt(0), lead: leadAt(3) });
+        pass();
+        expect(made).toHaveLength(held.length);
     });
 });
