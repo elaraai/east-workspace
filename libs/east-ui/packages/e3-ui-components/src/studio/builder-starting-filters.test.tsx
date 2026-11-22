@@ -10,9 +10,10 @@
  * step of the canvas's one history, in order with the placements', and Save
  * each one's own patch; their change first in the publish preview's list; and
  * the preview starting on them — the reader's filters this browser holds of the
- * page forgotten by an edit of them; and a filter whose last condition is
- * removed in its chip's rows removed with it (ruled 22 November 2026). The
- * record and the builders are `builder.test-utils.tsx`'s.
+ * page forgotten by an edit of them; and a filter's rows a draft its popover's
+ * foot commits (ruled 22 November 2026) — Add filter adds one, and Apply, every
+ * condition of one removed, removes it; nothing moves until they are pressed.
+ * The record and the builders are `builder.test-utils.tsx`'s.
  */
 
 import { describe, test, expect } from "vitest";
@@ -23,6 +24,7 @@ import { StateRuntime } from "@elaraai/east-ui-components";
 import { Data, Record, Studio, StudioFiltersType, StudioKeyType, studioFiltersKey } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, settle } from "../e3-web-mount.test-utils.js";
+import { slotActions } from "../query/slots.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import {
     components, PAGES, h, ASKED, withEntry, readRecord, commits, mountBuilder, tile, spanOf, placed, keyOn, press, type Key, type Entry,
@@ -30,6 +32,17 @@ import {
 
 /** A page's reader's filters, as the UI store holds them. */
 const encodeFilters = encodeBeast2For(StudioFiltersType);
+
+const { offers, pick } = slotActions(act, settle);
+
+/** The open popover's submit — Add filter, or Apply. */
+const submit = () => document.querySelector<HTMLButtonElement>("[data-scope='popover'][data-part='content'][data-state='open'] [data-slice-submit]")!;
+/** The rows of the filter's editor that is open. */
+const openRows = () => waitFor(() => {
+    const found = document.querySelector<HTMLElement>("[data-scope='popover'][data-part='content'][data-state='open'] [data-studio-filter-rows]");
+    if (found === null) throw new Error("no filter's editor is open");
+    return found;
+});
 
 describe("<Studio.Builder> — the page's starting filters (#1673)", () => {
     const FILTERED: Key = { project: "ops", page: "g-filtered" };
@@ -109,19 +122,52 @@ describe("<Studio.Builder> — the page's starting filters (#1673)", () => {
         expect(await commits()).toEqual(at);
     });
 
-    test("a filter's last condition removed in its chip's rows removes the filter — its chip and its editor go, as its Remove filter does — one step Undo takes back", async () => {
+    test("a new filter's rows add nothing: Add filter stands off until a condition is finished, and the filter is added — its chip the rail's, one step of the canvas — only as it is pressed", async () => {
         const { container } = await mountFiltered();
-        await act(async () => { fireEvent.click(rail(container)!.querySelector<HTMLElement>("[data-slice-clause]")!); });
+        await waitFor(() => expect(countOn(container)).toBe("2"));
+        await act(async () => { fireEvent.click(rail(container)!.querySelector<HTMLElement>("[data-slice-add=filter]")!); });
         await settle();
-        const rows = await waitFor(() => {
-            const found = document.querySelector<HTMLElement>("[data-studio-filter-rows]");
-            if (found === null) throw new Error("the chip's editor draws no rows");
-            return found;
-        });
+        await openRows();
+        expect([submit().textContent, submit().disabled]).toEqual(["Add filter", true]);
+        // It opens on its field's list: the channel, then one of the channels the sales hold.
+        await pick("channel");
+        await waitFor(() => expect(offers()).toContain("Online"));
+        await pick("Online");
+        // The condition is finished, and nothing is added: the rail and the canvas as they were, Add filter on.
+        expect([chips(container), countOn(container), submit().disabled]).toEqual([["Region: North"], "2", false]);
+        await act(async () => { fireEvent.click(submit()); });
+        await settle();
+        expect([chips(container), document.querySelector("[data-studio-filter-rows]")]).toEqual([["Region: North", "Channel: Online"], null]);
+        await press("Undo");
+        expect(chips(container)).toEqual(["Region: North"]);
+    });
+
+    test("a filter's rows change nothing until Apply: its last condition removed, Apply removes the filter — its chip and its editor go, as its Remove filter does — one step Undo takes back; Cancel leaves it", async () => {
+        const { container } = await mountFiltered();
+        const openChip = async () => {
+            await act(async () => { fireEvent.click(rail(container)!.querySelector<HTMLElement>("[data-slice-clause]")!); });
+            await settle();
+            return openRows();
+        };
+        const rows = await openChip();
         expect([...rows.querySelectorAll("[data-query-line=row]")].map((row) => row.textContent?.includes("North"))).toEqual([true]);
+        expect([submit().textContent, submit().disabled]).toEqual(["Apply", true]);
         await act(async () => { fireEvent.click(within(rows).getByRole("button", { name: "Remove" })); });
         await settle();
-        expect([chips(container), document.querySelector("[data-studio-filter-rows]")]).toEqual([[], null]);
+        // Its rows hold no condition, and the page still holds the filter: the North's two sales.
+        expect([rows.querySelectorAll("[data-query-line=row]").length, chips(container), countOn(container), submit().disabled]).toEqual([0, ["Region: North"], "2", false]);
+        // Cancel: the filter as it was.
+        const cancel = [...document.querySelectorAll<HTMLElement>("[data-scope='popover'][data-part='content'][data-state='open'] button")].find((b) => b.textContent === "Cancel")!;
+        await act(async () => { fireEvent.click(cancel); });
+        await settle();
+        expect([chips(container), document.querySelector("[data-scope='popover'][data-part='content'][data-state='open']")]).toEqual([["Region: North"], null]);
+        // Again, and Apply: the filter goes.
+        const again = await openChip();
+        await act(async () => { fireEvent.click([...again.querySelectorAll<HTMLElement>("button")].find((b) => b.getAttribute("aria-label") === "Remove")!); });
+        await settle();
+        await act(async () => { fireEvent.click(submit()); });
+        await settle();
+        expect(chips(container)).toEqual([]);
         await waitFor(() => expect(countOn(container)).toBe("6"));
         await press("Undo");
         expect(chips(container)).toEqual(["Region: North"]);

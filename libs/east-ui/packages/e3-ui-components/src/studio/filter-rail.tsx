@@ -10,10 +10,13 @@
  * and whole on its hover — each dataset's chips together after its name, said
  * once, the datasets in the order the surface lists them (ruled 19 November
  * 2026); a `+ FILTER` chip; and each chip's editor: the query builder's
- * condition rows over its source (`./filter-editor.tsx`). Each edit is one of
- * the filters' gestures — added, changed, removed, cleared (`./page-filters.tsx`):
- * a filter whose last condition is removed in its rows is removed, its chip
- * and its editor with it, as its Remove filter does.
+ * condition rows over its source (`./filter-editor.tsx`), a draft its
+ * popover's foot commits (ruled 22 November 2026): Add filter adds a new one,
+ * Apply changes one — or, every condition of it removed, removes it — and
+ * Cancel, the popover's × and Esc leave the page as it was. Each commit is one
+ * of the filters' gestures — added, changed, removed, cleared
+ * (`./page-filters.tsx`); what a draft commits is the filters' rule
+ * (`draftEdit`).
  *
  * It is a model for the rail both it and Slice draw (`useSliceRailItems`, on
  * the rail engine): its one affordance is the filters, whose chips fold one
@@ -36,7 +39,7 @@ import {
     SliceChoiceGroup, SliceFilterChips, useSliceDensity, useSliceRailItems, useSlotStyles, type SliceFilterChip, type SliceRailModel,
 } from "@elaraai/east-ui-components/internal";
 import { useVisualRoot } from "../query/visual/answers.js";
-import { filterChip, type PageFilter } from "../query/visual/filters.js";
+import { draftEdit, filterChip, type ConditionDraft } from "../query/visual/filters.js";
 import type { PrintSource } from "../query/visual/print.js";
 import { printSourceOf } from "../query/visual/source.js";
 import { useQueryWords } from "../query/words.js";
@@ -73,64 +76,51 @@ interface Filtered {
     readonly read: PrintSource;
 }
 
-/**
- * A filter's editor: its condition rows over its source, each edit of its finished rows written to the page — `undefined`
- * once its last is removed; a new one's open on its field's list.
- */
-function FilterEditor({ id, where, read, onChange }: { id: string; where: JqNode | undefined; read: PrintSource; onChange: (where: JqNode | undefined) => void }) {
+/** What a filter's editor tells the row of chips: the source its filter is on, and what its rows say as they stand. */
+interface FilterDraft {
+    readonly source: string;
+    readonly draft: ConditionDraft;
+}
+
+/** A new filter's rows as they open: one empty row. */
+const EMPTY_ROW: ConditionDraft = { kind: "unfinished" };
+
+/** A filter's editor: its condition rows over its source, a draft told after every edit; a new one's open on its field's list. */
+function FilterEditor({ id, where, read, onDraft }: { id: string; where: JqNode | undefined; read: PrintSource; onDraft: (draft: ConditionDraft) => void }) {
     const root = useVisualRoot();
     // A page whose sources cannot be queried has no rows to edit a condition over.
-    return root === undefined ? null : <FilterConditions id={id} where={where} read={read} root={root} onChange={onChange} autoOpen={where === undefined} />;
+    return root === undefined ? null : <FilterConditions id={id} where={where} read={read} root={root} onDraft={onDraft} autoOpen={where === undefined} />;
 }
 
 /** Props of {@link NewFilter}. */
 interface NewFilterProps {
     /** The sources a filter may be on. */
     readonly sources: readonly Filtered[];
-    /** The page's filters, and their setter. */
-    readonly page: PageFilters;
+    /** Told the filter as it is drafted: the source picked, and what its rows say. */
+    readonly tell: (draft: FilterDraft) => void;
 }
 
 /**
  * A new filter's editor: its source, chosen where the page reads more than
- * one, then its condition rows. The filter is added as its first condition is
- * finished, and the rows go on editing it; its last condition removed, it is
- * removed, and the rows go on to write another.
+ * one, then its condition rows. Nothing is added by them: the popover's Add
+ * filter adds what they say, once a condition is finished.
  */
-function NewFilter({ sources, page }: NewFilterProps) {
+function NewFilter({ sources, tell }: NewFilterProps) {
     const m = useStudioMessages();
     const [picked, setPicked] = useState(sources[0]?.source.key);
-    // The filter these rows added, by its place among the page's: later edits change it.
-    const [added, setAdded] = useState<number | undefined>(undefined);
     const on = sources.find((held) => held.source.key === picked) ?? sources[0];
     if (on === undefined) return null;
-    const write = (where: JqNode | undefined) => {
-        if (where === undefined) {
-            // Its last condition removed: the filter these rows added goes, and the next they finish is another.
-            if (added !== undefined) page.remove(added);
-            setAdded(undefined);
-            return;
-        }
-        const filter: PageFilter = { source: on.source.key, where, from: none };
-        if (added === undefined) {
-            // Added after the rest: its place is the count before it.
-            setAdded(page.filters.length);
-            page.add(filter);
-        } else {
-            page.change(added, filter);
-        }
-    };
     return (
         <>
             {sources.length > 1 && (
                 <Box role="group" aria-label={m.filterSource()} data-studio-filter-source="">
                     <SliceChoiceGroup
                         choices={sources.map((held) => ({ id: held.source.key, label: held.source.name, active: held.source.key === on.source.key }))}
-                        // Another source starts another filter: the rows begin again over its fields.
-                        onPick={(key) => { setPicked(key); setAdded(undefined); }} />
+                        // Another source starts another filter: the rows begin again over its fields, an empty row.
+                        onPick={(key) => { setPicked(key); tell({ source: key, draft: EMPTY_ROW }); }} />
                 </Box>
             )}
-            <FilterEditor key={on.source.key} id={`new:${on.source.key}`} where={undefined} read={on.read} onChange={write} />
+            <FilterEditor key={on.source.key} id={`new:${on.source.key}`} where={undefined} read={on.read} onDraft={(draft) => tell({ source: on.source.key, draft })} />
         </>
     );
 }
@@ -151,7 +141,7 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
     const words = useQueryWords();
     const density = useSliceDensity();
     const edit = useSlotStyles("sliceEdit");
-    const chips = page.filters.map((filter, i): SliceFilterChip => {
+    const chips = page.filters.map((filter, i): SliceFilterChip<FilterDraft> => {
         const on = sources.find((held) => held.source.key === filter.source);
         // Short on the chip — `Region: NSW +1` — and whole on its hover (#1673); its dataset named before its group.
         const jq = printJq(filter.where).text;
@@ -163,28 +153,29 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
             group: { key: filter.source, label: name },
             editLabel: m.filterOf({ source: name }),
             large: true,
-            editor: (close): ReactNode => (on === undefined
+            editor: (_close, tell): ReactNode => (on === undefined
                 ? <Box as="span" css={edit.hint} data-studio-filter-gone="">{m.filterSourceGone({ source: filter.source })}</Box>
-                : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read}
-                    onChange={(where) => {
-                        if (where === undefined) {
-                            // Its last condition removed: the filter goes, and its editor with it, as its Remove filter does.
-                            close();
-                            page.remove(i);
-                        } else {
-                            page.change(i, { ...filter, where });
-                        }
-                    }} />),
+                : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read} onDraft={(draft) => tell({ source: filter.source, draft })} />),
+            // Apply: the filter is what its rows say — or, every condition of it removed, it goes, as its Remove filter does.
+            apply: (told) => {
+                const commit = draftEdit(told?.draft, filter.where);
+                if (commit === undefined) return undefined;
+                return commit.kind === "remove" ? () => page.remove(i) : () => page.change(i, { ...filter, where: commit.where });
+            },
         };
     });
-    // Each finished condition is the page's at once: the popovers say no Done or Cancel. The datasets in the surface's order.
-    // A new filter's editor names the dataset it will be on, as a chip's names its own; where the page reads several, its
-    // choice of them heads the editor and names the one picked.
+    // A filter's rows are a draft its popover's foot commits: Add filter, Apply. The datasets in the surface's order. A new
+    // filter's editor names the dataset it will be on, as a chip's names its own; where the page reads several, its choice
+    // of them heads the editor and names the one picked.
     const only = sources.length === 1 ? sources[0] : undefined;
     return (
-        <SliceFilterChips chips={chips} density={density} foldChips={foldChips} live groups={sources.map((held) => held.source.key)}
+        <SliceFilterChips<FilterDraft> chips={chips} density={density} foldChips={foldChips} groups={sources.map((held) => held.source.key)}
             onRemove={(i) => page.remove(i)} onClear={() => page.clear()}
-            add={() => <NewFilter sources={sources} page={page} />}
+            add={(_close, tell) => <NewFilter sources={sources} tell={tell} />}
+            addApply={(told) => {
+                const commit = draftEdit(told?.draft, undefined);
+                return told === undefined || commit?.kind !== "set" ? undefined : () => page.add({ source: told.source, where: commit.where, from: none });
+            }}
             addLabel={only === undefined ? undefined : m.addFilterOf({ source: only.source.name })} />
     );
 }

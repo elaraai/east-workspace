@@ -37,7 +37,7 @@ import { resultTable } from "../query/results-table.js";
 import { ALERT_ROW_LIMIT, alertConditionOf, alertQuery, alertRowType, alertRowsStage, alertStart, printAlert } from "../query/visual/alert.js";
 import type { VisualAnswer } from "../query/visual/ask.js";
 import { useVisualAnswers, useVisualAsk, useVisualMinute, useVisualRoot } from "../query/visual/answers.js";
-import { printStateOf, type PageFilter } from "../query/visual/filters.js";
+import { printStateOf, type ConditionDraft, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource, PrintState, VisualAsk } from "../query/visual/print.js";
 import type { StepQuery } from "../query/steps/values.js";
 import { useQueryWords } from "../query/words.js";
@@ -201,6 +201,8 @@ function AlertEditor({ visual, name, read, placement, studio, alerts, held, foot
     const stateOf = useCallback((): PrintState => (minute === undefined ? { filters: [] } : printStateOf(filters, visual.source, read, minute)), [filters, visual.source, read, minute]);
     const query = useCallback((): StepQuery => alertQuery(rows!, row!, read, held?.alert.condition ?? start), [rows, row, read, held, start]);
     const conditionOf = useCallback((edited: StepQuery) => alertConditionOf(edited, row!), [row]);
+    // Its condition is what its rows say as they stand: none, while no row is finished.
+    const onDraft = useCallback((draft: ConditionDraft) => setCondition(draft.kind === "condition" ? draft.where : undefined), []);
     const printedNow = useMemo(() => (now === undefined ? undefined : printAlert(visual, read, stateOf(), now)), [now, visual, read, stateOf]);
     const nowAsks = printedNow?.kind === "ask" ? [printedNow.ask] : NO_ASKS;
     const asked = useVisualAnswers(nowAsks, visual.source);
@@ -306,7 +308,7 @@ function AlertEditor({ visual, name, read, placement, studio, alerts, held, foot
                     </Box>
                     <Box css={edit.field}>
                         <Box as="span" css={edit.fieldLabel}>{m.alertCondition()}</Box>
-                        <ConditionEditor id={`alert:${placement}:${held?.name ?? ""}`} query={query} held={opened} conditionOf={conditionOf} root={root} live={false} onChange={setCondition} />
+                        <ConditionEditor id={`alert:${placement}:${held?.name ?? ""}`} query={query} held={opened} conditionOf={conditionOf} root={root} onDraft={onDraft} />
                         {condition === undefined && <Box as="span" css={edit.hint}>{m.alertUnfinished()}</Box>}
                     </Box>
                     <EastChakraCheckbox value={pausedBox} />

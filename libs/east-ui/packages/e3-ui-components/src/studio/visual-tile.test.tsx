@@ -351,6 +351,10 @@ describe("a KPI's tile (#1671)", () => {
         expect(await screen.findByText("Add filter · Orders")).toBeTruthy();
         // One dataset, no choice of them.
         expect(document.querySelector("[data-studio-filter-source]")).toBeNull();
+        // Its foot: Cancel, and Add filter, off while its rows hold no finished condition (ruled 22 November 2026).
+        const foot = [...document.querySelectorAll<HTMLButtonElement>("[data-scope='popover'][data-part='content'][data-state='open'] button")]
+            .filter((b) => b.textContent === "Cancel" || b.textContent === "Add filter").map((b) => [b.textContent, b.disabled]);
+        expect(foot).toEqual([["Cancel", false], ["Add filter", true]]);
     });
 
     test("over two datasets a new filter's editor is `Add filter`, its choice of them heading it and naming the one picked (#1673)", async () => {
@@ -361,7 +365,13 @@ describe("a KPI's tile (#1671)", () => {
         ], [SOURCE, returns]);
         await waitFor(() => expect(container.querySelector("[data-studio-filters] [data-slice-add=filter]")).not.toBeNull());
         await act(async () => { fireEvent.click(container.querySelector<HTMLElement>("[data-studio-filters] [data-slice-add=filter]")!); });
-        expect(await screen.findByText("Add filter")).toBeTruthy();
+        // Its head's words — its foot's Add filter says them too.
+        const head = await waitFor(() => {
+            const close = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open'] button[aria-label='Close']");
+            expect(close).not.toBeNull();
+            return close!.parentElement!.querySelector("span")!.textContent;
+        });
+        expect(head).toBe("Add filter");
         const choice = await waitFor(() => {
             const held = document.querySelector<HTMLElement>("[data-studio-filter-source]");
             expect(held).not.toBeNull();

@@ -16,9 +16,11 @@
  *    place, in the chip's popover: it opens on its field's list, then a value
  *    from the values the source holds with how many rows hold each, read from
  *    e3 — the shared picker in the flow under the rows, whole, drawing no
- *    frame of its own, the popover ending where it ends; each slot boxed as
- *    the query builder draws it, solid once filled; and no Done, each
- *    finished condition the page's.
+ *    frame of its own, the rows' block ending where it ends; each slot boxed
+ *    as the query builder draws it, solid once filled. Its foot holds Cancel
+ *    and Add filter (ruled 22 November 2026): Add filter stands off until a
+ *    condition is finished, nothing is added until it is pressed, and pressed
+ *    it shuts the popover.
  *  - F3 the filter is a chip in the rows' words, after its dataset's name —
  *    said once, in the caption type, on the chip's line (ruled 19 November
  *    2026) — and every visual of its source narrows: the tiles ask again, on
@@ -49,9 +51,10 @@
  *  - F9 a chip says its filter short — `Region: SA`, its field then what it
  *    holds — and whole on its hover. While its popover is open the row holds
  *    still: a condition added there moves neither the chip, its popover nor
- *    `+ FILTER`, and a press held on `+ FILTER`'s very edge — the popover
- *    shutting under it — opens the new filter's editor where it stood. Shut,
- *    the chip says its first condition and how many more: `Region: SA +1`.
+ *    `+ FILTER`, and changes nothing until Apply, which shuts the popover: the
+ *    chip then says its first condition and how many more, `Region: SA +1`. A
+ *    press held on `+ FILTER`'s very edge — a chip's popover shutting under it
+ *    — opens the new filter's editor where it stood.
  *  - F10 the page's starting filters — what every reader starts with — stand
  *    on a rail of their own in the builder canvas's band, between its
  *    selection bar and its grid: captioned before the rail, on the chip's
@@ -73,16 +76,6 @@
  *    there: inside the screen, its body never scrolling, the picker whole in
  *    it (F2) and the list the one thing that may scroll (F8), over a field's
  *    list and then its values (#1701).
- *  - F14 a remove says what it takes (ruled 22 November 2026): a row's is a
- *    ×, a group's the words Remove group at its foot's end — after its add, in
- *    line with its rows' ×s, never a × in its head — and whichever is pointed
- *    at stands what it would take on the danger wash: the row alone, or the
- *    group's whole box. The rows are one part in the three places a filter is
- *    written, measured the same in each: a reader's rail, the builder's
- *    starting filters, and a visual's own Filter field in the inspector.
- *  - F15 in a reader's rail, a group left with one row is that row, plain; and
- *    a filter's last condition removed in its chip's rows removes the filter —
- *    its chip and its editor go, and the page is as it was.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -97,12 +90,8 @@ import * as studio from "@elaraai/e3-ui/examples/studio/studio";
 import { installE3Faults, mutateE3 } from "./e3-faults";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { openConfigure } from "./studio-configure-page";
+import { openBuilder, railAt, railOnTop, revenue, submit, written } from "./studio-filters-page";
 import { openVisuals } from "./studio-visuals-page";
-import { token } from "./tokens";
-
-/** The showcase's builder over a page of content, whose visuals read two sources: the sales and the returns. */
-const BUILDER = "e3/studio/studio/studioContent";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
@@ -125,62 +114,6 @@ async function writeStartingFilter(page: Page, where: string): Promise<void> {
         key, entry.type === "page" ? variant("page", { draft: { ...entry.value.draft, filters: [filter] }, live: entry.value.live }) : entry,
     ]), compareFor(Studio.Types.Key));
     await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
-}
-
-/** The page's first KPI's value: the quarter's revenue. */
-const revenue = (grid: Locator) => grid.locator('[data-snap-grid-cell="v-revenue"] [data-studio-kpi-value]');
-
-/** A filter's chip on a rail of the page of visuals, after the page's starting filter's — the chip a test wrote. */
-const written = (rail: Locator) => rail.locator("[data-slice-clause]").nth(1);
-
-/**
- * Opens the showcase's builder, its entry in view.
- *
- * @param page - The browser's page
- * @returns The builder
- */
-async function openBuilder(page: Page): Promise<Locator> {
-    await page.goto(`/?theme=light#${BUILDER}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${BUILDER}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    return entry.locator("[data-studio-builder]");
-}
-
-/**
- * Scrolls the showcase's list of examples so a page's rail stands at the top of its view — where a reader's page holds
- * it, under the page's head, with the screen's room below — before a test opens a filter's editor from it. The list
- * leaves the page wherever its scroll stood: after a fresh page's first paint, or a kept page's last test, the rail
- * stood anywhere from the screen's top to its last quarter, and an editor opened there had a quarter of the room.
- *
- * @param page - The browser's page
- * @param rail - The page's rail
- */
-async function railOnTop(page: Page, rail: Locator): Promise<void> {
-    await rail.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    await settled(page);
-}
-
-/**
- * Scrolls the showcase's list of examples so a page's rail stands with its top at a height of the screen — low on it,
- * where an editor opened from the rail has less room under its chip than over it (#1701).
- *
- * @param page - The browser's page
- * @param rail - The page's rail
- * @param top - Where the rail's top stands, from the screen's top
- */
-async function railAt(page: Page, rail: Locator, top: number): Promise<void> {
-    await railOnTop(page, rail);
-    await rail.evaluate((el, at) => {
-        // Its scroller: the nearest box that scrolls, or the page.
-        let scroller: Element | null = el.parentElement;
-        while (scroller !== null && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
-        const by = at - el.getBoundingClientRect().top;
-        if (scroller === null) window.scrollBy(0, -by);
-        else scroller.scrollTop -= by;
-    }, top);
-    await settled(page);
-    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().top)), "the rail's top").toBe(top);
 }
 
 /**
@@ -217,7 +150,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(rail.locator("[data-slice-clause]")).toHaveAttribute("title", "ordered at is on or after 2026-07-01 and ordered at is before 2026-10-01");
     });
 
-    test("F2, F3, F4: a filter written with the condition rows — a field, a value from the source's own with its count, the chooser whole inside the popover — is a chip in words that narrows every visual of its source; its × puts them back", async ({ page }) => {
+    test("F2, F3, F4: a filter written with the condition rows — a field, a value from the source's own with its count, the chooser whole inside the popover — is added by Add filter alone, a chip in words that narrows every visual of its source; its × puts them back", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
@@ -230,9 +163,12 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         const chooser = rows.locator("[data-chooser]");
         await expect(chooser).toBeVisible();
         await settled(page);
-        // The rows alone: no step card, number or toolbar of the query builder's, and no Done — each finished condition is the page's.
+        // The rows alone: no step card, number or toolbar of the query builder's. Its foot: Cancel, and Add filter — off, with
+        // no condition finished.
         expect(await rows.locator("[data-step-id], [data-query-shape-text]").count()).toBe(0);
-        await expect(page.getByRole("dialog").getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+        const foot = () => page.getByRole("dialog").locator("button").evaluateAll((all) => all
+            .filter((b) => ["Cancel", "Add filter", "Done"].includes(b.textContent ?? "")).map((b) => [b.textContent, (b as HTMLButtonElement).disabled]));
+        expect(await foot()).toEqual([["Cancel", false], ["Add filter", true]]);
         /**
          * Whether the picker stands whole in the popover's body, on top, tall enough for its offers, with no edge of its
          * own — the popover's is the one frame — and the rows' block, and the popover with it, ending where it ends.
@@ -273,13 +209,15 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         expect([slots.filter((slot) => !slot.focused).map((slot) => slot.edge), slots.filter((slot) => slot.focused).length])
             .toEqual([[["solid", true], ["solid", true]], 1]);
 
-        // The quarter's revenue is South Australia's alone at once; the row, held while its editor is open — the starting
-        // filter's chip its only one — takes the new chip as the editor shuts, after it: short, and whole on its hover.
-        await expect(revenue(grid)).not.toHaveText(all ?? "");
-        const narrowed = await revenue(grid).textContent();
-        expect(narrowed).toBe("38.4k");
+        // The condition finished, nothing is added: the page as it was — its revenue every region's, the starting filter's
+        // chip the row's only one — and Add filter on. Pressed, it shuts the popover: the quarter's revenue is South
+        // Australia's alone, and the row takes the new chip, after the starting filter's — short, and whole on its hover.
+        expect(await foot()).toEqual([["Cancel", false], ["Add filter", false]]);
+        await expect(revenue(grid)).toHaveText(all ?? "");
         await expect(rail.locator("[data-slice-clause]")).toHaveCount(1);
-        await page.keyboard.press("Escape");
+        await submit(page).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(revenue(grid)).toHaveText("38.4k");
         await expect(written(rail)).toHaveText("Region: SA");
         await expect(written(rail)).toHaveAttribute("title", "region is SA");
         // After its dataset's name, said once: before the chip, on its line, in the caption type.
@@ -384,7 +322,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         expect(await chooser.locator("[role=option]").count()).toBeGreaterThan(3);
     });
 
-    test("F9: a chip says its filter short and whole on hover; while its popover is open an edit moves neither the chip, its popover nor + FILTER — a press held on + FILTER's edge opens its editor — and shut, the chip says the edit", async ({ page }) => {
+    test("F9: a chip says its filter short and whole on hover; while its popover is open an edit moves neither the chip, its popover nor + FILTER, and changes nothing until Apply — then the chip says the edit; a press held on + FILTER's edge opens its editor", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
@@ -400,12 +338,12 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await railOnTop(page, rail);
         await rail.locator("[data-slice-add=filter]").click();
         await pick("region", "SA");
-        await page.keyboard.press("Escape");
+        await submit(page).click();
         const chip = written(rail);
         await expect(chip).toHaveText("Region: SA");
         await expect(chip).toHaveAttribute("title", "region is SA");
 
-        // Its popover open, a second condition added there: the page takes it at once, the row as it stood.
+        // Its popover open, a second condition added there: a draft — the row as it stood.
         await chip.click();
         await expect(rows).toBeVisible();
         await settled(page);
@@ -428,20 +366,27 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await settled(page);
         expect(await where()).toEqual(before);
         await expect(chip).toHaveText("Region: SA");
+        // Apply: the popover shuts, and the chip says its first condition and how many more, whole on its hover.
+        await expect(submit(page)).toHaveText("Apply");
+        await submit(page).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(chip).toHaveText("Region: SA +1");
+        await expect(chip).toHaveAttribute("title", "region is SA and category is Tools");
 
-        // A press held on + FILTER's left edge: the chip's popover shuts under it, and its click opens the new filter's editor.
+        // Its popover open again, a press held on + FILTER's left edge: the popover shuts under it, and its click opens the
+        // new filter's editor.
+        await chip.click();
+        await expect(rows).toBeVisible();
+        await settled(page);
         await rail.locator("[data-slice-add=filter]").click({ position: { x: 2, y: 14 }, delay: 150 });
         await expect(page.getByRole("dialog").filter({ hasText: "Add filter" })).toBeVisible();
-        await expect(chip).toHaveText("Region: SA");
+        await expect(chip).toHaveText("Region: SA +1");
         // It opens on its field's list, which takes the first Esc; the second shuts it.
         await expect(chooser).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(chooser).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
-        // Shut: the chip says its first condition and how many more, and whole on its hover.
-        await expect(chip).toHaveText("Region: SA +1");
-        await expect(chip).toHaveAttribute("title", "region is SA and category is Tools");
     });
 
     test("F5: the builder's toolbar holds no filter rail — its canvas is the page as designed — and its Preview is the page as a reader sees it: the rail a 28px row over its grid, 12 above it, with no border, its + FILTER chip after its icon", async ({ page }) => {
@@ -474,7 +419,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await chooser.locator("[role=option]", { hasText: field }).first().click();
             await expect(chooser.locator("[role=option]", { hasText: value }).first()).toBeVisible({ timeout: 20_000 });
             await chooser.locator("[role=option]", { hasText: value }).first().click();
-            await page.keyboard.press("Escape");
+            await submit(page).click();
             await settled(page);
         };
         // Three, after the page's starting filter: four in all, each said whole on its chip's hover and in +N more.
@@ -501,7 +446,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             const more = await popover.evaluate((el) => ({
                 head: el.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
                 named: [...el.querySelectorAll("[data-slice-more-group]")].map((group) => group.textContent),
-                held: [...el.querySelectorAll("[data-slice-more-row] > span")].map((row) => row.textContent),
+                held: [...el.querySelectorAll("[data-slice-more-words]")].map((row) => row.textContent),
             }));
             await page.keyboard.press("Escape");
             await expect(popover).toHaveCount(0);
@@ -681,7 +626,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(chooser.locator("[role=option]", { hasText: "Damaged" }).first()).toBeVisible({ timeout: 20_000 });
         await chooser.locator("[role=option]", { hasText: "Damaged" }).first().click();
         await expect(chooser).toHaveCount(0);
-        await page.keyboard.press("Escape");
+        await submit(page).click();
         // The returns' filter: its chip after their name, said once; their visuals narrow to the damaged, the sales' do not.
         await expect(rail.locator("[data-slice-clause]")).toHaveText("Reason: Damaged");
         await expect(rail.locator("[data-slice-chip-group]")).toHaveText(["Returns"]);
@@ -711,7 +656,7 @@ test.describe("A Studio page's filter rail (#1673)", () => {
             await expect(chooser.locator("[role=option]", { hasText: value }).first()).toBeVisible({ timeout: 20_000 });
             await chooser.locator("[role=option]", { hasText: value }).first().click();
             await expect(chooser).toHaveCount(0);
-            await page.keyboard.press("Escape");
+            await submit(page).click();
             await settled(page);
         };
         await add("Sales", "region", "North");
@@ -768,150 +713,5 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(chooser).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
-    });
-
-    test("F14: a remove says what it takes — a row's ×, a group's Remove group in words at its foot's end — and what it is pointed at stands on the danger wash; the rows measure the same in a reader's rail, the builder's starting filters and a visual's own Filter field (ruled 22 November 2026)", async ({ page }) => {
-        await page.setViewportSize({ width: 1440, height: 1100 });
-        const CLEAR = "rgba(0, 0, 0, 0)";
-        /**
-         * Writes a condition and adds a group in a block of rows — its first row empty, its field's list open or not —
-         * then reads how its removes are drawn, and what each tints as it is pointed at.
-         */
-        const drawn = async (rows: Locator) => {
-            const chooser = rows.locator("[data-chooser]");
-            // The danger wash (`bg.danger.subtle`, the design system's `--neg` at its wash) and the danger rule.
-            const [wash, edge] = [await token(page, "status-neg-subtle"), await token(page, "border-error")];
-            if (await chooser.count() === 0) await rows.locator("[data-slot-key][data-empty]").first().click();
-            await chooser.locator("[role=option]", { hasText: "region" }).first().click();
-            await expect(chooser.locator("[role=option]").first()).toBeVisible({ timeout: 20_000 });
-            await chooser.locator("[role=option]").first().click();
-            await expect(chooser).toHaveCount(0);
-            await rows.locator("[data-condition-rows] > [data-query-line=foot]").getByRole("button", { name: "Add group" }).click();
-            // The group's first row opens on its field's list, which takes the Esc.
-            await expect(chooser).toBeVisible();
-            await page.keyboard.press("Escape");
-            await expect(chooser).toHaveCount(0);
-            await settled(page);
-            const look = await rows.locator("[data-condition-rows]").evaluate((root) => {
-                const at = (n: number) => Math.round(n * 2) / 2;
-                const size = (el: Element) => [at(el.getBoundingClientRect().width), at(el.getBoundingClientRect().height)];
-                const box = root.querySelector("[data-query-group-box]")!;
-                const foot = box.querySelector(":scope > [data-query-line=foot]")!;
-                const removeGroup = foot.querySelector("[data-query-remove=group]")!;
-                const crosses = [...root.querySelectorAll("[data-query-line=row] > [data-query-remove=row]")];
-                const words = getComputedStyle(removeGroup);
-                return {
-                    look: root.getAttribute("data-query-look"),
-                    // The filter's own row's ×, then the group's two: each a button of one size.
-                    crosses: crosses.map(size),
-                    icons: crosses.map((cross) => cross.querySelector("svg")?.getAttribute("data-icon")),
-                    foot: [...foot.querySelectorAll("button")].map((button) => button.textContent),
-                    removeGroup: [removeGroup.querySelector("svg") === null, size(removeGroup)[1], words.fontSize, words.fontWeight],
-                    // At its foot's end, in line with its rows' ×s; none in its head.
-                    inLine: crosses.slice(1).every((cross) => at(cross.getBoundingClientRect().right) === at(removeGroup.getBoundingClientRect().right)),
-                    afterAdd: foot.querySelector("button")!.getBoundingClientRect().right <= removeGroup.getBoundingClientRect().left,
-                    inHead: box.querySelectorAll("[data-query-group-head] [data-query-remove]").length,
-                    row: at(root.querySelector("[data-query-line=row]")!.getBoundingClientRect().height),
-                    slot: at(root.querySelector("[data-slot-key]")!.getBoundingClientRect().height),
-                };
-            });
-            /** Each row's fill and the rule around it — the filter's own, then the group's two — and the group's box's fill and edge. */
-            const fills = () => rows.locator("[data-condition-rows]").evaluate((root) => {
-                const box = getComputedStyle(root.querySelector("[data-query-group-box]")!);
-                const looks = [...root.querySelectorAll("[data-query-line=row]")].map((row) => getComputedStyle(row));
-                return {
-                    rows: looks.map((look) => look.backgroundColor),
-                    rules: looks.map((look) => (look.outlineStyle === "none" ? "none" : `${look.outlineWidth} ${look.outlineColor} +${look.outlineOffset}`)),
-                    box: box.backgroundColor, edge: box.borderTopColor,
-                };
-            });
-            const NO_RULES = ["none", "none", "none"];
-            const rest = await fills();
-            expect([rest.rows, rest.rules], "at rest no row is tinted").toEqual([[CLEAR, CLEAR, CLEAR], NO_RULES]);
-            expect([rest.box === wash, rest.edge === edge], "at rest the group's box is its own").toEqual([false, false]);
-            // A group's row's ×: that row alone on the wash, inside the danger rule 3px past it — not the rows beside it, nor its group's box.
-            await rows.locator("[data-query-group-box] > [data-query-line=row] > [data-query-remove=row]").first().hover();
-            await expect.poll(fills).toEqual({ rows: [CLEAR, wash, CLEAR], rules: ["none", `1px ${edge} +3px`, "none"], box: rest.box, edge: rest.edge });
-            // Remove group: the group's whole box on the wash, its edge the danger rule — no row of its own tinted.
-            await rows.locator("[data-query-remove=group]").hover();
-            await expect.poll(fills).toEqual({ rows: [CLEAR, CLEAR, CLEAR], rules: NO_RULES, box: wash, edge });
-            // Its words take the danger ink as they are pointed at.
-            expect(await rows.locator("[data-query-remove=group]").evaluate((el) => getComputedStyle(el).color)).toBe(await token(page, "fg-danger"));
-            await page.mouse.move(0, 0);
-            await expect.poll(fills).toEqual(rest);
-            return look;
-        };
-        /**
-         * How the rows are drawn wherever a filter is written: a row 28 tall; its slots the small Select's trigger, 26; its
-         * × the extra-small icon button, 26 square; Remove group the extra-small button, as tall, its words 11.5 / 500.
-         */
-        const ROWS = {
-            look: "inline", crosses: [[26, 26], [26, 26], [26, 26]], icons: ["xmark", "xmark", "xmark"], foot: ["Add condition", "Remove group"],
-            removeGroup: [true, 26, "11.5px", "500"], inLine: true, afterAdd: true, inHead: 0, row: 28, slot: 26,
-        };
-
-        // A reader's rail: a new filter's editor.
-        const grid = await openVisuals(page, "light");
-        const reader = grid.locator("xpath=..").locator("[data-studio-filters]");
-        await railOnTop(page, reader);
-        await reader.locator("[data-slice-add=filter]").click();
-        expect(await drawn(page.locator("[data-studio-filter-rows]")), "a reader's rail").toEqual(ROWS);
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-
-        // The builder's starting filters: a new filter's editor, in the canvas's band.
-        const builder = await openBuilder(page);
-        const starting = builder.locator("[data-snap-grid-head] [data-studio-starting-filters]");
-        await expect(starting.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
-        await railOnTop(page, starting);
-        await starting.locator("[data-slice-add=filter]").click();
-        expect(await drawn(page.locator("[data-studio-filter-rows]")), "the builder's starting filters").toEqual(ROWS);
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-
-        // A visual's own Filter field, in the inspector's Configure tab.
-        const { tab } = await openConfigure(page);
-        const field = tab.locator("[data-configure=where]");
-        await field.scrollIntoViewIfNeeded();
-        expect(await drawn(field.locator("[data-studio-filter-rows]")), "a visual's own Filter").toEqual(ROWS);
-    });
-
-    test("F15: in a reader's rail a group left with one row is that row, plain; and a filter's last condition removed in its chip's rows removes the filter — its chip and its editor go, the page as it was (ruled 22 November 2026)", async ({ page }) => {
-        await page.setViewportSize({ width: 1440, height: 1100 });
-        const grid = await openVisuals(page, "light");
-        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
-        const all = await revenue(grid).textContent();
-        const rows = page.locator("[data-studio-filter-rows]");
-        const chooser = rows.locator("[data-chooser]");
-        await railOnTop(page, rail);
-        await rail.locator("[data-slice-add=filter]").click();
-        await chooser.locator("[role=option]", { hasText: "region" }).first().click();
-        await expect(chooser.locator("[role=option]", { hasText: "SA" })).toBeVisible({ timeout: 20_000 });
-        await chooser.locator("[role=option]", { hasText: "SA" }).first().click();
-        await expect(chooser).toHaveCount(0);
-        await expect(revenue(grid)).toHaveText("38.4k");
-        await page.keyboard.press("Escape");
-        await expect(written(rail)).toHaveText("Region: SA");
-
-        // Its chip's editor: a group added — two rows in its box — then one of them removed: the other stands, plain.
-        await written(rail).click();
-        await expect(rows).toBeVisible();
-        await rows.locator("[data-condition-rows] > [data-query-line=foot]").getByRole("button", { name: "Add group" }).click();
-        await expect(chooser).toBeVisible();
-        await page.keyboard.press("Escape");
-        await expect(chooser).toHaveCount(0);
-        await expect(rows.locator("[data-query-group-box] > [data-query-line=row]")).toHaveCount(2);
-        await rows.locator("[data-query-group-box] > [data-query-line=row] > [data-query-remove=row]").first().click();
-        await expect(rows.locator("[data-query-group-box]")).toHaveCount(0);
-        await expect(rows.locator("[data-query-line=row]")).toHaveCount(2);
-        // The empty row removed, then the filter's one condition: no condition, so no filter — the editor shuts, the
-        // chip goes, and the quarter's revenue is every region's again.
-        await rows.locator("[data-query-line=row] > [data-query-remove=row]").nth(1).click();
-        await expect(rows.locator("[data-query-line=row]")).toHaveCount(1);
-        await expect(revenue(grid)).toHaveText("38.4k");
-        await rows.locator("[data-query-line=row] > [data-query-remove=row]").click();
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-        await expect(rail.locator("[data-slice-clause]")).toHaveCount(1);
-        await expect(revenue(grid)).toHaveText(all ?? "");
     });
 });

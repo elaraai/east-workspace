@@ -10,13 +10,17 @@
  * the rows that stand, where their removes are drawn, and what their host is
  * told. With no renderer: the edits are the query builder's own
  * (`applyAction`, `applySlot`, `applyRemove`) over a page filter's query
- * (`filterQuery`), and what is told is the filters' rule (`conditionTold`),
- * for a host that applies each edit as it is made — a page's filter, a
- * visual's own — and for one that holds a draft — an alert.
+ * (`filterQuery`), and what is told is the filters' rule: for a host that
+ * applies each edit as it is made — a visual's own filter (`conditionTold`) —
+ * and for one whose rows are a draft a button commits — a page filter's
+ * popover, an alert (`conditionDraft`, `draftEdit`).
  *
  * - A row still to be finished is no part of the filter; the finished rows are
  *   told at once.
  * - Removing the last finished row removes the filter.
+ * - A draft commits nothing until its button: Add filter adds what its
+ *   finished rows say, Apply changes the filter to it — or, every condition
+ *   removed, removes it — and both wait while no row is finished.
  * - A group left with no condition goes; one left with a single condition is
  *   that condition, plain.
  * - A row's remove is a ×; a group's is its words, in the group's foot.
@@ -31,7 +35,7 @@ import { applyAction, applyRemove, applySlot } from "../model/slot-edits.js";
 import { queryWords } from "../model/words.js";
 import { checkSteps } from "../steps/check.js";
 import type { Condition, StepQuery } from "../steps/values.js";
-import { conditionTold, filterQuery, whereOf } from "./filters.js";
+import { conditionDraft, conditionTold, draftEdit, filterQuery, whereOf } from "./filters.js";
 import { ORDERS_ROOT, ORDERS_SOURCE, condition } from "./visual.test-utils.js";
 
 const ROOT = ORDERS_ROOT.type;
@@ -60,17 +64,21 @@ function said(query: StepQuery): string | undefined {
 }
 
 /**
- * A filter's rows and their host: each edit is one of the builder's, and what
- * it tells is kept as the host would hear it — a condition as jq, or `removed`.
+ * A filter's rows and their host: each edit is one of the builder's. For a
+ * host that applies each edit as it is made, what it is told is kept as it
+ * would hear it — a condition as jq, or `removed`; for one whose rows are a
+ * draft, what they say as they stand, and what its button would commit.
  */
-function host(where: string | undefined, live = true) {
-    let query = filterQuery(where === undefined ? undefined : condition(where), ORDERS_SOURCE, ROOT);
-    let held: JqNode | undefined = where === undefined ? undefined : condition(where);
+function host(where: string | undefined) {
+    const opened: JqNode | undefined = where === undefined ? undefined : condition(where);
+    let query = filterQuery(opened, ORDERS_SOURCE, ROOT);
+    let held = opened;
     const told: string[] = [];
     const stepId = query.steps[0]!.value.id;
-    /** One edit: the query it leaves, and what the host is told of it. */
+    const conditionOf = (edited: StepQuery) => whereOf(edited, ROOT);
+    /** One edit: the query it leaves, and what a host that applies it at once is told of it. */
     const edit = (next: StepQuery): void => {
-        const heard = conditionTold(query, next, held, (edited) => whereOf(edited, ROOT), live);
+        const heard = conditionTold(query, next, held, conditionOf);
         query = next;
         if (heard.kind === "nothing") return;
         held = heard.kind === "condition" ? heard.where : undefined;
@@ -92,6 +100,16 @@ function host(where: string | undefined, live = true) {
         told,
         rows: () => rows(query),
         query: () => query,
+        /** The rows as a draft: their condition as jq, `none` with no row left, or `unfinished`. */
+        draft: (): string => {
+            const now = conditionDraft(query, conditionOf);
+            return now.kind === "condition" ? printJq(now.where).text : now.kind;
+        },
+        /** What the draft's button — Add filter, Apply — would commit to the filter the rows opened on. */
+        commits: (): string => {
+            const commit = draftEdit(conditionDraft(query, conditionOf), opened);
+            return commit === undefined ? "nothing" : commit.kind === "remove" ? "remove" : `set ${printJq(commit.where).text}`;
+        },
         at,
         /** Add condition: the filter's, or a group's. */
         addCondition: (groupId?: string) => edit(applyAction(query, { kind: "add-condition", stepId, ...(groupId === undefined ? {} : { groupId }) }, ROOT).query),
@@ -314,31 +332,64 @@ describe("what an edit tells a host that applies it as it is made", () => {
     });
 });
 
-describe("what an edit tells a host that holds a draft", () => {
-    test("its only row rewritten to a field of another kind: it holds no condition until the value is picked, so its Save waits", () => {
-        const h = host(`.region == "SA"`, false);
-        h.field(h.at(0), "revenue");
-        expect(h.told).toEqual(["removed"]);
-        h.number(h.at(0), 40);
-        expect(h.told).toEqual(["removed", `.revenue >= 40`]);
-    });
-
-    test("its only row rewritten, then back to what it held: the condition is told again", () => {
-        const h = host(`.region == "SA"`, false);
-        h.field(h.at(0), "revenue");
+describe("a filter's rows as a draft, and what its button commits", () => {
+    test("a new filter: Add filter has nothing to add until a row is finished, then adds what the finished rows say", () => {
+        const h = host(undefined);
+        expect([h.draft(), h.commits()]).toEqual(["unfinished", "nothing"]);
         h.field(h.at(0), "region");
-        expect(h.told).toEqual(["removed"]);
+        expect([h.draft(), h.commits()]).toEqual(["unfinished", "nothing"]);
         h.text(h.at(0), "SA");
-        expect(h.told).toEqual(["removed", `.region == "SA"`]);
+        expect([h.draft(), h.commits()]).toEqual([`.region == "SA"`, `set .region == "SA"`]);
+        // A row added beside it, still empty, is no part of what is added.
+        h.addCondition();
+        expect(h.commits()).toBe(`set .region == "SA"`);
+        // Every row removed: there is no filter to add.
+        h.remove(h.at(1));
+        h.remove(h.at(0));
+        expect([h.rows(), h.draft(), h.commits()]).toEqual([[], "none", "nothing"]);
     });
 
-    test("its only condition removed: it holds none; the finished rows beside an empty one are its condition, as a live host's are", () => {
-        const h = host(`.region == "SA"`, false);
+    test("a filter edited: Apply has nothing to do until its rows say something else, and nothing again once they say what it holds", () => {
+        const h = host(`.region == "SA"`);
+        expect(h.commits()).toBe("nothing");
+        h.text(h.at(0), "NSW");
+        expect(h.commits()).toBe(`set .region == "NSW"`);
+        h.text(h.at(0), "SA");
+        expect(h.commits()).toBe("nothing");
+        h.addCondition();
+        expect(h.commits()).toBe("nothing");
+    });
+
+    test("its only row rewritten to a field of another kind: unfinished, so its button waits until the value is picked", () => {
+        const h = host(`.region == "SA"`);
+        h.field(h.at(0), "revenue");
+        expect([h.draft(), h.commits()]).toEqual(["unfinished", "nothing"]);
+        h.number(h.at(0), 40);
+        expect([h.draft(), h.commits()]).toEqual([`.revenue >= 40`, `set .revenue >= 40`]);
+    });
+
+    test("every condition removed: Apply removes the filter", () => {
+        const h = host(`.region == "SA" and (.customer == "Acme" or .revenue >= 40)`);
+        h.remove(h.at(1));
+        expect(h.commits()).toBe(`set .region == "SA"`);
         h.remove(h.at(0));
-        expect(h.told).toEqual(["removed"]);
-        const two = host(`.region == "SA" and .revenue >= 40`, false);
-        two.addCondition();
-        two.remove(two.at(0));
-        expect([two.rows(), two.told]).toEqual([["revenue", "·"], [`.revenue >= 40`]]);
+        expect([h.rows(), h.draft(), h.commits()]).toEqual([[], "none", "remove"]);
+    });
+
+    test("its last finished row removed beside a row still empty: unfinished — nothing is removed by rows still being written", () => {
+        const h = host(`.region == "SA"`);
+        h.addCondition();
+        h.remove(h.at(0));
+        expect([h.rows(), h.draft(), h.commits()]).toEqual([["·"], "unfinished", "nothing"]);
+        // The empty row removed too, every condition is: Apply removes the filter.
+        h.remove(h.at(0));
+        expect([h.draft(), h.commits()]).toEqual(["none", "remove"]);
+    });
+
+    test("a draft's edits tell a host that commits by its button nothing of their own: the filter it opened on is what its button is weighed against", () => {
+        const h = host(`.region == "SA"`);
+        h.text(h.at(0), "NSW");
+        h.text(h.at(0), "VIC");
+        expect(h.commits()).toBe(`set .region == "VIC"`);
     });
 });

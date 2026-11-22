@@ -19,8 +19,9 @@
  * visual's source, each of which a row must pass; a filter in words, as its
  * chip says it ({@link filterWords}); a filter as the query its condition
  * rows edit, and read back from it ({@link filterQuery}, {@link whereOf});
- * what an edit of those rows tells their host — the condition its finished
- * rows hold, that its last one was removed, or nothing ({@link conditionTold});
+ * what an edit of those rows tells a host that applies it at once
+ * ({@link conditionTold}), what they say as a draft, and what committing one
+ * does ({@link conditionDraft}, {@link draftEdit});
  * and the page's state as a visual's
  * printer reads it ({@link printStateOf}) — the filters, and the window they
  * hold the source's date to ({@link pageRange}), which a value over another
@@ -307,8 +308,8 @@ export function whereOf(query: StepQuery, root: EastType): JqNode | undefined {
 const sameCondition = equalFor(JqType);
 
 /**
- * What an edit of a condition's rows tells their host: a page filter's, a
- * visual's own filter's, an alert's.
+ * What an edit of a condition's rows tells a host that applies each edit as
+ * it is made — a visual's own filter, in the inspector.
  *
  * - `condition`: the condition the finished rows now hold.
  * - `removed`: the host holds no condition any more.
@@ -330,14 +331,13 @@ function conditionRows(query: StepQuery): number {
 }
 
 /**
- * What an edit of a condition's rows tells their host.
+ * What an edit of a condition's rows tells a host that applies each edit as
+ * it is made.
  *
  * @param before - The query the rows edited, as it stood before the edit
  * @param after - The query as the edit left it
  * @param held - The condition the host holds; `undefined` when it holds none
  * @param conditionOf - The condition a query's finished rows hold; `undefined` while none is finished ({@link whereOf})
- * @param live - Whether the host applies each edit as it is made — a page's filter, a visual's own — or holds a draft its
- *   own Save writes — an alert
  * @returns What the host is told
  *
  * @remarks
@@ -348,18 +348,68 @@ function conditionRows(query: StepQuery): number {
  *   condition with it, and the host's is removed: its last condition, or its
  *   last finished one beside rows still empty.
  * - With no finished row left by an edit that took none away — its only
- *   row's field changed, its value still to be chosen — a live host keeps
- *   what it holds until the row is finished: a condition half rewritten is
- *   never a filter taken off the page. A draft holds what its rows say, so
- *   its condition is removed until one is finished, and its Save waits.
+ *   row's field changed, its value still to be chosen — the host keeps what
+ *   it holds until the row is finished: a condition half rewritten is never a
+ *   filter taken off.
  */
-export function conditionTold(
-    before: StepQuery, after: StepQuery, held: JqNode | undefined, conditionOf: (query: StepQuery) => JqNode | undefined, live: boolean,
-): ConditionTold {
+export function conditionTold(before: StepQuery, after: StepQuery, held: JqNode | undefined, conditionOf: (query: StepQuery) => JqNode | undefined): ConditionTold {
     const where = conditionOf(after);
     if (where !== undefined) return held !== undefined && sameCondition(where, held) ? NOTHING : { kind: "condition", where };
-    if (held === undefined) return NOTHING;
-    return !live || conditionRows(after) < conditionRows(before) ? REMOVED : NOTHING;
+    return held !== undefined && conditionRows(after) < conditionRows(before) ? REMOVED : NOTHING;
+}
+
+/**
+ * A condition's rows as a draft: what they say as they stand, for a host that
+ * commits them by a button of its own — a page filter's popover (Add filter,
+ * Apply), an alert's (Save).
+ *
+ * - `condition`: the condition the finished rows hold — a row still to be
+ *   finished is no part of it.
+ * - `none`: no row at all — every condition was removed.
+ * - `unfinished`: rows stand, and none is finished.
+ */
+export type ConditionDraft =
+    | { readonly kind: "condition"; readonly where: JqNode }
+    | { readonly kind: "none" }
+    | { readonly kind: "unfinished" };
+
+/**
+ * A condition's rows as a draft ({@link ConditionDraft}).
+ *
+ * @param query - The query the rows edit, as it stands: its last step the condition's Keep rows where step
+ * @param conditionOf - The condition a query's finished rows hold; `undefined` while none is finished ({@link whereOf})
+ * @returns What the rows say
+ */
+export function conditionDraft(query: StepQuery, conditionOf: (query: StepQuery) => JqNode | undefined): ConditionDraft {
+    const where = conditionOf(query);
+    if (where !== undefined) return { kind: "condition", where };
+    return conditionRows(query) === 0 ? { kind: "none" } : { kind: "unfinished" };
+}
+
+/**
+ * What committing a draft does to the filter its rows edit.
+ *
+ * - `set`: the filter is this condition — a new filter added, or one changed.
+ * - `remove`: the filter is removed: every condition of it was.
+ */
+export type DraftEdit =
+    | { readonly kind: "set"; readonly where: JqNode }
+    | { readonly kind: "remove" };
+
+/**
+ * What committing a draft does to the filter its rows edit: what its button —
+ * Add filter, Apply — does, and whether it has anything to do.
+ *
+ * @param draft - The rows' draft; `undefined` before any edit of them
+ * @param held - The condition the filter holds; `undefined` for a filter still to be added
+ * @returns The edit; `undefined` where there is none to commit — nothing
+ *   edited yet, the rows saying what the filter holds, rows still unfinished
+ *   with none finished beside them, or a new filter with no condition
+ */
+export function draftEdit(draft: ConditionDraft | undefined, held: JqNode | undefined): DraftEdit | undefined {
+    if (draft === undefined || draft.kind === "unfinished") return undefined;
+    if (draft.kind === "none") return held === undefined ? undefined : { kind: "remove" };
+    return held !== undefined && sameCondition(draft.where, held) ? undefined : { kind: "set", where: draft.where };
 }
 
 // ─── The window a page's filters hold a source's date to ─────────────────────

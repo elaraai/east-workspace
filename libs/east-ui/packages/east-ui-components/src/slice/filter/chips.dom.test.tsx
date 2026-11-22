@@ -4,10 +4,13 @@
  *
  * @vitest-environment jsdom
  *
- * A row of filter chips (`chips.tsx`, #1673). One whose editors apply each
- * edit as it is made (`live`): a filter's popover keeps Remove filter and
- * holds no Cancel, and the new filter's holds no Done — neither says an edit
- * waits for them; a row whose editors wait keeps both. While an editor is
+ * A row of filter chips (`chips.tsx`, #1673). An editor's actions stand in
+ * its popover's foot: for one that submits by itself, Remove filter and
+ * Cancel, and a new filter's Done; for one whose edits wait for its button,
+ * Cancel and Apply — or Add filter — the button off until the editor tells
+ * the row a draft it has something to do with, and nothing done until it is
+ * pressed. A filter `+N more` holds is edited there, in the same popover, its
+ * actions giving the list back. While an editor is
  * open the row stands as it stood as the editor opened — its chips' words and
  * how many there are — and holds the rail it is drawn in, letting both go once
  * no editor is open and the press that shut the last has clicked; a filter
@@ -39,16 +42,70 @@ class ResizeObserverStub {
 beforeEach(() => { vi.stubGlobal("ResizeObserver", ResizeObserverStub); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-/** One filter's row, its editors applying each edit as it is made or not. */
-function Row({ live }: { live: boolean }) {
+/** One filter's row, whose editors submit by themselves. */
+function Row() {
     return (
         <ChakraProvider value={system}>
-            <SliceFilterChips density="focused" live={live} onRemove={() => undefined} onClear={() => undefined}
+            <SliceFilterChips density="focused" onRemove={() => undefined} onClear={() => undefined}
                 chips={[{ label: "region is SA", editLabel: "Filter on Orders", large: true, editor: () => <div>its rows</div> }]}
                 add={() => <div>a new filter's rows</div>} />
         </ChakraProvider>
     );
 }
+
+/**
+ * A row whose editors' edits wait for their button: an editor tells the row a region as its draft; Apply makes it the
+ * filter's — or, told the empty word, takes the filter out — and Add filter adds one of it. What was done is noted.
+ */
+function DraftRow({ foldChips, done }: { foldChips?: number; done: string[] }) {
+    const [regions, setRegions] = useState(["SA", "VIC", "QLD"]);
+    const chips = regions.map((region, i): SliceFilterChip<string> => ({
+        label: `Region: ${region}`,
+        editLabel: `Filter ${region}`,
+        large: true,
+        editor: (_close, tell) => (
+            <div>
+                <button type="button" onClick={() => tell("NSW")}>Pick NSW</button>
+                <button type="button" onClick={() => tell("")}>Remove every condition</button>
+                <button type="button" onClick={() => tell(region)}>Pick what it holds</button>
+            </div>
+        ),
+        apply: (draft) => (draft === undefined || draft === region ? undefined : () => {
+            done.push(draft === "" ? `removed ${region}` : `${region} is ${draft}`);
+            setRegions((was) => (draft === "" ? was.filter((_held, j) => j !== i) : was.map((held, j) => (j === i ? draft : held))));
+        }),
+    }));
+    return (
+        <ChakraProvider value={system}>
+            <SliceFilterChips<string> density={foldChips === undefined ? "focused" : "compact"} foldChips={foldChips} chips={chips}
+                onRemove={(i) => { done.push(`removed ${regions[i]}`); setRegions((was) => was.filter((_held, j) => j !== i)); }} onClear={() => setRegions([])}
+                add={(_close, tell) => <button type="button" onClick={() => tell("WA")}>Write WA</button>}
+                addApply={(draft) => (draft === undefined ? undefined : () => { done.push(`added ${draft}`); setRegions((was) => [...was, draft]); })} />
+        </ChakraProvider>
+    );
+}
+
+/** The open popover. */
+const opened = () => document.querySelector<HTMLElement>("[data-scope='popover'][data-part='content'][data-state='open']");
+/**
+ * A button of the open popover, by its words. By its words, not its role: jsdom never ends the animation a popover
+ * leaves by, so one opened a second time is still marked hidden to the accessibility tree a role is found in.
+ */
+const inPopover = (words: string): HTMLElement => {
+    const found = [...(opened()?.querySelectorAll<HTMLElement>("button") ?? [])].find((b) => b.textContent === words);
+    if (found === undefined) throw new Error(`the open popover holds no button “${words}”`);
+    return found;
+};
+/** The open popover's head's words, and its foot's buttons — each off one marked. */
+const popoverNow = () => {
+    const content = opened();
+    if (content === null) return null;
+    const foot = [...content.querySelectorAll<HTMLButtonElement>("button")].filter((b) => /^(Remove filter|Cancel|Apply|Add filter|Done|Clear all)$/.test(b.textContent ?? ""));
+    return {
+        head: content.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
+        foot: foot.map((b) => `${b.textContent}${b.disabled ? " (off)" : ""}`),
+    };
+};
 
 /** Opens a popover by its trigger, and names the buttons in its foot. */
 async function footOf(trigger: HTMLElement): Promise<string[]> {
@@ -60,23 +117,112 @@ async function footOf(trigger: HTMLElement): Promise<string[]> {
     return words;
 }
 
-describe("a row of filter chips whose editors apply each edit as it is made", () => {
-    test("live: a filter's popover keeps Remove filter and holds no Cancel; the new filter's holds no Done", async () => {
-        render(<Row live />);
-        expect(await footOf(document.querySelector<HTMLElement>("[data-slice-clause]")!)).toEqual(["Remove filter"]);
-        expect(await footOf(screen.getByRole("button", { name: "Add filter" }))).toEqual([]);
-    });
-
-    test("waiting: a filter's popover has Remove filter and Cancel, and the new filter's Done", async () => {
-        render(<Row live={false} />);
+describe("an editor's actions, in its popover's foot", () => {
+    test("an editor that submits by itself: a filter's foot holds Remove filter and Cancel, and the new filter's Done", async () => {
+        render(<Row />);
         expect(await footOf(document.querySelector<HTMLElement>("[data-slice-clause]")!)).toEqual(["Remove filter", "Cancel"]);
         expect(await footOf(screen.getByRole("button", { name: "Add filter" }))).toEqual(["Done"]);
+    });
+
+    test("a filter whose edits wait: Remove filter, Cancel and Apply — Apply off until its editor tells a draft with something to do, then doing it once and shutting", async () => {
+        const done: string[] = [];
+        render(<DraftRow done={done} />);
+        await press(chipAt(0));
+        expect(popoverNow()).toEqual({ head: "Filter SA", foot: ["Remove filter", "Cancel", "Apply (off)"] });
+        await press(inPopover("Pick NSW"));
+        // Nothing is done by the edit: the row says what it said, and Apply stands on.
+        expect([popoverNow()!.foot, done, words()]).toEqual([["Remove filter", "Cancel", "Apply"], [], ["Region: SA", "Region: VIC", "Region: QLD"]]);
+        // A draft that says what the filter holds leaves Apply nothing to do.
+        await press(inPopover("Pick what it holds"));
+        expect(popoverNow()!.foot).toEqual(["Remove filter", "Cancel", "Apply (off)"]);
+        await press(inPopover("Pick NSW"));
+        await press(inPopover("Apply"));
+        expect([opened(), done, words()]).toEqual([null, ["SA is NSW"], ["Region: NSW", "Region: VIC", "Region: QLD"]]);
+    });
+
+    test("Cancel, and Esc, throw the draft away: nothing is done, and the editor opened again starts with none", async () => {
+        const done: string[] = [];
+        render(<DraftRow done={done} />);
+        await press(chipAt(0));
+        await press(inPopover("Pick NSW"));
+        await press(inPopover("Cancel"));
+        expect([opened(), done, words()]).toEqual([null, [], ["Region: SA", "Region: VIC", "Region: QLD"]]);
+        await press(chipAt(0));
+        expect(popoverNow()!.foot).toEqual(["Remove filter", "Cancel", "Apply (off)"]);
+        await press(inPopover("Pick NSW"));
+        await escape();
+        await press(chipAt(1));
+        // Another filter's editor is given no draft of the first's.
+        expect([popoverNow(), done]).toEqual([{ head: "Filter VIC", foot: ["Remove filter", "Cancel", "Apply (off)"] }, []]);
+    });
+
+    test("every condition removed, Apply takes the filter out; Remove filter does at once", async () => {
+        const done: string[] = [];
+        render(<DraftRow done={done} />);
+        await press(chipAt(0));
+        await press(inPopover("Remove every condition"));
+        expect(done).toEqual([]);
+        await press(inPopover("Apply"));
+        expect([opened(), done, words()]).toEqual([null, ["removed SA"], ["Region: VIC", "Region: QLD"]]);
+        await press(chipAt(0));
+        await press(inPopover("Remove filter"));
+        expect([opened(), done, words()]).toEqual([null, ["removed SA", "removed VIC"], ["Region: QLD"]]);
+    });
+
+    test("a new filter whose editor waits: Cancel and Add filter — off until it has one to add, then adding it once and shutting, its chip the row's", async () => {
+        const done: string[] = [];
+        render(<DraftRow done={done} />);
+        const add = screen.getByRole("button", { name: "Add filter" });
+        await press(add);
+        expect(popoverNow()).toEqual({ head: "Add filter", foot: ["Cancel", "Add filter (off)"] });
+        await press(inPopover("Write WA"));
+        expect([popoverNow()!.foot, done, words()]).toEqual([["Cancel", "Add filter"], [], ["Region: SA", "Region: VIC", "Region: QLD"]]);
+        await press(opened()!.querySelector<HTMLElement>("[data-slice-submit]")!);
+        expect([opened(), done, words()]).toEqual([null, ["added WA"], ["Region: SA", "Region: VIC", "Region: QLD", "Region: WA"]]);
+        // Written, then cancelled: none is added.
+        await press(add);
+        await press(inPopover("Write WA"));
+        await press(inPopover("Cancel"));
+        expect([opened(), done]).toEqual([null, ["added WA"]]);
+    });
+});
+
+describe("a filter +N more holds is edited there", () => {
+    /** The filters the open `+N more` lists, by their words. */
+    const listed = () => [...document.querySelectorAll("[data-slice-more-words]")].map((el) => el.textContent);
+
+    test("a press on its words shows its editor in the same popover — its head and its foot the filter's — and Apply gives the list back, saying what was done", async () => {
+        const done: string[] = [];
+        // The row shows the first filter, and folds two.
+        render(<DraftRow foldChips={2} done={done} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        expect([popoverNow(), listed()]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: QLD"]]);
+        await press(screen.getByRole("button", { name: "Edit filter: Region: QLD" }));
+        expect([popoverNow(), listed()]).toEqual([{ head: "Filter QLD", foot: ["Remove filter", "Cancel", "Apply (off)"] }, []]);
+        await press(inPopover("Pick NSW"));
+        await press(inPopover("Apply"));
+        expect([popoverNow(), listed(), done]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: NSW"], ["QLD is NSW"]]);
+    });
+
+    test("Cancel gives the list back as it was; Remove filter takes the filter out and gives back what is left", async () => {
+        const done: string[] = [];
+        render(<DraftRow foldChips={2} done={done} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        await press(screen.getByRole("button", { name: "Edit filter: Region: VIC" }));
+        await press(inPopover("Pick NSW"));
+        await press(inPopover("Cancel"));
+        expect([popoverNow()!.head, listed(), done]).toEqual(["2 more filters", ["Region: VIC", "Region: QLD"], []]);
+        await press(screen.getByRole("button", { name: "Edit filter: Region: VIC" }));
+        // The draft of the edit cancelled is forgotten.
+        expect(popoverNow()!.foot).toEqual(["Remove filter", "Cancel", "Apply (off)"]);
+        await press(inPopover("Remove filter"));
+        expect([listed(), done, words()]).toEqual([["Region: QLD"], ["removed VIC"], ["Region: SA"]]);
     });
 });
 
 /**
- * A host whose editors apply each edit as it is made: a chip's lengthens its own words, or takes the other filters
- * out; the new filter's adds one. Each chip's whole words are its label's, said in full, unless told.
+ * A host whose editors submit by themselves, each press an edit made at once: a chip's lengthens its own words, or takes
+ * the other filters out; the new filter's adds one. Each chip's whole words are its label's, said in full, unless told.
  */
 function LiveRow({ hold, wholes = true }: { hold?: ((holding: boolean) => void) | undefined; wholes?: boolean }) {
     const [labels, setLabels] = useState(["Region: SA", "Units: more than 1"]);
@@ -93,7 +239,7 @@ function LiveRow({ hold, wholes = true }: { hold?: ((holding: boolean) => void) 
         ),
     }));
     const row = (
-        <SliceFilterChips density="focused" live chips={chips} onRemove={(i) => setLabels((was) => was.filter((_held, j) => j !== i))}
+        <SliceFilterChips density="focused" chips={chips} onRemove={(i) => setLabels((was) => was.filter((_held, j) => j !== i))}
             onClear={() => setLabels([])} add={() => <button type="button" onClick={() => setLabels((was) => [...was, "Revenue: at least 100"])}>Add</button>} />
     );
     return <ChakraProvider value={system}>{hold === undefined ? row : <SliceRailHold.Provider value={hold}>{row}</SliceRailHold.Provider>}</ChakraProvider>;
@@ -235,7 +381,7 @@ function GroupedRow({ density = "focused", foldChips }: { density?: "compact" | 
     }));
     return (
         <ChakraProvider value={system}>
-            <SliceFilterChips density={density} foldChips={foldChips} live chips={chips} groups={Object.keys(DATASETS)}
+            <SliceFilterChips density={density} foldChips={foldChips} chips={chips} groups={Object.keys(DATASETS)}
                 onRemove={(i) => setHeld((was) => was.filter((_filter, j) => j !== i))} onClear={() => setHeld([])} add={() => null} />
         </ChakraProvider>
     );
@@ -279,7 +425,7 @@ describe("a row of chips in groups (#1673)", () => {
             const content = document.querySelector("[data-scope='popover'][data-part='content'][data-state='open']")!;
             return {
                 head: content.querySelector("button[aria-label='Close']")!.parentElement!.querySelector("span")!.textContent,
-                held: [...content.querySelectorAll("[data-slice-more-group], [data-slice-more-row] > span")].map((el) => el.textContent),
+                held: [...content.querySelectorAll("[data-slice-more-group], [data-slice-more-words]")].map((el) => el.textContent),
             };
         };
         // The stock's one filter folded: the row draws the orders' two, the stock unnamed; +1 more holds the stock's alone.
@@ -300,7 +446,7 @@ describe("a row of chips in groups (#1673)", () => {
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
         // +2 more holds the orders' second, then the stock's: its first line's × takes out the orders' second alone.
         await press(document.querySelector<HTMLElement>("[data-slice-more-row] button[aria-label='Remove filter']")!);
-        const held = [...document.querySelectorAll("[data-slice-more-row] > span")].map((el) => el.textContent);
+        const held = [...document.querySelectorAll("[data-slice-more-words]")].map((el) => el.textContent);
         expect([drawnRow(), held]).toEqual([["Orders", "Region: SA"], ["Site: North — said whole"]]);
     });
 
@@ -310,12 +456,12 @@ describe("a row of chips in groups (#1673)", () => {
         cleanup();
         render(
             <ChakraProvider value={system}>
-                <SliceFilterChips density="compact" foldChips={1} live onRemove={() => undefined} onClear={() => undefined} add={() => null}
+                <SliceFilterChips density="compact" foldChips={1} onRemove={() => undefined} onClear={() => undefined} add={() => null}
                     chips={["Region: SA", "Units: more than 1"].map((label): SliceFilterChip => ({ label, editLabel: "Filter", editor: () => null }))} />
             </ChakraProvider>,
         );
         await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
-        const held = [...document.querySelectorAll("[data-slice-more-row] > span")].map((el) => el.textContent);
+        const held = [...document.querySelectorAll("[data-slice-more-words]")].map((el) => el.textContent);
         expect([document.querySelectorAll("[data-slice-chip-group], [data-slice-more-group]").length, held]).toEqual([0, ["Units: more than 1"]]);
     });
 });

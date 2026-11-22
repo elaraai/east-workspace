@@ -17,10 +17,15 @@
  * a focused one with Delete, and on a coarse pointer it is not drawn: the
  * chip is one target, 44px by its halo, as `+N more` and `+ FILTER` are.
  *
- * A host whose editors apply each edit as it is made — a Studio page's
- * filters, whose condition rows apply a condition as it is finished — says so
- * (`live`): their popovers then hold no Done and no Cancel, which would say an
- * edit waits for them, and a filter's keeps Remove filter.
+ * An editor's actions stand in its popover's foot, one row of them (the
+ * design system's Slice edit): a filter's — Remove filter at its start, then
+ * Cancel and Apply; a new filter's — Cancel and Add filter. A host whose
+ * editors' edits wait for that button — a Studio page's filters, whose
+ * condition rows are a draft — says what the button does with the draft its
+ * editor tells the row (`apply`, `addApply`): nothing changes until it is
+ * pressed, and it stands off while there is nothing to commit. An editor that
+ * submits by itself — Slice's predicate builder, its submit in its body —
+ * gives none, and its foot holds Cancel, or Done, alone.
  *
  * While one of the row's editors is open — a filter's, a new filter's,
  * `+N more`'s — the row stands as it stood as the editor opened (#1673): its
@@ -45,6 +50,11 @@
  * row draws them — none it shows — under their groups' names, a group split
  * between the row and `+N more` named in each; its head counts them
  * (`2 more filters`), and its Clear all takes every filter out, the row's too.
+ * A filter it holds is edited there, as one the row shows is from its chip: a
+ * press on its words shows its editor in the same popover — its head, its body
+ * and its foot the filter's — and Cancel, Apply and Remove filter give the
+ * list back, which says what was done. A filter no room is left to show is
+ * never one that cannot be edited.
  *
  * @packageDocumentation
  */
@@ -63,8 +73,12 @@ import type { SliceRailGroup } from "../rail/toolbar.js";
 import { usePressWait } from "../../pointer/press-wait.js";
 import { chipOrder, foldedOrder } from "./groups.js";
 
-/** One filter of the row, as its chip shows it. */
-export interface SliceFilterChip {
+/**
+ * One filter of the row, as its chip shows it.
+ *
+ * @typeParam D - What its editor tells the row of its draft, which its Apply is given; none for an editor that submits by itself
+ */
+export interface SliceFilterChip<D = never> {
     /** Its words. */
     readonly label: string;
     /** Its whole words, where its label says them short: what its hover says, its label cut with an ellipsis where it runs long (#1673). */
@@ -73,8 +87,14 @@ export interface SliceFilterChip {
     readonly group?: SliceRailGroup | undefined;
     /** Its editor's head. */
     readonly editLabel: ReactNode;
-    /** Its editor, drawn while it is open; `close` puts it away. */
-    readonly editor: (close: () => void) => ReactNode;
+    /** Its editor, drawn while it is open; `close` puts it away, and `tell` hands the row its draft, which its Apply is given. */
+    readonly editor: (close: () => void, tell: (draft: D) => void) => ReactNode;
+    /**
+     * What Apply does with its editor's draft — `undefined` before the editor tells one — for an editor whose edits wait
+     * for it: `undefined` while there is nothing to apply, which stands Apply off. Its foot then holds Cancel and Apply.
+     * An editor that submits by itself gives none, and its foot holds Cancel alone.
+     */
+    readonly apply?: ((draft: D | undefined) => (() => void) | undefined) | undefined;
     /** Its editor's popover at its large size; its default unless given. */
     readonly large?: boolean | undefined;
 }
@@ -93,7 +113,7 @@ interface Frozen {
  * @param visible - How many of them show
  * @returns Each chip's words, and how many show
  */
-function rowAsItStands(chips: readonly SliceFilterChip[], visible: number): Frozen {
+function rowAsItStands(chips: readonly Pick<SliceFilterChip, "label" | "whole">[], visible: number): Frozen {
     return { labels: chips.map((held) => held.label), wholes: chips.map((held) => held.whole), visible };
 }
 
@@ -107,10 +127,14 @@ export interface SliceFilterSave {
     readonly onSave: () => void;
 }
 
-/** Props of {@link SliceFilterChips}. */
-export interface SliceFilterChipsProps {
+/**
+ * Props of {@link SliceFilterChips}.
+ *
+ * @typeParam D - What an editor tells the row of its draft
+ */
+export interface SliceFilterChipsProps<D = never> {
     /** The filters, in order. */
-    readonly chips: readonly SliceFilterChip[];
+    readonly chips: readonly SliceFilterChip<D>[];
     /** `compact`: one row that folds; `editor`: every chip, wrapping; `focused`: every chip, wrapping, in a host's own frame. */
     readonly density: "compact" | "focused" | "editor";
     /**
@@ -122,16 +146,20 @@ export interface SliceFilterChipsProps {
     readonly onRemove: (index: number) => void;
     /** Takes every filter out. */
     readonly onClear: () => void;
-    /** A new filter's editor, drawn while it is open; `close` puts it away. */
-    readonly add: (close: () => void) => ReactNode;
+    /** A new filter's editor, drawn while it is open; `close` puts it away, and `tell` hands the row its draft, which its Add filter is given. */
+    readonly add: (close: () => void, tell: (draft: D) => void) => ReactNode;
+    /**
+     * What Add filter does with a new filter's editor's draft, for an editor whose filter waits for it: `undefined` while
+     * there is none to add, which stands Add filter off. Its foot then holds Cancel and Add filter; an editor that adds
+     * by itself gives none, and its foot holds Done.
+     */
+    readonly addApply?: ((draft: D | undefined) => (() => void) | undefined) | undefined;
     /** What a new filter's editor is called — the dataset it filters, say (#1673): `Add filter` when omitted. */
     readonly addLabel?: string | undefined;
     /** Whether it opens with a new filter's editor showing. */
     readonly seedOpen?: boolean | undefined;
     /** Saving the filters as a set, offered inside `+N more` while there are two or more; none unless given. */
     readonly save?: SliceFilterSave | undefined;
-    /** Whether its editors apply each edit as it is made: their popovers then hold no Done and no Cancel. */
-    readonly live?: boolean | undefined;
     /** Its chips' groups' keys in the order it draws the groups; a group not among them comes after, in the order its first chip comes. */
     readonly groups?: readonly string[] | undefined;
 }
@@ -142,7 +170,7 @@ export interface SliceFilterChipsProps {
  * @param props - The filters, the density, how many fold, what removing, clearing and adding do, a new filter's editor's name, and the groups' order
  * @returns The row
  */
-export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear, add, addLabel, seedOpen = false, save, live = false, groups }: SliceFilterChipsProps) {
+export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemove, onClear, add, addApply, addLabel, seedOpen = false, save, groups }: SliceFilterChipsProps<D>) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
@@ -151,9 +179,32 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     const compact = density === "compact";
 
     // null = closed; "add" = a new filter's editor; "more" = overflow list;
-    // "save" = save-as-a-set form; a number = editing the filter at that index.
-    const [open, setOpen] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
+    // "save" = save-as-a-set form; a number = editing the filter at that index — from its chip, or, one the row folds,
+    // in `+N more`.
+    const [open, setOpened] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
+    // The open editor's draft, as it tells it: what its Apply, or Add filter, is given. Another editor starts with none.
+    const [draft, setDraft] = useState<D | undefined>(undefined);
+    const setOpen = (next: "add" | "more" | "save" | number | null) => {
+        setDraft(undefined);
+        setOpened(next);
+    };
     const close = () => setOpen(null);
+    const btnOutline = btn({ variant: "outline", size: "xs" });
+    /** An editor's foot's actions: Cancel, and — for one whose edits wait for it — its submit, off while it has nothing to do. */
+    const actions = (cancel: () => void, submit: { readonly words: string; readonly run: (() => void) | undefined } | undefined, alone: string) => (
+        <>
+            <chakra.button type="button" css={btnOutline} onClick={cancel}>{submit === undefined ? alone : "Cancel"}</chakra.button>
+            {submit !== undefined && (
+                <chakra.button type="button" css={btnOutline} disabled={submit.run === undefined} data-slice-submit=""
+                    onClick={() => { const run = submit.run; cancel(); run?.(); }}>{submit.words}</chakra.button>
+            )}
+        </>
+    );
+    /** A filter's editor's foot: Remove filter, then Cancel and Apply; `done` is where its actions leave it — shut, or back at `+N more`'s list. */
+    const filterFoot = (held: SliceFilterChip<D>, i: number, done: () => void) => ({
+        footLeft: <chakra.button type="button" css={edit.footDanger} onClick={() => { done(); onRemove(i); }}>Remove filter</chakra.button>,
+        footActions: actions(done, held.apply === undefined ? undefined : { words: "Apply", run: held.apply(draft) }, "Cancel"),
+    });
 
     // The row as it stood as an editor opened, while one is open (#1673): its chips' words, and how many show.
     const [frozen, setFrozen] = useState<Frozen | null>(null);
@@ -238,25 +289,24 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
     // A filter's chip: one button opening its editor (Slice.Edit), whose foot
     // removes the filter; its xmark the pointer's (#1231). It is the host's
     // `i`th, drawn `at`th in the row.
-    const clausePill = (held: SliceFilterChip, i: number, at: number) => (
+    const clausePill = (held: SliceFilterChip<D>, i: number, at: number) => (
         <SliceEditPopover
             key={i}
             open={open === i}
             onOpenChange={o => setOpen(o ? i : null)}
             label={held.editLabel}
             {...(held.large === true ? { size: "lg" as const } : {})}
-            footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setOpen(null); onRemove(i); }}>Remove filter</chakra.button>}
-            footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Cancel</chakra.button>}
+            {...filterFoot(held, i, close)}
             trigger={
                 <SliceFieldChip label={held.label} title={held.whole} active data-slice-clause={i} data-chip-cut={held.whole === undefined ? undefined : ""}
                     onKeyDown={onClauseKey(i, at)} onRemove={() => onRemove(i)} />
             }
         >
-            {open === i ? held.editor(close) : null}
+            {open === i ? held.editor(close, setDraft) : null}
         </SliceEditPopover>
     );
     // A chip's group's name, before the chip drawn `at`th where it is the first of its group the row draws.
-    const groupName = (held: SliceFilterChip, at: number) => (drawn.starts[at] === true && held.group !== undefined
+    const groupName = (held: SliceFilterChip<D>, at: number) => (drawn.starts[at] === true && held.group !== undefined
         ? <Box as="span" css={frame.railGroupLabel} data-slice-chip-group={held.group.key}>{held.group.label}</Box>
         : null);
     // A chip drawn in a row that wraps: after its group's name where it starts its group, the two kept on one line.
@@ -272,7 +322,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
             onOpenChange={o => setOpen(o ? "add" : null)}
             label={addLabel ?? "Add filter"}
             size="lg"
-            footActions={live ? undefined : <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Done</chakra.button>}
+            footActions={actions(close, addApply === undefined ? undefined : { words: "Add filter", run: addApply(draft) }, "Done")}
             trigger={
                 // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
                 <chakra.button type="button" css={[chip({ tone: "dashed", caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
@@ -286,7 +336,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                 the edit path — so the new chip appearing in the rail is the
                 visible confirmation; the lazy-mounted editor unmounts and the
                 next open starts fresh (#164). */}
-            {open === "add" ? add(close) : null}
+            {open === "add" ? add(close, setDraft) : null}
         </SliceEditPopover>
     );
 
@@ -317,6 +367,10 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
         // so it never collapses one chip too many once it appears.
         const showMore = measuring ? rowChips.length > 0 : overflow > 0;
         const saving = save !== undefined && open === "save";
+        // A folded filter being edited in `+N more`: the popover is that filter's editor, and its actions give the list back.
+        const editedAt = typeof open === "number" && !shown.includes(open) ? open : undefined;
+        const edited = editedAt === undefined ? undefined : chips[editedAt];
+        const toList = () => setOpen("more");
         // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
         return (
             <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflowX="clip" minWidth="0" data-slice-filter="">
@@ -329,24 +383,26 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                 <Box data-overflow-rest display="inline-flex" alignItems="center" gap="{spacing.2}" flexShrink="0">
                     {showMore && (
                         <SliceEditPopover
-                            open={open === "more" || open === "save"}
+                            open={open === "more" || open === "save" || edited !== undefined}
                             onOpenChange={o => setOpen(o ? "more" : null)}
-                            label={saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
+                            label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size="lg"
-                            footLeft={save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined}
-                            footActions={saving
-                                ? (
-                                    <>
-                                        <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen("more")}>Cancel</chakra.button>
-                                        <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} disabled={save.name.trim() === ""} onClick={() => { save.onSave(); setOpen(null); }}>Save</chakra.button>
-                                    </>
-                                )
-                                : (
-                                    <>
-                                        <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => { onClear(); setOpen(null); }}>Clear all</chakra.button>
-                                        <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={close}>Done</chakra.button>
-                                    </>
-                                )}
+                            {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
+                                footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,
+                                footActions: saving
+                                    ? (
+                                        <>
+                                            <chakra.button type="button" css={btnOutline} onClick={() => setOpen("more")}>Cancel</chakra.button>
+                                            <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} disabled={save.name.trim() === ""} onClick={() => { save.onSave(); setOpen(null); }}>Save</chakra.button>
+                                        </>
+                                    )
+                                    : (
+                                        <>
+                                            <chakra.button type="button" css={btnOutline} onClick={() => { onClear(); setOpen(null); }}>Clear all</chakra.button>
+                                            <chakra.button type="button" css={btnOutline} onClick={close}>Done</chakra.button>
+                                        </>
+                                    ),
+                            })}
                             trigger={
                                 // A 44px touch target on a coarse pointer, by its halo (#1231).
                                 <chakra.button type="button" css={[chip({ tone: "more" }), coarseHitArea({ position: true })]} cursor="pointer"
@@ -356,6 +412,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                                 </chakra.button>
                             }
                         >
+                            {edited !== undefined && edited.editor(toList, setDraft)}
                             {saving && (
                                 <Box display="flex" flexDirection="column" gap="{spacing.1}">
                                     <chakra.input css={inp({ size: "sm" })} value={save.name} onChange={e => save.onName(e.target.value)} placeholder="Cohort name" aria-label="Cohort name" required aria-required="true" aria-invalid={save.name.trim() === ""} autoFocus />
@@ -364,6 +421,7 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                             )}
                             {(open === "more" || open === "save") && folded.order.map((i, at) => {
                                 const held = chips[i]!;
+                                const words = held.whole ?? held.label;
                                 return (
                                     <Fragment key={i}>
                                         {/* Each group's filters under its name, in the caption a group's fields are headed by. */}
@@ -373,7 +431,13 @@ export function SliceFilterChips({ chips, density, foldChips, onRemove, onClear,
                                             </Box>
                                         )}
                                         <Box css={edit.moreRow} data-slice-more-row={i}>
-                                            <Box as="span">{held.whole ?? held.label}</Box>
+                                            {/* Its words and its Edit are one button: pressed, the popover is the filter's editor. */}
+                                            {open === "more" ? (
+                                                <chakra.button type="button" css={edit.moreRowOpen} aria-label={`Edit filter: ${words}`} data-slice-more-edit="" onClick={() => setOpen(i)}>
+                                                    <Box as="span" data-slice-more-words="">{words}</Box>
+                                                    <Box as="span" css={edit.moreRowEdit}>Edit</Box>
+                                                </chakra.button>
+                                            ) : <Box as="span" data-slice-more-words="">{words}</Box>}
                                             {open === "more" && (
                                                 <chakra.button type="button" css={edit.moreRowRemove} onClick={() => onRemove(i)} aria-label="Remove filter">
                                                     <FontAwesomeIcon icon={faXmark} />

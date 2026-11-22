@@ -14,15 +14,22 @@
  *
  * {@link ConditionEditor} is the query builder's own editor (`useQueryEditor`)
  * over a query whose last step is one Keep rows where step, its drafts held
- * here, not in an editing session. What each edit tells is the filters' rule
- * (`conditionTold`): the condition its finished rows hold, at once — a row
- * still to be finished is no part of it; and no condition, once its last
- * finished row is removed. While its only row is rewritten, a host that
- * applies each edit as it is made (`live`) keeps what it holds, and one that
- * holds a draft holds none until the row is finished. A page filter's query
- * is its source's rows and the step ({@link FilterConditions}), live; an
- * alert's, its visual's rows and the step (`alert-popover.tsx`), a draft its
- * Save writes.
+ * here, not in an editing session. Its host is one of two kinds, and what
+ * each edit tells it is the filters' rule for that kind
+ * (`query/visual/filters.ts`):
+ *
+ * - One that applies each edit as it is made — a visual's own filter, in the
+ *   inspector, a gesture of the canvas — hears the condition its finished
+ *   rows hold, at once, and that it holds none once its last finished row is
+ *   removed (`onChange`, `conditionTold`).
+ * - One that commits by a button of its own — a page filter's popover (Add
+ *   filter, Apply), an alert's (Save) — hears the rows as a draft after every
+ *   edit: their condition, that none is left, or that none is finished
+ *   (`onDraft`, `conditionDraft`).
+ *
+ * A page filter's query is its source's rows and the step
+ * ({@link FilterConditions}); an alert's, its visual's rows and the step
+ * (`alert-popover.tsx`).
  *
  * @packageDocumentation
  */
@@ -40,7 +47,7 @@ import { QUERY_HEADER_ID, entriesQuery, queryEntries, type QueryEntry, type Quer
 import type { StepQuery } from "../query/steps/values.js";
 import type { QueryView } from "../query/toolbar.js";
 import { useQueryEditor } from "../query/use-query-editor.js";
-import { conditionTold, filterQuery, whereOf } from "../query/visual/filters.js";
+import { conditionDraft, conditionTold, filterQuery, whereOf, type ConditionDraft } from "../query/visual/filters.js";
 import type { PrintSource } from "../query/visual/print.js";
 import { useQueryWords } from "../query/words.js";
 
@@ -55,8 +62,27 @@ function headerOf(source: string): QueryHeader {
     return { id: QUERY_HEADER_ID, name: "", description: none, source, jq: none };
 }
 
-/** Props of {@link ConditionEditor}. */
-export interface ConditionEditorProps extends Pick<ConditionRowsProps, "autoOpen"> {
+/**
+ * Where a condition's edits go: to a host that applies each as it is made
+ * (`onChange`), or to one that commits them by a button of its own (`onDraft`).
+ */
+export type ConditionHost =
+    | {
+        /** Told the condition its finished rows hold, each time an edit changes it; `undefined` once its last finished row is removed. */
+        readonly onChange: (where: JqNode | undefined) => void;
+        readonly onDraft?: undefined;
+    }
+    | {
+        readonly onChange?: undefined;
+        /** Told what the rows say after every edit: their condition, that none is left, or that none is finished. */
+        readonly onDraft: (draft: ConditionDraft) => void;
+    };
+
+/** Props of {@link ConditionEditor}: its query, and its host. */
+export type ConditionEditorProps = ConditionEditorBase & ConditionHost;
+
+/** What a {@link ConditionEditor} edits. */
+interface ConditionEditorBase extends Pick<ConditionRowsProps, "autoOpen"> {
     /** What the condition is among its host's: another opened starts its rows afresh. */
     readonly id: string;
     /** The query its rows edit, as it stands when they open: its last step the condition's Keep rows where step. */
@@ -67,23 +93,15 @@ export interface ConditionEditorProps extends Pick<ConditionRowsProps, "autoOpen
     readonly conditionOf: (query: StepQuery) => JqNode | undefined;
     /** The root its query reads. */
     readonly root: QueryRoot;
-    /**
-     * Whether its host applies each edit as it is made — a page's filter, a visual's own — and so keeps the condition it
-     * holds while its only row is rewritten; a host that holds a draft its own Save writes — an alert — holds none until
-     * the row is finished.
-     */
-    readonly live: boolean;
-    /** Told the condition its finished rows hold, each time an edit changes it; `undefined` once it holds none. */
-    readonly onChange: (where: JqNode | undefined) => void;
 }
 
 /**
  * A condition's rows — see the module docs.
  *
- * @param props - The query its rows edit, the condition it held, how the condition is read, the root, whether its edits apply as they are made, and where an edit goes
+ * @param props - The query its rows edit, the condition it held, how the condition is read, the root, and where an edit goes
  * @returns The rows of its last step, and the open slot's picker
  */
-export function ConditionEditor({ id, query, held: was, conditionOf, root, live, onChange, autoOpen = false }: ConditionEditorProps) {
+export function ConditionEditor({ id, query, held: was, conditionOf, root, onChange, onDraft, autoOpen = false }: ConditionEditorProps) {
     const words = useQueryWords();
     const ps = usePartStyles(words);
     const styles = useSlotStyles("studioFilters");
@@ -99,15 +117,20 @@ export function ConditionEditor({ id, query, held: was, conditionOf, root, live,
     // The condition it holds: what it was opened with, then each one told.
     const held = useRef(was);
     const gesture = useCallback((next: readonly QueryEntry[]) => {
-        const told = conditionTold(entriesQuery(latest.current).query, entriesQuery(next).query, held.current, conditionOf, live);
+        const [before, after] = [entriesQuery(latest.current).query, entriesQuery(next).query];
         latest.current = next;
-        setDrafts((before) => ({ entries: next, version: before.version + 1 }));
+        setDrafts((was) => ({ entries: next, version: was.version + 1 }));
+        if (onDraft !== undefined) {
+            onDraft(conditionDraft(after, conditionOf));
+            return true;
+        }
+        const told = conditionTold(before, after, held.current, conditionOf);
         if (told.kind !== "nothing") {
             held.current = told.kind === "condition" ? told.where : undefined;
             onChange(held.current);
         }
         return true;
-    }, [conditionOf, live, onChange]);
+    }, [conditionOf, onChange, onDraft]);
     const [bounds, setBounds] = useState<HTMLDivElement | null>(null);
     const boundsOf = useCallback(() => bounds, [bounds]);
     const editor = useQueryEditor({
@@ -122,8 +145,11 @@ export function ConditionEditor({ id, query, held: was, conditionOf, root, live,
     );
 }
 
-/** Props of {@link FilterConditions}. */
-export interface FilterConditionsProps extends Pick<ConditionRowsProps, "autoOpen"> {
+/** Props of {@link FilterConditions}: the filter, and its host. */
+export type FilterConditionsProps = FilterConditionsBase & ConditionHost;
+
+/** The filter a {@link FilterConditions} edits. */
+interface FilterConditionsBase extends Pick<ConditionRowsProps, "autoOpen"> {
     /** What the filter is among the page's: another opened starts its rows afresh. */
     readonly id: string;
     /** The filter's condition over one row; `undefined` for one still to be written. */
@@ -132,20 +158,18 @@ export interface FilterConditionsProps extends Pick<ConditionRowsProps, "autoOpe
     readonly read: PrintSource;
     /** The root the page's programs read. */
     readonly root: QueryRoot;
-    /** Told the condition its finished rows hold, each time an edit changes it; `undefined` once its last finished row is removed. */
-    readonly onChange: (where: JqNode | undefined) => void;
 }
 
 /**
- * A page filter's condition rows (#1673): {@link ConditionEditor} over a query
- * of its source's rows and one Keep rows where step (`filterQuery`), whose
- * condition is the step's (`whereOf`), each edit applied as it is made.
+ * A filter's condition rows over a source (#1673): {@link ConditionEditor}
+ * over a query of the source's rows and one Keep rows where step
+ * (`filterQuery`), whose condition is the step's (`whereOf`).
  *
  * @param props - The filter's condition, its source, the page's root, and where an edit goes
  * @returns The rows, and the open slot's picker
  */
-export function FilterConditions({ id, where, read, root, onChange, autoOpen = false }: FilterConditionsProps) {
+export function FilterConditions({ id, where, read, root, autoOpen = false, ...host }: FilterConditionsProps) {
     const query = useCallback(() => filterQuery(where, read, root.type), [where, read, root]);
     const conditionOf = useCallback((edited: StepQuery) => whereOf(edited, root.type), [root]);
-    return <ConditionEditor id={id} query={query} held={where} conditionOf={conditionOf} root={root} live onChange={onChange} autoOpen={autoOpen} />;
+    return <ConditionEditor id={id} query={query} held={where} conditionOf={conditionOf} root={root} autoOpen={autoOpen} {...host} />;
 }
