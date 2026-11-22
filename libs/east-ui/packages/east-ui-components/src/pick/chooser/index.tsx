@@ -31,7 +31,10 @@
  * - Current wears a check, an option refused a × and its reason in the warning
  *   text; a disabled one (taken elsewhere) is only muted. An option's label is
  *   data in the mono face — an ID, a number — or words in the body face
- *   (`words`), and it may lead with its icon.
+ *   (`words`), and it may lead with its icon. Its label and its line are one
+ *   line each, ended in an ellipsis where its host is too narrow for them —
+ *   an inspector's pane — and each says its whole on hover; its range is
+ *   never cut.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  *
@@ -230,8 +233,8 @@ export const Chooser = memo(function Chooser({
                                     </Box>
                                     {o.icon !== undefined && <Box as="span" css={styles.icon} aria-hidden="true" data-option-icon=""><FontAwesomeIcon icon={o.icon} /></Box>}
                                     <Box as="span" css={styles.text}>
-                                        <Box as="span" css={styles.label} data-option-label="" data-words={o.words === true ? "" : undefined}>{o.label}</Box>
-                                        {o.line !== undefined && <Box as="span" css={styles.line} data-option-line="">{o.line}</Box>}
+                                        <Box as="span" css={styles.label} data-option-label="" data-words={o.words === true ? "" : undefined} title={o.label}>{o.label}</Box>
+                                        {o.line !== undefined && <Box as="span" css={styles.line} data-option-line="" title={o.line}>{o.line}</Box>}
                                     </Box>
                                     <Box as="span" css={styles.range} data-option-range="">{o.range}</Box>
                                 </chakra.button>

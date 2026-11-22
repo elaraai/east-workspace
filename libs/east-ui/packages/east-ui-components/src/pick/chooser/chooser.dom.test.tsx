@@ -12,7 +12,8 @@
  * highlight held by key across the lists it gives, its label, an option's icon
  * and words, Tab, ⌘ Enter left to its host, and its bare form — and its search
  * holding the focus by the end of the commit that draws it, so a key pressed as
- * its host draws it afresh is never lost.
+ * its host draws it afresh is never lost. An option's label and line, each one
+ * line that a narrow host cuts, say their whole on hover.
  */
 
 import { useLayoutEffect, useState } from "react";
@@ -64,6 +65,15 @@ describe("the Chooser", () => {
         expect(refused.textContent).toContain("busy until Fri 14");
         expect(screen.getAllByRole("option", { name: /K-10|K-60/ }).map((o) => o.textContent?.slice(0, 5))).toEqual(["K-108", "K-103", "K-601"]);
         expect(document.querySelector("[data-chooser]")!.textContent).toContain("move · Enter chooses · Esc closes");
+    });
+
+    test("an option's label and its line each say their whole on hover, as a narrow host — an inspector's pane — ends either in an ellipsis; its name is its words still", () => {
+        mount(RESOURCE_CELL);
+        const option = screen.getByRole("option", { name: /K-103/ });
+        expect(option.querySelector("[data-option-label]")!.getAttribute("title")).toBe("K-103");
+        expect(option.querySelector("[data-option-line]")!.getAttribute("title")).toBe("0 d spare to Tue 18 · leaves 32 m³ · takes 16–32");
+        // The range is never cut, and says nothing twice.
+        expect(option.querySelector("[data-option-range]")!.hasAttribute("title")).toBe(false);
     });
 
     test("A48 — ↑↓ move through the options a choice can take, cycling and skipping what doesn't fit; Enter chooses the highlighted one", () => {
