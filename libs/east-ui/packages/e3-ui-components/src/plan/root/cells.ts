@@ -30,7 +30,10 @@
  * never the overscan, the span standing while it shows only rows not read, or
  * only rows that stand for no resource ({@link shownCellSpan}). A row names its
  * resource by the last step of the path it is read by (`readPathOf`), and a
- * group's own row, whose path is none, names none (#1711).
+ * group's own row, whose path is none, names none (#1711). A resource beneath
+ * a group names the rows it stands under too, by the steps of its path before
+ * its own (#1710): a kind whose source lists a series index in time order led
+ * by its rows' group is read through it, a block of rows under its own group.
  *
  * A kind read a window at a time — through its source's interval index, or a
  * day index, one event by its key — gives the reader the stored rows its
@@ -146,7 +149,8 @@ export interface PlanCellsArgs {
  * The resources some rows' events are read by (#1541): each landing row's — a resources series' or a kinds case's — by
  * its series' key and the last step of its path, in the order the rows draw them; and, of a row beneath a resource
  * that a kind's `child` lands on, the resource it stands beneath (`readResourceOf`). A resource's own row and the
- * rows beneath it name it once — and the rows beneath it alone do, where the page draws no row of its own.
+ * rows beneath it name it once — and the rows beneath it alone do, where the page draws no row of its own. A resource
+ * beneath other rows — a group's — names them too (#1710): the steps of its path before its own, outermost first.
  *
  * @param blocks - The rows
  * @param landings - The series the event kinds land on
@@ -157,13 +161,15 @@ export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: readon
     for (const block of blocks) {
         for (const row of block.rows) {
             if (row.id.type !== "entry") continue;
-            const series = row.id.value.series;
+            const { series, path } = row.id.value;
             const landing = landings.find((l) => stringEqual(l.key, series));
-            const read = landing === undefined ? undefined : readResourceOf(landing, row.id.value.path);
+            const read = landing === undefined ? undefined : readResourceOf(landing, path);
             if (read === undefined) continue;
             const last = out[out.length - 1];
             if (last !== undefined && stringEqual(last.slot, read.slot) && stringEqual(last.key, read.key)) continue;
-            out.push(read);
+            // The rows it stands under: its path's steps before its own key, which a row a step beneath it follows.
+            const under = path.slice(0, path.length - (landing!.under.type === "some" ? 2 : 1));
+            out.push(under.length === 0 ? read : { ...read, under });
         }
     }
     return out;

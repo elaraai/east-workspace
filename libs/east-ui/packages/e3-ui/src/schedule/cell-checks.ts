@@ -22,7 +22,7 @@ import {
     ArrayType, BooleanType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
-import { RecordSliceConfigType, RecordSliceTileType } from "@elaraai/east-ui/internal";
+import { RecordSliceConfigType, RecordSliceOrderType, RecordSliceTileType } from "@elaraai/east-ui/internal";
 import type { ScheduleEventKind } from "./events.js";
 import type { ScheduleResourceKind } from "./resources.js";
 
@@ -62,8 +62,11 @@ export function scheduleResourcePaging(resources: Resources): SchedulePaging {
     };
 }
 
-/** A series or a summary index's place among a source's: which it is, the fields it files by, and its tile. */
-const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType });
+/**
+ * A series or a summary index's place among a source's: which it is, the fields it files by, its tile, and the order it
+ * files in — a series index in time order is another index than one in key order over the same fields (#1710).
+ */
+const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType, order: RecordSliceOrderType });
 
 /**
  * The series index and the summary index a kind placed on a paged resource
@@ -138,7 +141,7 @@ export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Eve
  * builder reads only then — and refused in words naming the change to make:
  * one filed by another field than the kind's resource, or over other times
  * than its events'; a series index for a kind not placed on a paged resource
- * kind alone; two series, or two summaries, by one tile over the same fields;
+ * kind alone; two series in one order, or two summaries, by one tile over the same fields;
  * a series index with no summary beside it, whose shading draws past the cap;
  * and, for a kind placed on a paged resource kind, a source listing no series
  * index — a paged kind's events are read a cell at a time — each naming the
@@ -205,7 +208,7 @@ export function checkedScheduleTilings(
                             $3.assign(summaries, summaries.add(1n));
                         }
                         // One of each by a tile over the same fields.
-                        const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile }, TilingKeyType);
+                        const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile, order: tiling.order }, TilingKeyType);
                         const at = $3.let(East.print(place));
                         $3.if(seen.has(at), ($4) => {
                             const tile = $4.let(tiling.tile.match({

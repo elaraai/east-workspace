@@ -17,6 +17,10 @@
  * - a series' and an area's searches hold more than a window, which a page's
  *   reader tests as it draws: what they hold that the window does is exactly
  *   what the body's `events` and `within` give;
+ * - a series index in time order's searches, a range a tile from a first key
+ *   through a last (`inTimeCellQueries`, #1710), hold of every key what the
+ *   body's `events` gives, and of a run of keys exactly what the index in key
+ *   order holds of each of them;
  * - a summary's tiles that overlap the window are the body's `totals`;
  * - a nested series index's runs of a node are read as a series' and a
  *   summary's are, a run a level and a run of tiles (e3-ui-components'
@@ -40,7 +44,8 @@ import e3, { NestedUnderType, builtIndex, indexBuildProgram, summaryMergeProgram
 import { at, seededStream } from "@elaraai/e3-core/test";
 import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
-    RecordSliceIndexType, areaQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun, tileNext,
+    RecordSliceIndexType, areaQueries, inTimeCellQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun,
+    tileNext,
 } from "@elaraai/east-ui/internal";
 
 type Index = ValueTypeOf<typeof RecordSliceIndexType>;
@@ -59,6 +64,8 @@ const jobs = e3.record("jobs", JobsType, {
         in_time_by_state: index.interval({ on: ["state"], from: "start", to: "end" }),
         press_weeks: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
         press_weeks_by_state: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+        weeks: index.series({ key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        weeks_by_state: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         press_months: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
     }),
 });
@@ -303,12 +310,13 @@ function keysOf<T extends KeyedByString>(entries: readonly EntryOf<T>[], once: s
 
 /** A page's index metadata, as `Data.bindPaged` gives a record Slice one. */
 function pageIndex(name: string, def: RecordIndexDef): Index {
-    // What a series and a summary index both file by: a series index says beside it what it carries.
-    const tiling = (t: NonNullable<RecordIndexDef["summary"]>) => ({ key: t.key, from: t.from, to: t.to, tile: variant(t.tile, null) });
+    // What a series and a summary index both file by: a series index says beside it what it carries, and its order.
+    const tiling = (t: NonNullable<RecordIndexDef["summary"]>, order: "key" | "time") =>
+        ({ key: t.key, from: t.from, to: t.to, tile: variant(t.tile, null), order: variant(order, null) });
     return decodeBeast2For(RecordSliceIndexType)(encodeBeast2For(RecordSliceIndexType)({
         name, fields: [...(def.on ?? [])], sets: new Set(), structured: true, interval: none, area: none,
-        series: def.series === undefined ? none : some(tiling(def.series)),
-        summary: def.summary === undefined ? none : some(tiling(def.summary)),
+        series: def.series === undefined ? none : some(tiling(def.series, def.series.order)),
+        summary: def.summary === undefined ? none : some(tiling(def.summary, "key")),
         entries: false,
     }));
 }
@@ -400,6 +408,60 @@ test("a series index: of what the page's run a level holds, the events that over
     through("press_weeks_by_state", jobs.indexes.press_weeks_by_state, heldOf(byState, JOBS), "confirmed",
         East.compile(East.function([byState.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
             byState.read(entries).events({ on: { state: "confirmed" }, key: press, from, to }).collect($)), []));
+});
+
+test("a series index in time order: a range a tile from a first press through a last holds every press's events the body's `events` gives, and of a run of presses what the index in key order holds of each (#1710)", () => {
+    /** The entries of a series index of the jobs: each carries its row. */
+    type JobEvents = DictType<StructType<{ ik: EastType; k: StringType }>, typeof JobRow>;
+    const [first, second, last] = PRESSES.map((press) => printString(press)) as [string, string, string];
+    /** One index in time order through both, beside the index in key order over the same leading fields. */
+    const through = (
+        name: string, def: RecordIndexDef, held: Held<JobEvents>, byKey: { name: string; def: RecordIndexDef; held: Held<JobEvents> }, state: string | undefined,
+        body: (entries: never, from: Date, to: Date) => ReadonlyMap<string, Job>,
+    ): void => {
+        const index = pageIndex(name, def);
+        const keyed = pageIndex(byKey.name, byKey.def);
+        const where: Parameters<typeof inTimeCellQueries>[1] = new Map(state === undefined ? [] : [["state", variant("values", [printString(state)])]]);
+        let more = 0;
+        let ranges = 0;
+        for (const w of WINDOWS) {
+            const runs = levelRuns("week", w.from, w.to);
+            // Every press: a range a tile, from the first press through the last
+            const queries = runs.flatMap((run) => inTimeCellQueries(index, where, run, first, last).queries);
+            ranges += queries.length;
+            const cells = queries.flatMap((query) => searched(held, query));
+            const inWindow = cells.filter(([, row]) => overlaps(row, w.from, w.to));
+            more += cells.length - inWindow.length;
+            const given = body(held.dict, w.from, w.to);
+            assert.deepEqual(keysIn(given), keysOf(inWindow, undefined), `the ${state ?? ""} jobs in ${window(w)}`);
+            for (const [entry, row] of inWindow) assert.ok(equalFor(JobRow)(given.get(entry.k)!, row), "each with the row the index carries");
+            // A run of presses: exactly what the index in key order holds of each of them, entry for entry — the last
+            // press's entries among them, and no entry of a press past it. A job past a year is under each year it touches
+            // in either index.
+            for (const [from, to, presses] of [[first, second, PRESSES.slice(0, 2)], [second, last, PRESSES.slice(1)], [second, second, PRESSES.slice(1, 2)]] as const) {
+                const run = runs.flatMap((level) => inTimeCellQueries(index, where, level, from, to).queries.flatMap((query) => searched(held, query)));
+                const each = runs.flatMap((level) => levelCellQueries(keyed, where, level, presses.map((press) => printString(press))).queries
+                    .flatMap((query) => searched(byKey.held, query)));
+                assert.deepEqual(keysOf(run, undefined), keysOf(each, undefined), `the jobs on ${presses.join(", ")} in ${window(w)}`);
+                assert.equal(run.length, each.length, `as many entries on ${presses.join(", ")} in ${window(w)} as the index in key order holds`);
+                assert.ok(run.every(([, row]) => presses.includes(row.press)), `no job of another press among ${presses.join(", ")}'s`);
+            }
+        }
+        assert.ok(more > 100, `the page's ranges hold more than the windows do, which its reader tests: ${more}`);
+        assert.ok(ranges > WINDOWS.length * 4, `a range a tile a level: ${ranges}`);
+    };
+
+    const weeks = e3.index(jobs.indexes.weeks);
+    const pressWeeks = e3.index(jobs.indexes.press_weeks);
+    through("weeks", jobs.indexes.weeks, heldOf(weeks, JOBS), { name: "press_weeks", def: jobs.indexes.press_weeks, held: heldOf(pressWeeks, JOBS) }, undefined,
+        East.compile(East.function([weeks.type, DateTimeType, DateTimeType], JobsType, ($, entries, from, to) =>
+            weeks.read(entries).events({ from, to }).collect($)), []));
+    const byState = e3.index(jobs.indexes.weeks_by_state);
+    const pressWeeksByState = e3.index(jobs.indexes.press_weeks_by_state);
+    through("weeks_by_state", jobs.indexes.weeks_by_state, heldOf(byState, JOBS),
+        { name: "press_weeks_by_state", def: jobs.indexes.press_weeks_by_state, held: heldOf(pressWeeksByState, JOBS) }, "confirmed",
+        East.compile(East.function([byState.type, DateTimeType, DateTimeType], JobsType, ($, entries, from, to) =>
+            byState.read(entries).events({ on: { state: "confirmed" }, from, to }).collect($)), []));
 });
 
 test("a summary index: the tiles of the page's run that overlap the window are the body's `totals`", () => {

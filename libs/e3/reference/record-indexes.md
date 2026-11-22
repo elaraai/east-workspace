@@ -209,6 +209,17 @@ by the group the keys stand in, so a group's keys are neighbours:
 job_tiles_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, { value: tileOf }),
 ```
 
+Its last leading fields are where its keys stand, outermost first. A Plan
+whose rows nest under a group reads an event kind through one: listed in the
+kind's source, it is read a block of rows at a time, the last leading field
+filled with the key of the group the block's rows stand under — so that field
+holds the group's key, at its type, or an Option of it — and a leading field
+before it is the rail's to choose. A block is then one range a tile, from its
+first row's key through its last. The events on no row, and a page whose rows
+nest under no group, are read through a series index in key order listed
+beside it; with none, a kind whose events may be on no row is read as one past
+the event cap is, shaded from its summary index and never by its cells.
+
 `past` is false in every entry, so a range's end that gives it true lies after
 every entry of its key: a run of keys is read through its last one, whatever
 their type — a search from `[…on, level, tile, first]` to `[…on, level, tile,

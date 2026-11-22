@@ -37,9 +37,10 @@ type DeclaredFields<D> = D extends { entries: { field: infer F extends string };
  *  index's kind, a struct naming the kind's own parts by role — an interval's
  *  start and end (`from=…`, `to=…`, east-ui's `intervalMarkerFields`), whose
  *  names the rail reads its start from; an area index's box and its cell
- *  (`areaMarkerFields`); a series or a summary index's key, times and tile
- *  (`tileMarkerFields`, #1039); an entries index's, `entries`, its field its
- *  one row field (#1522). Never a row field among the index's. */
+ *  (`areaMarkerFields`); a series or a summary index's key, times and tile,
+ *  and a series index in time order's order (`tileMarkerFields`, #1039,
+ *  #1710); an entries index's, `entries`, its field its one row field
+ *  (#1522). Never a row field among the index's. */
 type IndexKind<D> = D extends { interval: { from: infer From extends string; to: infer To extends string } }
     ? VariantType<{ interval: StructType<{ [N in `from=${From}` | `to=${To}`]: NullType }> }>
     : D extends { area: object } ? VariantType<{ area: StructType<Record<string, NullType>> }>
@@ -345,13 +346,6 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         if (computed && index.multi && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length !== 1) {
             throw new Error(`Data.bindPaged: computed keys index '${index.name}' needs one named field for Slice so exact membership cannot duplicate records; use { index } for an arbitrary compound fan-out`);
         }
-        // A series index in time order files a tile's events together, in their keys' order (#1710). The readers a
-        // binding gives its views read a key's events as a range a level, which is no run of it, so it is refused here
-        // rather than read by the wrong ranges.
-        if (index.series?.order === "time") {
-            throw new Error(`Data.bindPaged: '${index.name}' is a series index in time order (order: "time"), a tile's events together, which a ` +
-                `binding's views do not read — list the record's series index in key order, a key's events together`);
-        }
         // A generated index may be led by no field: its key's `on` is then empty (#1432).
         const generated = index.interval !== undefined || index.area !== undefined || index.series !== undefined || index.summary !== undefined;
         if (!generated && index.entries === undefined && index.on?.length === 0) throw new Error(`Data.bindPaged: index '${index.name}' needs at least one field`);
@@ -361,9 +355,9 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         // kind's one case — `plain`, or a generated index's, a struct naming
         // the kind's own parts by role: an interval's start and end, an area
         // index's box and its cell, a series or a summary index's key, times
-        // and tile (#1039); an entries index's `entries`, its field its Dict
-        // field (#1522). Slice.bindRecord reads them back; e3's parts are
-        // never a field's name.
+        // and tile (#1039), and a series index in time order's order (#1710);
+        // an entries index's `entries`, its field its Dict field (#1522).
+        // Slice.bindRecord reads them back; e3's parts are never a field's name.
         const tiling = index.series ?? index.summary;
         const [kind, parts]: [string, readonly string[] | undefined] = index.entries !== undefined ? ["entries", undefined] : index.interval !== undefined
             ? ["interval", intervalMarkerFields({ from: index.interval.from, to: index.interval.to })]
@@ -373,7 +367,8 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                     centre: index.area.at === "centre", cell: index.area.cell })]
                 : tiling !== undefined
                     ? [index.summary !== undefined ? "summary" : "series",
-                        tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined })]
+                        tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined,
+                            order: index.series?.order ?? "key" })]
                     : ["plain", undefined];
         const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(parts.map(name => [name, NullType] as const)) });
         const kindValue = variant(kind, parts === undefined ? null : Object.fromEntries(parts.map(name => [name, null])));

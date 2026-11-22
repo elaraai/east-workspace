@@ -364,7 +364,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
             if (tiling === undefined || tiling.summary !== (kind === "summary") || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
                 throw unmarked(name, `${kind}`);
             }
-            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null) });
+            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null), order: variant(tiling.order, null) });
             if (tiling.summary) summary = filed;
             else series = filed;
         } else if (kind === "area") {

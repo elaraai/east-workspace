@@ -530,7 +530,8 @@ describe("Data.bindPaged over a series and a summary index", () => {
             "its leading fields its own");
         assert.deepEqual(metadataOf(source, "by_press_month"),
             { fields: [], kind: "summary", marker: ["key=press", "from=start", "to=end", "tile=month", "__summary"] });
-        assert.deepEqual(readTileMarker(metadataOf(source, "by_press_month").marker!), { key: "press", from: "start", to: "end", tile: "month", summary: true });
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_press_month").marker!),
+            { key: "press", from: "start", to: "end", tile: "month", summary: true, order: "key" });
         assert.deepEqual(metadataOf(source, "by_time"), { fields: [], kind: "interval", marker: ["from=start", "to=end"] }, "its start a field of the rail, by its role");
     });
 
@@ -551,10 +552,18 @@ describe("Data.bindPaged over a series and a summary index", () => {
             /'tiles_by_press_week' carries .* beside indexes that carry another projection/, "beside a series index carrying its rows");
     });
 
-    hostTest("a series index in time order is refused, naming it: a binding's views read a key's events together (#1710)", () => {
-        const refused = /^Error: Data\.bindPaged: 'by_state_week' is a series index in time order \(order: "time"\), a tile's events together, which a binding's views do not read — list the record's series index in key order, a key's events together$/;
-        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_state_week"] }), refused);
-        assert.throws(() => Data.bindPaged(jobs, { indexes: ["by_state_press_week", "by_state_week"] }), refused, "beside the one in key order too");
+    hostTest("a series index in time order is listed as one in key order is, its marker naming its order, which a record Slice reads back (#1710)", () => {
+        const source = Data.bindPaged(jobs, { indexes: ["by_state", "by_state_press_week", "by_state_week", "by_press_month"] });
+        assert.deepEqual(metadataOf(source, "by_state_week"),
+            { fields: ["state"], kind: "series", marker: ["key=press", "from=start", "to=end", "tile=week", "order=time"] }, "its leading fields its own, its order by its role");
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_state_week").marker!),
+            { key: "press", from: "start", to: "end", tile: "week", summary: false, order: "time" });
+        assert.deepEqual(readTileMarker(metadataOf(source, "by_state_press_week").marker!),
+            { key: "press", from: "start", to: "end", tile: "week", summary: false, order: "key" }, "an index in key order names none");
+        // It carries its rows, as a series index in key order does, and is read without a join.
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_state_week", "by_press_month"] })), Job));
+        // A record Slice lists it for a reader of its cells, and offers the rail no field of it.
+        assert.doesNotThrow(() => bindRecord("in-time", source, { fields: { state: { hints: ["late"] } } }));
     });
 
     hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {

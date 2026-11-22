@@ -166,7 +166,8 @@ test("a record Slice reads its series and summary indexes back, and offers the r
     const { runtime, handle } = bind();
     assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["state", "start"]);
     const index = (name: string) => handle.config.indexes.find(candidate => candidate.name === name)!;
-    const filed = { key: "press", from: "start", to: "end" };
+    // Each filed by key, a key's events together: the order a series index declares none of is (#1710).
+    const filed = { key: "press", from: "start", to: "end", order: variant("key", null) };
     assert.deepEqual([index("jobs_by_press_week").series, index("jobs_by_press_week").summary], [some({ ...filed, tile: variant("week", null) }), none]);
     // An index's fields are the row fields it is led by alone, its key's `on`; its kind's parts are its `series` (#1432).
     assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state"], "some"]);

@@ -24,6 +24,11 @@
  *   the first hall's window and the two read ahead of it, a hall each, and no
  *   other; the end of the page reads the last hall's window and the few beside
  *   it, never the halls between.
+ * - Read through the jobs' series index in time order, led by the hall
+ *   (#1710), a rest asks a range a tile for each block of presses in view,
+ *   under their own hall, from the block's first press through its last — and
+ *   draws the jobs the index in key order draws, which asks a range a press a
+ *   level.
  *
  * The sizes here run in the suite. A page's size is run by hand, its sizes from
  * the environment: `SCALE_HALLS=40 SCALE_PRESSES=3000 SCALE_TASKS=12`, with
@@ -98,7 +103,7 @@ const Press = StructType({ what: PressKind, tasks: DictType(StringType, Task) })
 const Hall = StructType({ name: OptionType(StringType), presses: DictType(StringType, Press) });
 const Halls = DictType(StringType, Hall);
 
-const Job = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, task: StringType, title: StringType });
+const Job = StructType({ hall: StringType, press: StringType, start: DateTimeType, end: DateTimeType, task: StringType, title: StringType });
 const Jobs = DictType(StringType, Job);
 
 const FIRST = new Date("2026-07-15T00:00:00Z");
@@ -117,11 +122,11 @@ function halls(): ValueTypeOf<typeof Halls> {
 function jobs(): ValueTypeOf<typeof Jobs> {
     const out = new Map<string, ValueTypeOf<typeof Job>>();
     let n = 0;
-    for (const codes of pressCodes) {
+    for (const [h, codes] of pressCodes.entries()) {
         for (const code of codes) {
             for (let j = 0; j < JOBS; j++) {
                 const at = new Date(FIRST.getTime() + ((n + j * 5) % 14) * DAY + 9 * 3_600_000);
-                out.set(`J${pad(n++, 7)}`, { press: code, start: at, end: at, task: taskKey(j % TASKS), title: `Job ${n}` });
+                out.set(`J${pad(n++, 7)}`, { hall: hallKey(h), press: code, start: at, end: at, task: taskKey(j % TASKS), title: `Job ${n}` });
             }
         }
     }
@@ -148,6 +153,8 @@ export const scaleJobs = e3.record("scale_jobs", Jobs, {
     indexes: (index) => ({
         scale_jobs_by_time: index.interval({ from: "start", to: "end" }),
         scale_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        // The same jobs a week at a time under their hall, in their presses' order (#1710).
+        scale_jobs_by_hall_week: index.series({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         scale_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -236,12 +243,56 @@ const byHall = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     });
 }))) };
 
+/**
+ * The same page, a hall a window, its jobs read through their series index in time order led by the hall (#1710): the
+ * one series index its source lists.
+ */
+const inTime = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.let(Record.bind(scaleJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(scaleJobs));
+    const slice = $.let(Slice.bindRecords("plan.grouped.scale.inTime", {
+        rows: {
+            source: NESTED
+                ? Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name", "scale_halls_in_time"] })
+                : Data.bindPaged(scaleHalls, { indexes: ["scale_halls_by_name"] }),
+            fields: { name: { label: "Hall" } },
+        },
+        job: {
+            source: Data.bindPaged(scaleJobs, { indexes: ["scale_jobs_by_time", "scale_jobs_by_hall_week", "scale_jobs_by_press_day"] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", resolutions: ["day", "week"] }),
+        slice: { slice },
+        paging: { entries: 1 },
+        series: [Plan.series.group(Hall, {
+            key: "halls", title: "Halls", label: (hall, key) => hall.name.match({ some: (_$2, name) => name, none: () => key }),
+            children: Plan.children("presses", [Plan.series.kinds(Press, "what", {
+                press: {
+                    title: "Presses", icon: "print", label: (_press, code) => code,
+                    children: Plan.children("tasks", [Plan.series.resources(Task, { key: "tasks", title: "Tasks", label: (_task, key) => key })]),
+                },
+            })]),
+        })],
+        events: {
+            job: Schedule.events(record, {
+                name: "Job", icon: "list-check", draw: "marks", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "press" }, child: { field: "task", of: "tasks" },
+                overlaps: "allow", locked: () => true, entries,
+            }),
+        },
+    });
+}))) };
+
 // ── What the Plan asked ──────────────────────────────────────────────────────
 
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 const HALLS_AT = pathText(scaleHalls.path as TreePath);
 const JOBS_AT = pathText(scaleJobs.path as TreePath);
 const SERIES = "scale_jobs_by_press_week";
+/** The jobs' series index in time order, led by the hall (#1710). */
+const IN_TIME = "scale_jobs_by_hall_week";
 const SUMMARY = "scale_jobs_by_press_day";
 /** The levels the series index files a job at, from its week tile: week, month, quarter and year. */
 const LEVELS = 4;
@@ -252,6 +303,10 @@ const findsOf = (index: string, from: number): E3Request[] => h.requests().slice
 
 /** The searches the series index was asked since `from`: each a press's jobs at a level. */
 const searchesOf = (from: number): number => findsOf(SERIES, from).reduce((n, request) => n + request.searches.length, 0);
+
+/** The jobs' marks drawn now, each by its job, in order: what two pages over the same jobs are compared by. */
+const marksOf = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll<HTMLElement>("[data-plan-row] [data-mark]")].map((mark) => mark.getAttribute("data-mark") ?? "").sort();
 
 /** The windows of the halls read since `from`: each by the hall it starts at and how many halls it holds. */
 const hallPages = (from: number): { offset: number; limit: number }[] => h.requests().slice(from)
@@ -393,6 +448,72 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             // Its presses' jobs, at most the blocks meeting the view and its margin.
             expect(searchesOf(from)).toBeGreaterThan(0);
             expect(searchesOf(from)).toBeLessThanOrEqual(3 * SCHEDULE_CELL_BLOCK * LEVELS);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+
+            // Nothing failed to read on the way.
+            const failed = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
+            expect(failed).toEqual([]);
+        } finally {
+            errors.mockRestore();
+            restore();
+        }
+    }, 1_800_000);
+
+    test("read through a series index in time order led by the hall, a rest asks a range a tile for each block of presses under its own hall, and draws the jobs the index in key order draws (#1710)", async () => {
+        const restore = emulateWindowScroll();
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+            // The page read by key, a hall a window: the jobs a rest draws, and the searches it asks for them.
+            let from = h.requests().length;
+            const byKey = await h.mount(byHall, { storageKey: "plan-by-key" });
+            await waitFor(() => expect(byKey.container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await settle();
+            const drawn = marksOf(byKey.container);
+            const asked = searchesOf(from);
+            expect(drawn.length).toBeGreaterThan(0);
+            expect(asked).toBeGreaterThan(0);
+            byKey.unmount();
+
+            // The same page through the index in time order.
+            from = h.requests().length;
+            let cpu0 = cpu();
+            const { container } = await h.mount(inTime, { storageKey: "plan-in-time" });
+            await waitFor(() => expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0), { timeout: 600_000 });
+            await settle();
+            report("open, in time order", from, cpu0, container);
+            // The same jobs drawn, and none of them through the index in key order, which this page's source does not list.
+            expect(marksOf(container)).toEqual(drawn);
+            expect(findsOf(SERIES, from)).toEqual([]);
+            expect(findsOf(SUMMARY, from)).toEqual([]);
+            // Each search a range a tile under one hall and one level: from a first press of that hall through a last.
+            const searches = findsOf(IN_TIME, from).flatMap((request) => request.searches);
+            expect(searches.length).toBeGreaterThan(0);
+            const runs = new Set<string>();
+            for (const search of searches) {
+                const [hall, level, tile, first] = search.from ?? [];
+                expect(search.to).toEqual([hall, level, tile, expect.any(String), "true"]);
+                const last = search.to![3]!;
+                // The hall a search is under is the one its presses stand in: a press's code holds its hall's number.
+                const at = pressCodes.findIndex((codes) => codes.some((code) => JSON.stringify(code) === first));
+                expect(hall).toBe(JSON.stringify(hallKey(at)));
+                expect(pressCodes[at]!.some((code) => JSON.stringify(code) === last)).toBe(true);
+                runs.add(`${hall} ${first} ${last}`);
+            }
+            // The first hall drawn, and where the margin past the view reaches beyond its presses the next one's first
+            // block: a block a hall, never a search a press.
+            expect(runs.size).toBeLessThanOrEqual(2);
+            expect(searches.length).toBeLessThan(asked);
+
+            // Further down the first hall drawn that fills a view: its presses' jobs through the same index, drawn.
+            from = h.requests().length;
+            cpu0 = cpu();
+            const pressPx = (1 + TASKS) * PLAN_GEOMETRY.default.row;
+            act(() => { window.scrollTo({ top: PLAN_GEOMETRY.default.group + Math.floor(SIZES[DRAWN[0]!]! / 2) * pressPx }); });
+            await scrollStopped();
+            await settle();
+            report("down the page, in time order", from, cpu0, container);
+            expect(container.querySelectorAll("[data-plan-row] [data-mark]").length).toBeGreaterThan(0);
+            expect(findsOf(SERIES, from)).toEqual([]);
             expect(findsOf(SUMMARY, from)).toEqual([]);
 
             // Nothing failed to read on the way.

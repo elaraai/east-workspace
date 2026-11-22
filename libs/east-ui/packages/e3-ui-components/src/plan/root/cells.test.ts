@@ -178,6 +178,25 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
             entry("temperature", "P03"), entry("kinds", "P03", ".blanket_wash"), entry("kinds", "P03", ".ink_fill"), entry("kinds", "P03", ".plate_check"),
         ), landings)).toEqual([{ slot: "press", key: "P03" }]);
     });
+
+    test("a resource beneath a group names the rows it stands under, outermost first; one under no row names none (#1710)", () => {
+        expect(landingKeysOf(block(
+            entry("halls", "H-1"),
+            entry("press", "H-1", "P03"), entry("kinds", "H-1", "P03", ".ink_fill"),
+            entry("press", "H-1", "P04"),
+            entry("halls", "H-2"),
+            entry("press", "H-2", "P03"),
+            // A page that draws no row of the press's own names where it stands by the row beneath it.
+            entry("kinds", "H-2", "P09", ".ink_fill"),
+            entry("press", "S-1", "H-3", "P10"),
+            entry("press", "P11"),
+        ), landings)).toEqual([
+            { slot: "press", key: "P03", under: ["H-1"] }, { slot: "press", key: "P04", under: ["H-1"] },
+            { slot: "press", key: "P03", under: ["H-2"] }, { slot: "press", key: "P09", under: ["H-2"] },
+            { slot: "press", key: "P10", under: ["S-1", "H-3"] },
+            { slot: "press", key: "P11" },
+        ]);
+    });
 });
 
 describe("the events the canvas's links name at their ends, as the cells' reader holds them (#1541, U10)", () => {

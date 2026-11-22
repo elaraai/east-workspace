@@ -116,13 +116,27 @@ export const RecordSliceTileType = VariantType({ day: NullType, week: NullType, 
 export type RecordSliceTileType = typeof RecordSliceTileType;
 
 /**
+ * The order a series index files its entries in (#1710): by the key an event
+ * is on, a key's events together, or by time, a tile's events together in
+ * their keys' order. A summary index is filed by key.
+ */
+export const RecordSliceOrderType = VariantType({ key: NullType, time: NullType });
+export type RecordSliceOrderType = typeof RecordSliceOrderType;
+
+/**
  * What a series or a summary index files a record's events by (#1039).
+ * @remarks A tiling is part of a record Slice's config, which beast2 reads at
+ * exactly its written type: one an earlier release wrote holds no `order`, and
+ * does not decode under this type (docs/conventions/WIRE_MIGRATION.md).
  * @property key - The row field naming what an event is on: a Plan's resource.
  * @property from - The row field an event starts at.
  * @property to - The row field it ends at.
  * @property tile - The tile.
+ * @property order - The order its entries are filed in (#1710): a series index's, by key or by time; a summary index's, by key.
  */
-export const RecordSliceTilingType = StructType({ key: StringType, from: StringType, to: StringType, tile: RecordSliceTileType });
+export const RecordSliceTilingType = StructType({
+    key: StringType, from: StringType, to: StringType, tile: RecordSliceTileType, order: RecordSliceOrderType,
+});
 export type RecordSliceTilingType = typeof RecordSliceTilingType;
 
 /**
@@ -143,9 +157,9 @@ export type RecordSliceTilingType = typeof RecordSliceTilingType;
  *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
  *   unplaced clause meaningful. Its entries carry their rows.
  * @property series - A series index (#1039): its events filed by the key they are on and by time, each once at the
- *   level its length fits from `tile` up, `{ on, key, level, tile }` (#1433), carrying their rows. It never serves
- *   the rail's narrowing, which would count an event past a year once for each year it is filed under: a reader
- *   reads its cells (`levelCellQueries`).
+ *   level its length fits from `tile` up, `{ on, key, level, tile }` (#1433) — or, in time order, `{ on, level, tile,
+ *   key, past }` (#1710) — carrying their rows. It never serves the rail's narrowing, which would count an event past
+ *   a year once for each year it is filed under: a reader reads its cells (`levelCellQueries`, `inTimeCellQueries`).
  * @property summary - A summary index (#1039): under each key and tile, `{ on, key, tile }`, how many rows touch
  *   the tile and the milliseconds of it they cover. Its entries name no row, so it never serves the rail's
  *   narrowing either; a reader reads its cells (`summaryCellQueries`).

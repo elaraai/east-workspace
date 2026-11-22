@@ -1663,3 +1663,21 @@ Each wire changed under this rule, with the kind it is.
   The wires it uses are the lease scope above and hub control protocol 6's
   `fetch-costs`, whose `scope` this release brings with the protocol: no
   further step of either.
+- **east-ui's record Slice says the order a series index files in (#1710)** —
+  package-borne. A series or a summary index's filing
+  (`RecordSliceTilingType`) gains `order`, after `tile`: `key` for an index
+  that files a key's events together, as every series and summary index did,
+  or `time` for a series index declared `order: "time"`, which files a tile's
+  events together in their keys' order (`RecordSliceOrderType`). A binding
+  marks such an index's kind with `order=time`; an index in key order is
+  marked as it was. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, so a UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type.
+  The narrowing the store keeps (`RecordSliceStateType`) is unchanged, so a
+  narrowing kept or a view saved under the earlier type reads as it did. An
+  index declared in time order is a new index of a record, built as every
+  index is when its package is deployed; no index a record already has changes
+  its key. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.

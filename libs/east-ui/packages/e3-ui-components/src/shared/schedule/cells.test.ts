@@ -101,6 +101,28 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
         expect(schedulePagedBlocks(pagedOf([presses(0, 200), undefined]), span([1, "P-0210"], [1, "P-0220"]))).toBeUndefined();
         expect(schedulePagedBlocks(pagedOf([presses(0, 200)], "hall: Hall 2"), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 1"))).toBeUndefined();
     });
+    test("a block's resources stand under one row: a place whose resources nest under two is a block each, the first named by the place (#1710)", () => {
+        /** Presses under a hall: each names the row it stands under. */
+        const under = (hall: string, from: number, n: number): ScheduleCellKey[] => presses(from, n).map((press) => ({ ...press, under: [hall] }));
+        // A window of two halls: thirty presses under the first, a hundred and seventy under the second.
+        const halls = pagedOf([[...under("H-01", 0, 30), ...under("H-02", 30, 170)]]);
+        const keysOf = (from: number, n: number) => presses(from, n).map((press) => press.key);
+        expect(schedulePagedBlocks(halls, undefined)).toEqual([
+            { slot: "presses", id: "0.0", keys: keysOf(0, 30), under: ["H-01"] },
+            { slot: "presses", id: "0.0.1", keys: keysOf(30, 20), under: ["H-02"] },
+        ]);
+        // A place wholly under one hall is one block, named as a place of no halls is.
+        expect(schedulePagedBlocks(halls, span([0, "P-0110"], [0, "P-0120"]))).toEqual([
+            { slot: "presses", id: "0.1", keys: keysOf(50, 50), under: ["H-02"] },
+            { slot: "presses", id: "0.2", keys: keysOf(100, 50), under: ["H-02"] },
+        ]);
+        // Resources under no row beside ones under a row: a block each, and the one under no row names none.
+        const mixed = pagedOf([[...presses(0, 10), ...under("H-01", 10, 10), ...presses(20, 5)]]);
+        expect(schedulePagedBlocks(mixed, undefined)).toEqual([
+            { slot: "presses", id: "0.0", keys: [...keysOf(0, 10), ...keysOf(20, 5)] },
+            { slot: "presses", id: "0.0.1", keys: keysOf(10, 10), under: ["H-01"] },
+        ]);
+    });
 });
 
 describe("the tiles a summary shades a resolution's buckets by (#1039)", () => {
