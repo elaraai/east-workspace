@@ -1368,7 +1368,17 @@ export function useScheduleEditing<I extends Item = Item>({
                 return undefined;
             }
             if (follow.changes.length === 0) break;
-            if (round >= FOLLOW_ROUNDS || !apply(follow.changes)) return undefined;
+            if (round >= FOLLOW_ROUNDS || !apply(follow.changes)) {
+                // The rows that name a moved row cannot follow it: one of their own changes is refused, or each moves
+                // another on in its turn with no end. Said of the first row moved, by the record of the first that follows.
+                const [kind, byKey] = [...now.held][0]!;
+                const named = follow.changes[0]!.kind;
+                keyRefusedRef.current = {
+                    kind, name: parts[indexOf(kind)]?.name ?? kind, id: byKey.keys().next().value ?? "",
+                    why: { named: parts[indexOf(named)]?.name ?? named },
+                };
+                return undefined;
+            }
         }
         return { touched, moves };
     };

@@ -26,7 +26,8 @@
  * under the key its row builds, an edit of what the key reads moves it, and a
  * key another visit holds refuses the gesture, saying which; a moved visit is
  * the visit it was, edited, until a new visit takes the key its move gave it —
- * through its builder mounting again and its page loading again.
+ * through its builder mounting again and its page loading again — and a move
+ * the rows that name the visit cannot follow is refused, saying whose rows.
  * Over records deployed to e3 itself.
  */
 
@@ -42,7 +43,7 @@ import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHi
 import { Data, KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { e3Harness, reloadPage, settle } from "../../e3-web-mount.test-utils.js";
-import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef } from "./editing.js";
+import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef, type ScheduleFollowing } from "./editing.js";
 import { windowRead } from "./records.js";
 
 /** A rack: its code, which is its key too, and the bay it stands in. */
@@ -166,13 +167,13 @@ function Probe() {
 
 /** An event kind whose new events take another key where another Save took theirs, under the shared editing: the jobs, or the tickets. */
 const REKEYS: ReadonlySet<string> = new Set(["jobs", "tickets", "visits"]);
-function EventsProbe({ kind: fn, storageKey }: { readonly kind: typeof jobsKind; readonly storageKey: string }) {
+function EventsProbe({ kind: fn, storageKey, following }: { readonly kind: typeof jobsKind; readonly storageKey: string; readonly following?: ScheduleFollowing }) {
     const run = useMemo(() => fn.toIR().compile(getRegisteredPlatformImplementations()), [fn]);
     const { result } = useTrackedEvaluation(run);
     if (!result.ok) throw result.error;
     const kind = result.value;
     const kinds = useMemo(() => [kind as unknown as ScheduleEditingKind], [kind]);
-    probe.editing = useScheduleEditing({ kinds, storageKey, joined: NO_JOINED, rekeys: REKEYS, autosave: false });
+    probe.editing = useScheduleEditing({ kinds, storageKey, joined: NO_JOINED, rekeys: REKEYS, following, autosave: false });
     return null;
 }
 
@@ -437,6 +438,16 @@ describe("the shared editing over an event kind that builds each event's key fro
         await waitFor(() => expect([visitDraft("V-5")?.type, visitDraft("V-1")?.type]).toEqual(["value", "missing"]));
         const held = editing().held("visits", "V-5");
         expect([[...editing().movedFrom("visits")], held !== undefined && jobEqual(held as ValueTypeOf<typeof Job>, stored)]).toEqual([[["V-5", "V-1"]], true]);
+    });
+
+    test("ruling 1 — a visit whose key an edit changes stays where the rows that name it cannot follow: nothing is recorded, and the editing says whose rows, never nothing", async () => {
+        // The rows that name a visit are a record's this editing holds no session of: their change is refused.
+        const following: ScheduleFollowing = (moved) => ({ changes: [...moved.get("visits") ?? []].map(([, to]) => ({ kind: "notes", id: to, remove: true as const })) });
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-unfollowed" following={following} /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const renamed: ValueTypeOf<typeof Job> = { ref: "V-5", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob(renamed) }], "typed", "Edit a visit")).toBe(false); });
+        expect([editing().keyRefusal(), visitDraft("V-5"), visitDraft("V-1")]).toEqual([{ kind: "visits", name: "Visit", id: "V-1", why: { named: "notes" } }, undefined, undefined]);
     });
 
     test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {
