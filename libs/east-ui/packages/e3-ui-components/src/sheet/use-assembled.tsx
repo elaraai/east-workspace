@@ -103,7 +103,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
         landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimiseWhole, optimised, paging, rows,
-        rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
+        rowsQuery, run, session, keepOptimised, clearOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
     const { ctx, emptyNarrowing } = sheetMachine;
@@ -183,7 +183,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
             record: recordVersions, under: standsUnder, words, before: optimised,
         });
         // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
-        return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter(n); });
+        return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter(n); });
     };
     // What a run left on the rows goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
     // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is
@@ -191,8 +191,8 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const sessionPending = session.pending;
     // `draftVersion` tracks the session's pending count and its redo stack, which the session object itself does not move with.
     useEffect(() => {
-        if (sessionPending === 0 && session.nextRedo?.origin !== "optimise") setOptimised(undefined);
-    }, [sessionPending, draftVersion, session, setOptimised]);
+        if (sessionPending === 0 && session.nextRedo?.origin !== "optimise") clearOptimised();
+    }, [sessionPending, draftVersion, session, clearOptimised]);
     const flash = optimised !== undefined && landing.lit;
 
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──

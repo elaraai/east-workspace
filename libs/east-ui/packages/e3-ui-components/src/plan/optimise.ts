@@ -31,7 +31,7 @@ import {
 } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../shared/schedule/event-ref.js";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseFollow, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
@@ -63,12 +63,47 @@ export interface PlanOptimiseResult {
  * key; and whether the latest run moved an event into or out of the backlog.
  * An element's operation and its ghosts are kept by the key its event stands
  * under now: an event a run's step moved under the key its fields build takes
- * them with it (east-workspace#1709, ruling 14).
+ * them with it (east-workspace#1709, ruling 14), and so does one a gesture
+ * since, its Undo or its Redo moved (ruling 16, {@link planMarksUnder}).
  */
 export interface PlanOptimised {
     readonly ops: ReadonlyMap<string, PlanElementOp>;
     readonly ghosts: ReadonlyMap<string, readonly PlanGhost[]>;
     readonly backlogChanged: boolean;
+}
+
+/**
+ * What the runs left on the Plan's events, each under the key its event stands under now (ruling 16 of
+ * east-workspace#1709): an event moved under another key since takes its element's operation and its ghosts with it;
+ * an event that stands under no key of its own — removed, another come to stand under its key — takes neither there.
+ *
+ * @param marks - What the runs left, each under the key its event stood under
+ * @param follow - Where each event stands now
+ * @returns The marks, each under the key its event stands under now
+ */
+export function planMarksUnder(marks: PlanOptimised, follow: OptimiseFollow): PlanOptimised {
+    // An element's key, its event's under the key the event stands under now: none for an event that stands under none.
+    const elementUnder = (element: string): string | undefined => {
+        const ref = parseEventRef(element);
+        if (!ref.success) return element;
+        const key = follow(ref.value.kind, ref.value.key);
+        return key === undefined ? undefined : printEventRef({ kind: ref.value.kind, key });
+    };
+    const ops = new Map<string, PlanElementOp>();
+    for (const [element, op] of marks.ops) {
+        const at = elementUnder(element);
+        if (at !== undefined) ops.set(at, op);
+    }
+    const ghosts = new Map<string, PlanGhost[]>();
+    for (const [row, list] of marks.ghosts) {
+        const kept: PlanGhost[] = [];
+        for (const ghost of list) {
+            const key = elementUnder(ghost.key);
+            if (key !== undefined) kept.push(key === ghost.key ? ghost : { ...ghost, key });
+        }
+        ghosts.set(row, kept);
+    }
+    return { ops, ghosts, backlogChanged: marks.backlogChanged };
 }
 
 /** A kind's key and row types, from the kind on the wire. */
@@ -244,16 +279,10 @@ export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimise
     if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
     const { diff, told, backlogChanged } = landed;
     return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing), label, (under) => {
-        // An element's key once the step is recorded: its event's, under the key the event stands under now.
-        const elementUnder = (element: string): string => {
-            const ref = parseEventRef(element);
-            return ref.success ? printEventRef({ kind: ref.value.kind, key: under(ref.value.kind, ref.value.key) }) : element;
-        };
-        const ops = new Map<string, PlanElementOp>([...(before?.ops ?? [])].map(([element, op]) => [elementUnder(element), op]));
-        const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, list.map((ghost) => {
-            const key = elementUnder(ghost.key);
-            return key === ghost.key ? ghost : { ...ghost, key };
-        })]));
+        // What earlier runs left, each element's under the key its event stands under once the step is recorded.
+        const earlier = before === undefined ? undefined : planMarksUnder(before, under);
+        const ops = new Map<string, PlanElementOp>(earlier?.ops ?? []);
+        const ghosts = new Map<string, PlanGhost[]>([...(earlier?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
         const placed = placedOf(rows);
         const names = resourceNames(rows);
         for (const [key, op] of diff.ops) {

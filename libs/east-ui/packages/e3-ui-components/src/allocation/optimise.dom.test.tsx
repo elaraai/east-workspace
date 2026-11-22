@@ -29,7 +29,8 @@
  * one that inserts, updates and deletes, one that replaces the whole Dict, one
  * that moves a bin out of the day, another page's save while the call is out,
  * a key another page takes, a bin whose measured spec builds its key
- * (east-workspace#1709, ruling 14) — is the builders' shared cases
+ * (east-workspace#1709, ruling 14), and the run's mark on a bin a person then
+ * measures anew (ruling 16) — is the builders' shared cases
  * (`optimise-cases.test-utils.ts`), over the day's bins.
  */
 
@@ -43,7 +44,7 @@ import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
 import { act, e3Harness, settle, slot, toolbarAtFloor, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
-import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
+import { optimiseCases, typeInInspector } from "../shared/func/optimise-cases.test-utils.js";
 import { kilnYard, stubLinkGeometry } from "./harness.test-utils.js";
 import "./index.js";
 
@@ -89,6 +90,8 @@ async function viewEntry(c: HTMLElement): Promise<() => HTMLButtonElement> {
     return entry;
 }
 const commits = async () => (await h.history(ex.kilnBins)).commits.map(commit => commit.mutation);
+/** A bin's card on the board, by its key. */
+const binCard = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${key}"]`);
 /** The board with its optimiser, its day read: the eye is enabled once the day's bins have landed. */
 async function mounted() {
     const { container } = await h.mount(opt.allocationOptimise);
@@ -323,6 +326,13 @@ optimiseCases<typeof ex.kilnBins.type.value>({
         },
         move: ["3102", (bin) => ({ ...bin, specMeasured: "MC-3102" }), "MC-3102"],
         taken: [(bin) => ({ ...bin, specMeasured: "3101" }), 'Another bin is keyed "3101" already'],
-        op: (c, key) => c.querySelector<HTMLElement>(`[data-allocation-card="${key}"]`)?.getAttribute("data-op") ?? undefined,
+        op: (c, key) => binCard(c, key)?.getAttribute("data-op") ?? undefined,
+        // A bin's loading instruction, its measured spec — and so its key — as it was.
+        mark: ["3102", (bin) => ({ ...bin, instruction: some("Kiln-dry slowly") })],
+        // Another bin of the day.
+        another: "3101",
+        drawn: (c, key) => binCard(c, key) !== null,
+        // The bin's measured spec typed in the inspector.
+        rename: (c, key, to) => typeInInspector(c, binCard(c, key), "specMeasured", to),
     },
 });

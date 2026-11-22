@@ -19,7 +19,9 @@
  * one: it moves only as what its key reads changed from the row the record
  * holds there. Each leaves its key before any arrives, so a row may take the
  * key another leaves in the same gesture. A key another row stands under, and
- * one that fails as it is built, refuse the whole gesture.
+ * one that fails as it is built, refuse the whole gesture. Each row moved says
+ * where it came from as the gesture is recorded, so what a builder keeps of
+ * it by its key follows it there (ruling 16 of east-workspace#1709).
  *
  * @packageDocumentation
  */
@@ -172,4 +174,21 @@ export function settleBuiltKeys<W>(entries: Map<string, TouchedEntry<W>>, rule: 
         if (!made(from, before)) held.set(from, to);
     }
     return { all, held };
+}
+
+/**
+ * Where each entry a gesture moved under the key its row builds came from (ruling 16 of east-workspace#1709), by the
+ * key it went to: the key it stood under before the gesture, which the session follows it by (`EntryUpdate.from`) —
+ * never for a row the gesture made, which stood nowhere: {@link settleBuiltKeys} leaves no entry under the key one was
+ * made under.
+ *
+ * @typeParam W - The collection's projection of an entry
+ * @param moves - The entries moved, each by the key it had before the gesture ({@link BuiltKeyMoves.all})
+ * @param entries - The gesture's entries, as {@link settleBuiltKeys} left them
+ * @returns The key each moved entry stood under, by the key it went to
+ */
+export function builtKeyOrigins<W>(moves: ReadonlyMap<string, string>, entries: ReadonlyMap<string, TouchedEntry<W>>): Map<string, string> {
+    const came = new Map<string, string>();
+    for (const [from, to] of moves) if (entries.has(from)) came.set(to, from);
+    return came;
 }

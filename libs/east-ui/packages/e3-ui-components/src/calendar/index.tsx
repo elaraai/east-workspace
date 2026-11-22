@@ -95,7 +95,10 @@ import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
-import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import {
+    scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type SchedulePoint, type ScheduleRowRead,
+} from "../shared/schedule/editing.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -118,7 +121,7 @@ import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type Calen
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
 import { calendarMessages, type CalendarWords } from "./messages.js";
 import {
-    calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
+    calendarMarksUnder, calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
     type CalendarOptimiseRequest, type CalendarOptimiseResult, type CalendarOptimised,
 } from "./optimise.js";
 import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
@@ -554,7 +557,9 @@ function CalendarFrame(props: HostProps) {
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => calendarOptimiseTypes(value), [value]);
-    const [optimised, setOptimised] = useState<CalendarOptimised | undefined>(undefined);
+    // What the runs left on the events (R17), each mark under the key its event stands under now, whoever moved it there —
+    // a gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<CalendarOptimised, SchedulePoint>(editing, editing?.version ?? 0, calendarMarksUnder);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     const latest = useRef({ editing, optimised, periodName });
     latest.current = { editing, optimised, periodName };
@@ -579,7 +584,7 @@ function CalendarFrame(props: HostProps) {
             const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? read(kind, id), request, result,
                 optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only. It waits on nothing
@@ -595,8 +600,8 @@ function CalendarFrame(props: HostProps) {
     // kept while that step is the next to redo.
     const pending = editing?.history.pending ?? 0;
     useEffect(() => {
-        if (pending === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [pending, editing?.version, editing]);
+        if (pending === 0 && editing?.history.redoOrigin !== "optimise") clearOptimised();
+    }, [pending, editing?.version, editing, clearOptimised]);
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
     const unassigned = useMemo(() => unassignedRow(value.vocabulary.unassigned), [value.vocabulary.unassigned]);

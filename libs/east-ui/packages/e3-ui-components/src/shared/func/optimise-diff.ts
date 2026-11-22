@@ -73,18 +73,22 @@ export function opKey(kind: string, id: string): string {
 }
 
 /**
- * An operation's key ({@link opKey}) once its run's step is recorded: its row's kind, and the key the row stands under
- * now ({@link OptimiseUnder}) — another than the one it had where the step moved the row under the key its fields build.
+ * An operation's key ({@link opKey}) once its run's step is recorded, or as the history has moved since: its row's
+ * kind, and the key the row stands under now ({@link OptimiseUnder}, {@link OptimiseFollow}) — another than the one it
+ * had where a step moved the row under the key its fields build.
  *
- * @param key - The operation's key, as it was kept before the step
- * @param under - Where each row stands once the step is recorded
- * @returns The key it is kept under now
+ * @param key - The operation's key, as it was kept
+ * @param under - Where each row stands now
+ * @returns The key it is kept under now; `undefined` for a row that stands under no key of its own
  */
-export function opKeyUnder(key: string, under: OptimiseUnder): string {
+export function opKeyUnder(key: string, under: OptimiseUnder): string;
+export function opKeyUnder(key: string, under: OptimiseFollow): string | undefined;
+export function opKeyUnder(key: string, under: OptimiseFollow): string | undefined {
     const at = key.indexOf("\u0000");
     if (at < 0) return key;
     const kind = key.slice(0, at);
-    return opKey(kind, under(kind, key.slice(at + 1)));
+    const id = under(kind, key.slice(at + 1));
+    return id === undefined ? undefined : opKey(kind, id);
 }
 
 /**
@@ -315,6 +319,18 @@ export function optimiseLandedCounts<O>(landed: OptimiseLanded<O> | OptimiseMiss
  * @returns The key's text it stands under now
  */
 export type OptimiseUnder = (kind: string, id: string) => string;
+
+/**
+ * Where a row the runs left marks on stands now (ruling 16 of east-workspace#1709), by its key's text as its session
+ * names it: the key it stands under — another than the one it had wherever a step since, a person's gesture, its Undo
+ * or its Redo among them, moved it under the key its fields build — or none of its own: another row has come to stand
+ * under its key, or the step that made it has been taken back. Every {@link OptimiseUnder} is one, each row under a key.
+ *
+ * @param kind - The row's kind's slot, or its record's key
+ * @param id - The key's text it had where the marks were kept
+ * @returns The key's text it stands under now; `undefined` for a row that stands under no key of its own
+ */
+export type OptimiseFollow = (kind: string, id: string) => string | undefined;
 
 /** A step that moved no row: each stands under the key it had. */
 const SAME_KEY: OptimiseUnder = (_kind, id) => id;

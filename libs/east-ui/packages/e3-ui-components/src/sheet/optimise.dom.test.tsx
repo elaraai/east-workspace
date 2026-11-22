@@ -25,7 +25,8 @@
  * the person chooses before running again. What it does with any answer — one that inserts, updates and
  * deletes, one that replaces the whole Dict, another page's save while the
  * call is out, a key another page takes, a row whose reference builds its key
- * (east-workspace#1709, ruling 14) — is the builders' shared cases
+ * (east-workspace#1709, ruling 14), and the run's mark on a row a person then
+ * gives another reference (ruling 16) — is the builders' shared cases
  * (`optimise-cases.test-utils.ts`), over the orders; a sheet has no period for
  * an answer to leave.
  */
@@ -319,5 +320,9 @@ optimiseCases<typeof opt.OptimiseWorkOrder>({
         move: ["WO-1005", (order) => ({ ...order, reference: "WO-2005" }), "WO-2005"],
         taken: [(order) => ({ ...order, reference: "WO-1001" }), 'Another row is keyed "WO-1001" already'],
         op: (c, key) => c.querySelector<HTMLElement>(`[data-row-id="${key}"] [data-slot=cell][data-op]`)?.getAttribute("data-op") ?? undefined,
+        another: "WO-1006",
+        drawn: (c, key) => c.querySelector(`[data-row-id="${key}"]`) !== null,
+        // The order's reference typed in its cell.
+        rename: (c, key, to) => typeInto(cell(c, key, "reference"), to),
     },
 });

@@ -618,7 +618,10 @@ export {
 // projection of an entry is typed (`wireType`): a ref's, `EntryRefType`. A
 // new entry's key is its session's to make (`EditSession.mint`), by the rule
 // its builder binds — the shared ones here (`keys.ts`) — and to make again
-// where another write takes it (#1583).
+// where another write takes it (#1583). What a builder keeps of an entry by its
+// id follows it through the session's history from a point of it
+// (`EditSession.point`, `EditSession.follow`): an entry a gesture moved under
+// another id says where it came from (`EntryUpdate.from`).
 export {
     EditSession,
     EditHistory,
@@ -655,6 +658,7 @@ export {
     type EditingMessages,
     type EditingValue,
     type EditingWords,
+    type EditPoint,
     type EditSessionBinding,
     type EditSessionOptions,
     type EntryKeys,

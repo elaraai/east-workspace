@@ -126,7 +126,8 @@ import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
-import { scheduleIssueName, type ScheduleFollowing } from "../shared/schedule/editing.js";
+import { scheduleIssueName, type ScheduleFollowing, type SchedulePoint } from "../shared/schedule/editing.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { drawnKinds, usePlanEventDrag, type PlanConnecting, type PlanDropAnswer } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -195,7 +196,7 @@ import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import {
-    landPlanOptimise, planOptimiseRequest, planOptimiseTypes,
+    landPlanOptimise, planMarksUnder, planOptimiseRequest, planOptimiseTypes,
     type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
 } from "./optimise.js";
 
@@ -527,7 +528,9 @@ export function usePlanCanvas({
     const landingStyles = useLandingStyles();
     const format = useFormatters();
     const optimiseTypes = useMemo(() => planOptimiseTypes(kinds), [kinds]);
-    const [optimised, setOptimised] = useState<PlanOptimised | undefined>(undefined);
+    // What the runs left on the events (R17), each mark under the key its event stands under now, whoever moved it there —
+    // a gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<PlanOptimised, SchedulePoint>(eventEditing, eventEditing.version, planMarksUnder);
     const planWindow = useMemo((): PlanOptimiseWindow | undefined => {
         if (scale === undefined || scale.window.min.type !== "time" || scale.window.max.type !== "time") return undefined;
         return { from: scale.window.min.value, to: scale.window.max.value };
@@ -559,7 +562,7 @@ export function usePlanCanvas({
                 rows: now.index.current?.rows ?? [], format: now.format, before: now.optimised,
             });
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.
@@ -863,8 +866,8 @@ export function usePlanCanvas({
     // is kept while that step is the next to redo.
     const historyVersion = eventEditing.version;
     useEffect(() => {
-        if (history.pending === 0 && history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [history, historyVersion]);
+        if (history.pending === 0 && history.redoOrigin !== "optimise") clearOptimised();
+    }, [history, historyVersion, clearOptimised]);
     const optimisedMarks = useMemo((): PlanOptimisedMarks => (optimised === undefined ? NO_OPTIMISED_MARKS
         : { ops: optimised.ops, ghosts: optimised.ghosts, lit: landing.lit }), [optimised, landing.lit]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567

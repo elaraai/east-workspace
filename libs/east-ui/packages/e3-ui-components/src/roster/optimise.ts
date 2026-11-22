@@ -41,7 +41,9 @@ import {
     RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor, type RosterOptimiseEdgesRequestType, type RosterOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { landOptimisePatches, optimiseKeyOf, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseDiff, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import {
+    landOptimisePatches, optimiseKeyOf, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseDiff, type OptimiseFollow, type OptimiseLanded,
+} from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
@@ -103,11 +105,32 @@ export interface RosterDutyOp {
  * whose week the latest run changed, whose hours and meter flash. Each
  * operation is kept by the key its duty stands under now: a duty a run's step
  * moved under the key its fields build takes it with it (east-workspace#1709,
- * ruling 14).
+ * ruling 14), and so does one a gesture since, its Undo or its Redo moved
+ * (ruling 16, {@link rosterMarksUnder}).
  */
 export interface RosterOptimised {
     readonly ops: ReadonlyMap<string, RosterDutyOp>;
     readonly people: ReadonlySet<string>;
+}
+
+/**
+ * What the runs left on the Roster's duties, each under the key its duty stands under now (ruling 16 of
+ * east-workspace#1709): a duty moved under another key since takes its operation with it; one that stands under no key
+ * of its own — removed, another come to stand under its key — takes none there. The people whose week the latest run
+ * changed are the people's still.
+ *
+ * @param marks - What the runs left, each under the key its duty stood under
+ * @param follow - Where each duty stands now
+ * @param kind - The duty kind's slot
+ * @returns The marks, each under the key its duty stands under now
+ */
+export function rosterMarksUnder(marks: RosterOptimised, follow: OptimiseFollow, kind: string): RosterOptimised {
+    const ops = new Map<string, RosterDutyOp>();
+    for (const [id, op] of marks.ops) {
+        const at = follow(kind, id);
+        if (at !== undefined) ops.set(at, op);
+    }
+    return { ops, people: marks.people };
 }
 
 /** What the bound optimiser is called with, as the tag held it to, and the duties' record type. */
@@ -338,7 +361,7 @@ export function landRosterOptimise(args: RosterLanding): OptimiseLanded<RosterOp
     return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing.schedule), label, (under) => {
         // This run's operations over the earlier runs', each under the key its duty stands under now: a duty it touched
         // again is its.
-        const ops = new Map<string, RosterDutyOp>([...(before?.ops ?? [])].map(([id, op]) => [under(kind, id), op]));
+        const ops = new Map<string, RosterDutyOp>(before === undefined ? [] : rosterMarksUnder(before, under, kind).ops);
         const people = new Set<string>();
         for (const op of diff.ops.values()) {
             const { id } = op;

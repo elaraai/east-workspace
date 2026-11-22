@@ -42,12 +42,14 @@ import { LoadingReveal, formatDatePattern, keptRead, useSlotStyles } from "@elar
 import { rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
-import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { optimiseLandedCounts, type OptimiseFollow } from "../shared/func/optimise-diff.js";
 import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import type { SchedulePoint } from "../shared/schedule/editing.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useClassesAhead, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
@@ -80,7 +82,7 @@ import {
 import { allocationNarrowed, narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
 import { NounsContext, a, lower, one, other } from "./nouns.js";
 import {
-    allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
+    allocationMarksUnder, allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
     type AllocationOptimiseRequest, type AllocationOptimiseResult, type AllocationOptimised,
 } from "./optimise.js";
 import { AllocationTable, RESERVE_PROBE, type ReserveProbe } from "./table.js";
@@ -384,7 +386,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const binKeys = value.bin.kind.editing.keyType;
     const binKeyType = useMemo(() => binKeys.type === "some" ? fromEastTypeValue(binKeys.value) as EastType : StringType, [binKeys]);
     const optimiseTypes = useMemo(() => allocationOptimiseTypes(binKeyType, domain.rowType), [binKeyType, domain]);
-    const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
+    // What the runs left on the bins (R17), each mark under the key its bin stands under now, whoever moved it there — a
+    // gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const binMarksUnder = useCallback((marks: AllocationOptimised, follow: OptimiseFollow) => allocationMarksUnder(marks, follow, binSlot), [binSlot]);
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<AllocationOptimised, SchedulePoint>(editing?.schedule, editing?.schedule.version ?? 0, binMarksUnder);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // Whether the day takes edits: its period's status, stored and drafted (rule 11).
     const dayOpen = editableStatus(heldPeriod.status) && editableStatus(period.status);
@@ -416,7 +421,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                 held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }),
                 runText, period: now.dayWords, plan: now.plan, context: now.context, before: now.optimised, open: now.dayOpen, unit, m: words.m });
             // Bins the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // While a run is out (R2) the day takes no gesture: every command refused, the drags off, the history locked.
@@ -436,8 +441,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // kept while that step is the next to redo.
     const pendingSteps = editing?.history.pending ?? 0;
     useEffect(() => {
-        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [pendingSteps, editing?.schedule.version, editing]);
+        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") clearOptimised();
+    }, [pendingSteps, editing?.schedule.version, editing, clearOptimised]);
     // The app's fit (§12, east-workspace#1624): every verdict a drag or a pick shows is its answer — asked the day, the
     // question and the page's scope, the board's unsaved edits sent as drafts.
     const fit = useAllocationFit(value, domain, binKeyType, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });

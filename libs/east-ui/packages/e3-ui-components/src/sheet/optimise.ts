@@ -36,7 +36,7 @@ import {
     type SheetOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
-import { diffOptimisePatch, optimiseIdOf, recordOptimiseRun, type OptimiseLanded, type OptimiseRecorder } from "../shared/func/optimise-diff.js";
+import { diffOptimisePatch, optimiseIdOf, recordOptimiseRun, type OptimiseFollow, type OptimiseLanded, type OptimiseRecorder } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { SheetRefused } from "./creation.js";
@@ -82,10 +82,36 @@ export type SheetRowMarks = SheetRowOps;
 /**
  * What the runs left on the sheet's rows (R17): each row's operations by its
  * id — an entry's or a band's under the entry's id, a line's under
- * `lineId(group, key)` — a later run's over an earlier's on the same row.
+ * `lineId(group, key)` — a later run's over an earlier's on the same row. Each
+ * is kept under the key its entry stands under now: an entry a run's step, or
+ * a gesture since, its Undo or its Redo, moved under the key its row builds
+ * takes them with it, its lines' with it (east-workspace#1709, rulings 14 and
+ * 16; {@link sheetMarksUnder}).
  */
 export interface SheetOptimised {
     readonly rows: ReadonlyMap<string, SheetRowOps>;
+}
+
+/** The kind the diff names the sheet's rows by: one record, every row. */
+const ROWS = "rows";
+
+/**
+ * What the runs left on the sheet's rows, each under the key its entry stands under now (ruling 16 of
+ * east-workspace#1709): an entry moved under another key since takes its own marks and its lines' with it; one that
+ * stands under no key of its own — removed, another come to stand under its key — takes none there.
+ *
+ * @param marks - What the runs left, each under the key its entry stood under
+ * @param follow - Where each entry stands now
+ * @returns The marks, each under the key its entry stands under now
+ */
+export function sheetMarksUnder(marks: SheetOptimised, follow: OptimiseFollow): SheetOptimised {
+    const rows = new Map<string, SheetRowOps>();
+    for (const [id, ops] of marks.rows) {
+        const line = parseLineId(id);
+        const at = follow(ROWS, line === undefined ? id : line.groupId);
+        if (at !== undefined) rows.set(line === undefined ? at : lineId(at, line.key), ops);
+    }
+    return { rows };
 }
 
 /** The sheet's optimiser's types: the request and the result over the rows its Save reaches, and the entry's key. */
@@ -100,9 +126,6 @@ export interface SheetOptimiseTypes {
      */
     readonly entry: { readonly key: ValueTypeOf<EastType>; readonly printed: string } | undefined;
 }
-
-/** The kind the diff names the sheet's rows by: one record, every row. */
-const ROWS = "rows";
 
 const sameCell = equalFor(Sheet.Types.Cell);
 const sameId = equalFor(StringType);
@@ -300,11 +323,7 @@ export function landSheetOptimise(args: SheetLanding,
     };
     return recordOptimiseRun({ changes: updates, counts: diff.counts }, recorder, label, (at) => {
         // What earlier runs left, each row's under the key it stands under now — its lines' with it — and this run's over theirs.
-        const rows = new Map<string, SheetRowOps>();
-        for (const [id, marks] of earlier?.rows ?? []) {
-            const line = parseLineId(id);
-            rows.set(line === undefined ? at(ROWS, id) : lineId(at(ROWS, line.groupId), line.key), marks);
-        }
+        const rows = new Map<string, SheetRowOps>(earlier === undefined ? [] : sheetMarksUnder(earlier, at).rows);
         for (const { id, row, before, wire } of answered) {
             const now = at(ROWS, id);
             markRows(rows, before, sameId(now, id) ? wire : project(row, now), runText);

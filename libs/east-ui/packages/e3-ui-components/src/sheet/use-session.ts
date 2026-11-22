@@ -16,7 +16,7 @@ import { IntegerType, OptionType, StringType, StructType, equalFor, fromEastType
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
-    type EditIssue, type EntryKeys,
+    type EditIssue, type EditPoint, type EntryKeys,
 } from "@elaraai/east-ui-components";
 import { kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -28,7 +28,8 @@ import { optimiseSessions } from "../shared/func/optimise-sessions.js";
 import {
     useOptimise, type OptimiseCounts, type OptimiseMissing, type OptimiseRefused, type OptimiseRowRead, type OptimiseWaiting,
 } from "../shared/func/use-optimise.js";
-import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
+import { useOptimiseMarks, type OptimiseFollowing } from "../shared/func/use-optimise-marks.js";
+import { sheetMarksUnder, sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
@@ -294,7 +295,17 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // out (O4), whose answer is of the rows it was asked of.
     const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
     const runScope = printRunScope({ rows: rowsQuery, tab: ui.tabs.active ?? "", entry: optimiseTypes.entry?.printed ?? "" });
-    const [optimised, setOptimised] = useState<SheetOptimised | undefined>(undefined);
+    // What the runs left on the rows (R17), each mark under the key its row stands under now, whoever moved it there — a
+    // gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709): followed through the
+    // session's history from where the rows stood as each run landed.
+    const following = useMemo((): OptimiseFollowing<EditPoint> => ({
+        point: () => session.point(),
+        since: (point) => {
+            const follow = session.follow(point);
+            return follow === undefined ? undefined : (_kind, id) => follow(id);
+        },
+    }), [session]);
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<SheetOptimised, EditPoint>(following, editingState.version, sheetMarksUnder);
     const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number, read: OptimiseRowRead) =>
         OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined>(() => undefined);
     const run = useOptimise<SheetOptimiseRequest, SheetOptimiseResult>({
@@ -470,7 +481,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
         landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseTypes, optimiseWhole, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
-        session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
+        session, setBarClosedAt, setLayer, keepOptimised, clearOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,
     };
 }

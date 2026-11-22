@@ -41,12 +41,14 @@ import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
-import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { optimiseLandedCounts, type OptimiseFollow } from "../shared/func/optimise-diff.js";
 import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import type { SchedulePoint } from "../shared/schedule/editing.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
@@ -72,7 +74,7 @@ import {
     type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekPeriod, type WeekState,
 } from "./model.js";
 import {
-    landRosterOptimise, lockRosterCommands, rosterFixed, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimisePeriod, type RosterOptimiseRequest,
+    landRosterOptimise, lockRosterCommands, rosterFixed, rosterMarksUnder, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimisePeriod, type RosterOptimiseRequest,
     type RosterOptimiseResult, type RosterOptimised, type RosterReach,
 } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
@@ -442,7 +444,10 @@ function RosterFrame(props: FrameProps) {
             return { type: "beyond", at: roles.start };
         };
     }, [edgesForm, current, neighbours, span, weekStates, days, source, periodDrafts, domain, context]);
-    const [optimised, setOptimised] = useState<RosterOptimised | undefined>(undefined);
+    // What the runs left on the duties (R17), each mark under the key its duty stands under now, whoever moved it there — a
+    // gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const dutyMarksUnder = useCallback((marks: RosterOptimised, follow: OptimiseFollow) => rosterMarksUnder(marks, follow, dutySlot), [dutySlot]);
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<RosterOptimised, SchedulePoint>(editing?.schedule, editing?.schedule.version ?? 0, dutyMarksUnder);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // The period, as the eye, the footer line and the banner name it (#1409): `W11`, a day's date, a month's weeks.
     const weekLabel = span.period === "month" ? spanWords(format, span) : dayView ? format.weekdayDate(asked.from) : `W${format.number(weekNumber(start))}`;
@@ -467,7 +472,7 @@ function RosterFrame(props: FrameProps) {
                 held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }), runText,
                 period: now.weekLabel, format, before: now.optimised, reach: now.reach, edges: edgesForm, days, m: rosterMessages });
             // Duties the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // While a run is out (R2) the Roster takes no gesture: every command refused with the one reason, the drags off, the history locked.
@@ -498,8 +503,8 @@ function RosterFrame(props: FrameProps) {
     // kept while that step is the next to redo.
     const pendingSteps = editing?.history.pending ?? 0;
     useEffect(() => {
-        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [pendingSteps, editing?.schedule.version, editing]);
+        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") clearOptimised();
+    }, [pendingSteps, editing?.schedule.version, editing, clearOptimised]);
     const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, weeks: weekStates, context, storageKey: key, narrow, start, format, onError: setError });
     // The groups' folds, the board's and the People layout's: what a conflict's Go to opens.
     const groups = useGroupCollapse(drag.surface);

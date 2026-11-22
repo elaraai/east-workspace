@@ -24,13 +24,13 @@ import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGe
 import {
     EntryRefType, drawnFromKeys, fieldBreaches, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
     useTrackedEvaluation,
-    type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
+    type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditPoint, type EditSession,
     type EntryKeys, type EntryVersion, type LandedEntry, type Origin,
 } from "@elaraai/east-ui-components";
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
-import { settleBuiltKeys } from "../built-keys.js";
+import { builtKeyOrigins, settleBuiltKeys } from "../built-keys.js";
 import { givenKeys } from "../given-keys.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
@@ -304,6 +304,13 @@ export type ScheduleFollowing = (moved: ScheduleRenumbered) =>
     | { readonly changes: readonly ScheduleChange[] }
     | { readonly refused: string; readonly kind: string; readonly id: string };
 
+/**
+ * A point of the history, as the rows stood when it was taken (ruling 16 of east-workspace#1709): each kind's and each
+ * record's session's own (`EditSession.point`), by the session's key in the history. What a builder that keeps
+ * something of a row by its key takes as it keeps it, and follows the row from ({@link ScheduleEditing.since}).
+ */
+export type SchedulePoint = ReadonlyMap<string, EditPoint>;
+
 /** One kind's session, or one record's, as the history holds it, for its banners. */
 export interface ScheduleKindSession {
     /** The kind's slot, or the record's key. */
@@ -548,6 +555,27 @@ export interface ScheduleEditing<I extends Item = Item> {
      * @returns The key's text it stands under
      */
     under(kind: string, id: string): string;
+    /**
+     * Where the rows stand now, as a point of the history to follow them from ({@link ScheduleEditing.since}; ruling 16
+     * of east-workspace#1709): what a builder that keeps something of a row by its key takes as it keeps it — what an
+     * optimiser's answer left on its rows, as its step is recorded.
+     *
+     * @returns The point
+     */
+    point(): SchedulePoint;
+    /**
+     * Where each row stands now, from where it stood at a point of the history ({@link ScheduleEditing.point}), by its
+     * kind's slot or its record's key and the key's text it had there: under the key its fields build wherever a gesture
+     * since moved it there, its Undo and its Redo among them, and the Undo and Redo of the step the point was taken after;
+     * under the key a carry-over gave a new row; and under none once another row has come to stand under its key, or the
+     * step that made it is undone (`EditSession.follow`).
+     *
+     * @param point - The point
+     * @returns Each row's key's text now — `undefined` for a row that stands under no key of its own; `undefined` itself
+     *   where the history no longer holds what was done up to the point: the step it was taken after dropped — undone,
+     *   then another gesture recorded in its place — or the drafts discarded
+     */
+    since(point: SchedulePoint): ((kind: string, id: string) => string | undefined) | undefined;
 }
 
 /** What {@link useScheduleEditing} reads. */
@@ -1475,7 +1503,12 @@ export function useScheduleEditing<I extends Item = Item>({
             const made = gestureOf(changes);
             if (made === undefined) return false;
             const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...made.touched]
-                .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))
+                .map(([key, entries]) => {
+                    // Where each row the gesture moved came from, which the session follows it by (ruling 16 of
+                    // east-workspace#1709).
+                    const came = builtKeyOrigins(made.moves.get(parts[keys.indexOf(key)]!.key) ?? NO_MOVES, entries);
+                    return { key, updates: [...entries].map(([id, versions]) => ({ id, ...versions, from: came.get(id) })) };
+                })
                 .filter((part) => part.updates.length > 0);
             // The moves that hold as the gesture is made: a row one left where it stands moves on from the key its record
             // holds it under.
@@ -1501,6 +1534,29 @@ export function useScheduleEditing<I extends Item = Item>({
         under(kind: string, id: string): string {
             return lastMovesRef.current.get(kind)?.get(id) ?? id;
         },
+        point(): SchedulePoint {
+            const out = new Map<string, EditPoint>();
+            for (const key of keys) {
+                const session = history.session(key);
+                if (session !== undefined) out.set(key, session.point());
+            }
+            return out;
+        },
+        since(point: SchedulePoint): ((kind: string, id: string) => string | undefined) | undefined {
+            // Each session's way from the point: one that can say none — what it held up to the point dropped since — says
+            // the history holds none of it.
+            const follows = new Map<string, (id: string) => string | undefined>();
+            for (const [key, at] of point) {
+                const follow = history.session(key)?.follow(at);
+                if (follow === undefined) return undefined;
+                follows.set(key, follow);
+            }
+            return (kind, id) => {
+                const i = indexOf(kind);
+                const follow = i < 0 ? undefined : follows.get(keys[i]!);
+                return follow === undefined ? id : follow(id);
+            };
+        },
     };
     // Stable to the canvas and the inspector: each runs the latest render's.
     const latest = useRef(api);
@@ -1522,10 +1578,13 @@ export function useScheduleEditing<I extends Item = Item>({
     const keyRefusal = useCallback(() => latest.current.keyRefusal(), []);
     const keyRefusalOf = useCallback((changes: readonly ScheduleChange[]) => latest.current.keyRefusalOf(changes), []);
     const under = useCallback((kind: string, id: string) => latest.current.under(kind, id), []);
+    const point = useCallback(() => latest.current.point(), []);
+    const since = useCallback((at: SchedulePoint) => latest.current.since(at), []);
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version, lastKeys,
         shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under,
+        point, since,
     }), [history, sessions, drafts, landed, renumbered, version, lastKeys, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read,
-        row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under]);
+        row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under, point, since]);
 }

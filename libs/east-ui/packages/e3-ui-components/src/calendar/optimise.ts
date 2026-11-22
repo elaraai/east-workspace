@@ -21,7 +21,7 @@
 
 import { StringType, equalFor, fromEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords, type ScheduleOptimiseRecords } from "@elaraai/e3-ui/internal";
-import { opKey, opKeyUnder, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseLanded, type OptimiseOp } from "../shared/func/optimise-diff.js";
+import { opKey, opKeyUnder, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseFollow, type OptimiseLanded, type OptimiseOp } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
@@ -49,7 +49,8 @@ const sameKey = equalFor(StringType);
  * event, and where a removed or a moved event stood before its run — its
  * ghost's place. Each is kept under the key its event stands under now: an
  * event a run's step moved under the key its fields build takes them with it
- * (east-workspace#1709, ruling 14).
+ * (east-workspace#1709, ruling 14), and so does one a gesture since, its Undo or
+ * its Redo moved (ruling 16, {@link calendarMarksUnder}).
  */
 export interface CalendarOptimised {
     /** Each operation, under `opKey(kind, id)` of the key its event stands under now, with the run that made it. */
@@ -61,6 +62,31 @@ export interface CalendarOptimised {
     readonly previous: ReadonlyMap<string, CalendarItem>;
     /** Whether the latest run moved an event into or out of the backlog: the Backlog tab's count flashes. */
     readonly backlogChanged: boolean;
+}
+
+/**
+ * What the runs left on the Calendar's events, each under the key its event stands under now (ruling 16 of
+ * east-workspace#1709): an event moved under another key since takes its operation and its ghost with it, the ghost
+ * named by that key; an event that stands under no key of its own — removed, another come to stand under its key —
+ * takes neither there.
+ *
+ * @param marks - What the runs left, each under the key its event stood under
+ * @param follow - Where each event stands now
+ * @returns The marks, each under the key its event stands under now
+ */
+export function calendarMarksUnder(marks: CalendarOptimised, follow: OptimiseFollow): CalendarOptimised {
+    const ops = new Map<string, CalendarOp>();
+    for (const [key, op] of marks.ops) {
+        const at = opKeyUnder(key, follow);
+        if (at !== undefined) ops.set(at, op);
+    }
+    const previous = new Map<string, CalendarItem>();
+    for (const [key, was] of marks.previous) {
+        const at = opKeyUnder(key, follow);
+        const id = follow(was.kind, was.key);
+        if (at !== undefined && id !== undefined) previous.set(at, sameKey(id, was.key) ? was : { ...was, key: id });
+    }
+    return { ops, previous, backlogChanged: marks.backlogChanged };
 }
 
 /** A kind's key and row types, from the kind on the wire. */
@@ -158,8 +184,9 @@ export function landCalendarOptimise(value: CalendarValue, types: CalendarOptimi
         };
         // This run's operations over the earlier runs', each under the key its event stands under now: an event it
         // touched again is its, with where it stood before this run — a changed or a removed event's ghost's place.
-        const ops = new Map<string, CalendarOp>([...(before?.ops ?? [])].map(([key, op]) => [opKeyUnder(key, under), op]));
-        const previous = new Map<string, CalendarItem>([...(before?.previous ?? [])].map(([key, was]) => [opKeyUnder(key, under), named(was)]));
+        const earlier = before === undefined ? undefined : calendarMarksUnder(before, under);
+        const ops = new Map<string, CalendarOp>(earlier?.ops ?? []);
+        const previous = new Map<string, CalendarItem>(earlier?.previous ?? []);
         for (const [key, op] of diff.ops) {
             const at = opKeyUnder(key, under);
             ops.set(at, { ...op, run: runText });

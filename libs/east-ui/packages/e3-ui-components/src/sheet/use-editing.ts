@@ -34,7 +34,7 @@ import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
-import { settleBuiltKeys, type TouchedEntry } from "../shared/built-keys.js";
+import { builtKeyOrigins, settleBuiltKeys, type TouchedEntry } from "../shared/built-keys.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import { closedOver } from "./standing-rows.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -435,7 +435,9 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const gestureOrigin = originOverride ?? origin;
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
-        const recorded = session.record([...updates].map(([id, versions]): EntryUpdate => ({ id, ...versions })), gestureOrigin, label, joins);
+        // Where each row it moved came from, which the session follows it by (ruling 16 of east-workspace#1709).
+        const came = builtKeyOrigins(moves, updates);
+        const recorded = session.record([...updates].map(([id, versions]): EntryUpdate => ({ id, ...versions, from: came.get(id) })), gestureOrigin, label, joins);
         if (recorded) {
             lastMoves.current = moves;
             if (moves.size > 0) setMoved(moves);
@@ -455,7 +457,8 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         if (keyedAs !== undefined) {
             for (const [id, { before, after }] of touched) if (before.draft === undefined && !arrived.has(id)) touched.set(id, { before, after: keyedAs(id, after) });
         }
-        const recorded = session.record([...touched].map(([id, versions]): EntryUpdate => ({ id, ...versions })), origin, label);
+        const came = builtKeyOrigins(moves, touched);
+        const recorded = session.record([...touched].map(([id, versions]): EntryUpdate => ({ id, ...versions, from: came.get(id) })), origin, label);
         if (recorded) {
             lastMoves.current = moves;
             if (moves.size > 0) setMoved(moves);
