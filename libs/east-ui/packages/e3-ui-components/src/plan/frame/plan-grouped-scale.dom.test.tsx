@@ -9,7 +9,9 @@
  * on a press's task and read a cell at a time through its series index. What
  * the Plan asks e3 for is read from the harness's request log as the page
  * opens, as the view rests inside a hall, and as it rests with a hall's own row
- * at its top.
+ * at its top. A step waits for its scroll to rest before it reads the log
+ * (`scrollStopped`): the Plan asks for a view's events only then, and a press's
+ * row mounting says nothing of it.
  *
  * - At each rest the jobs read are those of the blocks of presses meeting the
  *   view and its margin, never every block from the page's first row: a hall's
@@ -42,7 +44,7 @@ import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { SCHEDULE_CELL_BLOCK } from "../../shared/schedule/cells.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
-import { emulateWindowScroll } from "../window-scroll.test-utils.js";
+import { emulateWindowScroll, scrollStopped } from "../window-scroll.test-utils.js";
 import { act, planHarness, settle } from "./harness.test-utils.js";
 
 // ── Sizes ────────────────────────────────────────────────────────────────────
@@ -321,6 +323,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             cpu0 = cpu();
             act(() => { window.scrollTo({ top: hallTop(deep) + hallPx + 5 * pressPx }); });
             await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(deep, 2)}`))).toBe(true), { timeout: 600_000 });
+            await scrollStopped();
             await settle();
             report(`inside hall ${deep}`, from, cpu0, container);
             expect(searchesOf(from)).toBeGreaterThan(0);
@@ -332,6 +335,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
             cpu0 = cpu();
             act(() => { window.scrollTo({ top: hallTop(deep) }); });
             await waitFor(() => expect(mounted(container).some((key) => key.includes(`P${pad(deep, 2)}0000`))).toBe(true), { timeout: 600_000 });
+            await scrollStopped();
             await settle();
             report(`hall ${deep}'s own row at the top`, from, cpu0, container);
             expect(searchesOf(from)).toBeLessThanOrEqual(atMost);
@@ -377,6 +381,7 @@ describe("a Plan over grouped rows at a page's size (#1710)", () => {
                 act(() => { window.scrollTo({ top: Math.max(0, extent() - window.innerHeight) }); });
                 expect(mounted(container).some((key) => key.includes(`P${pad(last, 2)}`))).toBe(true);
             }, { timeout: 600_000 });
+            await scrollStopped();
             await settle();
             report(`the end, hall ${last}`, from, cpu0, container);
             // The last hall's window, with the few the driver keeps beside the view as the halls estimated above it settle

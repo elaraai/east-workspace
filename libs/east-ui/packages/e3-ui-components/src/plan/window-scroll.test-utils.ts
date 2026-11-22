@@ -10,6 +10,22 @@
  * @packageDocumentation
  */
 
+import { act } from "@testing-library/react";
+import { INTENT_DWELL_MS } from "@elaraai/east-ui-components/internal";
+
+/**
+ * Waits until the scroll just made rests, as the row frame says it (#1711). A paged canvas reports the rows in view,
+ * and its event kinds' reader asks for their events, only once the view has held still for the frame's dwell
+ * (east-ui-components' `INTENT_DWELL_MS`): a test that reads what a stop asked waits here, then settles. A mounted row
+ * says nothing of it, since a scroll under way mounts its rows at once.
+ *
+ * The wait is an order of two timers, never a race against one: this one is set after the dwell's and is due after
+ * it, so it fires after it on any machine.
+ */
+export async function scrollStopped(): Promise<void> {
+    await act(async () => { await new Promise<void>((resolve) => { setTimeout(resolve, INTENT_DWELL_MS + 1); }); });
+}
+
 /**
  * What the unbounded canvas reads from the page it scrolls in (#812), for a
  * jsdom that lays nothing out: the canvas sits at the top of a tall document,

@@ -39,8 +39,12 @@ export {
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 // A row's measured height on the device-pixel grid the frame places its rows on — what a collection measures its rows'
 // estimates from (#1398, CL8); where the rows a collection draws as runs stand, which the frame anchors on (#1424); and
-// the sections whose first rows stick under the header — the Roster's work requirement over its people (#1568).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport, type StickySection } from "./collections/virtual-rows.js";
+// the sections whose first rows stick under the header — the Roster's work requirement over its people (#1568). And how long
+// a view holds still before the frame says its scroll rests, which a paged reader asks for its rows by: what a test of
+// what a stop reads waits past (#1711).
+export {
+    INTENT_DWELL_MS, VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport, type StickySection,
+} from "./collections/virtual-rows.js";
 // What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view, and
 // which row shows at the top of the view, for the row that says something once there (#1398).
 export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
