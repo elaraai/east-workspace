@@ -389,6 +389,8 @@ export interface QueryMessages {
     fixUnwhole: (p: { field: string }) => string;
     /** Take the step out. */
     fixRemoveStep: () => string;
+    /** In the jq view: bind `$now`, the minute the query is asked, where jq reads it unbound (#1674). */
+    fixBindNow: () => string;
 
     // ── The generated description (§4.13) ───────────────────────────────
     /** Try the model — `Demand over price from 10 to 12 in steps of 0.5, region NSW`. */

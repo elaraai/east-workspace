@@ -404,6 +404,7 @@ export const queryMessages: QueryMessages = {
     fixUse: ({ label }) => `Use ${label}`,
     fixUnwhole: ({ field }) => `Use .${field}.type`,
     fixRemoveStep: () => "Remove this step",
+    fixBindNow: () => "Bind $now, the minute the query is asked",
 
     describeModel: ({ result, input, from, to, step, fixed }) =>
         `${capitalised(result)} over ${input} from ${from} to ${to} in steps of ${step}${fixed.map(f => `, ${f}`).join("")}`,

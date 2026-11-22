@@ -18,7 +18,8 @@
  *   for rows narrowed by "is in the last", only in the minute it was read.
  * - **J3**: the problems panel — codes, positions and sentences, a note on a
  *   part that stays a jq step, going to a range, and each text-edit fix making
- *   a program that checks clean, one gesture of its own.
+ *   a program that checks clean, one gesture of its own; a `$now` read with no
+ *   bind, bound by its fix (#1674).
  * - **J4**: the jq left is one transaction; ⌘⏎ runs it; Tab inserts two
  *   spaces; the completions close as the caret moves and on blur.
  * - **Another query opened while it shows one** (#1132): the opened query's
@@ -340,6 +341,33 @@ describe("the jq view (#937) — J3 the problems panel", () => {
         expect(area().value).toBe(".orders\n| sort_by(-.total)\n| map(.total)");
         await press("Undo");
         expect(area().value).toBe(".orders\n| sort_by(-.total)\n| map(.totl)");
+        await press("Undo");
+        expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
+    });
+
+    test("a $now read with no bind is one fix from the minute the query is asked: the bind written first, the jq clean, and a jq step in the visual view (#1674)", async () => {
+        await mount();
+        await openJq(BIG.name);
+        // The last half hour's shipments: a count in minutes, which no "is in the last" says.
+        const typed = ".orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"minute\"))))";
+        await type(typed);
+        expect([checkWord(), problemRows()]).toEqual(["1 problem", [
+            ["unknown function", "L2:73", "unknown_function: $now is not bound here."],
+            ["note", "L2:3", "custom: not a visual step; it stays as jq in the visual editor."],
+        ]]);
+        expect(within(rowOf("unknown_function")).getAllByRole("button").map((b) => b.textContent).slice(1)).toEqual(["Bind $now, the minute the query is asked"]);
+        await press("Bind $now, the minute the query is asked", rowOf("unknown_function"));
+        const bound = `.now as $now\n| ${typed}`;
+        expect([area().value, checkWord(), area().selectionStart]).toEqual([bound, "Checks clean", ".now as $now\n| ".length]);
+        // The visual view keeps it: a jq step, the minute bound for it as the steps bind one — the jq it prints is the jq fixed.
+        await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "Visual" })); });
+        await settle();
+        expect([viewShown(), [...document.querySelectorAll<HTMLElement>("[data-step-id]")].map((card) => card.getAttribute("data-step-kind"))]).toEqual(["visual", ["jq"]]);
+        await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "jq" })); });
+        await settle();
+        expect([area().value, checkWord()]).toEqual([bound, "Checks clean"]);
+        // One gesture: the jq typed, left as the fix is taken, is already a jq step the steps bind the minute for, and the
+        // fix only writes that bind into the text — so Undo returns the query as it was opened.
         await press("Undo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
     });

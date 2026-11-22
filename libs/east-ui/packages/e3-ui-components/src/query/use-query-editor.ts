@@ -16,9 +16,10 @@
  * - **Visual · jq** (§4.8): to jq prints the program, a note counting the
  *   unfinished steps left out; the jq typed in and left is one gesture —
  *   steps where it parses into them, else the program as jq — and a fix taken
- *   in the jq view (#937) one more, after the jq typed before it; back to
- *   visual keeps jq while the jq does not parse, and says which parts stay jq
- *   steps;
+ *   in the jq view (#937) one more, after the jq typed before it — the
+ *   checker's, and the bind of a `$now` the jq reads unbound (`now-fix.ts`);
+ *   back to visual keeps jq while the jq does not parse, and says which parts
+ *   stay jq steps;
  * - **the check** (§4.12): the steps' check in the visual view, the jq's in
  *   the jq view, and the shape the query gives.
  *
@@ -48,6 +49,7 @@ import type { CardActions } from "./step-card.js";
 import type { QueryCheckLine, QueryGivesLine } from "./status-line.js";
 import { checkSteps, type CheckedSteps, type StepFix } from "./steps/check.js";
 import { applyFix, moveStep, removeStep } from "./steps/edit.js";
+import { withNowFix } from "./steps/now-fix.js";
 import { parseSteps } from "./steps/parse.js";
 import { printSteps } from "./steps/print.js";
 import { shapeOf, type Shape } from "./steps/shape.js";
@@ -334,7 +336,12 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     }, [onShowQuery, view, query, held, jqText, setJqText, setJqNote, sourceId, root, flushJq, notify, m, words]);
 
     // ── The check, and the shape the query gives ────────────────────────
-    const jqCheck = useMemo(() => (view === "jq" || isJq ? checkJq(view === "jq" ? jqText : held, root.type, { root: true }) : undefined), [view, isJq, jqText, held, root]);
+    // The jq as typed binds nothing for its writer: a `$now` it reads unbound is one fix from the minute (`withNowFix`).
+    const jqCheck = useMemo(() => {
+        if (view !== "jq" && !isJq) return undefined;
+        const typed = view === "jq" ? jqText : held;
+        return withNowFix(checkJq(typed, root.type, { root: true }), typed, root, m.fixBindNow());
+    }, [view, isJq, jqText, held, root, m]);
     const { check, gives } = useMemo((): { check: QueryCheckLine; gives: QueryGivesLine | undefined } => {
         const f = words.formatters;
         if (jqCheck !== undefined) {

@@ -987,4 +987,11 @@ describe("P5: summaries are fetched lazily, once per prefix and hashes", () => {
         expect(cache.get(request, summaryHashes(request, hashes, utcAt("2026-06-28T09:01:05.000")))).toBeUndefined();
         expect(summaryHashes(summaryAt(q, 0, ROOT)!, hashes, NOW)).toBe(hashes);
     });
+
+    test("rows a jq step narrows by $now are the minute's too: the summary after it binds the minute and reads now, and the rows before it do not (#1674)", () => {
+        const q = query("orders", [jq(`map(select(.status.type == "shipped") | select(.status.value.date >= ($now | datetime_add(-36; "hour"))))`), sort("total", "desc")]);
+        const request = summaryAt(q, 1, ROOT)!;
+        expect([request.reads, request.prefix.split("\n")[0]]).toEqual([["orders", "now"], ".now as $now"]);
+        expect(summaryAt(q, 0, ROOT)!.reads).toEqual(["orders"]);
+    });
 });
