@@ -483,6 +483,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     // The source position each drafted row the rows draw stood at as the layer was last made: what stands through a
     // carry-over (`standing-rows.ts`).
     const stoodRef = useRef<ReadonlyMap<string, number>>(new Map());
+    // Each row the layer last drew in the place of another — one a gesture moved under another key, in the place of the
+    // row it was — by the key of the row whose place it is: what stands through its Save, whose landing ends the move
+    // (`EditSession.moved`) while the rows, read before it, hold the row under the key it began under still.
+    const stoodInRef = useRef<ReadonlyMap<string, string>>(new Map());
     const { layer, savedFrom } = useMemo((): { layer: LocalLayer; savedFrom: ReadonlyMap<string, string | undefined> } => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
@@ -524,9 +528,30 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // A row a gesture moved under another key (`key`, east-workspace#1709) is the row it was: where the rows drawn hold
         // it under the key it began under, it stands in that row's place under its new one, until its source reads it
         // again — never at the end of the rows, where a row the drafts add stands, off a paged sheet's view. Each such
-        // row's new key, by the key it began under.
+        // row's key, by the key of the row whose place it stands in.
         const standsIn = new Map<string, string>();
-        for (const [id, began] of session.moved) if (drawn(began) && !drawn(id) && session.entries.get(id)?.wire !== undefined) standsIn.set(began, id);
+        // Its Save lands it under its new key, and takes the row it was off the record: a move no more, while the rows,
+        // read before that Save, hold the row under the key it began under still. It stands there on, as the layer last
+        // drew it, until they are read again — never at the rows' end for that one read, the rows under the ring changing
+        // places with it — whether it is edited again meanwhile or moved on under another key. Each such row's place, by
+        // its key: the key of the row the rows hold still.
+        const landedIn = new Map<string, string>();
+        for (const [at, id] of stoodInRef.current) {
+            const left = session.landed.get(at);
+            const arrived = session.landed.get(id);
+            if (left === undefined || arrived === undefined || left.after.wire !== undefined) continue;
+            if (!drawn(at) || drawn(id) || !awaiting(at, left.from) || !awaiting(id, arrived.from)) continue;
+            landedIn.set(id, at);
+            // A row drafted under the key again has its own place there; and a row removed since stands nowhere.
+            if (session.entries.get(at)?.wire !== undefined) continue;
+            if ((session.entries.get(id) ?? arrived.after).wire !== undefined) standsIn.set(at, id);
+        }
+        for (const [id, began] of session.moved) {
+            const at = drawn(began) ? began : landedIn.get(began);
+            if (at !== undefined && !drawn(id) && session.entries.get(id)?.wire !== undefined) standsIn.set(at, id);
+        }
+        // Each row that stands in another's place, to the key of the row whose place it is.
+        const placeOf = new Map([...standsIn].map(([at, id]) => [id, at] as const));
         for (const [id, entry] of session.entries) {
             const before = session.originals.get(id) ?? absent;
             const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
@@ -552,10 +577,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             // A row its draft removes is drawn nowhere, and remembered where it stood: the removal taken back finds it so. One
             // a gesture moved under another key is not removed: its row is drawn there, under that key.
             if (entry.wire === undefined) { if (!standsIn.has(id)) removed.add(id); if (was !== undefined) stands.set(id, was); continue; }
-            const began = session.moved.get(id);
-            if (began !== undefined && stringEqual(standsIn.get(began) ?? began, id)) {
+            const inPlaceOf = placeOf.get(id);
+            if (inPlaceOf !== undefined) {
                 // The moved row, in the place of the row it was.
-                edits.set(began, entry.wire);
+                edits.set(inPlaceOf, entry.wire);
                 continue;
             }
             if (held.draft === undefined && !drawn(id)) {
@@ -587,13 +612,17 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             if (!samePlace(held.place, entry.place)) placements.set(id, entry.place);
         }
         stoodRef.current = stands;
+        stoodInRef.current = new Map([...[...landedIn].map(([id, at]) => [at, id] as const), ...standsIn]);
         // What a Save landed, over the rows read before it: an entry it removed stays off them, one it added stands where
-        // it placed it until a row read again brings it, and one the rows hold is drawn as the Save left it.
+        // it placed it until a row read again brings it, and one the rows hold is drawn as the Save left it. A row it
+        // moved under another key stands in the place of the row it was, which is then not removed.
         for (const [id, saved] of session.landed) {
             if (drafted.has(id) || !awaiting(id, saved.from)) continue;
             savedFrom.set(id, saved.from);
             const { before, after } = saved;
-            if (after.wire === undefined) { removed.add(id); continue; }
+            if (after.wire === undefined) { if (!standsIn.has(id)) removed.add(id); continue; }
+            const inPlaceOf = placeOf.get(id);
+            if (inPlaceOf !== undefined) { edits.set(inPlaceOf, after.wire); continue; }
             if (before.draft === undefined && !drawn(id)) appended.push(after.wire); else edits.set(id, after.wire);
             if (!samePlace(before.place, after.place)) placements.set(id, after.place);
         }

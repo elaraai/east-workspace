@@ -24,7 +24,7 @@ import type { SheetSavedView, SheetNarrowing, SheetRootValue, SheetRowValue } fr
 import type { SheetDecode } from "./use-decode.js";
 import type { SheetSession } from "./use-session.js";
 import type { SheetBody } from "./use-body.js";
-import { followRows, rekeyedSlots, rowsReordered, type RowSlot, slotOf } from "./items.js";
+import { followRows, rekeyedSlots, type RowSlot, slotOf } from "./items.js";
 
 /**
  * The machine's East values, by their types' names: a value's inferred type carries East's variant brand, which the
@@ -244,11 +244,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     // have it — but for a gesture that put rows under other keys, where the
     // app builds a row's key from the row (`key`): the rows stand in key
     // order, so it moved them, and a place on a row follows it to the key it
-    // stands under now. A padding row's place stays the gesture's to set. And
-    // the same rows in another order are followed whatever moved them: a
-    // Save's rows stand where it left them until their source reads them
-    // again, then where it reads them, and between the two the sheet's own
-    // rows change places with no change of the source's.
+    // stands under now. A padding row's place stays the gesture's to set.
     const rowSpaceSlots = useMemo(() => rowSpace.bodyIndexOf.map((bi) => slotOf(body[bi]!)), [rowSpace, body]);
     const seenRows = useRef({ source: sourceRows, slots: rowSpaceSlots });
     const keyMoves = editingState.moved;
@@ -260,7 +256,6 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
         seenKeyMoves.current = keyMoves;
         const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots)
             : rekeyed ? followRows(rekeyedSlots(seen.slots, keyMoves), rowSpaceSlots)
-            : rowsReordered(seen.slots, rowSpaceSlots) ? followRows(seen.slots, rowSpaceSlots)
             : undefined;
         dispatch({ t: "rows.changed", moved });
     }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch, keyMoves]);

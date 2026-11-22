@@ -122,35 +122,6 @@ export function followRows(before: readonly (RowSlot | undefined)[], after: read
 }
 
 /**
- * Whether a row space holds the rows it held, in another order: every place a row's or a group's, each id once before
- * and once after, and some row at another place. What a sheet's own rows do when a Save's rows stand where it left them
- * until their source reads them again (east-workspace#1709) — nothing added, nothing gone — so each place may follow
- * its row ({@link followRows}) with no row to lose.
- *
- * @param before - The places before
- * @param after - The places after
- * @returns Whether they are the same rows, reordered
- */
-export function rowsReordered(before: readonly (RowSlot | undefined)[], after: readonly (RowSlot | undefined)[]): boolean {
-    if (before.length !== after.length) return false;
-    const at = new Map<string, number>();
-    for (const [r, slot] of before.entries()) {
-        if (slot === undefined || !("id" in slot) || at.has(slot.id)) return false;
-        at.set(slot.id, r);
-    }
-    let moved = false;
-    const seen = new Set<string>();
-    for (const [r, slot] of after.entries()) {
-        if (slot === undefined || !("id" in slot) || seen.has(slot.id)) return false;
-        const was = at.get(slot.id);
-        if (was === undefined) return false;
-        seen.add(slot.id);
-        if (was !== r) moved = true;
-    }
-    return moved;
-}
-
-/**
  * A row space's places as they are named once a gesture has put rows under other keys (`key`, east-workspace#1709):
  * what {@link followRows} follows them by. A row and a group go by the key each stands under now, and a group's
  * lines and its blank line with it — each is named after its group. A padding row's place is left out: where the ring

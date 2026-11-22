@@ -267,13 +267,20 @@ test("ruling 16 — over lanes paged from the rail's `rows` source, a lane a typ
     // Moved on again, it is the same lane still, in the same place.
     await paste(c, cellOf(c, "109", "slot"), "7");
     expect(ids(c)).toEqual(["101", "107", "103", "201"]);
+    // Every order the lanes are drawn in from the Save on, and the lane the ring is on in each.
+    const drawn: string[] = [];
+    const watch = new MutationObserver(() => { drawn.push(`${ids(c).join(" ")} | ${ringOn(c)}`); });
+    watch.observe(c, { subtree: true, childList: true, attributes: true });
     await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
     await waitFor(async () => expect([...(await h.read(pagedLanes)).keys()]).toEqual([101n, 103n, 107n, 201n]));
     const saved = await h.read(pagedLanes);
     expect(laneEqual(saved.get(107n)!, { aisle: 1n, slot: 7n, note: "Picks" }), printFor(pagedLanes.type)(saved)).toBe(true);
     // Read again, it stands in its key's place — and the ring, which was on it, is on it still: never on the lane that
     // took the place it stood in.
-    expect(ringOn(c)).toBe("107");
     await waitFor(() => expect(ids(c)).toEqual(["101", "103", "107", "201"]));
     expect(ringOn(c)).toBe("107");
+    watch.disconnect();
+    // Saved and not yet read again, it stood where it was typed: never at the rows' end for that one read, the lanes
+    // under the ring changing places with it.
+    expect([...new Set(drawn)]).toEqual(["101 107 103 201 | 107", "101 103 107 201 | 107"]);
 });
