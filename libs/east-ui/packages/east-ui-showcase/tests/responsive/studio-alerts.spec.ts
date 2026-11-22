@@ -40,6 +40,19 @@
  *    menu from 2 before its box to 18 past it — so neither takes a tap on the
  *    other's box. Its popover stands inside the screen.
  *
+ * And the builder over the same page, given the same record (asked 22 November
+ * 2026): the selected visual's alerts in its inspector.
+ *
+ *  - B1 a visual's Configure tab holds Alerts, after what it follows and
+ *    before its source's fields: its alerts in a box the section's width, each
+ *    the popover list's own row, then New alert at the section's start, then
+ *    what they are — nothing past the section's edges.
+ *  - B2 an alert opened there is edited in place, at the pane's width: each
+ *    condition row's × at the section's end on the row's first line, whatever
+ *    the row wraps to — one too wide for the pane wraps inside itself; Now's
+ *    table the section's width; and a foot of its own — Delete at its start,
+ *    Cancel and Save at its end, on one line. Cancel gives the list back.
+ *
  * Every measurement is taken from the laid-out page.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -53,6 +66,9 @@ import { token } from "./tokens";
 
 /** The showcase's alerts page. */
 const HASH = "e3/studio/alerts/studioAlertsPage";
+
+/** The showcase's builder over the same page, given the same alerts record. */
+const BUILDER = "e3/studio/alerts/studioAlertsBuilder";
 
 /** The visuals whose alerts the page's check fires: the quarter's revenue, and its months. */
 const FIRING = ["v-revenue", "v-trend"];
@@ -106,6 +122,39 @@ const listed = (open: Locator) => open.locator("[data-studio-alert]").evaluateAl
 
 /** How the row of a flush popover's list is drawn — the pick panel's: padded 8 12, its name 12.5 / 600, its line mono 9.5. */
 const POPOVER_ROW = ["8px", "12px", "8px", "12px", "12.5px", "600", "9.5px", true];
+
+/**
+ * Opens the builder in the light theme, selects a visual on its canvas, and opens the inspector on its Configure tab.
+ *
+ * @returns The tab's Alerts, scrolled to and at rest
+ */
+async function openInspector(page: Page, key: string): Promise<Locator> {
+    await page.goto(`/?theme=light#${BUILDER}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${BUILDER}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    const placed = entry.locator(`[data-snap-grid-tile="${key}"]`);
+    await expect(placed.locator("[data-studio-alert-bell]")).toBeVisible({ timeout: 60_000 });
+    await placed.click({ position: { x: 30, y: 60 } });
+    // The inspector's pane is a rail at this width: open it.
+    const expand = entry.getByRole("button", { name: "Expand Inspector" });
+    if (await expand.count() > 0) await expand.click();
+    const section = entry.locator('[data-studio-configure] [data-configure="alerts"]');
+    await expect(section).toBeVisible({ timeout: 20_000 });
+    await section.scrollIntoViewIfNeeded();
+    await settled(page);
+    return section;
+}
+
+/** Whether any drawn part of a section passes its start or its end — a control hidden for assistive technology aside. */
+const passes = (section: Locator) => section.evaluate((el) => {
+    const own = el.getBoundingClientRect();
+    return [...el.querySelectorAll("*")].some((part) => {
+        const box = part.getBoundingClientRect();
+        // A ghost button hangs its padding 4 before the section's start, so its words stand on the start.
+        return box.width > 1 && box.height > 1 && (box.right > own.right + 0.5 || box.left < own.left - 4.5);
+    });
+});
 
 test.describe("A Studio page's alerts (#1674)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
@@ -277,5 +326,90 @@ test.describe("A Studio page's alerts on a phone (#1674)", () => {
         const box = (await open.boundingBox())!;
         const screen = page.viewportSize()!;
         expect([box.x >= 0, box.x + box.width <= screen.width]).toEqual([true, true]);
+    });
+});
+
+test.describe("The builder's inspector's alerts (#1674)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    test("B1: a visual's Configure tab holds Alerts, after what it follows and before its fields — its alerts in a box the section's width, each the popover list's row, then New alert at the section's start, then what they are; nothing past the section's edges", async ({ page }) => {
+        const section = await openInspector(page, "v-combo");
+        const muted = await token(page, "fg-muted");
+        expect(await section.evaluate((el) => [...el.closest("[data-studio-configure]")!.querySelectorAll("[data-configure]")].map((part) => part.getAttribute("data-configure")).slice(-3)))
+            .toEqual(["follow", "alerts", "fields"]);
+        await expect(section).toHaveAttribute("aria-label", "Alerts");
+        expect((await listed(section)).map((row) => [row.name, row.says, row.color, row.row])).toEqual([["Margin under 19%", "Paused", muted, POPOVER_ROW]]);
+        const read = await section.evaluate((el) => {
+            const own = el.getBoundingClientRect();
+            const list = el.querySelector("[data-studio-alerts]")!.parentElement!.getBoundingClientRect();
+            const add = el.querySelector("[data-studio-new-alert]")!;
+            const hint = el.querySelector("[data-configure-hint]")!;
+            const [button, said] = [add.getBoundingClientRect(), hint.getBoundingClientRect()];
+            return {
+                // The list's box: the section's width.
+                list: [list.left - own.left, own.right - list.right],
+                // New alert: at the section's start, under the list, the row controls' 26 high; the hint under it.
+                add: [add.textContent, button.left - own.left, button.height, button.top >= list.bottom, said.top >= button.bottom],
+                hint: hint.textContent,
+            };
+        });
+        expect(read).toEqual({
+            list: [0, 0],
+            add: ["New alert", 0, 26, true, true],
+            hint: "Checked on the published page. An alert is saved as you write it, not with the page.",
+        });
+        expect(await passes(section)).toBe(false);
+    });
+
+    test("B2: an alert opened in the inspector is edited in place at the pane's width — each condition row's × at the section's end on the row's first line, a row too wide wrapping inside itself; Now's table the section's width; its foot Delete at the start, Cancel and Save at the end, on one line; Cancel gives the list back", async ({ page }) => {
+        const section = await openInspector(page, "v-combo");
+        await section.locator('[data-studio-alert="Margin under 19%"]').click();
+        await expect(section.locator("[data-studio-alert-name]")).toHaveValue("Margin under 19%");
+        // Now: Queensland's margin, of the quarter's five regions.
+        await expect(section.locator("[data-studio-alert-now]")).toContainText("1 of 5 rows meets it now", { timeout: 30_000 });
+        await expect.poll(() => section.locator("[data-studio-alert-rows] tbody tr").count()).toBe(1);
+        await section.scrollIntoViewIfNeeded();
+        await settled(page);
+        const read = await section.evaluate((el) => {
+            const own = el.getBoundingClientRect();
+            const mid = (box: DOMRect) => box.top + box.height / 2;
+            const rows = [...el.querySelectorAll("[data-query-line=row]")].map((row) => {
+                const [box, cross, body] = [row.getBoundingClientRect(), row.querySelector(":scope > [data-query-remove=row]")!.getBoundingClientRect(), row.querySelector("[data-query-row-body]")!];
+                const first = body.querySelector("[data-slot-key]")!.getBoundingClientRect();
+                return {
+                    says: [...body.querySelectorAll("[data-slot-key]")].map((slot) => slot.textContent),
+                    // Its ×: at the section's end, on its first line, past what it says.
+                    cross: [own.right - cross.right, Math.abs(mid(cross) - mid(first)) <= 0.5, body.getBoundingClientRect().right <= cross.left],
+                    lines: Math.round(box.height / 28),
+                };
+            });
+            const table = el.querySelector("[data-studio-alert-rows]")!.getBoundingClientRect();
+            const foot = ["[data-studio-alert-delete]", "[data-studio-alert-save]"].map((mark) => el.querySelector(mark)!);
+            const cancel = foot[1]!.previousElementSibling!;
+            const [remove, keep, save] = [foot[0]!.getBoundingClientRect(), cancel.getBoundingClientRect(), foot[1]!.getBoundingClientRect()];
+            return {
+                rows,
+                table: [table.left - own.left, own.right - table.right],
+                foot: {
+                    says: [foot[0]!.textContent, cancel.textContent, foot[1]!.textContent],
+                    // Delete at the section's start; Cancel 8 before Save, at its end; one line of the row controls' 26, under the table.
+                    at: [remove.left - own.left, save.left - keep.right, own.right - save.right],
+                    line: [remove.top === keep.top && keep.top === save.top, remove.height, remove.top >= table.bottom],
+                },
+            };
+        });
+        expect(read).toEqual({
+            rows: [
+                { says: ["mean margin", "has a value"], cross: [0, true, true], lines: 1 },
+                // Three slots are wider than the pane leaves a row: its value goes to a second line, its × stays on the first.
+                { says: ["mean margin", "is less than", "0.19"], cross: [0, true, true], lines: 2 },
+            ],
+            table: [0, 0],
+            foot: { says: ["Delete", "Cancel", "Save"], at: [0, 8, 0], line: [true, 26, true] },
+        });
+        expect(await passes(section)).toBe(false);
+        await section.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(section.locator("[data-studio-alert-editor]")).toHaveCount(0);
+        expect((await listed(section)).map((row) => row.name)).toEqual(["Margin under 19%"]);
     });
 });

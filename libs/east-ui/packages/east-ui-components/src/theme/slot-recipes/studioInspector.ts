@@ -30,6 +30,9 @@
  *   its form.
  * - the source's fields, last: a search box and 32px rows — a grip, the kind,
  *   the name, the unit and a check once a well holds it.
+ * - a visual's **alerts** (#1674), where the builder was given their record:
+ *   the popover list's rows in a box of the tab's own, New alert under them;
+ *   one edited, its fields 12px apart over a foot of its actions.
  *
  * A field or a well an edit changed is tinted until the page is saved
  * (EDT-10), as a changed field of a form is (`fieldForm`). A form drawn inside
@@ -129,6 +132,7 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
         "menu", "menuHead", "menuItem", "menuItemIcon", "menuRule", "menuForm",
         "fields", "fieldsHead", "count", "fieldSearch", "fieldSearchIcon", "fieldSearchInput", "fieldRows", "fieldRow", "fieldGrip", "fieldKind", "fieldName",
         "fieldUnit", "fieldCheck", "fieldNone",
+        "alerts", "alertEditor", "alertFoot", "alertFootStart", "alertFootActions",
     ],
     base: {
         root: {
@@ -519,5 +523,20 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
         fieldUnit: { flex: "none", fontFamily: "mono", fontSize: "{fontSizes.label.sm}", lineHeight: centredLine(32, 12), color: "fg.subtle", whiteSpace: "nowrap" },
         fieldCheck: { ...icon("12px"), color: "status.pos" },
         fieldNone: { ...SAID, color: "fg.subtle" },
+        /* A visual's alerts, listed (#1674): the popover list's rows — edge to edge, fenced by a hairline — in a box of the
+           tab's own edge, as a select's is. */
+        alerts: {
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "{radii.md}", background: "bg.surface",
+            overflow: "hidden", minWidth: 0,
+        },
+        /* One alert, edited in place: its fields 12px apart, as its popover's body runs them, then its foot. */
+        alertEditor: { display: "flex", flexDirection: "column", gap: "{spacing.3}", minWidth: 0 },
+        /* Its foot: Delete at its start, Cancel and Save at its end — over a hairline, 12px under its fields. */
+        alertFoot: {
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.2}", minWidth: 0,
+            paddingTop: "{spacing.3}", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+        },
+        alertFootStart: { display: "inline-flex", alignItems: "center", minWidth: 0 },
+        alertFootActions: { display: "inline-flex", alignItems: "center", gap: "{spacing.2}", marginInlineStart: "auto" },
     },
 });

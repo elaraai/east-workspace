@@ -416,6 +416,7 @@ export const studioMessages: StudioMessages = {
         }
     },
     alertBell: () => "Alerts",
+    alertsHint: () => "Checked on the published page. An alert is saved as you write it, not with the page.",
     alertNoneFiring: () => "No alert is firing.",
     alertWhere: ({ page, at }) => `${page} · fired ${at}`,
     alertBanner: ({ name, at }) => `${name} fired at ${at}`,

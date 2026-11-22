@@ -19,8 +19,10 @@
  *   change of view starts the kind empty (EDT-8); its wells
  *   ({@link StudioWells}); its own filter, written with the condition rows
  *   in place ({@link StudioOwnFilter}, ruled 19 November 2026); its options, a
- *   form over its kind's struct; what a click on it does; and its source's
- *   fields, which drag onto its wells ({@link StudioFieldsList}).
+ *   form over its kind's struct; what a click on it does; its alerts, where
+ *   the builder was given an alerts record ({@link StudioVisualAlerts}) — the
+ *   record's own, saved as each is written, no part of the page's draft; and
+ *   its source's fields, which drag onto its wells ({@link StudioFieldsList}).
  *
  * Every edit is the placement's content written whole through `onRequest` —
  * a `field` request the canvas takes as one gesture of the page's session,
@@ -55,6 +57,7 @@ import {
 import { EastChakraTextarea, FieldForm, type TextareaValue } from "@elaraai/east-ui-components";
 import type { ChooserSection } from "@elaraai/east-ui-components/internal";
 
+import { StudioVisualAlerts } from "./alert-section.js";
 import { StudioFieldsList } from "./fields-list.js";
 import { StudioFollows, type ConfigurePlacement } from "./follows.js";
 import { InspectorEmpty, InspectorHead, type InspectorPhone, type Selection, type StudioInspectorValue } from "./inspector.js";
@@ -151,7 +154,7 @@ export const StudioConfigure = memo(function StudioConfigure({ value, saved, pag
             {content.type === "component" && <ComponentInfo selection={selection} />}
             {content.type === "text" && <TextEditor text={content.value} saved={saved?.type === "text" ? saved.value : undefined} onEdit={editText} />}
             {content.type === "visual" && (
-                <VisualEditor placement={selection.key} visual={content.value} saved={saved} sources={value.sources} editors={value.editors} pages={pages}
+                <VisualEditor placement={selection.key} title={selection.cell.title.type === "some" ? selection.cell.title.value : undefined} visual={content.value} saved={saved} sources={value.sources} editors={value.editors} pages={pages}
                     placements={placements} dnd={dnd} onEdit={editVisual} onLink={onLink} />
             )}
         </Box>
@@ -262,6 +265,8 @@ function TextEditor({ text, saved, onEdit }: { text: Text; saved: Text | undefin
 /** Props of {@link VisualEditor}. */
 interface VisualEditorProps {
     placement: string;
+    /** The placement's own title; `undefined` for one with none. */
+    title: string | undefined;
     placements: readonly ConfigurePlacement[];
     visual: Visual;
     saved: Content | undefined;
@@ -273,8 +278,8 @@ interface VisualEditorProps {
     onLink: ((placement: string) => void) | undefined;
 }
 
-/** A visual's stack: its source, its view and kind, its wells, its own filter, its options, its click, the visual it follows and its source's fields. */
-function VisualEditor({ placement, placements, visual, saved, sources, editors, pages, dnd, onEdit, onLink }: VisualEditorProps) {
+/** A visual's stack: its source, its view and kind, its wells, its own filter, its options, its click, the visual it follows, its alerts and its source's fields. */
+function VisualEditor({ placement, title, placements, visual, saved, sources, editors, pages, dnd, onEdit, onLink }: VisualEditorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const m = useStudioMessages();
     const east = studioEast();
@@ -350,6 +355,9 @@ function VisualEditor({ placement, placements, visual, saved, sources, editors, 
                     onLink={onLink === undefined ? undefined : () => onLink(placement)}
                     field={({ label, part, hint, children }) => <Fld key={label} label={label} part={part} changed={changed(part)} hint={hint}>{children}</Fld>} />
             </Box>
+            {/* Its alerts: the record's, another visual's in another's place. */}
+            <StudioVisualAlerts key={placement} placement={placement} visual={visual} title={title} source={source}
+                field={({ label, part, hint, children }) => <Fld key={label} label={label} part={part} hint={hint}>{children}</Fld>} />
             {source !== undefined && (
                 <StudioFieldsList source={source} placed={placed} library={dnd.fields} />
             )}

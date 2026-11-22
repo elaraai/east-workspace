@@ -62,7 +62,7 @@ import { StudioSourceType, studioSources, type StudioSourceDeclaration } from ".
  * @property id - Names the builder, when a surface holds two: its palette's drag sources
  * @property page - The page it shows; `none`, the builder holds its own open page, the project's first to begin with
  * @property onOpen - Told when its palette's Pages tab asks for another page, with its key
- * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells; `none`, no visual shows a bell
+ * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells, and the inspector's Alerts; `none`, neither is shown
  */
 export const StudioBuilderPayloadType = StructType({
     pages: StudioPagesHandleType,
@@ -144,8 +144,12 @@ export interface StudioBuilderOptions {
     /**
      * The alerts record, bound with its patch mutation — `Record.bind(alerts)`
      * (#1674). Given, every data visual's header carries a bell, which sets
-     * and lists its alerts: a condition on the rows its page's live version
-     * draws. Omitted, no visual shows a bell.
+     * and lists its alerts — a condition on the rows its page's live version
+     * draws — and the selected visual's Configure tab in the inspector ends
+     * with the same alerts, set there in place. An alert is the record's, no
+     * part of the page's draft: it is saved as it is written, and the page's
+     * Undo, Discard and Publish leave it as it is. Omitted, no visual shows a
+     * bell and the inspector lists no alerts.
      */
     alerts?: StudioAlertsHandle;
 }
@@ -163,7 +167,9 @@ export interface StudioBuilderOptions {
  *   components by category, each naming what it reads, dragged onto the grid;
  *   and the project's pages, a click opening one.
  * - **The inspector**, after it, is the selected placement: its component,
- *   what it reads, its description, and its span, row, height and alignment.
+ *   what it reads, its description, and its span, row, height and alignment;
+ *   a visual's source, wells, filter, options and click — and, where `alerts`
+ *   is given, its alerts.
  * - **Preview** and **Publish** open the publish preview in the canvas's
  *   place, full-bleed — the open page as it will publish, what changed since
  *   its live version, and Save as draft and Publish; **Exit** returns to the

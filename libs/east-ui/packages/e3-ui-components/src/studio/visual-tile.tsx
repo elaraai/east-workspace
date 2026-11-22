@@ -99,9 +99,14 @@ export interface StudioVisualTileProps {
 
 /**
  * A placement's name, as its tile's eyebrow says it (TIL-1): its own title,
- * else one made from its wells, else its view.
+ * else one made from its wells, else its view — what its bell's popover, its
+ * rows and the inspector's Alerts name it by too.
+ *
+ * @param visual - The visual
+ * @param title - Its placement's own title; `undefined` for one with none
+ * @returns Its name
  */
-function useVisualTitle(visual: Visual, title: string | undefined): string {
+export function useVisualTitle(visual: Visual, title: string | undefined): string {
     const m = useStudioMessages();
     const east = studioEast();
     const source = useVisualSource(visual.source);

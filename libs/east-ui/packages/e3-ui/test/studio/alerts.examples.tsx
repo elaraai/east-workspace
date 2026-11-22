@@ -14,10 +14,14 @@
  * and August — both of which fire; a customer over 50,000, which none is — the
  * most is 46,555; and a region's margin under 19%, which Queensland's is, but
  * which is paused.
+ *
+ * The builder over the same page is given the record too: the selected
+ * visual's alerts are then set from its inspector, beside everything else of
+ * the visual, as well as from its bell.
  */
 
 import { East, NullType, example, none, parseJq, type ValueTypeOf } from "@elaraai/east";
-import { HStack, Reactive, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, HStack, Reactive, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import { orderFields, studioOrders, studioVisualPages } from "./studio.examples.js";
@@ -95,6 +99,34 @@ export const studioAlertsPage = example({
                             }),
                         }} />
                 </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const studioAlertsBuilder = example({
+    keywords: [
+        "Studio", "Studio.Builder", "alerts", "alert", "inspector", "Configure", "bell", "condition", "threshold", "goal", "paused",
+        "Studio.Types.Alerts", "e3.record", "Record.bind", "mutation.patch", "Studio.source", "Data.bind",
+    ],
+    description: "Alerts set from the builder: `<Studio.Builder alerts>` is given the alerts record bound, as the page is, so the selected visual's Configure tab in the inspector ends with Alerts — its alerts listed, each by its name and where it stands, under New alert — and one is written there, in place: its name, a condition on the visual's rows in the query builder's condition rows, pause, the rows that meet it now, Delete, Cancel and Save. Each tile of the canvas carries the same bell as the page's. An alert is the alerts record's, not the page's draft's: Save, pause and Delete are each a patch of the record as they are made, which the page's Undo, Discard and Publish leave as it is; the published page is what checks them",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Record.bind(studioVisualPages));
+            const orders = $.let(Data.bind(studioOrders));
+            const alerts = $.let(Record.bind(studioAlerts));
+            return (
+                <Box height="760px">
+                    <Studio.Builder pages={pages} components={[]} project="Sales desk" id="studioAlerts" alerts={alerts}
+                        sources={{
+                            orders: Studio.source(orders, {
+                                name: "Orders", icon: "receipt", description: "One row per order",
+                                fields: orderFields,
+                                range: "ordered_at",
+                            }),
+                        }} />
+                </Box>
             );
         }}</Reactive>
     )),

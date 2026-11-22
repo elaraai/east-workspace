@@ -12,6 +12,7 @@ import * as studio from "./studio.examples.js";
 describeEast("Studio examples (#991–#1000, #1669, #1671, #1672, #1674)", (test) => {
     Assert.examples(test, {
         studioAlertsPage: alerts.studioAlertsPage,
+        studioAlertsBuilder: alerts.studioAlertsBuilder,
         studioComponent: component.studioComponent,
         studioPage: page.studioPage,
         studioBuilder: studio.studioBuilder,

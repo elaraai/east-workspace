@@ -692,8 +692,10 @@ export interface StudioMessages {
     alertCannot: () => string;
     /** Where an alert stands, as a list says it — `Firing since 14:00`, `Paused`, `Watching`, `Visual removed`. */
     alertStatus: (p: { status: "firing" | "paused" | "watching" | "removed" | "cleared"; at?: string | undefined }) => string;
-    /** The bar's bell — its accessible name, and its list's head. */
+    /** The bar's bell — its accessible name, and its list's head; and the Configure tab's Alerts field's label. */
     alertBell: () => string;
+    /** Under the Configure tab's Alerts, while it lists them: what checks them, and that they are saved by themselves. */
+    alertsHint: () => string;
     /** The bar's list with no alert firing. */
     alertNoneFiring: () => string;
     /** One firing alert's line in the bar's list: its page, and when it fired — `Overview · fired 14:00`. */
