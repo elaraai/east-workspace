@@ -8,13 +8,13 @@
  * short with its unit a small label beside it, under the tile's eyebrow, which
  * names it; at the end of that row its change against its compare, a DeltaPill
  * in its valence with a caret, so colour is never its only sign; its goal, a
- * square progress bar with a tick at the goal; its trend, a sparkline; and one
- * line of annotation — what the change is against, how far to the goal and
- * the gap (KPI-1 to KPI-3). Each part is gone with its well. What it shows and
+ * square progress bar with a tick at the goal; its trend, a sparkline; and its
+ * annotation — what the change is against, how far to the goal and the gap
+ * (KPI-1 to KPI-3). Each part is gone with its well. What it shows and
  * says is {@link kpiModel}'s; this draws it. At every width a page gives its
  * tile it stands whole (#1692): the `studioVisual` recipe wraps its row and
- * steps its number down; its annotation, cut where it runs past, is whole on
- * hover.
+ * steps its number down; its annotation takes a second line where one cannot
+ * hold it, and past two is cut, its whole on hover.
  *
  * @packageDocumentation
  */
@@ -35,7 +35,7 @@ export interface KpiVisualProps extends VisualAsked {
 
 /**
  * A KPI's tile: its value and unit, its change, its goal, its trend and its
- * one line of annotation.
+ * annotation.
  *
  * @param props - The KPI, its answers and its source
  * @returns The tile's body

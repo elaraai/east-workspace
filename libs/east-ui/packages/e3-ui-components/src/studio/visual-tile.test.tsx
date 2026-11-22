@@ -215,7 +215,7 @@ describe("a visual's tile", () => {
 });
 
 describe("a KPI's tile (#1671)", () => {
-    test("draws its value and unit under its name, its change a pill in its valence with a caret at their row's end, its goal, its trend and one line of annotation", async () => {
+    test("draws its value and unit under its name, its change a pill in its valence with a caret at their row's end, its goal, its trend and its annotation", async () => {
         // Revenue: 210 against an average order of 70; a goal of 300; a month a bucket, July's and August's.
         const kpi = v.kpi({ value: v.sum("revenue", { goal: 300 }), compare: v.mean("revenue"), trend: "ordered_at" });
         const { container } = await page([cell("c1", v.of("orders", kpi))]);

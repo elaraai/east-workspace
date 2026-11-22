@@ -25,7 +25,8 @@
  *  - T2 lies over no other part;
  *  - T3 stands on one line, its words whole, or ended in an ellipsis with
  *    the whole on hover — a phone table's words wrapping at their spaces
- *    (QP11), none split;
+ *    (QP11), none split; a KPI's annotation likewise, on two lines at the
+ *    most, and past them ended by its line clamp with the whole on hover;
  *  - T4 a number stands whole: never cut, never ended in an ellipsis;
  *  - T5 neither the tile nor anything in it scrolls sideways, but a table's
  *    body, inside which a wide table scrolls (TBL-5);
@@ -123,6 +124,8 @@ const KPI_SIZES: TilePage = {
     },
     numbers: ["value", "change"],
     drawings: ["menu", "goal", "trend"],
+    // Its annotation takes a second line where one cannot hold it (ruled 22 November 2026).
+    wraps: ["note"],
 };
 
 /**
@@ -393,6 +396,13 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                 const torn = n > 1 && wraps.includes(name) ? split(el) : undefined;
                 if (torn !== undefined) bad.push(`${tile}: T3 ${name} “${el.textContent}” splits “${torn}” across lines`);
                 else if (n > 1 && !wraps.includes(name)) bad.push(`${tile}: T3 ${name} “${el.textContent}” on ${n} lines`);
+                // A part held to a number of lines — a KPI's annotation, two: cut past them, its line clamp ends it, and its
+                // whole is on hover.
+                if (!(el instanceof SVGElement) && getComputedStyle(el).webkitLineClamp !== "none" && el.scrollHeight > el.clientHeight + 0.5) {
+                    const whole = (el.closest("[title]")?.getAttribute("title") ?? "").includes((el.textContent ?? "").trim());
+                    if (numbers.includes(name)) bad.push(`${tile}: T4 ${name} “${el.textContent}” cut past its lines`);
+                    else if (!whole) bad.push(`${tile}: T3 ${name} “${el.textContent}” cut past its lines with no whole on hover`);
+                }
                 // An SVG text's scroll and client widths are no box's: a donut's words are D1's to read.
                 if (!(el instanceof SVGElement) && el.scrollWidth > el.clientWidth + 0.5) {
                     const look = getComputedStyle(el);
@@ -467,7 +477,7 @@ async function readEveryWidth(page: Page, at: TilePage): Promise<string[]> {
 test.describe("Studio tiles at every size (#1692)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, from the desktop project, at every grid width");
 
-    test("KPIs: every configuration at every span and grid width — inside its tile, over no other part, on one line whole or ended with the whole on hover, its numbers whole, nothing scrolling sideways", async ({ page }) => {
+    test("KPIs: every configuration at every span and grid width — inside its tile, over no other part, on one line whole or ended with the whole on hover — its annotation on two at the most — its numbers whole, nothing scrolling sideways", async ({ page }) => {
         expect(await readEveryWidth(page, KPI_SIZES)).toEqual([]);
     });
 

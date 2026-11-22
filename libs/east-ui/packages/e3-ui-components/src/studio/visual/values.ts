@@ -679,7 +679,7 @@ export interface KpiChange {
  * @property change - Its change against its compare; `undefined` with no compare, or none to make
  * @property trend - Its value along its trend field, a bucket a point in time order; empty with no trend
  * @property goal - How it stands to its value's goal; `undefined` with no goal, or no value
- * @property annotation - Its one line of annotation: what its change is against, with what that was, its trend's
+ * @property annotation - Its annotation, one line of words: what its change is against, with what that was, its trend's
  *   bucket and, when less is better, so — `vs year ago 10.76 · by month` — then how far to its goal and the gap —
  *   `85% of goal 4.50M · 0.66M to go`; `undefined` with neither
  */
@@ -696,7 +696,7 @@ export interface KpiModel {
     readonly trend: readonly number[];
     /** How it stands to its value's goal; `undefined` with no goal, or no value. */
     readonly goal: GoalStanding | undefined;
-    /** Its one line of annotation; `undefined` with nothing to say. */
+    /** Its annotation; `undefined` with nothing to say. */
     readonly annotation: string | undefined;
 }
 
@@ -725,7 +725,7 @@ export function kpiModel(
     const compared = made(1);
     const compare = kpi.compare.type === "some" ? kpi.compare.value : undefined;
     const bucket = asks.find((ask) => ask.role === "trend")?.bucket;
-    // The one line of annotation: what the change is against, then the goal.
+    // The annotation: what the change is against, then the goal.
     const notes: string[] = [];
     let change: KpiChange | undefined;
     if (compare !== undefined && value !== undefined && compared !== undefined) {

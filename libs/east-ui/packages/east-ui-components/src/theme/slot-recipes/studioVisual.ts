@@ -8,7 +8,7 @@
  * around the parts it draws with (#1671): its eyebrow strip, the spec's frame
  * eyebrow — its name, then its meta and its menu at the end (TIL-1, TIL-2) —
  * over its body; a KPI's number and unit, its change at their row's end, its
- * goal's bar with its tick, its trend and its one line of annotation; a
+ * goal's bar with its tick, its trend and its annotation; a
  * pivot's heat legend — its five steps on the
  * heat tokens, each 40 × 12 inside a `--rule`, their lower edges under them in
  * mono 9.5 `--ink-4` (TBL-4); the line that says what a visual holds of
@@ -25,8 +25,9 @@
  * unit under the number where the two do not fit — and its number steps down
  * the design system's sizes, 26 to 20 to 16, as its own width narrows, so the
  * longest number a KPI prints (nine characters: a negative amount under ten
- * thousand, with its cents) is never cut. Its annotation stays one line,
- * ended in an ellipsis, its whole on hover.
+ * thousand, with its cents) is never cut. Its annotation is one line where
+ * its tile holds it, and takes a second where it does not (ruled 22 November
+ * 2026); past two it ends in an ellipsis, its whole on hover.
  *
  * @packageDocumentation
  */
@@ -156,11 +157,12 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         goal: { position: "relative", flexShrink: "0" },
         goalTick: { position: "absolute", insetInlineEnd: "0", top: "-3px", width: "1px", height: "12px", background: "fg.muted", pointerEvents: "none" },
         trend: { height: "36px", width: "100%", flexShrink: "0" },
-        /* The annotation: one line, mono 10 `--ink-4`, on a 15px line; where it runs past its width, ended in an ellipsis, its
-           whole on hover. */
+        /* The annotation: mono 10 `--ink-4` on a 15px line — one line where its tile holds it, a second where it does not
+           (ruled 22 November 2026: the page's revenue cut `8k to go` with room under it); past two, ended in an ellipsis,
+           its whole on hover. */
         anno: {
             fontFamily: "mono", fontSize: "label.sm", lineHeight: "15px", color: "fg.subtle",
-            minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            minWidth: "0", flexShrink: "0", lineClamp: "2",
         },
         /* A pivot's heat legend (TBL-4): under the grid on the tile's own surface, over a `--rule`, padded 12 20 16 —
            its ramp over its steps' lower edges, 4 apart. */

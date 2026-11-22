@@ -23,8 +23,11 @@
  *    body's top with its unit a small label 4px after it; its change a
  *    DeltaPill at the end of that row — 20 tall, no edge, on its valence's
  *    wash, a 10px caret; then its goal's square 6px bar with a 1 × 12 tick at
- *    its end, its trend 36 tall, and ONE line of annotation in mono 10
- *    `--ink-4` — each 8px under the last.
+ *    its end, its trend 36 tall, and its annotation in mono 10 `--ink-4` —
+ *    each 8px under the last. The annotation is one line where its tile
+ *    holds it, and stands whole on a second where it does not (ruled 22
+ *    November 2026): the page's revenue says what it is against, its goal
+ *    and how far to it, with nothing cut.
  *  - T4 a chart is its mock (CHT-1 to CHT-7, TIL-5): a measure axis has three
  *    ticks — a scatter's x four — in short numbers with no sign of a currency,
  *    a gridline at each, and no title; a line draws no markers and a line or
@@ -133,7 +136,7 @@ test.describe("Studio tiles, as designed (#1671)", () => {
         }
     });
 
-    test("T3: a KPI is its number and unit, its change a pill at the row's end, its goal bar, its trend and one line of annotation, 8 apart", async ({ page }) => {
+    test("T3: a KPI is its number and unit, its change a pill at the row's end, its goal bar, its trend and its annotation, 8 apart — the annotation whole, on a second line where one cannot hold it", async ({ page }) => {
         const grid = await openVisuals(page, "light");
         // The KPI that draws every part: a goal, a change and a trend.
         const kpi = grid.locator("[data-studio-kpi]", { has: page.locator("[data-studio-kpi-goal]") }).filter({ has: page.locator("[data-studio-kpi-change]") }).first();
@@ -167,6 +170,8 @@ test.describe("Studio tiles, as designed (#1671)", () => {
                 goal: { height: box(track).height, radius: getComputedStyle(track).borderTopLeftRadius, tick: [box(tick).width, box(tick).height, Math.round(box(track).right - box(tick).right), box(tick).top - box(track).top] },
                 trend: box(trend).height,
                 note: [...type(note), getComputedStyle(note).color === subtle],
+                // Too long for one line of its tile, it stands on two, each 15: nothing of it past its box either way.
+                noteWhole: [(note.textContent ?? "").split(" · ").length, Math.round(box(note).height), note.scrollWidth <= note.clientWidth, note.scrollHeight <= note.clientHeight],
                 // Each part 8px under the last: the row, the bar, the trend, the annotation.
                 gaps: [box(track).top - box(row).bottom, box(trend).top - box(track).bottom, box(note).top - box(trend).bottom].map((gap) => Math.round(gap * 64) / 64),
                 // Nothing else says anything: the number, the unit, the pill and the one line.
@@ -181,6 +186,8 @@ test.describe("Studio tiles, as designed (#1671)", () => {
             goal: { height: 6, radius: "0px", tick: [1, 12, 0, -3] },
             trend: 36,
             note: [true, "10px", "400", true],
+            // What its change is against, its trend's bucket, its goal and how far to it: four parts, on two lines.
+            noteWhole: [4, 30, true, true],
             gaps: [8, 8, 8],
             words: 4,
         });
