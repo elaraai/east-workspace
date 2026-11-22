@@ -215,6 +215,41 @@ export const recordReadSeriesIndex = example({
   },
 });
 
+export const recordReadSeriesIndexInTime = example({
+  keywords: ['e3', 'record', 'index', 'e3.index', 'index.series', 'order', 'time', 'tile', 'group', 'board', 'plan', 'grouped rows', 'screen', 'window', 'events', 'function'],
+  description: 'File a record\'s events a tile at a time, in their keys\' order (`order: \'time\'`), led by the group the keys stand in: a screen of many keys over a window is then a few runs, whatever each key\'s history holds — what a Plan of grouped rows lists for an event kind. Its reader, `events({ on, from, to })`, gives every key\'s events under the group that overlap `[from, to)` and takes no `key`: an index in key order beside it reads one key, and the events on none',
+  fn: () => {
+    const JobType = StructType({ title: StringType, hall: StringType, press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
+    const jobs = e3.record('jobs', DictType(StringType, JobType), {
+      initial: new Map([
+        ['j1', { title: 'Annual report', hall: 'North', press: 'P1', start: some(new Date('2026-10-05T08:00:00Z')), end: some(new Date('2026-10-07T17:00:00Z')), sheets: 4000 }],
+        ['j2', { title: 'Posters', hall: 'North', press: 'P2', start: some(new Date('2026-10-06T09:00:00Z')), end: some(new Date('2026-10-06T15:00:00Z')), sheets: 900 }],
+        ['j3', { title: 'Catalogue', hall: 'South', press: 'P7', start: some(new Date('2026-09-01T00:00:00Z')), end: some(new Date('2026-12-01T00:00:00Z')), sheets: 120000 }],
+      ]),
+      indexes: (index) => ({
+        // A hall's jobs a week at a time, in their presses' order: a tile's events together. Its last leading field is the
+        // group the presses stand in, which a Plan of halls fills from the rows it draws.
+        jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+        // One press's jobs over any span, a key's events together: what reads one key.
+        jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      }),
+    });
+    // A hall's sheets in a window, on every press it holds: its tiles' runs, each job once though it is filed past a year.
+    const sheetsInHall = e3.function('sheets_in_hall', {
+      inputs: [e3.index(jobs.indexes.jobs_by_hall_week)], args: [StringType, DateTimeType, DateTimeType], output: FloatType,
+    }, ($, jobsByHall, hall, from, to) => {
+      const sheets = $.let(0.0);
+      jobsByHall.events({ on: { hall }, from, to }).each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
+      return sheets;
+    });
+    // One press's jobs through the index in key order: the index in time order takes no key.
+    const jobsOnPress = e3.function('jobs_on_press', {
+      inputs: [e3.index(jobs.indexes.jobs_by_press_week)], args: [StringType, DateTimeType, DateTimeType], output: DictType(StringType, JobType),
+    }, ($, jobsByPress, press, from, to) => jobsByPress.events({ key: press, from, to }).collect($));
+    return e3.package('pressroom_by_hall', '1.0.0', sheetsInHall, jobsOnPress);
+  },
+});
+
 export const recordReadSummaryIndex = example({
   keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'totals', 'index.summary', 'count', 'load', 'tile', 'week', 'function'],
   description: 'Read a summary index inside a function: `totals({ on?, key, from, to })` gives, for each tile of a key that overlaps a window, how many rows touch it and the milliseconds of it they cover, with the tile\'s start — a press\'s load a week, and no row read',

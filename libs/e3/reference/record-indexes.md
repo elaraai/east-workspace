@@ -195,41 +195,48 @@ nested series index or an entries index it carries its own value, as a plain
 index's does. A value that gives no struct, or one holding no DateTime start
 or end under those names, is refused, naming what it gives.
 
+### A series index in time order — `order: 'time'`
+
 Declared `order: 'time'`, a series index files the same entries with the tile
 before the key, `{ on, level, tile, key, past }`: **a tile's events together,
-in their keys' order**. In key order the events of a block of keys over a span lie
-in the part of the index each key's whole history fills, a part a key however
-narrow the span — so what a board's screen reads grows with its rows'
-histories. In time order the events of a run of neighbouring keys over a span
-are one range a level a tile, and what a screen reads is what it shows. Lead it
-by the group the keys stand in, so a group's keys are neighbours:
+in their keys' order**.
+
+| You read | Declare | Why |
+|---|---|---|
+| One key's events over any span | key order (the default) | they are one range a level |
+| A screen of many keys over a window — a board of rows | time order, led by the group the keys stand in | they are a few runs, a range a tile, whatever each key's history holds; in key order each key's range lies where its whole history is filed |
 
 ```typescript
-// A hall's jobs a week at a time, in their presses' order, each entry a tile:
-job_tiles_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, { value: tileOf }),
+// A hall's jobs a week at a time, in their presses' order:
+jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
 ```
 
-Its last leading fields are where its keys stand, outermost first. A Plan
-whose rows nest under a group reads an event kind through one: listed in the
-kind's source, it is read a block of rows at a time, the last leading field
-filled with the key of the group the block's rows stand under — so that field
-holds the group's key, at its type, or an Option of it — and a leading field
-before it is the rail's to choose. A block is then one range a tile, from its
-first row's key through its last. The events on no row, and a page whose rows
-nest under no group, are read through a series index in key order listed
-beside it; with none, a kind whose events may be on no row is read as one past
-the event cap is, shaded from its summary index and never by its cells.
+**Reading it.** In a task or a function, `events({ on, from, to })` gives
+every key's events under the leading fields that overlap the window (below);
+it takes no `key`. A run of keys is read through its last key by `past`, which
+is false in every entry: a search from `[…on, level, tile, first]` to `[…on,
+level, tile, last, true]`, or `entries.range({ from: { ik: { on, level, tile,
+key: first } }, to: { ik: { on, level, tile, key: last, past: true } } })`.
 
-`past` is false in every entry, so a range's end that gives it true lies after
-every entry of its key: a run of keys is read through its last one, whatever
-their type — a search from `[…on, level, tile, first]` to `[…on, level, tile,
-last, true]`, or in a task `entries.range({ from: { ik: { on, level, tile, key:
-first } }, to: { ik: { on, level, tile, key: last, past: true } } })`.
+**In a Plan.** List it in the event kind's source, beside its interval and
+summary indexes. The Plan reads a block of rows as one range a tile, from the
+block's first row through its last, and fills the index's **last** leading
+field with the key of the group the block's rows nest under. Nothing of the
+event kind changes.
 
-One key's events are then no range, so its reader (below) reads every key's
-under the leading fields and takes no `key`: declare an index in key order
-beside it for a reader of one key. An `order` that is neither is refused,
-naming the two, and so is a summary index's, which is filed by key.
+| Case | What happens, and what to do |
+|---|---|
+| The last leading field is not the group's key | The field holds the group's key at its type, or an Option of it. One of another type is filled nothing, and the kind is read as one past the event cap is: shaded from its summary index, never by its cells. One of the same type that holds something else is filled all the same, and its rows draw no events, with nothing to say why: check the field first when a Plan's rows are empty |
+| A leading field before the group's | The rail's to choose exactly, as any series index's leading field is; left unchosen, the index is not read |
+| Rows under no group, or a page of no groups | Read through a series index in key order listed beside it, or one in time order led by no field |
+| Events on no row (an Option key holding none) | Read through a series index in key order listed beside it. With none listed the whole kind shades from its summary index |
+| Rows drawn in another order than their keys' | Still right: the Plan keeps the entries of the block's rows and drops the rest. It reads more, and what it counts before a read is at least the block's, so the kind may shade sooner |
+| One key's events | Not a range of it. Declare an index in key order beside it |
+| An event longer than its tile | Filed once at the level its length fits, as in key order; past a year, under each year it touches, so a read over years meets it once a year: keep it by its key |
+| A `value` in the row's place | A task or a function reads that value. A Plan draws from rows: its index carries the row |
+| The tile | A week reads well at an hour's, a day's and a week's resolution. Zoomed out further a window holds more events, and past 10,000 the kind shades from its summary index |
+| Both orders over the same fields | Allowed, and each is maintained on every write: declare the second only for a reader that needs it |
+| `order` on a summary index, or another word | Refused, naming the two orders: a summary index is filed by key |
 
 **A summary index** holds,
 under each key and tile, `{ count, ms }`: how many rows touch the tile, and the

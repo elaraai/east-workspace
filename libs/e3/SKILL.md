@@ -77,6 +77,7 @@ What do you need?
 │   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) }) (reference/record-indexes.md)
 │   │   ├─ Read by a time window or a 2D window → index.interval | index.area
 │   │   ├─ Read a block of keys over time tiles, or their totals → index.series | index.summary
+│   │   ├─ A screen of many keys over a window (a board of grouped rows) → index.series({ on: [group], key, from, to, tile, order: 'time' }): a tile's events together; one key's events, and events on no key, stay in key order (reference/record-indexes.md)
 │   │   ├─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
 │   │   │   → index.nested({ collections, tile, summary? })
 │   │   ├─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
