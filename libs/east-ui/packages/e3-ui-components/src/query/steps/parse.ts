@@ -704,13 +704,13 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
     }
 
     // A dataset bound but read by no Look up would be lost when the steps print again; so would `$now` read by no
-    // "is in the last" condition (#1670).
+    // "is in the last" condition and no jq step (#1670): the steps print its bind for either (`queryReadsNow`).
     const looked = new Set(steps.flatMap(s => s.type === "lookup" && s.value.dataset.type === "some" ? [s.value.dataset.value] : []));
     if (queryReadsNow({ source, steps })) looked.add(NOW_FIELD);
     const unused = binds.find(b => !looked.has(b.name));
     if (unused !== undefined) {
-        // The minute is read by an "is in the last" condition, a dataset by a Look up: what the steps would say it with.
-        const reader = unused.name === NOW_FIELD ? 'no "is in the last" condition' : "no Look up";
+        // The minute is read by an "is in the last" condition or a jq step, a dataset by a Look up: what the steps would say it with.
+        const reader = unused.name === NOW_FIELD ? 'no "is in the last" condition or jq step' : "no Look up";
         return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but ${reader} reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
     }
     return { query: { source, steps }, spans };

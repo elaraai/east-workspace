@@ -412,9 +412,10 @@ describe("S1: printSteps ↔ parseSteps", () => {
     test("a dataset bound that no Look up reads is kept in jq", () => {
         const result = parseSteps(".customers as $customers\n| .orders\n| length", ROOT);
         assert.ok("error" in result && result.error.code === "unsupported" && /\$customers is bound/.test(result.error.message));
-        // So is the minute, bound but read by no "is in the last" condition (#1670).
+        // So is the minute, bound but read by no "is in the last" condition and no jq step (#1670): saying what would read it.
         const now = parseSteps(".now as $now\n| .orders\n| length", ROOT_NOW);
-        assert.ok("error" in now && now.error.code === "unsupported" && /\$now is bound/.test(now.error.message));
+        if (!("error" in now)) assert.fail("a minute nothing reads parsed");
+        assert.equal(now.error.message, "unsupported: $now is bound but no \"is in the last\" condition or jq step reads it, so the visual editor cannot keep it.");
     });
 
     test("is in the last reads back from the jq a person writes; a unit it does not count in is no condition of it (#1670)", () => {
@@ -423,15 +424,25 @@ describe("S1: printSteps ↔ parseSteps", () => {
         const last = conds[1];
         assert.ok(last?.type === "test" && last.value.cmp.type === "some" && last.value.cmp.value.type === "inLastDays");
         assert.ok(last.type === "test" && equalFor(OptionType(QueryStepValueType))(last.value.value, some(num(7))));
-        // Minutes are no "is in the last": that select stays jq, and the minute bound for jq alone keeps the program jq, as a dataset's does.
-        const minutes = parseSteps(".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-7; \"minute\"))))", ROOT_NOW);
-        assert.ok("error" in minutes && minutes.error.code === "unsupported" && /\$now is bound/.test(minutes.error.message));
+        // Minutes are no "is in the last": that select stays jq — a jq step, which reads the minute its program binds, as it prints again.
+        const text = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-7; \"minute\"))))";
+        const minutes = parsed(text, ROOT_NOW);
+        assert.deepEqual(minutes.steps.map(s => s.type), ["jq"]);
+        assert.equal(printSteps(minutes, ROOT_NOW).text, text);
     });
 
-    test("a count with no minus moves the minute on: no \"is in the last\", and the minute bound for jq alone keeps the program jq, saying what would read it (#1670)", () => {
-        const ahead = parseSteps(".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(7; \"day\"))))", ROOT_NOW);
-        if (!("error" in ahead)) assert.fail("a bound to come read as steps");
-        assert.equal(ahead.error.message, "unsupported: $now is bound but no \"is in the last\" condition reads it, so the visual editor cannot keep it.");
+    test("a count with no minus moves the minute on: no \"is in the last\" — a jq step, the minute bound for it (#1670)", () => {
+        const text = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(7; \"day\"))))";
+        const ahead = parsed(text, ROOT_NOW);
+        assert.deepEqual(ahead.steps.map(s => s.type), ["jq"]);
+        assert.equal(printSteps(ahead, ROOT_NOW).text, text);
+    });
+
+    test("a jq step that reads $now has it bound first, as an \"is in the last\" condition does; one that reads none binds none (#1674)", () => {
+        const reads = query("orders", [jq("map(select(.status.value.date >= ($now | datetime_add(-30; \"minute\"))))")]);
+        assert.equal(printSteps(reads, ROOT_NOW).text.split("\n")[0], ".now as $now");
+        const plain = query("orders", [jq("map(select(.total > 10))")]);
+        assert.equal(printSteps(plain, ROOT_NOW).text.split("\n")[0], ".orders");
     });
 
     test("a ratio of a field that adds up to nothing in a group is nothing there, never a division by it: the query answers (#1670)", () => {
