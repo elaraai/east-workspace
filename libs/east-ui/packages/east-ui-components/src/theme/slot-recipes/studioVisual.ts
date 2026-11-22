@@ -302,12 +302,11 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: "12px", color: "fg.subtle",
         },
         /* Its table: as tall as its rows inside a `--rule` — no empty band under one or two of them — to 180, past which
-           it scrolls inside it. The rows a firing kept, under its banner's Show rows, stand 180 still: their table is
-           drawn as its popover opens, and the Table measures a row by its drawn box — the popover's entrance scales
-           that to 95%, so a box of its rows' own height stood nearly 4px short of two rows. */
+           it scrolls inside it. The rows a firing kept, under its banner's Show rows, the same: their table is drawn as
+           its popover comes in at 95% of its size, and the Table places a row by the height the layout gives it, never
+           its drawn box (`rowLayoutHeight`). */
         alertTable: {
             display: "flex", flexDirection: "column", maxHeight: "180px", minWidth: "0",
-            "&[data-studio-alert-fired-rows]": { height: "180px" },
             borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle",
         },
         /* Where an alert's editor draws its foot's actions: no box of its own, so they lie in the foot's own row. */

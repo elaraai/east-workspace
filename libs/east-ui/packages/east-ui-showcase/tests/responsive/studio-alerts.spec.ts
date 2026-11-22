@@ -27,7 +27,8 @@
  *  - A4 the bar's bell lists the alerts firing, and opening one sets the
  *    page's filters to the alert's, over a reader's who had cleared them, and
  *    draws its banner: its name, how many rows met it, Show rows — those rows,
- *    printed as Now prints them — and Dismiss, which puts it away.
+ *    printed as Now prints them, their table as tall as they are though it is
+ *    drawn as its popover comes in — and Dismiss, which puts it away.
  *  - A5 New alert starts from the visual's first value, under its goal, its
  *    rows over the line shown now; Save adds it to the visual's alerts, and the
  *    page's check fires it. Delete asks first, in the popover, then takes it
@@ -296,6 +297,10 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await expect.poll(() => popover(page).locator("[data-studio-alert-fired-rows] tbody tr").count()).toBe(2);
         // The rows the firing kept, printed as the alert's editor prints Now.
         expect(await printedRows(popover(page).locator("[data-studio-alert-fired-rows]"))).toEqual(MONTHS_UNDER);
+        // As tall as its two rows, as Now's is: drawn while its popover came in at 95% of its size, each row is placed by
+        // the height the layout gives it, so its last row ends at the table's own rule.
+        await entered(page);
+        expect(await bandUnder(popover(page).locator("[data-studio-alert-fired-rows]"))).toBe(1);
         await escapeLayer(page);
         await expect(popover(page)).toHaveCount(0);
         await page.getByRole("button", { name: "Dismiss" }).click();
