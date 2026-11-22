@@ -12,8 +12,10 @@
  * A step prints for the shape of the rows it takes — `.status.type` for a
  * variant's case, `sort_by(-.total)` for a number — so the program is laid
  * out a step at a time, each prefix checked by east's `checkJq`, whose stages
- * are the shapes. A step that does not check leaves the shape as it was, so
- * the steps after it still print; the whole program's check reports it.
+ * are the shapes. A step gives what its last stage gives: a visual step prints
+ * a stage a segment, and a jq step's text, printed as written, may be a
+ * pipeline of its own. A step that does not check leaves the shape as it was,
+ * so the steps after it still print; the whole program's check reports it.
  *
  * @packageDocumentation
  */
@@ -658,6 +660,25 @@ export function stageAt(check: CheckJqResult, from: number): { type: EastType; m
 }
 
 /**
+ * The shape a step gives in a checked prefix that ends with it: its last
+ * stage's, the last that starts at or after its last segment. A visual step's
+ * segment is one stage, so it is that stage; a jq step's text may hold several
+ * — `group_by(.region) | map({…})` — and the step gives what the last makes,
+ * which is what the step after it takes (#1674).
+ *
+ * @param check - the prefix's check
+ * @param from - where the step's last segment starts
+ * @returns the stage's type and multiplicity; `undefined` when the check holds no stage of the segment
+ */
+function stageAfter(check: CheckJqResult, from: number): ReturnType<typeof stageAt> {
+    let last: CheckJqResult["stages"][number] | undefined;
+    for (const stage of check.stages) {
+        if (stage.from >= from && (last === undefined || stage.from > last.from)) last = stage;
+    }
+    return last === undefined ? undefined : { type: last.type, multiplicity: last.multiplicity };
+}
+
+/**
  * Lays a query out: prints each finished step for the shape before it,
  * checking each prefix against the root, and checks the whole program.
  *
@@ -733,7 +754,7 @@ export function layOutSteps(query: StepQuery, root: EastType): StepLayout {
         const tentative = [...working, ...printed.segments.map(s => ({ text: s.text }))];
         const lastFrom = offsetOf(tentative.slice(0, -1));
         const tentativeCheck = checkJq(parseJq(textOf(tentative)), root, { root: true });
-        const stage = stageAt(tentativeCheck, lastFrom);
+        const stage = stageAfter(tentativeCheck, lastFrom);
         if (stage === undefined || tentativeCheck.diagnostics.some(d => d.severity.type === "error")) {
             allChecked = false;
             laidOut.push({ step, before: shape, after: shape, printed: true, checked: false });

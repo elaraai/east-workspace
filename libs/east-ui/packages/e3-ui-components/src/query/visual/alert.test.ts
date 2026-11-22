@@ -4,17 +4,25 @@
  */
 
 /**
+ * @vitest-environment jsdom
+ *
  * An alert's rows (#1674): the program its check asks — its visual's rows,
  * each its groups' keys and its values by name, then those that meet its
  * condition, and how many rows there are — asked in memory over the visual
  * tests' orders, and split over a large dataset's pieces; and the query its
- * condition rows edit, read back.
+ * condition rows edit, read back — its slots offered the visual's rows'
+ * fields, and a number typed read as one.
  */
 
 import { describe, expect, it } from "vitest";
-import { DateTimeType, FloatType, OptionType, StringType, isTypeEqual, none, printJq, some, type EastType, type StructType } from "@elaraai/east";
+import { DateTimeType, FloatType, OptionType, StringType, isTypeEqual, none, printJq, some, variant, type EastType, type StructType } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
+import { formatters } from "@elaraai/east-ui-components";
 import { utcAt as at } from "../../plan/plan.test-utils.js";
+import type { SlotRef } from "../model/refs.js";
+import { applySlot } from "../model/slot-edits.js";
+import { slotItems } from "../model/slots.js";
+import { queryWords } from "../model/words.js";
 import { draftPlan } from "../plan.js";
 import { alertConditionOf, alertQuery, alertRowType, alertRowsStage, alertStart, printAlert, type AlertRowsStage } from "./alert.js";
 import { ORDERS_ROOT, ORDERS_SOURCE, QUARTER, alertAnswered, condition, visualOf } from "./visual.test-utils.js";
@@ -174,5 +182,25 @@ describe("the alert's condition rows (#1674)", () => {
         const [, filter] = query.steps;
         expect(filter?.type === "filter" ? filter.value.conds.map((cond) => cond.type === "test" && cond.value.cmp.type === "some" ? cond.value.cmp.value.type : cond.type) : filter?.type).toEqual(["gt"]);
         expect(alertConditionOf(query, above.row)).toBeUndefined();
+    });
+
+    it("offer its condition's slots the visual's rows: a row's fields, a number's comparisons, and a number typed as a number — which the check then compares as one", () => {
+        const words = queryWords(formatters("en-AU"));
+        const content = v.of("orders", v.combo({ x: v.group("region"), columns: [v.left(v.sum("revenue"))], lines: [v.right(v.mean("margin"))] }));
+        const { stage, row } = rowsFor(content);
+        // Revenue has no goal: is above, its number still to be written.
+        const query = alertQuery(stage, row, ORDERS_SOURCE, alertStart(visualOf(content), stage.fields, row));
+        const filter = query.steps[1]!;
+        if (filter.type !== "filter") throw new Error("no filter step");
+        const slot = (kind: "field" | "cmp" | "value"): SlotRef => ({ kind, stepId: filter.value.id, condId: filter.value.conds[0]!.value.id });
+        const offered = (kind: "field" | "cmp" | "value", text = "") => slotItems(query, ORDERS_ROOT.type, slot(kind), text, { words });
+        expect(offered("field").map((item) => [item.label, item.detail])).toEqual([["region", "text"], ["revenue", "number"], ["mean margin", "number, sometimes missing"]]);
+        expect(offered("cmp").map((item) => item.label)).toEqual(expect.arrayContaining(["is more than", "is less than", "is at least", "is at most"]));
+        const [typed] = offered("value", "100000");
+        expect(typed?.value).toEqual({ kind: "value", value: variant("number", 100000) });
+        // Picked, the step is finished, and the condition it holds compares the value with a number.
+        const edited = applySlot(query, slot("value"), typed!, ORDERS_ROOT.type, words).query;
+        const read = alertConditionOf(edited, row);
+        expect(read === undefined ? undefined : printJq(read).text).toBe(".revenue > 100000");
     });
 });

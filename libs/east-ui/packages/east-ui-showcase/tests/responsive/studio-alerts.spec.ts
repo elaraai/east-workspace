@@ -31,6 +31,10 @@
  *    rows over the line shown now; Save adds it to the visual's alerts, and the
  *    page's check fires it. Delete asks first, in the popover, then takes it
  *    off.
+ *  - A6 an alert's condition is edited over its visual's rows: its field's
+ *    list offers the rows' fields, its comparison's a number's comparisons,
+ *    its value's the rows' own numbers — and a number typed is compared as a
+ *    number: Run answers the rows under it, with no error.
  *  - P1 on a phone, a bell and its menu are each a 44 × 44 tap target, their
  *    boxes the desktop's 24 × 24: the tile's head stands 44 on a touch
  *    screen, so every tap down a control's column lands on it from the head's
@@ -296,6 +300,39 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await open.locator("[data-studio-alert-delete-confirmed]").click();
         await expect.poll(async () => (await listed(popover(page))).map((row) => row.name)).toEqual(["Quarter under goal"]);
         await expect(entry.locator("[data-studio-alert-bar]")).toHaveText("2");
+    });
+
+    test("A6: an alert's condition is edited over its visual's rows — its field's list offers the rows' fields, its comparison's a number's, its value's the rows' own numbers — and a number typed is compared as a number: Run answers the rows under it", async ({ page }) => {
+        const entry = await openAlerts(page);
+        const open = await openBell(page, entry, "v-trend");
+        await open.locator('[data-studio-alert="Month under goal"]').click();
+        await expect.poll(() => open.locator("[data-studio-alert-rows] tbody tr").count(), { timeout: 30_000 }).toBe(2);
+        const slots = open.locator("[data-query-line=row] [data-slot-key]");
+        await expect(slots).toHaveText(["revenue", "is less than", "130000"]);
+        /** What the list a slot opened offers: the popover over the editor's. */
+        const offers = () => popover(page).last().locator("[role=option]");
+        // Its field: the fields of the visual's rows — a month, and its revenue — each with its kind.
+        await slots.nth(0).click();
+        await expect(offers()).toHaveText([/^ordered at\s*date/, /^revenue\s*number/]);
+        await escapeLayer(page);
+        // Its comparison: a number's.
+        await slots.nth(1).click();
+        await expect(offers()).toHaveText(["is", "is not", "is at least", "is at most", "is more than", "is less than"]);
+        await escapeLayer(page);
+        // Its value: the rows' own numbers, then the number typed — read as a number.
+        await slots.nth(2).click();
+        await expect(offers()).toHaveText([/lowest$/, /median$/, /average$/, /highest$/]);
+        await page.keyboard.type("120000");
+        await expect(offers()).toHaveText(["Use “120000”"]);
+        await page.keyboard.press("Enter");
+        await expect(slots).toHaveText(["revenue", "is less than", "120000"]);
+        await open.locator("[data-studio-alert-run]").click();
+        // August alone is under 120,000: an answer, never the checker's refusal of a number compared with text.
+        await expect(open.locator("[data-studio-alert-now]")).toContainText("1 of 3 rows meets it now", { timeout: 30_000 });
+        expect(await printedRows(open.locator("[data-studio-alert-rows]"))).toEqual([["2026-08-01", "118,646.78"]]);
+        // Nothing is saved: the alert stays as the record holds it.
+        await open.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(open.locator('[data-studio-alert="Month under goal"]')).toBeVisible();
     });
 });
 
