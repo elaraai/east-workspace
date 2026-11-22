@@ -38,6 +38,10 @@ import { PAGE_RANGE } from "./pageFoot.js";
 
 /** The room a tile's eyebrow strip centres its row in: its 36px less its rule and the pixel of padding over the row. */
 const HEAD_ROOM = 34;
+/** The same room on a touch screen, where the strip stands 44: an even room still, so each line it centres stays whole. */
+const HEAD_ROOM_TOUCH = 42;
+/** The rooms a line of the strip's row is centred in, at either pointer. */
+const HEAD_ROOMS = [HEAD_ROOM, HEAD_ROOM_TOUCH] as const;
 
 /**
  * Under these widths a KPI's number steps down a size: the longest number it prints — nine characters, a mono
@@ -62,32 +66,47 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* The eyebrow strip: 36 on `--paper-2` over a `--rule`, padded 0 20. A pixel of padding over its row balances
            the rule under it (#1638), as a builder's toolbar does: its row is centred in an even 34px, so its 24px menu
            stands 6px under the strip's top edge and its words 12px. Centred in the 35px over the rule, as the mock
-           draws it, each stood half a pixel off, and a page painted it a row higher or lower by where it stood the tile. */
+           draws it, each stood half a pixel off, and a page painted it a row higher or lower by where it stood the tile.
+           On a touch screen the strip stands 44 (ruled 22 Nov 2026): its 24px bell and menu are 44 × 44 tap targets by
+           their halos (#346), and in 36 a halo was cut where the grid's cell clips the tile, 18 over the control's
+           middle, and covered where a table's header stands under the strip — each took taps down 40 of its 44, or 36.
+           In 44 a halo ends at the strip's own edges; its row is centred in the even 42. */
         head: {
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.1}",
             height: "36px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingTop: "1px", flexShrink: "0", minWidth: "0",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            _coarse: { height: "44px" },
         },
         /* Its name: mono 10 / 600, tracked 0.14em, uppercase, `--ink`, cut with an ellipsis; on a whole, even line; 12 before
            what follows it. */
         name: {
-            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: centredLine(HEAD_ROOM, 12),
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: centredLine(HEAD_ROOMS, 12),
             color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: "0", marginInlineEnd: "{spacing.2}",
         },
         /* Its meta and its menu, at the end, 4 apart. It draws no box of its own, so each of its parts is the strip's own:
            where the strip is short its words give way before its name (#1692) — its meta, or what it follows, cut first,
-           then its name — and its controls never. */
-        end: { display: "contents", "& > :first-child": { marginInlineStart: "auto" } },
+           then its name — and its controls never. On a touch screen its bell and its menu are each a 44 × 44 tap target by
+           its halo: centred on its 24px box, each halo lay over 6px of the other's box, and the menu's, drawn later, took
+           the bell's taps there. Each keeps to its own side of the middle of the 4 between them — the bell's from 18
+           before its box to 2 past it, and the menu's after a bell from 2 before its box to 18 past it, inside the
+           strip's 20 of padding. */
+        end: {
+            display: "contents", "& > :first-child": { marginInlineStart: "auto" },
+            _coarse: {
+                "& > [data-studio-alert-bell]::before": { left: "auto", right: "-2px", transform: "translateY(-50%)" },
+                "& > [data-studio-alert-bell] + * [data-studio-visual-menu]::before": { left: "-2px", transform: "translateY(-50%)" },
+            },
+        },
         /* Its meta: mono 9.5, `--ink-4`, on the name's line; cut with an ellipsis, its whole on hover. */
         meta: {
-            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle",
+            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOMS, 12), color: "fg.subtle",
             flexShrink: "100", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         },
         /* What it follows (LNK-4): the 10px link icon, 6 before the selected value, as its meta is set — in `--brand-d`
            while it is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
         follow: {
             display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: "100", minWidth: "0", maxWidth: "160px",
-            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap",
+            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOMS, 12), color: "fg.subtle", whiteSpace: "nowrap",
             "& > span": { overflow: "hidden", textOverflow: "ellipsis" },
             "& svg": { fontSize: "10px", flexShrink: "0" },
             "&[data-following='selected']": { color: "brand.solid" },

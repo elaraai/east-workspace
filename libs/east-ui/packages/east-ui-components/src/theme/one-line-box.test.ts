@@ -477,7 +477,10 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
     test("a Studio tile's eyebrow strip centres its row in an even room: a pixel of padding over it balances its rule (#1671)", () => {
         const tile = studioVisualSlotRecipe.base;
         expect([at(tile, "head").height, at(tile, "head").borderBottomWidth, at(tile, "head").paddingTop]).toEqual(["36px", "1px", "1px"]);
-        // Its name and its meta on a whole, even line: 12 in the 34, and in the 24 of the menu the meta stands beside.
+        // On a touch screen it stands 44, its room an even 42: its 24px controls stand 10 under its top edge, their 44px tap
+        // targets the strip's whole height.
+        expect(at(tile, "head", "_coarse").height).toBe("44px");
+        // Its name and its meta on a whole, even line: 12 in the 34 and in the 42, and in the 24 of the menu the meta stands beside.
         expect([at(tile, "name").lineHeight, at(tile, "meta").lineHeight]).toEqual(["12px", "12px"]);
     });
 

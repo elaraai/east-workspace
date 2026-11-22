@@ -28,12 +28,15 @@
  *    rows over the line shown now; Save adds it to the visual's alerts, and the
  *    page's check fires it. Delete asks first, in the popover, then takes it
  *    off.
- *  - P1 on a phone, a bell is the tap target its menu is: its 24 × 24, every
- *    tap down its column over the tile's head — from the tile's top edge, 18
- *    above its middle, to the head's foot, 18 below — landing on it, none past
- *    the tile's edge, where the grid's cell ends its halo, and at every point
- *    from there to 22 below its middle the menu's column taking the same taps
- *    — and its popover stands inside the screen.
+ *  - P1 on a phone, a bell and its menu are each a 44 × 44 tap target, their
+ *    boxes the desktop's 24 × 24: the tile's head stands 44 on a touch
+ *    screen, so every tap down a control's column lands on it from the head's
+ *    top edge to its foot — none past the tile's edge, where the grid's cell
+ *    would end a halo, and none on the body under it, whose table's header
+ *    would take one; and across the head each takes the 44 on its own side of
+ *    the 4 between them — the bell from 18 before its box to 2 past it, the
+ *    menu from 2 before its box to 18 past it — so neither takes a tap on the
+ *    other's box. Its popover stands inside the screen.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -218,36 +221,43 @@ test.describe("A Studio page's alerts (#1674)", () => {
 test.describe("A Studio page's alerts on a phone (#1674)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read at the phone's width");
 
-    test("P1: a bell is the tap target its menu is — its 24 × 24, every tap down its column over the tile's head landing on it, none past the tile's edge, and the menu's column taking the same taps to 22 below — and its popover stands inside the screen @mobile", async ({ page }) => {
+    test("P1: a bell and its menu are each a 44 × 44 tap target in a head that stands 44 on a touch screen — every tap down a control's column landing on it from the head's top edge to its foot, none past the tile's edge or on the body, each taking the 44 on its own side of the 4 between them — and its popover stands inside the screen @mobile", async ({ page }) => {
         const entry = await openAlerts(page);
         // A KPI's body, under its head, and a records table's, whose header row runs edge to edge under it.
         for (const key of ["v-revenue", "v-records"]) {
             await tile(entry, key).scrollIntoViewIfNeeded();
             await settled(page);
             const taps = await tile(entry, key).evaluate((el) => {
+                // The browser tells a tap by the pixel that starts at its point, so each is taken at a pixel of the tile's own
+                // grid — counted from its edges, wherever the page's scroll stands it: a quarter of a pixel off the screen's, here.
+                const px = Math.round;
                 const top = el.getBoundingClientRect().top;
                 const head = el.querySelector("[data-studio-visual-head]")!.getBoundingClientRect();
-                /** Where taps down a control's column land on it, a pixel at a time from a pixel past the tile's top edge to 22 below its middle. */
+                const [bell, menu] = [el.querySelector("[data-studio-alert-bell]")!, el.querySelector("[data-studio-visual-menu]")!];
+                /** Which of the two a tap on a pixel lands on — `b`, `m` — or `-` for neither. */
+                const at = (x: number, y: number) => {
+                    const hit = document.elementFromPoint(x, y);
+                    return hit === null ? "-" : bell.contains(hit) ? "b" : menu.contains(hit) ? "m" : "-";
+                };
+                /** A control's box, how far its middle is under the tile's top edge and over the head's foot, and the taps down its column: from the pixel past the tile's top edge to the first under the head. */
                 const column = (control: Element) => {
                     const own = control.getBoundingClientRect();
-                    const x = own.left + own.width / 2;
                     const y = own.top + own.height / 2;
-                    const lands: boolean[] = [];
-                    for (let dy = Math.round(top - y) - 1; dy <= 22; dy++) {
-                        const hit = document.elementFromPoint(x, y + dy);
-                        lands.push(hit !== null && control.contains(hit));
-                    }
-                    return { box: [own.width, own.height], above: Math.round(y - top), below: Math.round(head.bottom - y), lands };
+                    let lands = "";
+                    for (let row = -1; row <= px(head.bottom - top); row++) lands += at(own.left + own.width / 2, top + row);
+                    return { box: [own.width, own.height], above: px(y - top), below: px(head.bottom - y), lands };
                 };
-                return { bell: column(el.querySelector("[data-studio-alert-bell]")!), menu: column(el.querySelector("[data-studio-visual-menu]")!) };
+                // The taps across the head at the controls' middle: from 24 before the bell's box to 24 past the menu's.
+                const [first, last] = [bell.getBoundingClientRect(), menu.getBoundingClientRect()];
+                let across = "";
+                for (let step = -24; step < px(last.right - first.left) + 24; step++) across += at(first.left + step, first.top + first.height / 2);
+                return { bell: column(bell), menu: column(menu), gap: last.left - first.right, across };
             });
-            const { bell: own, menu } = taps;
-            expect([own.box, own.above, own.below], key).toEqual([[24, 24], 18, 18]);
-            // Past the tile's edge, nothing; over the head, from its top edge to its foot's last pixel, the bell.
-            expect(own.lands[0], key).toBe(false);
-            expect(own.lands.slice(1, 1 + own.above + own.below).every(Boolean), key).toBe(true);
-            // The menu's column takes the same taps, the menu's own: the two are each other's size and reach.
-            expect(menu, key).toEqual(own);
+            // Past the tile's edge, nothing; over the head's 44, from its top edge to its foot's last pixel, the control; under it, the body's own.
+            expect(taps.bell, key).toEqual({ box: [24, 24], above: 22, below: 22, lands: `-${"b".repeat(44)}-` });
+            expect(taps.menu, key).toEqual({ box: [24, 24], above: 22, below: 22, lands: `-${"m".repeat(44)}-` });
+            // Across the head: the bell's 44 from 18 before its box, then the menu's 44 to 18 past its own — each control's whole box its own.
+            expect([taps.gap, taps.across], key).toEqual([4, `${"-".repeat(6)}${"b".repeat(44)}${"m".repeat(44)}${"-".repeat(6)}`]);
         }
         const open = await openBell(page, entry, "v-records");
         const box = (await open.boundingBox())!;
