@@ -51,6 +51,7 @@ import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue, type TableRowValue } from "./use-paged-rows.js";
 import { windowedSourceOf } from "../windowed-source.js";
+import { rowLayoutHeight } from "../row-height.js";
 import { pagePlace } from "../page-place.js";
 import { PageButtons, PageFoot, PageRange } from "../pagination/page-foot.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
@@ -1180,8 +1181,11 @@ const TableCore = function TableCore({
         overscan,
         // measureElement enables variable-height rows. Required so that
         // rows expanded via `expandedContent` push subsequent rows down
-        // by their actual rendered height instead of overlapping.
-        measureElement: (el) => el?.getBoundingClientRect().height,
+        // by their actual rendered height instead of overlapping. A row's
+        // height is its layout's own (`rowLayoutHeight`): a table mounted while an
+        // ancestor draws it scaled — a popover on its way in — never places
+        // its rows by their scaled boxes, each over the next.
+        measureElement: rowLayoutHeight,
     });
 
     // Virtual items: when virtualization is off, synthesize a full
