@@ -10,7 +10,9 @@
  * Cancel and Apply — or Add filter — the button off until the editor tells
  * the row a draft it has something to do with, and nothing done until it is
  * pressed. A filter `+N more` holds is edited there, in the same popover, its
- * actions giving the list back. While an editor is
+ * actions giving the list back — the focus going with what it shows, back to
+ * the filter's line, never left on nothing nor on Clear all; left with no
+ * filter to hold, it is shut, and the row lets go. While an editor is
  * open the row stands as it stood as the editor opened — its chips' words and
  * how many there are — and holds the rail it is drawn in, letting both go once
  * no editor is open and the press that shut the last has clicked; a filter
@@ -56,9 +58,12 @@ function Row() {
 /**
  * A row whose editors' edits wait for their button: an editor tells the row a region as its draft; Apply makes it the
  * filter's — or, told the empty word, takes the filter out — and Add filter adds one of it. What was done is noted.
+ * It folds a number of its last chips, or — told how many it shows — the rest of them.
  */
-function DraftRow({ foldChips, done }: { foldChips?: number; done: string[] }) {
+function DraftRow({ foldChips: folds, shows, done }: { foldChips?: number; shows?: number; done: string[] }) {
     const [regions, setRegions] = useState(["SA", "VIC", "QLD"]);
+    // Told how many it shows, the row folds the rest — none, once no more are left than it shows.
+    const foldChips = shows === undefined ? folds : Math.max(0, regions.length - shows);
     const chips = regions.map((region, i): SliceFilterChip<string> => ({
         label: `Region: ${region}`,
         editLabel: `Filter ${region}`,
@@ -201,14 +206,13 @@ describe("a filter +N more holds is edited there", () => {
         line.focus();
         await press(line);
         expect([popoverNow(), listed()]).toEqual([{ head: "Filter QLD", foot: ["Remove filter", "Cancel", "Apply (off)"] }, []]);
-        // The line pressed went with the list: the focus is kept in the popover, never dropped to the page.
-        expect(opened()!.contains(document.activeElement)).toBe(true);
+        // The line pressed went with the list: the focus goes to the editor's popover's first control, never to the page.
+        expect(focused()).toBe("Close");
         await press(inPopover("Pick NSW"));
-        const apply = inPopover("Apply");
-        apply.focus();
-        await press(apply);
+        await pressFocused(inPopover("Apply"));
         expect([popoverNow(), listed(), done]).toEqual([{ head: "2 more filters", foot: ["Clear all", "Done"] }, ["Region: VIC", "Region: NSW"], ["QLD is NSW"]]);
-        expect(opened()!.contains(document.activeElement)).toBe(true);
+        // And back to the filter's line, which says what it holds now.
+        expect(focused()).toBe("Edit filter: Region: NSW");
     });
 
     test("Cancel gives the list back as it was; Remove filter takes the filter out and gives back what is left", async () => {
@@ -224,6 +228,43 @@ describe("a filter +N more holds is edited there", () => {
         expect(popoverNow()!.foot).toEqual(["Remove filter", "Cancel", "Apply (off)"]);
         await press(inPopover("Remove filter"));
         expect([listed(), done, words()]).toEqual([["Region: QLD"], ["removed VIC"], ["Region: SA"]]);
+    });
+
+    test("the focus goes back to the line the editor was opened from — never to Clear all, drawn where Cancel stood — or to the line that took its place", async () => {
+        render(<DraftRow foldChips={2} done={[]} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        await pressFocused(screen.getByRole("button", { name: "Edit filter: Region: VIC" }));
+        await pressFocused(inPopover("Cancel"));
+        expect([popoverNow()!.foot, focused()]).toEqual([["Clear all", "Done"], "Edit filter: Region: VIC"]);
+        // Its filter removed, the line that takes its place.
+        await pressFocused(document.activeElement as HTMLElement);
+        await pressFocused(inPopover("Remove filter"));
+        expect([listed(), focused()]).toEqual([["Region: QLD"], "Edit filter: Region: QLD"]);
+    });
+
+    test("a line its × takes out hands the focus to the line before it, where none takes its place", async () => {
+        render(<DraftRow foldChips={2} done={[]} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        const removes = opened()!.querySelectorAll<HTMLElement>("[data-slice-more-row] button[aria-label='Remove filter']");
+        await pressFocused(removes[1]!);
+        expect([listed(), focused()]).toEqual([["Region: VIC"], "Edit filter: Region: VIC"]);
+    });
+
+    test("left with no filter to hold, +N more is shut: the row lets go of what it held, and the focus goes to the row's last chip — or, every filter cleared, to + FILTER", async () => {
+        const told: boolean[] = [];
+        const hold = (holding: boolean) => { told.push(holding); };
+        // The row shows two filters, and folds the third.
+        render(<SliceRailHold.Provider value={hold}><DraftRow shows={2} done={[]} /></SliceRailHold.Provider>);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        expect([listed(), told]).toEqual([["Region: QLD"], [true]]);
+        await pressFocused(opened()!.querySelector<HTMLElement>("[data-slice-more-row] button[aria-label='Remove filter']")!);
+        expect([opened(), document.querySelector("[data-slice-more]"), words(), told]).toEqual([null, null, ["Region: SA", "Region: VIC"], [true, false]]);
+        expect(document.activeElement).toBe(chipAt(1));
+        cleanup();
+        render(<DraftRow foldChips={2} done={[]} />);
+        await press(document.querySelector<HTMLElement>("[data-slice-more]")!);
+        await pressFocused(inPopover("Clear all"));
+        expect([words(), document.activeElement]).toEqual([[], screen.getByRole("button", { name: "Add filter" })]);
     });
 });
 
@@ -252,6 +293,10 @@ function LiveRow({ hold, wholes = true }: { hold?: ((holding: boolean) => void) 
     return <ChakraProvider value={system}>{hold === undefined ? row : <SliceRailHold.Provider value={hold}>{row}</SliceRailHold.Provider>}</ChakraProvider>;
 }
 
+/** What holds the focus, by its name: its label, else its words. */
+const focused = () => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent;
+/** Presses a control as a keyboard does: the focus on it first. */
+const pressFocused = async (el: HTMLElement) => { el.focus(); await press(el); };
 /** The row's chips' words, in order. */
 const words = () => [...document.querySelectorAll("[data-slice-clause]")].map((chip) => chip.textContent);
 /** A chip of the row, by its place. */

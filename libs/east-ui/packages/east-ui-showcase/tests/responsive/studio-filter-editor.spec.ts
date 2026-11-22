@@ -24,7 +24,10 @@
  *  - F16 a filter the row folds into `+N more` is edited there: a press on its
  *    line shows its editor in the same popover — its head and its foot the
  *    filter's — and Apply gives the list back, saying what was done, the page
- *    narrowed by it.
+ *    narrowed by it. By the keyboard, the focus goes with what the popover
+ *    shows: to the editor's first control, and back to the filter's line —
+ *    never to Clear all, drawn where Cancel stood; and `+N more` left with no
+ *    filter to hold is shut, its popover and its chip gone.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -200,7 +203,7 @@ test.describe("A filter's editor (#1667)", () => {
         await expect(revenue(grid)).toHaveText(all ?? "");
     });
 
-    test("F16: a filter the row folds into +N more is edited there — a press on its line shows its editor in the same popover, its head and its foot the filter's — and Apply gives the list back, saying what was done, the page narrowed by it (ruled 22 November 2026)", async ({ page }) => {
+    test("F16: a filter the row folds into +N more is edited there — a press on its line shows its editor in the same popover, its head and its foot the filter's — and Apply gives the list back, saying what was done, the page narrowed by it; the focus goes with what it shows, never to Clear all, and +N more left with no filter is shut (ruled 22 November 2026)", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
         const grid = await openVisuals(page, "light");
         const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
@@ -227,22 +230,45 @@ test.describe("A filter's editor (#1667)", () => {
         }));
         const list = await now();
         expect([list.listed.includes("region is SA"), list.foot]).toEqual([true, ["Clear all", "Done"]]);
-        // Its line is one button, its words and Edit: pressed, the popover is the filter's editor.
+        /** What holds the focus, by its name — its label, else its words; `nothing` where the page's body does. */
+        const focused = () => page.evaluate(() => {
+            const held = document.activeElement;
+            return held === null || held === document.body ? "nothing" : held.getAttribute("aria-label") ?? held.textContent;
+        });
+        // Its line is one button, its words and Edit: pressed — by the keyboard — the popover is the filter's editor, the
+        // focus on its first control.
         const line = popover.getByRole("button", { name: "Edit filter: region is SA" });
         await expect(line).toHaveText("region is SAEdit");
-        await line.click();
+        await line.press("Enter");
         await expect(rows).toBeVisible();
         expect(await now()).toEqual({ head: "Filter · Orders", listed: [], foot: ["Remove filter", "Cancel", "Apply"] });
+        expect(await focused()).toBe("Close");
+        // Cancel gives the list back as it was, the focus on the filter's line — never on Clear all, drawn where Cancel
+        // stood — and Enter opens its editor again.
+        await popover.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
+        await expect.poll(focused).toBe("Edit filter: region is SA");
+        expect(await now()).toEqual(list);
+        await page.keyboard.press("Enter");
+        await expect(rows).toBeVisible();
         // Its value changed, and Apply: the list again, saying the filter as it is now, and the page New South Wales' alone.
         await rows.locator("[data-slot-key]", { hasText: "SA" }).first().click();
         await expect(chooser.locator("[role=option]", { hasText: "NSW" })).toBeVisible({ timeout: 20_000 });
         await chooser.locator("[role=option]", { hasText: "NSW" }).first().click();
         await expect(chooser).toHaveCount(0);
         await expect(revenue(grid)).toHaveText("38.4k");
-        await submit(page).click();
+        await submit(page).press("Enter");
+        await expect.poll(focused).toBe("Edit filter: region is NSW");
         expect(await now()).toEqual({ ...list, listed: list.listed.map((words) => (words === "region is SA" ? "region is NSW" : words)) });
         await expect(revenue(grid)).toHaveText("117k");
-        await popover.getByRole("button", { name: "Done", exact: true }).click();
+        // Each line's × takes its filter out. The last gone, +N more has none to hold: it is shut — its popover and its
+        // chip gone. (The row hands the focus to + FILTER; the page's toolbar then draws the rail in another of its
+        // forms, a new row, which holds none — the row's own hand-off is `chips.dom.test.tsx`'s.)
+        for (let left = list.listed.length; left > 0; left -= 1) {
+            await popover.getByRole("button", { name: "Remove filter", exact: true }).first().press("Enter");
+            await expect(popover.locator("[data-slice-more-words]")).toHaveCount(left - 1);
+        }
         await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(rail.locator("[data-slice-more]")).toHaveCount(0);
+        await expect(rail.locator("[data-slice-clause]")).toHaveCount(0);
     });
 });

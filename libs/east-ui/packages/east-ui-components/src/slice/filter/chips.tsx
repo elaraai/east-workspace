@@ -56,10 +56,21 @@
  * list back, which says what was done. A filter no room is left to show is
  * never one that cannot be edited.
  *
+ * The focus goes with what `+N more` shows: to the editor's popover's first
+ * control as a line opens its filter's editor, and back to that line — or the
+ * line that took its place — as the list comes back; never left on nothing,
+ * nor on a button drawn where the one pressed stood (Clear all, where Cancel
+ * was). A line its × takes out hands the focus on the same way. Left with no
+ * filter to hold, `+N more` goes from the row, its popover with it: it is shut,
+ * so the row lets go of what it held, and the focus goes to the row's last
+ * chip, else `+ FILTER` — the row's own hand-off: a host that then draws the
+ * row anew, as the shared toolbar does where the rail takes another of its
+ * forms, draws one that holds no focus.
+ *
  * @packageDocumentation
  */
 
-import { Fragment, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -185,20 +196,11 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
     const [open, setOpened] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
     // The open editor's draft, as it tells it: what its Apply, or Add filter, is given. Another editor starts with none.
     const [draft, setDraft] = useState<D | undefined>(undefined);
-    const setOpen = (next: "add" | "more" | "save" | number | null) => {
+    const setOpen = useCallback((next: "add" | "more" | "save" | number | null) => {
         setDraft(undefined);
         setOpened(next);
-    };
+    }, []);
     const close = () => setOpen(null);
-    // `+N more`'s popover shows its list, or the editor of a filter it holds: the line pressed goes with the list, and the
-    // editor's button with the editor — the focus, left on what is gone, is kept in the popover, on its first control.
-    const moreContent = useRef<HTMLDivElement | null>(null);
-    useLayoutEffect(() => {
-        const content = moreContent.current;
-        if (open === null || content === null || content.contains(document.activeElement)) return;
-        const active = document.activeElement;
-        if (active === null || active === document.body || !active.isConnected) content.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
-    }, [open]);
     const btnOutline = btn({ variant: "outline", size: "xs" });
     /** An editor's foot's actions: Cancel, and — for one whose edits wait for it — its submit, off while it has nothing to do. */
     const actions = (cancel: () => void, submit: { readonly words: string; readonly run: (() => void) | undefined } | undefined, alone: string) => (
@@ -234,6 +236,47 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
     const visibleNow = controlled ? Math.max(0, chips.length - foldChips) : ownFold.visibleCount;
     const visibleCount = frozen?.visible ?? visibleNow;
     const measuring = !controlled && ownFold.measuring;
+    // A compact row's chips that fit, the rest folded into `+N more`; while it is measured every chip is in flow, and
+    // `+N more` is drawn beside any, its width kept for it.
+    const fits = compact ? drawn.order.slice(0, visibleCount) : drawn.order;
+    const shown = measuring ? drawn.order : fits;
+    const overflow = rowChips.length - (measuring ? 0 : visibleCount);
+    const showMore = compact && (measuring ? rowChips.length > 0 : overflow > 0);
+    // What `+N more`'s popover shows: its list (`more`), a cohort's name (`save`), or the editor of a filter the row
+    // folds, by the filter's place — nothing while it is shut, or not drawn.
+    const moreView = !showMore ? null : open === "more" || open === "save" ? open : typeof open === "number" && !fits.includes(open) ? open : null;
+    // `+N more` gone from the row while its popover is open — the last filter it held taken out — leaves no popover to
+    // shut it: it is shut here, so the row lets go of what it held.
+    const moreGone = (open === "more" || open === "save") && !showMore;
+    useLayoutEffect(() => { if (moreGone) setOpen(null); }, [moreGone, setOpen]);
+    // The focus, as what `+N more` shows changes — see the module docs. `moreLine` is the place, among its list's lines,
+    // of the line last pressed: its filter's editor opened, or its filter taken out.
+    const moreBody = useRef<HTMLDivElement | null>(null);
+    const moreLine = useRef(0);
+    const moreWas = useRef(moreView);
+    useLayoutEffect(() => {
+        // A row being measured draws every chip, and its list none: it is read once it has settled.
+        if (measuring) return;
+        const was = moreWas.current;
+        moreWas.current = moreView;
+        // Shut before: as it opens, the focus is the popover's own. A cohort's name takes it for itself.
+        if (was === null || moreView === "save") return;
+        const active = document.activeElement;
+        const onNothing = active === null || active === document.body;
+        if (moreView === null) {
+            // Shut with `+N more` still in the row, the focus goes back to it, as any popover's does to its trigger.
+            const row = rowRef.current;
+            if (showMore || !onNothing || row === null) return;
+            const clauses = row.querySelectorAll<HTMLElement>("[data-slice-clause]");
+            (clauses[clauses.length - 1] ?? row.querySelector<HTMLElement>("[data-slice-add='filter']"))?.focus({ preventScroll: true });
+            return;
+        }
+        const body = moreBody.current;
+        if (body === null || (was === moreView && !onNothing)) return;
+        const lines = body.querySelectorAll<HTMLElement>("[data-slice-more-edit]");
+        const line = moreView === "more" ? lines[Math.min(moreLine.current, lines.length - 1)] : undefined;
+        (line ?? body.closest("[role='dialog']")?.querySelector<HTMLElement>(FOCUSABLE))?.focus({ preventScroll: true });
+    });
 
     // An editor opening holds the row as it stands, and the rail it is drawn in. The row lets both go once no editor is
     // open and the press that shut the last has clicked — on another chip, where the row stood; an editor that click
@@ -368,17 +411,13 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
         // the leading `visibleCount` and collapse the rest into `+N more` — a
         // group's name in the item of its first chip, so it is measured and
         // folds with it.
-        const shown = measuring ? drawn.order : drawn.order.slice(0, visibleCount);
-        const overflow = rowChips.length - (measuring ? 0 : visibleCount);
-        // What `+N more` holds: the filters the row folds, in the order it draws them — none it shows.
+        // What `+N more` holds: the filters the row folds, in the order it draws them — none it shows. Its chip's width
+        // is reserved during measuring (worst-case count), so it never collapses one chip too many once it appears.
         const folded = foldedOrder(drawn, rowGroups, shown.length);
         const more = folded.order.length;
-        // Reserve the `+N more` chip's width during measuring (worst-case count)
-        // so it never collapses one chip too many once it appears.
-        const showMore = measuring ? rowChips.length > 0 : overflow > 0;
         const saving = save !== undefined && open === "save";
         // A folded filter being edited in `+N more`: the popover is that filter's editor, and its actions give the list back.
-        const editedAt = typeof open === "number" && !shown.includes(open) ? open : undefined;
+        const editedAt = typeof moreView === "number" ? moreView : undefined;
         const edited = editedAt === undefined ? undefined : chips[editedAt];
         const toList = () => setOpen("more");
         // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
@@ -397,7 +436,6 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                             onOpenChange={o => setOpen(o ? "more" : null)}
                             label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size="lg"
-                            contentRef={moreContent}
                             {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
                                 footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,
                                 footActions: saving
@@ -423,41 +461,45 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                                 </chakra.button>
                             }
                         >
-                            {edited !== undefined && edited.editor(toList, setDraft)}
-                            {saving && (
-                                <Box display="flex" flexDirection="column" gap="{spacing.1}">
-                                    <chakra.input css={inp({ size: "sm" })} value={save.name} onChange={e => save.onName(e.target.value)} placeholder="Cohort name" aria-label="Cohort name" required aria-required="true" aria-invalid={save.name.trim() === ""} autoFocus />
-                                    {save.name.trim() === "" && <Box as="span" fontFamily="mono" fontSize="10px" color="fg.muted">Give the cohort a name to save it.</Box>}
-                                </Box>
-                            )}
-                            {(open === "more" || open === "save") && folded.order.map((i, at) => {
-                                const held = chips[i]!;
-                                const words = held.whole ?? held.label;
-                                return (
-                                    <Fragment key={i}>
-                                        {/* Each group's filters under its name, in the caption a group's fields are headed by. */}
-                                        {folded.starts[at] === true && held.group !== undefined && (
-                                            <Box css={frame.railGroupHead} data-slice-more-group={held.group.key}>
-                                                <Box as="span" css={frame.railGroupLabel}>{held.group.label}</Box>
-                                            </Box>
-                                        )}
-                                        <Box css={edit.moreRow} data-slice-more-row={i}>
-                                            {/* Its words and its Edit are one button: pressed, the popover is the filter's editor. */}
-                                            {open === "more" ? (
-                                                <chakra.button type="button" css={edit.moreRowOpen} aria-label={`Edit filter: ${words}`} data-slice-more-edit="" onClick={() => setOpen(i)}>
-                                                    <Box as="span" data-slice-more-words="">{words}</Box>
-                                                    <Box as="span" css={edit.moreRowEdit}>Edit</Box>
-                                                </chakra.button>
-                                            ) : <Box as="span" data-slice-more-words="">{words}</Box>}
-                                            {open === "more" && (
-                                                <chakra.button type="button" css={edit.moreRowRemove} onClick={() => onRemove(i)} aria-label="Remove filter">
-                                                    <FontAwesomeIcon icon={faXmark} />
-                                                </chakra.button>
+                            {/* What it shows, in the popover's body with no box of its own: where the focus is sent from. */}
+                            <Box ref={moreBody} css={edit.moreBody}>
+                                {edited !== undefined && edited.editor(toList, setDraft)}
+                                {saving && (
+                                    <Box css={edit.field}>
+                                        <chakra.input css={inp({ size: "sm" })} value={save.name} onChange={e => save.onName(e.target.value)} placeholder="Cohort name" aria-label="Cohort name" required aria-required="true" aria-invalid={save.name.trim() === ""} autoFocus />
+                                        {save.name.trim() === "" && <Box as="span" fontFamily="mono" fontSize="10px" color="fg.muted">Give the cohort a name to save it.</Box>}
+                                    </Box>
+                                )}
+                                {(open === "more" || open === "save") && folded.order.map((i, at) => {
+                                    const held = chips[i]!;
+                                    const words = held.whole ?? held.label;
+                                    return (
+                                        <Fragment key={i}>
+                                            {/* Each group's filters under its name, in the caption a group's fields are headed by. */}
+                                            {folded.starts[at] === true && held.group !== undefined && (
+                                                <Box css={frame.railGroupHead} data-slice-more-group={held.group.key}>
+                                                    <Box as="span" css={frame.railGroupLabel}>{held.group.label}</Box>
+                                                </Box>
                                             )}
-                                        </Box>
-                                    </Fragment>
-                                );
-                            })}
+                                            <Box css={edit.moreRow} data-slice-more-row={i}>
+                                                {/* Its words and its Edit are one button: pressed, the popover is the filter's editor. */}
+                                                {open === "more" ? (
+                                                    <chakra.button type="button" css={edit.moreRowOpen} aria-label={`Edit filter: ${words}`} data-slice-more-edit=""
+                                                        onClick={() => { moreLine.current = at; setOpen(i); }}>
+                                                        <Box as="span" data-slice-more-words="">{words}</Box>
+                                                        <Box as="span" css={edit.moreRowEdit}>Edit</Box>
+                                                    </chakra.button>
+                                                ) : <Box as="span" data-slice-more-words="">{words}</Box>}
+                                                {open === "more" && (
+                                                    <chakra.button type="button" css={edit.moreRowRemove} onClick={() => { moreLine.current = at; onRemove(i); }} aria-label="Remove filter">
+                                                        <FontAwesomeIcon icon={faXmark} />
+                                                    </chakra.button>
+                                                )}
+                                            </Box>
+                                        </Fragment>
+                                    );
+                                })}
+                            </Box>
                         </SliceEditPopover>
                     )}
                     <Box data-overflow-keep display="inline-flex">{addPopover}</Box>

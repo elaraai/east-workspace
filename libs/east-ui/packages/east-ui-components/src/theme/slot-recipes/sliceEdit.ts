@@ -29,7 +29,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "content", "head", "headLabel", "headClose",
         "body", "foot", "footLink", "footDanger", "footActions",
         "clauseRow", "clauseConj", "clauseBox", "clauseField", "clauseOp", "clauseVal",
-        "builderRow", "resolveLine", "moreRow", "moreRowOpen", "moreRowEdit", "moreRowRemove",
+        "builderRow", "resolveLine", "moreBody", "moreRow", "moreRowOpen", "moreRowEdit", "moreRowRemove",
         "chipToggle", "chipEdit", "hint", "hintError",
         "form", "field", "textArea", "hintRow", "hintAction",
         "anchor", "disclosure", "disclosureRegion", "disclosureLabel", "disclosureBody", "disclosureFoot",
@@ -290,6 +290,9 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         },
 
         // --- +M more list rows (filter overflow) ---
+        // What `+M more` shows — its list, or the editor of a filter it holds — held together with no box of its own,
+        // so its rows keep the body's column and rhythm.
+        moreBody: { display: "contents" },
         moreRow: {
             display: "grid",
             gridTemplateColumns: "1fr auto auto",

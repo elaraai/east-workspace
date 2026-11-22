@@ -89,7 +89,7 @@ import { Studio } from "@elaraai/e3-ui";
 import * as studio from "@elaraai/e3-ui/examples/studio/studio";
 import { installE3Faults, mutateE3 } from "./e3-faults";
 import { test } from "./kept-page";
-import { settled } from "./settle";
+import { animationsOver, settled } from "./settle";
 import { openBuilder, railAt, railOnTop, revenue, submit, written } from "./studio-filters-page";
 import { openVisuals } from "./studio-visuals-page";
 
@@ -588,6 +588,8 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(choice).toBeVisible();
         await expect(chooser).toBeVisible();
         await settled(page);
+        // The popover opens by a scale: its chips' heights are read once it has ended.
+        await animationsOver(page.locator("[data-scope='popover'][data-part='content'][data-state='open']"));
         /**
          * The editor as drawn: its head's words; the choice's chips, each its name, whether it is picked and its height;
          * whether the picked one's fill is not the others'; whether the choice stands between the head and the rows, on
