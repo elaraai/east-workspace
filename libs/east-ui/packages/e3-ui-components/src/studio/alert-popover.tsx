@@ -10,7 +10,9 @@
  * head then without its close ×, its foot's Cancel what leaves it. The list
  * and the editor are `alert-editor.tsx`'s, which the builder's inspector draws
  * too (`alert-section.tsx`); the rules are `alerts.ts`'s. This draws the bell,
- * and holds which of the two its popover shows.
+ * and holds which of the two its popover shows — and says which (`view`), so
+ * the editor opens on the side of the bell that holds it, not in the room the
+ * list took.
  *
  * @packageDocumentation
  */
@@ -89,7 +91,7 @@ function AlertsBell({ visual, name, read, placement, studio, alerts }: AlertsBel
     const edited = editing ?? (mine.length === 0 ? { held: undefined } : undefined);
     return (
         <SliceEditPopover trigger={trigger} open={open} onOpenChange={onOpenChange} label={edited === undefined ? label : edited.held?.name ?? m.newAlert()} size="lg"
-            flush={edited === undefined}
+            flush={edited === undefined} view={edited === undefined ? "list" : "editor"}
             // An alert's editor closes by its foot's Cancel: no × in its head, over its condition's rows' ×s. Its list keeps one.
             headClose={edited === undefined}
             footLeft={edited === undefined ? undefined : <Box as="span" ref={setFootLeft} css={styles.alertFoot} />}

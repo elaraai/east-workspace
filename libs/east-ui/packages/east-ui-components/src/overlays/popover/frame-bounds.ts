@@ -106,6 +106,20 @@ export function sideThatFits(own: number, room: PopoverRoom): PopoverSide {
 }
 
 /**
+ * The side a popover holds as what it shows changes — its list for the editor of one of its rows: the side it held
+ * while its own height still fits there, so it moves no more than it must; else the side its height opens it on, as
+ * when it opened ({@link sideThatFits}). An edit that grows or shrinks what it shows is not weighed: the side holds.
+ *
+ * @param held - The side it holds
+ * @param own - Its own height now ({@link ownHeight})
+ * @param room - The room under and over what it hangs from ({@link roomAround})
+ * @returns The side to hold
+ */
+export function sideToHold(held: PopoverSide, own: number, room: PopoverRoom): PopoverSide {
+    return own <= (held === "bottom" ? room.below : room.above) ? held : sideThatFits(own, room);
+}
+
+/**
  * A popover's own height (#1701): its content's, with no room around what it hangs from to hold it — its own most
  * still its most. Read with its `data-own-height` set, by which its recipe lifts the room's limit, and set back at
  * once, so nothing draws it so.

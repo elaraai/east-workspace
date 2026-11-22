@@ -10,7 +10,8 @@
  * the query builder's condition rows in place (`queryBuilder`'s
  * `conditions`), the shared picker in the flow under them, in the block of
  * `rows`, which gives up its height to the picker so the popover's body never
- * scrolls round a list that scrolls. A page's starting filters stand in the
+ * scrolls round a list that scrolls — and to nothing else: with no picker
+ * open the rows keep their height, and a body too short for them scrolls. A page's starting filters stand in the
  * builder's canvas's band over its grid (`starting`): their caption, then
  * their rail.
  *
@@ -36,11 +37,13 @@ export const studioFiltersSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             marginBottom: "{spacing.3}",
         },
-        /* A filter's condition rows in its popover's body: as tall as the body leaves them, the picker under them taking the rest. */
+        /* A filter's condition rows in its popover's body: their own height; while the picker is open under them, as tall
+           as the body leaves them, the picker taking the rest. */
         rows: {
             display: "flex",
             flexDirection: "column",
-            minHeight: "0",
+            flexShrink: "0",
+            "&:has([data-chooser])": { flexShrink: "1", minHeight: "0" },
         },
         /* A page's starting filters in the canvas's band (#1673): their caption, then their rail, the band's whole width. */
         starting: {

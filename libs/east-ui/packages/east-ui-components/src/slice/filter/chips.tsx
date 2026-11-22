@@ -58,7 +58,9 @@
  * press on its words shows its editor in the same popover — its head, its body
  * and its foot the filter's — and Cancel, Apply and Remove filter give the
  * list back, which says what was done. A filter no room is left to show is
- * never one that cannot be edited.
+ * never one that cannot be edited. The popover says which it shows (`view`),
+ * so an editor too tall for the room its list opened in opens on the side of
+ * the chip that holds it.
  *
  * The focus goes with what `+N more` shows: to the editor's first control
  * (`editorFocus`) as a line opens its filter's editor, and back to that line — or the
@@ -447,6 +449,7 @@ export function SliceFilterChips<D = never>({ chips, density, foldChips, onRemov
                             onOpenChange={o => setOpen(o ? "more" : null)}
                             label={edited !== undefined ? edited.editLabel : saving ? "Save as cohort" : `${more} more filter${more === 1 ? "" : "s"}`}
                             size={wide}
+                            view={edited !== undefined ? "editor" : saving ? "save" : "list"}
                             headClose={edited === undefined && !saving}
                             {...(edited !== undefined && editedAt !== undefined ? filterFoot(edited, editedAt, toList) : {
                                 footLeft: save !== undefined && !saving && chips.length >= 2 ? <chakra.button type="button" css={edit.footLink} onClick={() => setOpen("save")}>Save as cohort →</chakra.button> : undefined,

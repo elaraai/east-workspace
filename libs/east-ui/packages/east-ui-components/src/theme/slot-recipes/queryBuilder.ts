@@ -344,14 +344,18 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             color: "fg.subtle",
         },
-        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart; it gives up
-           its height to the picker under them, which takes what its host's body has left (#1673). */
+        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart. With the
+           picker open under them they give up their height to it, which takes what its host's body has left (#1673) —
+           the picker alone: no line of theirs is ever squeezed, a row that wraps holding every line of its slots. In a
+           body too short for them it is the body that scrolls. */
         conditions: {
             display: "flex",
             flexDirection: "column",
             gap: "6px",
             minWidth: "0",
-            minHeight: "0",
+            flexShrink: "0",
+            "& > :not([data-chooser])": { flexShrink: "0" },
+            "&:has(> [data-chooser])": { flexShrink: "1", minHeight: "0" },
         },
         /* A row: its joiner, what it says and its ×, side by side on the baseline of its first line's words. While its × is
            pointed at, or holds the focus, it stands on the danger wash inside the danger rule, 3px past its own edges:

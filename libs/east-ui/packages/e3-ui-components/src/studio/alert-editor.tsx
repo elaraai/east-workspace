@@ -300,7 +300,7 @@ export function AlertEditor({ visual, name, read, placement, studio, alerts, hel
 interface AlertNowProps {
     /** Now's answer, as the page's answers give it. */
     readonly asked: ReturnType<typeof useVisualAnswers>;
-    /** Whether it has no condition to ask yet. */
+    /** Whether nothing has been asked yet: a new alert's condition, still to be written, or written and not yet run. */
     readonly waiting: boolean;
     /** The query builder's words, which its table prints with. */
     readonly words: ReturnType<typeof useQueryWords>;
@@ -323,7 +323,8 @@ function AlertNow({ asked, waiting, words, visual, source, fields, onRun }: Aler
     const table = useMemo(() => (answer?.kind !== "answered" ? undefined
         : alertRowsTable({ type: ArrayType(StructType([...answer.columns])), value: answer.rows }, visual, source, fields, words, m)), [answer, visual, source, fields, words, m]);
     let note: string | undefined;
-    if (waiting) note = m.alertNowWaits();
+    // Nothing asked yet: while its condition is unfinished, what Run waits for; once it is finished, Run says the rest.
+    if (waiting) note = onRun === undefined ? m.alertNowWaits() : undefined;
     else if (asked.status === "failed") note = asked.message;
     else if (answer?.kind === "problem") note = problemOf(answer, m);
     else if (answer?.kind === "answered") {

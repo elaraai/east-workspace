@@ -7,11 +7,12 @@
  * page the frame's sides while it fits between them, else the page's; down the
  * page the page's — held to a side, the page on that side of what it hangs
  * from (#1701); read live, as the frame moves and narrows. And the side it
- * opens on: by its own height and the room under and over what it hangs from.
+ * opens on: by its own height and the room under and over what it hangs from
+ * — and the side it holds as what it shows changes.
  */
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { system } from "../../theme/index.js";
-import { POPOVER_OVERFLOW, frameBounds, ownHeight, roomAround, sideThatFits, type PopoverSide } from "./frame-bounds.js";
+import { POPOVER_OVERFLOW, frameBounds, ownHeight, roomAround, sideThatFits, sideToHold, type PopoverSide } from "./frame-bounds.js";
 
 /** The page's size, as its root's client box gives it. */
 const PAGE = { width: 1600, height: 1000 };
@@ -119,6 +120,19 @@ test("the room under and over what it hangs from, past its gap and the overflow 
         sideThatFits(room.below, room), sideThatFits(room.below + 1, room),
         sideThatFits(900, { below: 300, above: 200 }), sideThatFits(900, { below: 300, above: 300 }),
     ]).toEqual(["bottom", "top", "bottom", "bottom"]);
+});
+
+test("as what it shows changes — its list for the editor of one of its rows — it keeps the side it holds while its height now fits there, and is chosen a side again where it does not", () => {
+    // Low on a phone's screen: its list opened under what it hangs from, 276 of room there and 540 over it.
+    const room = { below: 276, above: 540 };
+    expect(sideToHold("bottom", 206, room), "its list, which fits under it").toBe("bottom");
+    expect(sideToHold("bottom", 276, room), "an editor exactly as tall as the room").toBe("bottom");
+    expect(sideToHold("bottom", 304, room), "an editor taller than the room under it, which fits over it").toBe("top");
+    // Back to its list from over it: the list fits there too, so it stays — it moves no more than it must.
+    expect(sideToHold("top", 206, room)).toBe("top");
+    // Too tall for either side: the side with more room, as when it opened.
+    expect([sideToHold("bottom", 900, room), sideToHold("top", 900, { below: 300, above: 200 }), sideToHold("top", 900, { below: 300, above: 300 })])
+        .toEqual(["top", "bottom", "bottom"]);
 });
 
 test("its own height is read with its data-own-height set — by which its recipe lifts the room's limit, its own most still its most — and set back at once (#1701)", () => {

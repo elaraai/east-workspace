@@ -40,6 +40,14 @@
  *    and in a window too narrow for a row, its slots wrap under its first
  *    slot — never under its joiner, and never its ×, which no slot runs
  *    under.
+ *  - F18 an editor is never left the room its list took, and no row gives up
+ *    its height (a manual test's findings, 22 November 2026). A filter edited
+ *    from `+N more` low on a phone's screen: its list opened under the chip,
+ *    and its editor — taller than the room there — is shown over the chip,
+ *    where it fits whole, its body not scrolling. In a window too short for
+ *    it on either side, each row still holds every line of its slots, no line
+ *    runs into the next, and the popover's body scrolls down to the rows'
+ *    foot, its own padding under it.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -51,7 +59,7 @@ import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { animationsOver, settled } from "./settle";
 import { openConfigure } from "./studio-configure-page";
-import { openBuilder, railOnTop, revenue, submit, written } from "./studio-filters-page";
+import { openBuilder, railAt, railOnTop, revenue, submit, written } from "./studio-filters-page";
 import { openVisuals } from "./studio-visuals-page";
 import { token } from "./tokens";
 
@@ -376,5 +384,80 @@ test.describe("A filter's editor (#1667)", () => {
         expect(await laid(), "in a window 360 wide").toEqual([WRAPPED, WRAPPED]);
         // And nothing of it runs past the popover's body.
         expect(await rows.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    });
+
+    test("F18: a filter edited from +N more low on a phone's screen is shown over its chip, where its editor fits whole; and in a window too short for it on either side no row gives up its height — each holds every line of its slots, no line runs into the next, and the body scrolls down to the rows' foot", async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const grid = await openVisuals(page, "light");
+        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        const rows = page.locator("[data-studio-filter-rows]");
+        const popover = page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
+        /**
+         * The editor as it lies: where the popover stands by its chip; whether it is inside the screen; whether each row
+         * is as tall as its slots stand, and how many lines they take; whether each line starts under the one before it;
+         * and whether the body's content runs past its room.
+         */
+        const laid = async () => popover.evaluate((el, chip) => {
+            const body = el.querySelector("[data-slice-edit-body]")!;
+            const lines = [...el.querySelectorAll("[data-condition-rows] > [data-query-line]")].map((line) => line.getBoundingClientRect());
+            const box = el.getBoundingClientRect();
+            return {
+                side: box.bottom <= chip.y ? "over" : box.top >= chip.y + chip.height ? "under" : "across",
+                inside: box.top >= 0 && box.bottom <= window.innerHeight && box.left >= 0 && box.right <= window.innerWidth,
+                rows: [...el.querySelectorAll("[data-condition-rows] > [data-query-line=row]")].map((row) => {
+                    const slots = [...row.querySelectorAll("[data-slot-key]")].map((slot) => slot.getBoundingClientRect());
+                    return {
+                        lines: new Set(slots.map((slot) => Math.round(slot.top))).size,
+                        whole: slots.every((slot) => slot.top >= row.getBoundingClientRect().top - 0.5 && slot.bottom <= row.getBoundingClientRect().bottom + 0.5),
+                    };
+                }),
+                apart: lines.every((line, i) => i === 0 || line.top >= lines[i - 1]!.bottom - 0.5),
+                scrolls: body.scrollHeight > body.clientHeight,
+            };
+        }, (await rail.locator("[data-slice-more]").boundingBox())!);
+        /** Opens `+N more`'s list — where it stands by its chip — and then its one filter's editor. */
+        const edit = async () => {
+            await expect(rail.locator("[data-slice-more]")).toBeVisible();
+            await settled(page);
+            await rail.locator("[data-slice-more]").click();
+            await expect(popover.locator("[data-slice-more-edit]")).toHaveCount(1);
+            await animationsOver(popover);
+            const list = (await laid()).side;
+            await popover.locator("[data-slice-more-edit]").first().click();
+            await expect(rows.locator("[data-query-line=row]")).toHaveCount(2);
+            return list;
+        };
+        const WRAPPED = { lines: 2, whole: true };
+        // Low on the screen, the row's one filter folded into +N more: its list fits under its chip; its editor does
+        // not, and is shown over the chip, whole.
+        await railAt(page, rail, 520);
+        expect(await edit(), "the list").toBe("under");
+        await expect.poll(async () => (await laid()).side).toBe("over");
+        await settled(page);
+        expect(await laid()).toEqual({ side: "over", inside: true, rows: [WRAPPED, WRAPPED], apart: true, scrolls: false });
+        // Cancel gives the list back where the editor stood: it fits there too, and moves no more than it must.
+        await popover.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(popover.locator("[data-slice-more-edit]")).toHaveCount(1);
+        await settled(page);
+        expect((await laid()).side, "the list, given back").toBe("over");
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+
+        // A window too short for the editor over its chip or under it: it stands where there is more room, inside the
+        // screen — its rows whole, each line under the one before it — and its body scrolls.
+        await page.setViewportSize({ width: 390, height: 480 });
+        await railAt(page, rail, 220);
+        await edit();
+        await settled(page);
+        const short = await laid();
+        expect({ ...short, side: undefined }).toEqual({ side: undefined, inside: true, rows: [WRAPPED, WRAPPED], apart: true, scrolls: true });
+        // Scrolled to its end, the body shows the rows' foot — Add condition — its own padding under it.
+        const end = await popover.evaluate((el) => {
+            const body = el.querySelector("[data-slice-edit-body]")!;
+            body.scrollTop = body.scrollHeight;
+            const foot = el.querySelector("[data-condition-rows] > [data-query-line=foot]")!.getBoundingClientRect();
+            return { under: Math.round(body.getBoundingClientRect().bottom - foot.bottom), padding: Math.round(parseFloat(getComputedStyle(body).paddingBottom)) };
+        });
+        expect(end.under).toBe(end.padding);
     });
 });

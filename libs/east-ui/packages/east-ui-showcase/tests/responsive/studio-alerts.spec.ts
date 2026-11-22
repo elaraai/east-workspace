@@ -21,8 +21,9 @@
  *  - A3 an alert opened in it is its editor: its name, its condition in the
  *    query builder's rows, its pause, and Now — the rows that meet it now, a
  *    table of them, its numbers in their fields' formats, and how many of how
- *    many. Its foot's Cancel leaves it:
- *    its head holds no close ×, over its condition's rows' ×s.
+ *    many. Its table is as tall as its rows, no empty band under them. Its
+ *    foot's Cancel leaves it: its head holds no close ×, over its condition's
+ *    rows' ×s.
  *  - A4 the bar's bell lists the alerts firing, and opening one sets the
  *    page's filters to the alert's, over a reader's who had cleared them, and
  *    draws its banner: its name, how many rows met it, Show rows — those rows,
@@ -35,6 +36,10 @@
  *    list offers the rows' fields, its comparison's a number's comparisons,
  *    its value's the rows' own numbers — and a number typed is compared as a
  *    number: Run answers the rows under it, with no error.
+ *  - A7 a new alert on a visual with no goal starts with its number still to
+ *    write: Now says to finish the condition, and Run waits. The number
+ *    written, Run stands on and Now says no more of finishing (a manual test's
+ *    finding, 22 November 2026); pressed, it answers the rows over the line.
  *  - P1 on a phone, a bell and its menu are each a 44 × 44 tap target, their
  *    boxes the desktop's 24 × 24: the tile's head stands 44 on a touch
  *    screen, so every tap down a control's column lands on it from the head's
@@ -44,6 +49,11 @@
  *    the 4 between them — the bell from 18 before its box to 2 past it, the
  *    menu from 2 before its box to 18 past it — so neither takes a tap on the
  *    other's box. Its popover stands inside the screen.
+ *  - P2 low on the screen, an alert opened in its bell's popover is shown
+ *    over the bell (a manual test's finding, 22 November 2026): its list
+ *    opened under the bell, where it fits; its editor does not fit there, and
+ *    is given the side that holds it — never the room its list took — inside
+ *    the screen.
  *
  * And the builder over the same page, given the same record (asked 22 November
  * 2026): the selected visual's alerts in its inspector.
@@ -70,6 +80,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { escapeLayer, settled } from "./settle";
+import { railAt } from "./studio-filters-page";
 import { token } from "./tokens";
 
 /** The showcase's alerts page. */
@@ -130,6 +141,12 @@ const listed = (open: Locator) => open.locator("[data-studio-alert]").evaluateAl
 
 /** A table's rows as it prints them: each row's cells' words. */
 const printedRows = (table: Locator) => table.locator("tbody tr").evaluateAll((rows) => rows.map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent)));
+
+/** How far a table's box runs under its last row: its own 1px rule, where it is as tall as its rows. */
+const bandUnder = (table: Locator) => table.evaluate((el) => {
+    const rows = el.querySelectorAll("tbody tr");
+    return Math.round(el.getBoundingClientRect().bottom - rows[rows.length - 1]!.getBoundingClientRect().bottom);
+});
 
 /** July's and August's revenue, the months under their goal of 130,000: each an amount, grouped, as its field's format says — never a float's every digit. */
 const MONTHS_UNDER = [["2026-07-01", "127,009.95"], ["2026-08-01", "118,646.78"]];
@@ -245,6 +262,8 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await expect.poll(() => open.locator("[data-studio-alert-rows] tbody tr").count()).toBe(2);
         // Its numbers in their field's format.
         expect(await printedRows(open.locator("[data-studio-alert-rows]"))).toEqual(MONTHS_UNDER);
+        // As tall as its two rows: its last row ends at its own rule, no empty band under it.
+        expect(await bandUnder(open.locator("[data-studio-alert-rows]"))).toBe(1);
         await expect(open.locator("[data-studio-alert-save]")).toBeEnabled();
         await expect(open.locator("[data-studio-alert-delete]")).toBeVisible();
     });
@@ -334,6 +353,31 @@ test.describe("A Studio page's alerts (#1674)", () => {
         await open.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(open.locator('[data-studio-alert="Month under goal"]')).toBeVisible();
     });
+
+    test("A7: a new alert on a visual with no goal starts with its number to write — Now says to finish the condition, Run waiting; the number written, Run stands on and Now says no more of it; pressed, it answers the rows over the line", async ({ page }) => {
+        const entry = await openAlerts(page);
+        const open = await openBell(page, entry, "v-combo");
+        await open.locator("[data-studio-new-alert]").click();
+        const slots = open.locator("[data-query-line=row] [data-slot-key]");
+        await expect(slots).toHaveText(["revenue", "is more than", "value"]);
+        const now = open.locator("[data-studio-alert-now]");
+        const run = open.locator("[data-studio-alert-run]");
+        await expect(now).toContainText("Finish the condition, then Run.");
+        await expect(run).toBeDisabled();
+        await slots.nth(2).click();
+        await page.keyboard.type("100000");
+        await page.keyboard.press("Enter");
+        await expect(slots).toHaveText(["revenue", "is more than", "100000"]);
+        // Finished, and not yet run: Run alone under Now's name.
+        await expect(run).toBeEnabled();
+        await expect(now).toHaveText("NowRun");
+        await run.click();
+        // New South Wales' revenue alone is over 100,000, of the quarter's five regions.
+        await expect(now).toContainText("1 of 5 rows meets it now", { timeout: 30_000 });
+        expect(await printedRows(open.locator("[data-studio-alert-rows]"))).toEqual([["NSW", "116,549.42", "19.71%"]]);
+        await open.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(open.locator('[data-studio-alert="Margin under 19%"]')).toBeVisible();
+    });
 });
 
 test.describe("A Studio page's alerts on a phone (#1674)", () => {
@@ -381,6 +425,35 @@ test.describe("A Studio page's alerts on a phone (#1674)", () => {
         const box = (await open.boundingBox())!;
         const screen = page.viewportSize()!;
         expect([box.x >= 0, box.x + box.width <= screen.width]).toEqual([true, true]);
+    });
+
+    test("P2: low on the screen, an alert opened in its bell's popover is shown over the bell — its editor on the side that holds it, never in the room its list took — inside the screen @mobile", async ({ page }) => {
+        const entry = await openAlerts(page);
+        const screen = page.viewportSize()!;
+        // The tile's head some way down the screen (the list's scroll helper, on a tile): the list of its one alert fits
+        // under its bell; the alert's editor does not, and there is more room over the bell.
+        await railAt(page, tile(entry, "v-revenue"), Math.round(screen.height * 0.62));
+        await bell(entry, "v-revenue").click();
+        await entered(page);
+        const open = popover(page);
+        /** Where the popover stands by its bell, whether it is inside the screen, and how tall its body is. */
+        const stands = async () => open.evaluate((el, at) => {
+            const own = el.getBoundingClientRect();
+            return {
+                side: own.bottom <= at.y ? "over" : own.top >= at.y + at.height ? "under" : "across",
+                inside: own.top >= 0 && own.bottom <= window.innerHeight && own.left >= 0 && own.right <= window.innerWidth,
+                body: Math.round(el.querySelector("[data-slice-edit-body]")!.getBoundingClientRect().height),
+            };
+        }, (await bell(entry, "v-revenue").boundingBox())!);
+        expect((await stands()).side, "its list").toBe("under");
+        await open.locator('[data-studio-alert="Quarter under goal"]').click();
+        await expect(open.locator("[data-studio-alert-editor]")).toBeVisible();
+        await expect.poll(async () => (await stands()).side).toBe("over");
+        await settled(page);
+        const editor = await stands();
+        // Over the bell it has the screen's room down to it: its body some hundreds tall, where under the bell it had
+        // what the list left it.
+        expect([editor.inside, editor.body >= 300]).toEqual([true, true]);
     });
 });
 

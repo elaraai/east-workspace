@@ -9,7 +9,7 @@ import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from
 import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
-import { frameBounds, ownHeight, roomAround, sideThatFits, type PopoverSide } from "../../overlays/popover/frame-bounds.js";
+import { frameBounds, ownHeight, roomAround, sideThatFits, sideToHold, type PopoverSide } from "../../overlays/popover/frame-bounds.js";
 import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -110,6 +110,13 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     contentRef?: Ref<HTMLDivElement> | undefined;
     /** It appears and goes at once, with no fade or scale. */
     still?: boolean | undefined;
+    /**
+     * What it shows, for one that shows one thing and then another while it is open — its list, then the editor of one
+     * of its rows (`+N more`'s, a visual's alerts'). As it changes, the side the popover holds is weighed again by its
+     * height now: kept while what it shows fits there, else chosen as when it opened — an editor too tall for the room
+     * under what it hangs from opens over it, where it fits. One that shows one thing gives none.
+     */
+    view?: string | undefined;
     /** The editor body. */
     children: ReactNode;
 };
@@ -145,8 +152,11 @@ function Rehang({ from }: { from: unknown }) {
  * Chooses the side an open popover opens on once its content is there, and lets it go as it shuts (#1701). Its content
  * is there by the frame after it opens — the draws its opening asks for, a field's list opened as it mounts, done by
  * then — where Zag places it too: chosen, it is placed again at once, on the side it holds.
+ *
+ * As what it shows changes while it is open (`view`: its list for the editor of one of its rows), the side it holds is
+ * weighed again the frame after, what it shows now there: moved, it is placed again.
  */
-function HoldSide({ choose, release }: { choose: () => boolean; release: () => void }) {
+function HoldSide({ choose, weigh, release, view }: { choose: () => boolean; weigh: () => boolean; release: () => void; view: string | undefined }) {
     const popover = usePopoverContext();
     const { open } = popover;
     const place = useRef(popover.reposition);
@@ -161,6 +171,16 @@ function HoldSide({ choose, release }: { choose: () => boolean; release: () => v
         });
         return () => cancelAnimationFrame(frame);
     }, [open, choose, release]);
+    const shown = useRef(view);
+    useLayoutEffect(() => {
+        if (shown.current === view) return undefined;
+        shown.current = view;
+        if (!open) return undefined;
+        const frame = requestAnimationFrame(() => {
+            if (weigh()) place.current();
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, view, weigh]);
     return null;
 }
 
@@ -186,6 +206,10 @@ function HoldSide({ choose, release }: { choose: () => boolean; release: () => v
  * height does not fit under it and there is more room over it: the side is
  * chosen once its content is there and held while it is open, so an edit that
  * grows or shrinks it moves it to neither side (#1701, {@link frameBounds}).
+ * One that shows one thing and then another says which (`view`): as its list
+ * gives way to the editor of one of its rows, the side it holds is weighed
+ * again — kept while the editor fits there, else chosen as when it opened, so
+ * an editor is never left the room its list took.
  *
  * Esc closes it from the moment it opens. Its own dismissal begins to listen a
  * frame after it opens, so an Esc pressed in that frame — a press that follows
@@ -205,7 +229,7 @@ function HoldSide({ choose, release }: { choose: () => boolean; release: () => v
  * giving way to it ({@link FramePanelView}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, headClose = true, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, headClose = true, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, view, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -233,6 +257,15 @@ export function SliceEditPopover({
         return true;
     }, [anchored]);
     const release = useCallback(() => { sideRef.current = undefined; }, []);
+    // What it shows changed (`view`): the side it holds weighed again by its own height now. Whether it moved.
+    const weigh = useCallback((): boolean => {
+        const content = contentRef.current;
+        const origin = anchored ? anchorRef.current : triggerRef.current;
+        const held = sideRef.current;
+        if (held === undefined || hangRef.current !== undefined || content === null || origin === null || content.offsetHeight === 0) return false;
+        sideRef.current = sideToHold(held, ownHeight(content), roomAround(origin, POPOVER_GUTTER));
+        return sideRef.current !== held;
+    }, [anchored]);
     // Where the focus goes as it opens: its host's choice; else, with no × in its head, its editor's own first control.
     const ownFocus = useCallback(() => editorFocus(contentRef.current), []);
     const firstFocus = initialFocusEl ?? (headClose ? undefined : ownFocus);
@@ -359,7 +392,7 @@ export function SliceEditPopover({
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
                 : <ChakraPopover.Trigger ref={triggerRef} asChild>{trigger}</ChakraPopover.Trigger>}
             <Rehang from={hangFrom} />
-            <HoldSide choose={choose} release={release} />
+            <HoldSide choose={choose} weigh={weigh} release={release} view={view} />
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content ref={setContent} css={styles.content} data-still={still ? "" : undefined}>
