@@ -157,6 +157,8 @@ describe("a record whose rows' keys are built from them", () => {
         expect([tone(c), refused(c)]).toEqual([null, []]);
         await press(c, editingMessages.apply());
         await waitFor(async () => expect([...(await h.read(racks)).keys()]).toEqual(["OLD", "R-1", "R-5"]));
+        // The rack moved is the rack it was, changed: the Save says two racks changed — never one added and one deleted.
+        await waitFor(() => expect(status(c)).toBe("Applied 2 changes to 2 racks"));
         const saved = await h.read(racks);
         expect([rackEqual(saved.get("R-5")!, { code: "R-5", bay: "South" }), rackEqual(saved.get("OLD")!, { code: "R-9", bay: "East" })], printRacks(saved)).toEqual([true, true]);
         // Its code typed over, the rack under another scheme's key goes under the key it builds now.

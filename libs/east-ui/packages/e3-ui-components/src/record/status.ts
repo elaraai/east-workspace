@@ -99,7 +99,10 @@ export function createRecordStatus(): RecordStatus {
 /**
  * What the drafts send as an Apply (AD4): the fields they change on rows the
  * record holds and on how many, the rows they add, and those they delete — a
- * new row a draft dropped again none of them.
+ * new row a draft dropped again none of them. A row a gesture moved under
+ * another key (`key`, east-workspace#1709) is the row it was, changed: counted
+ * once, by the fields it changes against the row it began as — never as one
+ * row added and one deleted.
  *
  * @param session - The editing session
  * @param fields - How many fields a draft changes against the one its entry began from
@@ -110,9 +113,14 @@ export function tallyDrafts(session: SheetTransactions, fields: (before: unknown
     let changed = 0;
     let added = 0;
     let deleted = 0;
+    // Each row that stands under another key than the record holds it under, by its key now, to the key it began under.
+    const moved = session.moved;
+    const left = new Set(moved.values());
     for (const [id, entry] of session.entries) {
-        const was = session.originals.get(id)?.draft;
         const now = entry.draft;
+        // The key a moved row left: its row is counted under the key it stands under.
+        if (now === undefined && left.has(id)) continue;
+        const was = session.originals.get(moved.get(id) ?? id)?.draft;
         if (was === undefined) {
             if (now !== undefined) added += 1;
             continue;

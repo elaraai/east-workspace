@@ -15,7 +15,8 @@
  * stood until its session has read it by its key (`standing-rows.ts`). Over a
  * record whose rows' keys the app builds from them (`key`,
  * east-workspace#1709), each gesture leaves every row it made or changed under
- * the key its row builds.
+ * the key its row builds — a row it moved standing in the place of the row it
+ * was, until its source reads it again.
  *
  * @packageDocumentation
  */
@@ -520,6 +521,12 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         };
         const stood = stoodRef.current;
         const stands = new Map<string, number>();
+        // A row a gesture moved under another key (`key`, east-workspace#1709) is the row it was: where the rows drawn hold
+        // it under the key it began under, it stands in that row's place under its new one, until its source reads it
+        // again — never at the end of the rows, where a row the drafts add stands, off a paged sheet's view. Each such
+        // row's new key, by the key it began under.
+        const standsIn = new Map<string, string>();
+        for (const [id, began] of session.moved) if (drawn(began) && !drawn(id) && session.entries.get(id)?.wire !== undefined) standsIn.set(began, id);
         for (const [id, entry] of session.entries) {
             const before = session.originals.get(id) ?? absent;
             const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
@@ -542,8 +549,15 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const landed = saved !== undefined && awaiting(id, saved.from) ? saved : undefined;
             const held = landed?.before ?? before;
             const was = stood.get(id);
-            // A row its draft removes is drawn nowhere, and remembered where it stood: the removal taken back finds it so.
-            if (entry.wire === undefined) { removed.add(id); if (was !== undefined) stands.set(id, was); continue; }
+            // A row its draft removes is drawn nowhere, and remembered where it stood: the removal taken back finds it so. One
+            // a gesture moved under another key is not removed: its row is drawn there, under that key.
+            if (entry.wire === undefined) { if (!standsIn.has(id)) removed.add(id); if (was !== undefined) stands.set(id, was); continue; }
+            const began = session.moved.get(id);
+            if (began !== undefined && stringEqual(standsIn.get(began) ?? began, id)) {
+                // The moved row, in the place of the row it was.
+                edits.set(began, entry.wire);
+                continue;
+            }
             if (held.draft === undefined && !drawn(id)) {
                 appended.push(entry.wire);
                 // The Save's new entry still: a count read since that Save holds it.

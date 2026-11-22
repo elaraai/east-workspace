@@ -16,7 +16,10 @@
  * typed into the blank row holding its key in its number from the first. And
  * docks keyed by a variant, as a composite record keys its rows, paged from
  * the rail's `rows` source (east-workspace#1696): the narrowing shows the rows
- * it keeps, and a typed cell is saved under its row's own key.
+ * it keeps, and a typed cell is saved under its row's own key. And lanes keyed
+ * by the number their row builds, paged from the rail's `rows` source: a lane
+ * a typed slot moves stands where it stood, under its new key, until its
+ * source reads it again.
  */
 
 import { expect, test } from "vitest";
@@ -62,7 +65,21 @@ const sourcedDocks = e3.record("sourced_docks", DictType(Sourced, Dock), {
     }),
 });
 
-const h = sheetHarness({ modules: { "sheet/built-key": { lanes, docks, sourcedDocks } }, frame: 2000 });
+/** Lanes again, keyed by the number their aisle and their slot build, and filed by their aisle: what the rail pages them through. */
+const pagedLanes = e3.record("built_key_paged_lanes", DictType(IntegerType, Lane), {
+    initial: new Map([
+        [101n, { aisle: 1n, slot: 1n, note: "Bulk" }], [102n, { aisle: 1n, slot: 2n, note: "Picks" }], [103n, { aisle: 1n, slot: 3n, note: "Returns" }],
+        [201n, { aisle: 2n, slot: 1n, note: "Dock" }],
+    ]),
+    indexes: (index) => ({
+        built_key_paged_lanes_by_aisle: index.on(["aisle"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = sheetHarness({ modules: { "sheet/built-key": { lanes, docks, sourcedDocks, pagedLanes } }, frame: 2000 });
 const laneEqual = equalFor(Lane);
 const dockEqual = equalFor(Dock);
 const printLanes = printFor(lanes.type);
@@ -109,6 +126,23 @@ const docksSourced = East.function([], SheetPayloadType, ($) => {
         columns: {
             no: Sheet.column.integer(Dock, { header: "No" }),
             note: Sheet.column.text(Dock, { header: "Note" }),
+        },
+    });
+});
+
+/** The lanes keyed by the number their row builds, paged from the rail's `rows` source through their aisle's index: it adds no rows. */
+const lanesPaged = East.function([], SheetPayloadType, ($) => {
+    const held = $.let(Record.bind(pagedLanes));
+    const slice = $.const(Slice.bindRecords("test.sheet.pagedLanes", {
+        rows: { source: Data.bindPaged(pagedLanes, { indexes: ["built_key_paged_lanes_by_aisle"] }), fields: { aisle: { label: "Aisle" } } },
+    }));
+    return Sheet.Payload({
+        record: held, name: "lanesPaged", slice: { slice }, edits: { insertRows: false },
+        key: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
+        columns: {
+            aisle: Sheet.column.integer(Lane, { header: "Aisle" }),
+            slot: Sheet.column.integer(Lane, { header: "Slot" }),
+            note: Sheet.column.text(Lane, { header: "Note" }),
         },
     });
 });
@@ -217,4 +251,26 @@ test("#1696 — over docks keyed by a variant, as a composite record keys its ro
     await waitFor(async () => expect((await h.read(sourcedDocks)).get(D2)?.no).toBe(22n));
     const saved = await h.read(sourcedDocks);
     expect([saved.size, dockEqual(saved.get(D2)!, { no: 22n, note: "South" }), dockEqual(saved.get(D1)!, { no: 1n, note: "North" })]).toEqual([2, true, true]);
+});
+
+test("ruling 16 — over lanes paged from the rail's `rows` source, a lane a typed slot moves under the key it builds stands where it stood, under its new key — never at the rows' end — and is one lane still; Undo puts it back, and a Save writes it under its key, read back in that key's place", async () => {
+    const { container: c } = await h.mountPayload(lanesPaged, { storageKey: "sheet-built-key-paged" });
+    await waitFor(() => expect(ids(c)).toEqual(["101", "102", "103", "201"]));
+    // Aisle 1's second lane goes to slot 9: under 109, in the place it stood in — its source has still to read it there.
+    await paste(c, cellOf(c, "102", "slot"), "9");
+    expect(ids(c)).toEqual(["101", "109", "103", "201"]);
+    expect([cellOf(c, "109", "slot").textContent, cellOf(c, "109", "note").textContent]).toEqual(["9", "Picks"]);
+    await press(c, editingMessages.undo());
+    expect(ids(c)).toEqual(["101", "102", "103", "201"]);
+    await press(c, editingMessages.redo());
+    expect(ids(c)).toEqual(["101", "109", "103", "201"]);
+    // Moved on again, it is the same lane still, in the same place.
+    await paste(c, cellOf(c, "109", "slot"), "7");
+    expect(ids(c)).toEqual(["101", "107", "103", "201"]);
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
+    await waitFor(async () => expect([...(await h.read(pagedLanes)).keys()]).toEqual([101n, 103n, 107n, 201n]));
+    const saved = await h.read(pagedLanes);
+    expect(laneEqual(saved.get(107n)!, { aisle: 1n, slot: 7n, note: "Picks" }), printFor(pagedLanes.type)(saved)).toBe(true);
+    // Read again, it stands in its key's place.
+    await waitFor(() => expect(ids(c)).toEqual(["101", "103", "107", "201"]));
 });
