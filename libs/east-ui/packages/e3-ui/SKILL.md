@@ -521,7 +521,10 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   one mutation is a patch), each data visual's header carries a bell that sets
   alerts on it: a condition on its rows — its groups and values by name — with
   the rows that meet it now, kept with the page's filters as it was made; a
-  visual of more than 200 rows takes none. A published page checks its project's alerts
+  visual of more than 200 rows takes none. In the builder the selected visual's
+  Configure tab lists and sets them too; an alert is the record's, saved as it is
+  written, never with the page's draft (`e3-ui:alerts.examples.tsx:studioAlertsBuilder`).
+  A published page checks its project's alerts
   that are not paused, as it opens and as their data moves — one e3 call each,
   as a tile's — and writes each one's latest firing; `<Studio.AlertBell>` lists
   those firing, and opening one sets the page's filters to its own, tells
