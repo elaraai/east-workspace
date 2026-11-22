@@ -143,6 +143,7 @@ import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
 } from "./controller/index.js";
+import { planRowKeys } from "./controller/seek.js";
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
@@ -889,14 +890,18 @@ export function usePlanCanvas({
     const hiddenPick = useHiddenPick({ onError: setFindError, uncleared: words.m.keySearchUncleared() });
     const handOff = hiddenPick.handOff;
     const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
+    // Its box reads a key typed into it at the rows' key type (east-workspace#1696).
     const seekSearch = useMemo<PlanSearch | undefined>(
-        () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
-        [seekable, picking, sourceId, seek.again]);
+        () => (seekable ? { ...picking, keyType: planRowKeys(hostData.rowsKeyType).keyType, resetKey: sourceId, requery: seek.again } : undefined),
+        [seekable, picking, hostData.rowsKeyType, sourceId, seek.again]);
     const findsRows = useMemo(
         () => (data.rows.type !== "inline" ? planPart(slices, ROWS_SOURCE) : undefined),
         [data.rows.type, slices]);
-    const rowsHiding = useSourceHidden("Plan", findsRows);
-    const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
+    // The keys the `rows` source holds its rows by, where it gives the canvas its rows (east-workspace#1696): what Search
+    // Records reads a key typed into it at and orders the keys it finds by, and what its hidden pick reads a row's id at.
+    const rowsKeys = useMemo(() => (findsRows === undefined ? undefined : planRowKeys(hostData.rowsKeyType)), [findsRows, hostData.rowsKeyType]);
+    const rowsHiding = useSourceHidden("Plan", findsRows, undefined, rowsKeys?.keyType);
+    const rowsFind = usePlanRowsFind({ part: findsRows, keys: rowsKeys, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
     const search = useMemo(
         () => (rowsFind !== undefined ? hiddenPick.search(rowsFind) : seekSearch),
         [rowsFind, hiddenPick, seekSearch]);
