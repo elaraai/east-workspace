@@ -434,8 +434,11 @@ ones, so a merge reads its pieces where they were made rather than over the
 link; every output still comes back whole before its unit succeeds. As the
 execution ends, however it ends, its session ends the scope (control route
 `/v1/sessions/:id/scopes/end`, hub protocol 6), and a session that closes ends
-all of its scopes; each rack granted a lease of one is told with its next
-heartbeat (`x-e3-rack-scopes-ended`). The hub notes which rack each
+all of its scopes (one whose end the hub did not take is told again, with a
+backoff, until it is); each rack granted a lease of one is told with its next
+heartbeat (`x-e3-rack-scopes-ended`, within 12 KiB an answer, the rest with
+the next). A session keeps at most 1,024 scopes open at the hub; a rack that
+reboots is taken to hold nothing of any scope. The hub notes which rack each
 completed lease of a scope that feeds it wrote its output and targets on
 (`ScopeWrites`, bounded at 200,000 objects, let go as the scope ends), and a
 lease of a scope waits up to `SCOPE_AFFINITY_MS` for a rack that wrote some

@@ -182,8 +182,9 @@ export interface TestRackAgentOptions {
 export class TestRackAgent {
   /** Stable identity assigned by enrollment. */
   rackId = '';
-  /** Boot identity reported in every poll and heartbeat. */
-  readonly bootId = randomUUID();
+  /** Boot identity reported in every poll and heartbeat: a new one after
+   *  {@link reboot}. */
+  bootId = randomUUID();
   /** Runs against a separate repository, like the guest's staged store. */
   readonly repo: string;
   /** Consumes deterministic faults before executing each claim. */
@@ -207,6 +208,9 @@ export class TestRackAgent {
   lastReport: RackReport | undefined;
   /** The split scopes its heartbeats' answers said ended, in the order said. */
   readonly scopesEnded: string[] = [];
+  /** The length of each ended-scopes header its heartbeats' answers carried,
+   *  in bytes, in the order they came. */
+  readonly scopesEndedHeaderBytes: number[] = [];
   /** The digests of the tier manifests whose text the next heartbeat carries:
    *  every one, for the first; then those its source's last answer asked for. */
   private manifestsWanted: 'all' | readonly string[] = 'all';
@@ -393,6 +397,16 @@ export class TestRackAgent {
       .map(([tier, said]) => [tier, wanted.includes(said.digest) ? said : { digest: said.digest }])) };
   }
 
+  /**
+   * Starts again under a new boot, as a rack whose host restarted: its next
+   * poll and heartbeat report the new boot.
+   * @example
+   * ```ts
+   * agent.reboot(); await agent.heartbeat();
+   * ```
+   */
+  reboot(): void { this.bootId = randomUUID(); }
+
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
     const report = this.reportSent();
@@ -401,7 +415,9 @@ export class TestRackAgent {
     if (sent.status !== 200) throw await this.refused('heartbeat', sent);
     this.lastReport = report;
     this.manifestsWanted = readRackManifestsWanted(sent.headers.get(RACK_MANIFESTS_WANTED_HEADER));
-    this.scopesEnded.push(...readRackScopesEnded(sent.headers.get(RACK_SCOPES_ENDED_HEADER)));
+    const ended = sent.headers.get(RACK_SCOPES_ENDED_HEADER);
+    if (ended !== null) this.scopesEndedHeaderBytes.push(Buffer.byteLength(ended));
+    this.scopesEnded.push(...readRackScopesEnded(ended));
     const response = decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await sent.arrayBuffer()));
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();

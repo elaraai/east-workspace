@@ -1574,7 +1574,9 @@ Each wire changed under this rule, with the kind it is.
   runtime-only, never hashed or recorded. A unit's lease event, JSON already,
   gains an optional `scope` (`{ "id", "feeds" }`); a rack's report names the
   feature `split-scopes`; and a heartbeat's answer may carry the header
-  `x-e3-rack-scopes-ended`, a JSON array of ids. No BEAST2 struct of rack
+  `x-e3-rack-scopes-ended`, a JSON array of ids, of at most 12 KiB
+  (`RACK_SCOPES_ENDED_BYTES`) so an HTTP client's 16 KiB of headers takes it,
+  the rest named by the next answers; a reader takes up to 1,024. No BEAST2 struct of rack
   protocol 3 changes, so the rack protocol keeps its number: the hub grants a
   lease with its scope only to a rack whose report names the feature, and
   sends the header only to such a rack, so an agent from before it is granted

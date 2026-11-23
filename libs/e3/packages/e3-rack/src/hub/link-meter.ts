@@ -102,6 +102,15 @@ interface Link {
 /**
  * Measures each rack's link from the transfers a hub serves it, and keeps
  * which objects each was served whole.
+ *
+ * @example
+ * ```ts
+ * const meter = new RackLinkMeter();
+ * const transfer = meter.begin('rack-1');
+ * transfer.add(chunk.length);
+ * transfer.end({ repo: 'r-1234', hash });
+ * meter.link('rack-1').holds('r-1234', hash); // true
+ * ```
  */
 export class RackLinkMeter {
   private readonly links = new Map<string, Link>();
@@ -138,6 +147,12 @@ export class RackLinkMeter {
    * Begins counting a transfer to a rack.
    * @param rackId - The rack it is served to
    * @returns The transfer, which the caller counts and ends
+   * @example
+   * ```ts
+   * const transfer = meter.begin(rackId);
+   * transfer.add(chunk.length);
+   * transfer.end(whole ? { repo, hash } : undefined);
+   * ```
    */
   begin(rackId: string): LinkTransfer {
     const link = this.of(rackId);
@@ -166,6 +181,10 @@ export class RackLinkMeter {
    * @param rackId - The rack
    * @param repo - The repository's cache namespace
    * @param hash - The object's hash
+   * @example
+   * ```ts
+   * meter.held(lease.claimedBy, repo, hash);
+   * ```
    */
   held(rackId: string, repo: string, hash: string): void { this.hold(this.of(rackId), `${repo}\0${hash}`); }
 
@@ -179,6 +198,10 @@ export class RackLinkMeter {
    * What the hub knows of a rack's link.
    * @param rackId - The rack
    * @returns Its rate, when measured and fresh, and what it was served whole
+   * @example
+   * ```ts
+   * const { bytesPerSecond, holds } = meter.link(rackId);
+   * ```
    */
   link(rackId: string): RackLink {
     const link = this.links.get(rackId);
@@ -186,12 +209,35 @@ export class RackLinkMeter {
     return { bytesPerSecond: rate, holds: (repo, hash) => link?.held.has(`${repo}\0${hash}`) ?? false };
   }
 
-  /** The racks the hub has served a transfer, in the order it first did. */
+  /**
+   * The racks the hub has served a transfer, or noted one held an object of.
+   * @returns Their ids, in the order it first did
+   * @example
+   * ```ts
+   * for (const rackId of meter.racks()) console.log(rackId, meter.link(rackId).bytesPerSecond);
+   * ```
+   */
   racks(): string[] { return [...this.links.keys()]; }
 
   /**
    * Forgets a rack: one removed, whose cache another enrollment may not share.
    * @param rackId - The rack
+   * @example
+   * ```ts
+   * meter.forget(rackId);
+   * ```
    */
   forget(rackId: string): void { this.links.delete(rackId); }
+
+  /**
+   * Forgets what a rack was served whole, keeping its link's rate: a rack
+   * that rebooted, whose cache is gone with its boot.
+   * @param rackId - The rack
+   * @example
+   * ```ts
+   * meter.forgetHeld('rack-1');
+   * meter.link('rack-1').holds('r-1234', hash); // false
+   * ```
+   */
+  forgetHeld(rackId: string): void { this.links.get(rackId)?.held.clear(); }
 }

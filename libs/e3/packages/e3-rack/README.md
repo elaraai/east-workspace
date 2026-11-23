@@ -627,8 +627,9 @@ object was in the store. The same is the last line of the work's log (`e3: on
 its rack: …`, which `e3 task logs` shows, its grant measured by the hub's
 clock, from the lease's creation to its claim; written once the attempt's
 outcome is recorded, and best effort, so a log store that refuses it loses no
-outcome), and follows each unit's line in its
-split task's log. A rack whose agent says none prints nothing more, and a hub
+outcome), and is a line of its own after each unit's line in its split
+task's log (`rack execution=<id> <timing>`), so the unit's line still ends
+with its peak. A rack whose agent says none prints nothing more, and a hub
 or source that knows none ignores them: they are JSON in the result, read by
 name, as its reason is.
 
@@ -993,9 +994,18 @@ it), and lets it go when a heartbeat's answer names the scope in
 `x-e3-rack-scopes-ended` (`RACK_SCOPES_ENDED_HEADER`, a JSON array of ids,
 read with `readRackScopesEnded`): each scope is named once, to the racks
 granted a lease of it, when its session ends it (a split task's) or ends
-(every scope its leases named, its own among them). An answer lost on
-its way is not sent again, so an agent bounds what it keeps by its own time
-too.
+(every scope its leases named, its own among them). One answer names as
+many as its header holds within 12 KiB (`RACK_SCOPES_ENDED_BYTES`, about 300
+scopes of a UUID each, well within the 16 KiB of headers an HTTP client of
+Node's takes), and the hub keeps the rest for the next heartbeat. An answer
+lost on its way is not sent again, so an agent bounds what it keeps by its
+own time too. A rack that reboots (its heartbeat names another boot) holds
+nothing it held: the hub forgets what it knew it to hold, of its reads and of
+every scope, and tells it of no scope it was granted before. A session keeps
+at most 1,024 scopes open at the hub at once (of 16,384 in all), so one
+session never takes every scope; a lease past its share is the same work of
+no scope. A session tells the hub of a split task's end again until the hub
+has taken it.
 
 An agent that composes environments reports the feature `environments` and its
 `target`, the platform it runs them on as e3-core names one

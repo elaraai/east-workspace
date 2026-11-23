@@ -82,7 +82,7 @@ import {
   RACK_MANIFESTS_WANTED_HEADER,
   readRackInlineMax,
   RACK_SCOPES_ENDED_HEADER,
-  RACK_SCOPES_ENDED_MAX,
+  rackScopesEndedFitting,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
@@ -265,8 +265,9 @@ export interface RackSplitScopes {
   granted(rackId: string, scope: RackLeaseScope): boolean;
   /**
    * The scopes the rack was granted a lease of that have ended since its last
-   * heartbeat, at most `RACK_SCOPES_ENDED_MAX`: each is answered once, and
-   * those past the bound with the next heartbeat.
+   * heartbeat, as many as one answer's header holds
+   * (`rackScopesEndedFitting`): each is answered once, and those past them
+   * with the next heartbeat, so they are let go only once taken here.
    *
    * @param rackId - The rack whose heartbeat it is
    * @returns The scopes' ids
@@ -790,7 +791,9 @@ export function createRackRoutes(
     // The tier manifests whose text the rack sends with its next heartbeat
     if (wanted !== undefined && wanted.length > 0) response.headers.set(RACK_MANIFESTS_WANTED_HEADER, JSON.stringify(wanted));
     // The split scopes of the rack's that ended: what it kept of them goes
-    const ended = options?.splitScopes?.ended(rackId).slice(0, RACK_SCOPES_ENDED_MAX) ?? [];
+    // A source's `ended` answers what fits one answer; one that answers more
+    // has the rest cut here, which it does not tell again
+    const ended = rackScopesEndedFitting(options?.splitScopes?.ended(rackId) ?? []);
     if (ended.length > 0) response.headers.set(RACK_SCOPES_ENDED_HEADER, JSON.stringify(ended));
     return response;
   });

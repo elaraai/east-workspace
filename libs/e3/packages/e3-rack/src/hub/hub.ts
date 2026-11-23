@@ -24,7 +24,8 @@ import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionA
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackRegistration } from '../protocol/registration.js';
-import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, type RackReport } from '../protocol/rack-json.js';
+import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
+  type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, readRackLeaseScope,
   type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
@@ -56,6 +57,8 @@ interface Session {
   /** The scopes of the session's that have ended, the latest
    *  {@link MOST_SCOPES}: a lease that names one later is granted without it */
   endedScopes: Set<string>;
+  /** How many of the hub's open scopes are the session's */
+  openScopes: number;
 }
 interface Subscription {
   repo: string;
@@ -93,6 +96,10 @@ const nonterminal = (lease: RackLeaseRecord) => lease.status === 'pending' || le
 /** The most scopes the hub keeps open at once, of all its sessions: a lease
  *  that names another past it is granted without its scope. */
 const MOST_SCOPES = 16384;
+/** The most scopes one session keeps open at once, unless a test sets it: a
+ *  lease of the session that names another past it is granted without its
+ *  scope, so one session never takes every scope the hub keeps. */
+const MOST_SCOPES_PER_SESSION = 1024;
 /** The most ended scopes a rack is yet to be told of: the oldest past it are
  *  let go, and the rack's own bound on how long it keeps a scope applies. */
 const MOST_SCOPES_ENDED = 4 * RACK_SCOPES_ENDED_MAX;
@@ -148,6 +155,8 @@ export interface RackHubOptions {
   /** Measures each rack's link from the reads the hub serves it; the hub's
    *  own unless given, as a test gives one whose clock it sets. */
   linkMeter?: RackLinkMeter;
+  /** Test tuning; production keeps at most 1024 scopes open for a session. */
+  scopesPerSession?: number;
 }
 
 /**
@@ -185,9 +194,12 @@ export interface RackHubOptions {
  * lease reads and could be granted it — its tier, its resources, its release
  * and approval, the work's environment — and is weighed as fetching none of
  * it there: by input, so a session's work is not piled onto one rack. A lease
- * no such rack could take waits for none. The hub keeps no more of a scope
- * than its id, its racks, and the writers of at most `SCOPE_WRITES_MAX` of
- * its objects.
+ * no such rack could take waits for none. A rack that reboots holds nothing
+ * it held: the hub lets go of what it knew it to hold, of its reads and of
+ * every scope, as its first heartbeat of the new boot arrives. The hub keeps
+ * no more of a scope than its id, its racks, and the writers of at most
+ * `SCOPE_WRITES_MAX` of its objects; and of a session, at most
+ * `MOST_SCOPES_PER_SESSION` scopes open at once.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -228,6 +240,9 @@ export class RackHub {
   /** By rack, the scopes it was granted a lease of that have ended, which its
    *  next heartbeat's answer names, in the order they ended. */
   private readonly scopesEnded = new Map<string, Set<string>>();
+  /** By rack, the boot it last reported: one that reports another rebooted,
+   *  and holds nothing it held before. */
+  private readonly boots = new Map<string, string>();
   private readonly mutations = new MutationQueue();
   private readonly coordinator = new SessionLeaseCoordinator();
   private readonly backend: InMemoryRackLeaseStore;
@@ -351,15 +366,18 @@ export class RackHub {
    * The scope a session's lease names, as the hub keeps it: one the session
    * opened with its first lease that names it, which no other session's lease
    * shares. None of one another session's leases name, of one that has ended,
-   * or past {@link MOST_SCOPES}: the lease is the same work without it.
+   * past {@link MOST_SCOPES} of every session's, or past the session's own
+   * share ({@link MOST_SCOPES_PER_SESSION}), so no session takes every scope
+   * the hub keeps: the lease is the same work without it.
    */
   private scopeOf(session: Session, named: unknown): RackLeaseScope | undefined {
     const scope = readRackLeaseScope(named);
     if (scope === undefined || session.endedScopes.has(scope.id)) return undefined;
     const known = this.scopes.get(scope.id);
     if (known !== undefined) return known.session === session.id ? scope : undefined;
-    if (this.scopes.size >= MOST_SCOPES) return undefined;
+    if (this.scopes.size >= MOST_SCOPES || session.openScopes >= (this.options.scopesPerSession ?? MOST_SCOPES_PER_SESSION)) return undefined;
     this.scopes.set(scope.id, { session: session.id, racks: new Set() });
+    session.openScopes++;
     return scope;
   }
 
@@ -373,7 +391,9 @@ export class RackHub {
     if (scope === undefined) return;
     this.scopes.delete(id);
     this.writes.end(id);
-    const ended = this.sessions.get(scope.session)?.endedScopes;
+    const session = this.sessions.get(scope.session);
+    if (session !== undefined) session.openScopes--;
+    const ended = session?.endedScopes;
     if (ended !== undefined) {
       ended.add(id);
       for (const oldest of ended) { if (ended.size <= MOST_SCOPES) break; ended.delete(oldest); }
@@ -414,15 +434,36 @@ export class RackHub {
     this.writes.wrote(scope.id, rackId, [outputHash, ...(lease.targets ?? [])]);
   }
 
-  /** The scopes of a rack's that ended, each named once, at most
-   *  {@link RACK_SCOPES_ENDED_MAX}: those past it with its next heartbeat. */
+  /** The scopes of a rack's that ended, each named once, as many as one
+   *  heartbeat's answer carries ({@link rackScopesEndedFitting}): those past
+   *  them stay for its next heartbeat. */
   private scopesEndedFor(rackId: string): string[] {
     const ended = this.scopesEnded.get(rackId);
     if (ended === undefined) return [];
-    const told = [...ended].slice(0, RACK_SCOPES_ENDED_MAX);
+    const told = rackScopesEndedFitting([...ended].slice(0, RACK_SCOPES_ENDED_MAX));
     for (const id of told) ended.delete(id);
     if (ended.size === 0) this.scopesEnded.delete(rackId);
     return told;
+  }
+
+  /**
+   * Notes the boot a rack's heartbeat came from, as its registration now names
+   * it. A rack that reports another boot than it last did rebooted: its disk,
+   * kept by boot, holds none of the objects it was served or wrote before, so
+   * what the hub knew it to hold — of its link's reads, and of every scope —
+   * is let go, and it is told of no scope it was granted before, which it no
+   * longer keeps. Its link's rate stands.
+   */
+  private async booted(rackId: string): Promise<void> {
+    const rack = await this.registry.getRack(rackId);
+    if (rack?.lastBootId.type !== 'some') return;
+    const before = this.boots.get(rackId);
+    this.boots.set(rackId, rack.lastBootId.value);
+    if (before === undefined || equalString(before, rack.lastBootId.value)) return;
+    this.meter.forgetHeld(rackId);
+    this.writes.forget(rackId);
+    this.scopesEnded.delete(rackId);
+    for (const scope of this.scopes.values()) scope.racks.delete(rackId);
   }
 
   /**
@@ -770,7 +811,7 @@ export class RackHub {
         if (!await isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId)) throw new Error('Rack session owner is not alive');
         const id = randomUUID();
         const alias = `r-${createHash('sha256').update(`${hostname()}\0${registration.repoPath}`).digest('hex').slice(0, 16)}`;
-        this.sessions.set(id, { id, alias, registration, lastSeen: this.now(), dead: false, seq: 0n, events: [], waiters: new Set(), endedScopes: new Set() });
+        this.sessions.set(id, { id, alias, registration, lastSeen: this.now(), dead: false, seq: 0n, events: [], waiters: new Set(), endedScopes: new Set(), openScopes: 0 });
         this.idleSince = this.now();
         return answer(OpenSessionResultType, { sessionId: id, repoAlias: alias });
       });
@@ -895,6 +936,7 @@ export class RackHub {
       await this.identity.deleteRackTokens(id);
       this.reports.delete(id);
       this.problems.delete(id);
+      this.boots.delete(id);
       this.meter.forget(id);
       this.forgetTierManifests();
       // It is told nothing more, and holds no scope
@@ -962,7 +1004,8 @@ export class RackHub {
       // outputs, which is told the scope's end with its next heartbeat
       splitScopes: { granted: (rackId, scope) => this.scopeGranted(rackId, scope), ended: (rackId) => this.scopesEndedFor(rackId) },
       // A heartbeat that was read is of this protocol: what was wrong is not.
-      onReport: (rackId, report) => this.reported(rackId, report),
+      // One of another boot is of a rack that rebooted
+      onReport: async (rackId, report) => { await this.booted(rackId); return this.reported(rackId, report); },
       // Said once in the log, and for as long as it holds in the status.
       onIncompatible: (rackId, named) => {
         const problem = `speaks ${named === undefined ? 'a rack protocol from before it was named' : `rack protocol ${named}`}, not ${RACK_PROTOCOL}; update the rack`;

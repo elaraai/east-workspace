@@ -229,9 +229,46 @@ export function isRackScopeId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(value);
 }
 
-/** The most scopes one heartbeat's answer names as ended; those past it go
- *  with the next. */
+/** The most scopes one heartbeat's answer names as ended, as a reader takes
+ *  them; a source names no more than fit {@link RACK_SCOPES_ENDED_BYTES}
+ *  ({@link rackScopesEndedFitting}), and those past them with the next. */
 export const RACK_SCOPES_ENDED_MAX = 1024;
+
+/**
+ * The most bytes of the ended-scopes header's value one answer carries: well
+ * within the 16 KiB of headers an HTTP client of Node's takes of a response
+ * in all, which refuses the whole answer past it. About 300 scopes of a UUID
+ * each.
+ */
+export const RACK_SCOPES_ENDED_BYTES = 12 * 1024;
+
+/**
+ * The ended scopes one heartbeat's answer names, of those given in order: as
+ * many as the header's JSON holds within {@link RACK_SCOPES_ENDED_BYTES}, and
+ * at most {@link RACK_SCOPES_ENDED_MAX}. A source answers these, and keeps the
+ * rest for the next heartbeat.
+ *
+ * @param ids - The ended scopes' ids, oldest first, each a scope's id
+ *   ({@link isRackScopeId}): a word, a byte a character
+ * @returns The first of them that one answer carries
+ * @example
+ * ```ts
+ * const told = rackScopesEndedFitting(ended);
+ * if (told.length > 0) response.headers.set(RACK_SCOPES_ENDED_HEADER, JSON.stringify(told));
+ * ```
+ */
+export function rackScopesEndedFitting(ids: readonly string[]): string[] {
+  const told: string[] = [];
+  // The array's brackets, then each id quoted, after a comma but the first
+  let bytes = 2;
+  for (const id of ids) {
+    const more = id.length + 2 + (told.length > 0 ? 1 : 0);
+    if (told.length >= RACK_SCOPES_ENDED_MAX || bytes + more > RACK_SCOPES_ENDED_BYTES) break;
+    told.push(id);
+    bytes += more;
+  }
+  return told;
+}
 
 /**
  * Reads a heartbeat answer's ended-scopes header.
