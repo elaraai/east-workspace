@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { useChakraContext } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Sparkline } from "@elaraai/east-ui/internal";
+import { Sparkline, drawsDomain } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level
@@ -55,8 +55,8 @@ export interface EastChakraSparklineProps {
  * @param data - The values, in order
  * @param isArea - Whether the area under the line is filled too
  * @param domain - One vertical scale for the values (east-workspace#1729): each drawn at its place in it, one past
- *   either end at that end; `undefined`, or one whose max is not past its min, the data's own min and max — and a
- *   single value at the middle
+ *   either end at that end; `undefined`, or one whose bounds are no finite numbers or whose max is not past its min,
+ *   the data's own min and max — and a single value at the middle
  * @returns The line's path, and the area's (`""` for a line)
  */
 export function generatePaths(
@@ -71,7 +71,7 @@ export function generatePaths(
     const padding = 2;
     const width = 100;
     const height = 100;
-    const scale = domain !== undefined && domain.max > domain.min ? domain : undefined;
+    const scale = domain !== undefined && drawsDomain(domain.min, domain.max) ? domain : undefined;
     // A value's height on the domain, a value past either end at that end.
     const yOn = (value: number, min: number, max: number) =>
         height - padding - ((Math.min(max, Math.max(min, value)) - min) / (max - min)) * (height - padding * 2);

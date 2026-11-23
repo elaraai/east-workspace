@@ -50,6 +50,21 @@ export interface RecordTally {
     readonly deleted: number;
 }
 
+/**
+ * Why a meter draws no share (east-workspace#1730): its max not read; not readable, the app's max or tone having thrown
+ * over the row; no finite number, or 0 or below — or its value no finite number.
+ */
+export type RecordMeterNoShare = "unread" | "failed" | "max" | "low" | "value";
+
+/** Why a meter draws no share, in words. */
+const NO_SHARE: Readonly<Record<RecordMeterNoShare, string>> = {
+    unread: "its max is not read",
+    failed: "its max or tone could not be read",
+    max: "its max is not a finite number",
+    low: "its max is 0 or below",
+    value: "its value is not a finite number",
+};
+
 /** A line's words, parts of them in the line's strong ink: the footer's `N of M people`, its N strong. */
 export type RecordLineText = readonly (string | { readonly strong: string })[];
 
@@ -93,8 +108,8 @@ export interface RecordMessages {
     sparklineTitle: (p: { last: string; min: string; max: string }) => string;
     /** A meter's hover (east-workspace#1730): its value, the row's max and the value's share of it — each in the viewer's language. */
     meterTitle: (p: { value: string; max: string; percent: string }) => string;
-    /** A meter's hover where it draws no share (east-workspace#1730): its value, and why — its max is 0 or below, or not read. */
-    meterNoShare: (p: { value: string; max: string | undefined }) => string;
+    /** A meter's hover where it draws no share (east-workspace#1730): its value, the row's max where it is a number, and why. */
+    meterNoShare: (p: { value: string; max: string | undefined; why: RecordMeterNoShare }) => string;
     /** The rows, where the Record names them no other way: one and many. */
     rowNoun: () => { singular: string; plural: string };
     /** Add's words (FR6). */
@@ -205,7 +220,7 @@ export const recordMessages: RecordMessages = {
     pendingTitle: ({ count }) => `${count} pending`,
     sparklineTitle: ({ last, min, max }) => `last ${last} · ${min} to ${max}`,
     meterTitle: ({ value, max, percent }) => `${value} of ${max} · ${percent}`,
-    meterNoShare: ({ value, max }) => (max === undefined ? `${value} · no share: its max is not read` : `${value} of ${max} · no share: its max is 0 or below`),
+    meterNoShare: ({ value, max, why }) => `${max === undefined ? value : `${value} of ${max}`} · no share: ${NO_SHARE[why]}`,
     rowNoun: () => ({ singular: "row", plural: "rows" }),
     add: () => "Add",
     addTip: ({ noun }) => `Add ${withArticle(noun)}`,

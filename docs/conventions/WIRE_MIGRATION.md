@@ -1700,3 +1700,26 @@ Each wire changed under this rule, with the kind it is.
     feature, so an agent from before it is given every URL on the advertised
     origin, and an agent that names it, under a source from before it, is
     told of none and fetches from the source's origin alone.
+
+- **e3-ui's `Record` draws a row's numbers with east-ui's Trace, Sparkline
+  and Meter (#1726, #1728, #1729, #1730)** — package-borne.
+  `Sheet.Types.ColumnKind` gains `trace`, `sparkline` and `meter`, the display
+  columns `<Record>` builds its grid from and `<Sheet>` refuses at build:
+  `trace` holds Trace's `now`, `axis`, `scale` and `future`, a `domain` every
+  row shares and its words for no series (`absent`); `sparkline` Sparkline's
+  `type`, a `domain` and `absent`; and `meter` the cells a row's max and its
+  tone's case are read into at the day, and `absent`. The cases are sorted by
+  name, so every case after `lookup` moves down. `Sheet.Types.Cell` gains
+  `Series`, a series of numbers (`Array<Float>`), a trace's and a sparkline's
+  cell, which sorts between `Null` and `String`, so `String` moves down one. A
+  meter's max and tone are read by the root's `cellsAt`, its max cell holding
+  a Float — or, where the app's max or tone threw over the row, the error's
+  message, a String. east-ui's `Trace` and `Sparkline` arms gain `domain`, an
+  `Option<NumberDomainType>` — the Trace's after `future`, the Sparkline's
+  after `type` — one scale for every track, or every line. They travel in
+  east-ui's `UIComponentType` and in the `Sheet` and `Record` extensions'
+  payloads, so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, and
+  a display column reads a field the app's record already holds, as it holds
+  it, so no repository upgrade step ships with it.

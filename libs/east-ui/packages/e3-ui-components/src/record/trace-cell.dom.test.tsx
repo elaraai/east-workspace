@@ -11,7 +11,8 @@
  * load on one scale for every row, last year each row over its own (T5); none
  * or an empty series the column's words (T6); read only — a clear, typing and a
  * paste pass it by, saying so, and a phone's bottom editor opens nothing (T1);
- * and Details drawing each trace's field with the same Trace, read only (T8).
+ * its copy the series' numbers (T7); and Details drawing each trace's field
+ * with the same Trace, read only (T8).
  */
 
 import { describe, expect, test } from "vitest";
@@ -126,6 +127,16 @@ describe("a Record's trace cells (east-workspace#1728)", () => {
         await settle();
         expect(status(container)).toBe("Nothing pasted — Load is read only");
         expect(steps(load()).map((s) => s.title)).toEqual(before);
+    });
+
+    test("copy puts a trace's numbers, bare, comma-separated — a row of them, a column each (T7)", async () => {
+        const { container } = await h.mount(ex.recordTrace, { storageKey: "record-trace-copy" });
+        await press(cell(container, "M-02", "load"));
+        const copied = new Map<string, string>();
+        await act(async () => {
+            fireEvent.copy(grid(container), { clipboardData: { setData: (kind: string, text: string) => copied.set(kind, text), getData: () => "" } });
+        });
+        expect(copied.get("text/plain")).toBe("12, 14.5, 13, 16, 18, 20, 22, 24, 26, 28, 30, 32");
     });
 
     test("Details draws each trace's field with the same Trace, read only, in its column's place — or the column's words (T8)", async () => {

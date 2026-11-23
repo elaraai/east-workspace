@@ -8,7 +8,8 @@
  * which needs one as it loads (#1179).
  *
  * The clipboard matrix (B§10 — Sheet Spec §5 row 20): dates `d/m/yyyy`,
- * numbers bare in the viewer's language (#852), a link cell as two columns;
+ * numbers bare in the viewer's language (#852), a series its numbers so
+ * (east-workspace#1726), a link cell as two columns;
  * paste lays two cells over a link column, and a stamped one's for the paste
  * to say it left it.
  */
@@ -62,6 +63,20 @@ describe("copy", () => {
         // What a spreadsheet in German or French reads as 1234.5.
         expect(exportMatrix(at, columns.list, rect, de)).toBe("16/2/2026\t1234,5");
         expect(exportMatrix(at, columns.list, rect, fr)).toBe("16/2/2026\t1234,5");
+    });
+
+    test("a series — a Record's trace or sparkline cell — copies as its numbers, bare in the viewer's language, an empty one blank (east-workspace#1726)", () => {
+        const series = indexColumns([
+            col("load", variant("trace", { now: none, axis: none, scale: variant("brand", null), future: variant("ghost", null), domain: none, absent: none }), false),
+            col("output", variant("sparkline", { type: variant("line", null), domain: none, absent: none }), false),
+            col("scrap", variant("sparkline", { type: variant("line", null), domain: none, absent: none }), false),
+        ] as never);
+        const cells = [cell("Series", [12, 14.5, 1234, 13]), cell("Series", [420, 440]), cell("Series", [])];
+        const at = (_r: number, c: number) => cells[c];
+        const rect = { r0: 0, r1: 0, c0: 0, c1: 2 };
+        expect(exportMatrix(at, series.list, rect, en)).toBe("12, 14.5, 1234, 13\t420, 440\t");
+        // Never the decimal separator between the numbers: what a spreadsheet in German reads back.
+        expect(exportMatrix(at, series.list, rect, de)).toBe("12; 14,5; 1234; 13\t420; 440\t");
     });
 });
 

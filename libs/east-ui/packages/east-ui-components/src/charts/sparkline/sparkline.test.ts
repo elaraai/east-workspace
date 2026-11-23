@@ -9,8 +9,9 @@
  *
  * A Sparkline's paths (east-workspace#1729): on a domain, every line on one
  * vertical scale — the same value at the same height, a value past either end
- * at that end, a single value at its place; with none, each line over its own
- * min and max, a single value at the middle, as before.
+ * at that end, a single value at its place; with none, or one that can't be
+ * drawn — its max not past its min, or a bound no finite number — each line
+ * over its own min and max, a single value at the middle, as before.
  */
 
 import { describe, expect, test } from "vitest";
@@ -38,6 +39,14 @@ describe("a Sparkline's paths (east-workspace#1729)", () => {
         expect(ys([10, 20, 15])).toEqual([98, 2, 50]);
         // A domain whose max is not past its min places nothing on it.
         expect(ys([10, 20, 15], { min: 5, max: 5 })).toEqual(ys([10, 20, 15]));
+    });
+
+    test("a domain whose bounds are no finite numbers places nothing on it — NaN at either end, or an infinity: never a point at no height", () => {
+        for (const domain of [{ min: 0, max: NaN }, { min: NaN, max: 50 }, { min: -Infinity, max: 50 }, { min: 0, max: Infinity }]) {
+            expect(ys([10, 20, 15], domain)).toEqual(ys([10, 20, 15]));
+        }
+        // A single value at the middle, as with none.
+        expect(ys([12.5], { min: -Infinity, max: 50 })).toEqual([50, 50]);
     });
 
     test("a single value draws flat across the box: at the middle with none, at its place on a domain", () => {

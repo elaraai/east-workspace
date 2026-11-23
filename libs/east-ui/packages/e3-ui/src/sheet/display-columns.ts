@@ -53,7 +53,7 @@ import { column, type SheetColumn, type SheetColumnBaseConfig, type SheetValueCo
  * @property axis - Each step's label, said in its tooltip; a row never draws the ruler
  * @property scale - Trace's colours: `"brand"` (the default) or `"diverge"`, or an expression of `Trace.Types.Scale`; `"categorical"` is refused, colouring tracks apart where a cell has one
  * @property future - How predicted steps draw: `"ghost"` (the default), `"hatch"` or `"fade"`, or an expression of `Trace.Types.Future`
- * @property domain - One scale for every row, `[min, max]`, each bound a Float or an expression of one: the same value takes the same colour on every row, and a value past either end that end's. Without it each row is coloured over its own min and max. Literal bounds must have the min below the max; bounds an expression gives whose max is not past their min place nothing, each row then over its own
+ * @property domain - One scale for every row, `[min, max]`, each bound a Float or an expression of one: the same value takes the same colour on every row, and a value past either end that end's. Without it each row is coloured over its own min and max. Literal bounds must be finite numbers, the min below the max; bounds an expression gives that are not place nothing, each row then over its own
  * @property absent - The words for a row whose series is `none` or empty (default "—")
  */
 export interface RecordTraceConfig<R extends StructType>
@@ -102,7 +102,7 @@ export function trace<R extends StructType>(rowType: R, config: object = {}): Sh
  * @property detail - The cell's detail, over the row
  * @property mark - Words on the cell, or a lock, over the row and the Record's day
  * @property type - `"line"` (the default) or `"area"`, or an expression of `Sparkline.Types.ChartType`
- * @property domain - One vertical scale for every row, `[min, max]`, each bound a Float or an expression of one: a value past either end is drawn at that end. Literal bounds must have the min below the max; bounds an expression gives whose max is not past their min place nothing, each row then over its own
+ * @property domain - One vertical scale for every row, `[min, max]`, each bound a Float or an expression of one: a value past either end is drawn at that end. Literal bounds must be finite numbers, the min below the max; bounds an expression gives that are not place nothing, each row then over its own
  * @property absent - The words for a row whose series is `none` or empty (default "—")
  */
 export interface RecordSparklineConfig<R extends StructType>
@@ -138,7 +138,10 @@ export function sparkline<R extends StructType>(rowType: R, config: object = {})
  *
  * @remarks
  * The bar is the value's share of the row's max, held to 0–100%, its percent
- * beside it; a max of 0 or below draws an empty bar, its hover saying why. The
+ * beside it. A max of 0 or below, a max or a value that is no finite number
+ * (NaN, an infinity), and a row whose `max` or `tone` throws each draw an empty
+ * bar, its hover saying why — a throw leaving the row's marks and its other
+ * meters as they read, and the console saying why. The
  * cell's hover says the value, the max and the share in the viewer's language
  * (`31.5 of 40 · 79%`). The tone colours the fill from Meter's palette; without
  * one the bar is the brand's. A row's max and tone follow its draft: an edit of

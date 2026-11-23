@@ -19,6 +19,9 @@
  * a field empty, or holding text no column reads — the row's marks, and its
  * meters' max and tone, are not read, and the last read's stand; and a row whose read fails keeps every
  * marked cell locked, its words saying it couldn't be read, the console why.
+ * Each meter is read apart: one whose max or tone throws over a row holds why
+ * under its max, drawing no share, the console saying so once — and the row's
+ * marks and its other meters read all the same.
  *
  * @packageDocumentation
  */
@@ -69,12 +72,15 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
         const readKeys = new Set<string>();
         const marks: { readonly words: string; readonly lock: string }[] = [];
         const meters: string[] = [];
+        // Each meter's max cell, by its column: where the app's max or tone threw over the row, it holds why.
+        const maxes: { readonly column: string; readonly key: string }[] = [];
         for (const column of columns) {
             if (getSomeorUndefined(column.from) !== undefined) readKeys.add(column.key);
             const mark = getSomeorUndefined(column.mark);
             if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); marks.push(mark); }
             if (column.kind.type === "meter") {
                 meters.push(column.kind.value.max);
+                maxes.push({ column: column.key, key: column.kind.value.max });
                 const tone = getSomeorUndefined(column.kind.value.tone);
                 if (tone !== undefined) meters.push(tone);
             }
@@ -85,8 +91,10 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
         const encodeDraft = encodeBeast2For(editing.draftType) as (draft: unknown) => Uint8Array;
         // Whether a draft is whole: every field it needs set and read, so the marks over the row read too.
         const whole = (draft: unknown, id: string): boolean => normalizeDraft(draftType, draft, id).domain !== undefined;
-        // An app's read or mark that throws leaves the row its own cells, every marked one locked, and is said once.
+        // An app's read or mark that throws leaves the row its own cells, every marked one locked, and is said once; a
+        // meter's max or tone that throws, once too.
         let said = false;
+        let saidMeter = false;
         const locked = (row: SheetRowValue): SheetRowValue => {
             if (marks.length === 0) return row;
             const out = new Map(row.cells);
@@ -101,6 +109,13 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
                 if (!said) console.error("[Sheet] a column from data or a mark could not be read:", error);
                 said = true;
                 return locked(row);
+            }
+            for (const meter of saidMeter ? [] : maxes) {
+                const held = cells.get(meter.key);
+                if (held?.type !== "String") continue;
+                console.error(`[Sheet] the meter "${meter.column}" could not read its max or tone:`, held.value);
+                saidMeter = true;
+                break;
             }
             // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes; but over a
             // draft not yet whole, whose marks and meters it can't read, the last read's stay.
