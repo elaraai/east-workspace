@@ -12,9 +12,9 @@
  * #949), across the examples, in both themes. Every visual bug found by eye
  * lands here first, as a failing invariant, and is fixed against it.
  *
- * Grid alignment is measured from DOM geometry and computed gradient stops.
- * Browser rasterization can round a border and a gradient to different pixels
- * at the same fractional coordinate, so this suite never captures images.
+ * Grid alignment is measured from DOM geometry and the rules the rows draw: a
+ * day's rule is its last whole pixel (#1735), in the ruler as in the plot, so
+ * both are read as pixel columns. This suite never captures images.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test visual-invariants --project desktop`.
@@ -30,9 +30,9 @@ const RULED = ["planTargetState", "planMeasures", "planRowDrop", "planNumberAxis
 /** The row kinds whose plots carry the shared grid. */
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
-/** The ruler and body share bucket edges, the gutter boundary and NOW.
- * Read the rendered boxes and the computed gradient's repeat interval;
- * subpixel layout is preserved rather than rounded through a screenshot. */
+/** The ruler and body share the gutter boundary, NOW and each bucket's rule — its last whole pixel (#1735): the
+ * ruler's tick draws it as its right border, the row's grid as a line of its SVG. Read as pixel columns from the
+ * plot's left, each one whole and the same in both. */
 async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
     return entry.evaluate((root, kinds) => {
         const body = root.querySelector("[data-plan-body]")!;
@@ -49,22 +49,21 @@ async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
         const p = plot.getBoundingClientRect();
         close(t.left, p.left, "gutter edge");
         close(t.right, p.right, "plot end");
-        const ticks = [...track.children].slice(1).map(el => el.getBoundingClientRect().left);
-        const gradient = plot.querySelector("[data-plan-gridsep]");
-        let edges: number[];
-        if (gradient !== null) {
-            const bounds = gradient.getBoundingClientRect();
-            const image = getComputedStyle(gradient).backgroundImage;
-            const percent = image.match(/([\d.]+)%\)/)?.[1];
-            if (!image.startsWith("repeating-linear-gradient(") || percent === undefined) return ["no computed grid repeat interval"];
-            const fraction = Number(percent) / 100;
-            if (!(fraction > 0 && fraction <= 1)) return ["invalid grid repeat interval"];
-            edges = Array.from({ length: Math.round(1 / fraction) }, (_, i) => bounds.left + i * bounds.width * fraction);
-        } else {
-            edges = [...plot.querySelectorAll("[data-plan-axisline]:not([data-plan-now])")].map(el => el.getBoundingClientRect().left);
-        }
-        if (ticks.length === 0 || ticks.length !== edges.length) bad.push(`${ticks.length} ruler edges, ${edges.length} row edges`);
-        ticks.forEach((x, i) => { if (edges[i] !== undefined) close(x, edges[i]!, `bucket edge ${i + 1}`); });
+        // The ruler's rules: each tick's right border, but the last's, which the track's edge is.
+        const ticks = [...track.children].map(el => ({ box: el.getBoundingClientRect(), border: Number.parseFloat(getComputedStyle(el).borderRightWidth) }));
+        const rulerColumns = ticks.filter(tick => tick.border > 0).map(tick => tick.box.right - tick.border - p.left);
+        if (ticks.at(-1) !== undefined && ticks.at(-1)!.border > 0) bad.push("the ruler's last tick draws a rule at the plot's edge");
+        // The row's rules: its grid's day rules, a vertical line of one pixel each, drawn through its centre.
+        const grid = plot.querySelector("[data-plan-gridsep] svg");
+        const days = grid?.querySelector("[data-plan-day-rules]")?.getAttribute("d");
+        if (grid === null || grid === undefined || days === null || days === undefined) return [...bad, "no day rules in the row's grid"];
+        const g = grid.getBoundingClientRect();
+        const rowColumns = [...days.matchAll(/M([\d.]+) /g)].map(m => Number(m[1]) - 0.5 + g.left - p.left);
+        if (rulerColumns.length === 0 || rulerColumns.length !== rowColumns.length) bad.push(`${rulerColumns.length} ruler rules, ${rowColumns.length} row rules`);
+        rulerColumns.forEach((x, i) => {
+            if (Math.abs(x - Math.round(x)) > 0.01) bad.push(`ruler rule ${i + 1} off a whole pixel: ${x.toFixed(3)}px`);
+            if (rowColumns[i] !== undefined) close(x, rowColumns[i]!, `bucket rule ${i + 1}`);
+        });
         const rulerNow = ruler.querySelector("[data-plan-now]");
         const rowNow = plot.querySelector("[data-plan-now]");
         if ((rulerNow === null) !== (rowNow === null)) bad.push("NOW missing from ruler or row");
@@ -99,6 +98,7 @@ async function violations(entry: Locator): Promise<string[]> {
             series1: token("--chakra-colors-brand-solid"),
             tint: token("--chakra-colors-brand-tint"),
             strong: token("--chakra-colors-border-strong"),
+            paper3: token("--chakra-colors-bg-subtle"),
         };
         /** Any colour the page computes — `rgb()`, `color(srgb …)`, the
          *  `oklch(…)` a mix in oklch (the heat ramp) computes to — as sRGB
@@ -238,8 +238,15 @@ async function violations(entry: Locator): Promise<string[]> {
             }
         }
         // ── 10–11 · One committed fill; tint only for selected or dirty ──
-        for (const el of body.querySelectorAll("[data-run][data-state='obs'], [data-chip][data-state='obs'], [data-event][data-state='obs']")) {
+        // A bucket tile in progress keeps the committed fill; one done is the third paper in the strong rule (#1735).
+        for (const el of body.querySelectorAll("[data-run][data-state='obs'], [data-chip][data-state='obs'], [data-event][data-state='obs'][data-progress]")) {
             if (cs(el).backgroundColor !== T.committed) bad.push(`committed "${name(el)}": ${cs(el).backgroundColor}, want ${T.committed}`);
+        }
+        for (const el of body.querySelectorAll("[data-event][data-state='obs']:not([data-progress], [data-draft], [data-selected])")) {
+            const s = cs(el);
+            if (s.backgroundColor !== T.paper3 || !s.boxShadow.startsWith(`${T.strong} 0px 0px 0px 1px inset`)) {
+                bad.push(`done tile "${el.getAttribute("data-event")}": ${s.backgroundColor} ${s.boxShadow}, want ${T.paper3} in an inset ${T.strong}`);
+            }
         }
         for (const el of body.querySelectorAll("[data-plan-nowchip]")) {
             if (cs(el).backgroundColor !== T.committed) bad.push(`now chip: ${cs(el).backgroundColor}, want ${T.committed}`);

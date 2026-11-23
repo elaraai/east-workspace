@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1397,
-    "totalFiles": 229,
+    "totalEntries": 1398,
+    "totalFiles": 230,
     "packages": {
       "east": 595,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 231,
+      "e3-ui": 232,
       "e3": 37,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44563,6 +44563,54 @@
         "tsx"
       ],
       "source": "// Forty halls of 75 presses each on a Plan, a group each with its presses' rows beneath it, read a hall at a time: paging={{ entries: 1 }} makes a window of the rows one of their entries, so the canvas makes rows only for the halls near the view, every other hall a band of its height until the view nears it, where a window of 200 entries would make all 3,000 presses' rows as it opened\n// inputs: []\n/** A job on a press: what it makes, when it runs, and its state. */\nexport const PlanHallJob = StructType({ product: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });\n\n/** A press of a hall: its name, and its jobs by key. */\nexport const PlanHallPress = StructType({ label: StringType, jobs: DictType(StringType, PlanHallJob) });\n\n/** A hall: its name, and its presses by key. */\nexport const PlanHall = StructType({ name: StringType, presses: DictType(StringType, PlanHallPress) });\n\n/** The halls, by key. */\nexport const PlanHalls = DictType(StringType, PlanHall);\n\n/**\n * `halls` halls of `presses` presses each, keyed `H-101` on and each press `P-101` on within its hall, so their keys\n * hold their order: a press's two jobs a week apart in October 2026, a day and two days long, each press at its own\n * offset so no two presses' jobs line up. A function of the counts alone.\n */\nexport const generatePlanHalls = East.function([IntegerType, IntegerType], PlanHalls, ($, halls, presses) => {\n    const start = $.const(new Date(\"2026-10-05T00:00:00Z\"));\n    const products = $.const([\"cap\", \"lid\", \"tub\", \"jar\"], ArrayType(StringType));\n    const confirmed = $.const(variant(\"confirmed\", null), EventStateType);\n    return East.Array.range(0n, halls).toDict(\n        (_$2, h) => East.str`H-${h.add(101n)}`,\n        (_$2, h) => ({\n            name: East.str`Hall ${h.add(1n)}`,\n            presses: East.Array.range(0n, presses).toDict(\n                (_$3, p) => East.str`P-${p.add(101n)}`,\n                ($3, p) => {\n                    const offset = $3.const(h.multiply(7n).add(p).remainder(10n));\n                    return {\n                        label: East.str`Press ${p.add(1n)}`,\n                        jobs: East.Array.range(0n, 2n).toDict(\n                            (_$4, j) => East.str`J-${j.add(1n)}`,\n                            ($4, j) => {\n                                const begins = $4.const(start.addDays(offset.add(j.multiply(7n))));\n                                return { product: products.get(h.add(p).add(j).remainder(4n)), start: begins, end: begins.addDays(j.add(1n)), state: confirmed };\n                            },\n                        ),\n                    };\n                },\n            ),\n        }),\n    );\n});\n\n/** Forty halls of 75 presses each, 3,000 presses: read a hall at a time, never whole. */\nexport const planHalls = e3.record(\"plan_halls\", PlanHalls, {\n    initial: () => East.compile(generatePlanHalls, [])(40n, 75n),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const halls = $.let(Data.bindPaged(planHalls));\n            return <Box width=\"100%\" height=\"760px\"><Plan id=\"planGroupWindows\" data={halls}\n                // A window of the rows is one hall: the canvas makes the rows of the halls near the view alone.\n                paging={{ entries: 1 }}\n                axis={Plan.axis({ window: { min: new Date(\"2026-10-05T00:00:00Z\"), max: new Date(\"2026-10-26T00:00:00Z\") }, resolution: \"day\", resolutions: [\"week\", \"day\"] })}\n                series={[Plan.series.group(PlanHall, {\n                    key: \"halls\", title: \"Halls\", label: (hall) => hall.name,\n                    children: Plan.children(\"presses\", [Plan.series.span(PlanHallPress, {\n                        key: \"presses\", title: \"Press\", label: (press) => press.label,\n                        runs: Plan.items(\"jobs\", { from: \"start\", to: \"end\" }, (job) => ({ label: job.product, state: job.state })),\n                    })]),\n                })]}\n                style={{ height: \"fill\" }} />\n            </Box>;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:plan-tiles.examples.tsx:planTaskTiles",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/plan/plan-tiles.examples.tsx",
+      "suite": "",
+      "test": "Crews' tasks over a working week as a Plan's task tiles, a day a column: one task takes its day, two take halves, three or four quarters, and five or more three tiles and a +n — every state, an actual task's check, a label that drops whole where its tile has no room for it, on rows of one, two and three lanes",
+      "keywords": [
+        "Plan",
+        "Plan.series.buckets",
+        "buckets",
+        "tiles",
+        "task tiles",
+        "day",
+        "days",
+        "halves",
+        "quarters",
+        "+n",
+        "more",
+        "lanes",
+        "Plan.Types.Lane",
+        "AM",
+        "PM",
+        "states",
+        "actual",
+        "check",
+        "in-progress",
+        "confirmed",
+        "proposed",
+        "removed",
+        "estimated",
+        "rejected",
+        "label",
+        "Data.bind",
+        "e3.input",
+        "#1735"
+      ],
+      "imports": [
+        "import {",
+        "import { EventStateType, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Plan } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Crews' tasks over a working week as a Plan's task tiles, a day a column: one task takes its day, two take halves, three or four quarters, and five or more three tiles and a +n — every state, an actual task's check, a label that drops whole where its tile has no room for it, on rows of one, two and three lanes\n// inputs: []\n/** A crew's task: the day it falls on, its lane — none on a row of one — what it says, and its state. */\nexport const TileTask = StructType({ day: DateTimeType, lane: OptionType(StringType), label: OptionType(StringType), state: EventStateType });\n\n/** A crew: its name, its row's second line, its lanes — none for a row of one — and its tasks by their ids. */\nexport const TileCrew = StructType({\n    label: StringType, sub: OptionType(StringType), lanes: ArrayType(Plan.Types.Lane), tasks: DictType(StringType, TileTask),\n});\n\n/** The crews, by their keys. */\nexport const TileCrews = DictType(StringType, TileCrew);\n\n/** Each weekday of the week of Monday 5 October 2026, by its name. */\nconst MON = new Date(\"2026-10-05T00:00:00Z\");\n\nconst TUE = new Date(\"2026-10-06T00:00:00Z\");\n\nconst WED = new Date(\"2026-10-07T00:00:00Z\");\n\nconst THU = new Date(\"2026-10-08T00:00:00Z\");\n\nconst FRI = new Date(\"2026-10-09T00:00:00Z\");\n\n/** A task's state. */\ntype TaskState = ValueTypeOf<typeof EventStateType>;\n\n/** The states a task is in, by name. */\nconst ACTUAL: TaskState = variant(\"actual\", null);\n\nconst RUNNING: TaskState = variant(\"in-progress\", null);\n\nconst CONFIRMED: TaskState = variant(\"confirmed\", null);\n\nconst ADDED: TaskState = variant(\"proposed\", variant(\"added\", null));\n\nconst RECOMMENDED: TaskState = variant(\"proposed\", variant(\"recommended\", null));\n\nconst REMOVED: TaskState = variant(\"proposed\", variant(\"removed\", null));\n\nconst ESTIMATED: TaskState = variant(\"estimated\", null);\n\nconst REJECTED: TaskState = variant(\"rejected\", null);\n\n/**\n * The crews: Crew A's days hold one task, two, three, four and six, in\n * every state; Crew B's AM and PM hold one or two, and five on Thursday\n * afternoon; Crew C's three shifts hold one task, two and four.\n */\nexport const TILE_CREWS: ValueTypeOf<typeof TileCrews> = new Map([\n    // One line in its gutter, so its row is one lane's 25.\n    [\"crew-a\", {\n        label: \"Crew A\", sub: none, lanes: [],\n        tasks: new Map([\n            // A day of one: the day, its check and its label.\n            [\"a1\", { day: MON, lane: none, label: some(\"10m\"), state: ACTUAL }],\n            // Two: halves — the first's label too long beside its check, so it drops.\n            [\"b1\", { day: TUE, lane: none, label: some(\"2h 30m\"), state: ACTUAL }],\n            [\"b2\", { day: TUE, lane: none, label: some(\"45m\"), state: ADDED }],\n            // Three: quarters, the last empty — an actual one's check alone, a quarter holding no `10m` beside it.\n            [\"c1\", { day: WED, lane: none, label: some(\"10m\"), state: ACTUAL }],\n            [\"c2\", { day: WED, lane: none, label: some(\"20m\"), state: RUNNING }],\n            [\"c3\", { day: WED, lane: none, label: some(\"5m\"), state: CONFIRMED }],\n            // Four: quarters, a proposal, a proposed removal, an estimate and a rejection.\n            [\"d1\", { day: THU, lane: none, label: some(\"1h\"), state: RECOMMENDED }],\n            [\"d2\", { day: THU, lane: none, label: some(\"2h\"), state: REMOVED }],\n            [\"d3\", { day: THU, lane: none, label: some(\"3h\"), state: ESTIMATED }],\n            [\"d4\", { day: THU, lane: none, label: some(\"4h\"), state: REJECTED }],\n            // Six: three tiles and a +3 in the last quarter.\n            [\"e1\", { day: FRI, lane: none, label: some(\"15m\"), state: ACTUAL }],\n            [\"e2\", { day: FRI, lane: none, label: some(\"25m\"), state: ACTUAL }],\n            [\"e3\", { day: FRI, lane: none, label: some(\"35m\"), state: CONFIRMED }],\n            [\"e4\", { day: FRI, lane: none, label: some(\"45m\"), state: CONFIRMED }],\n            [\"e5\", { day: FRI, lane: none, label: some(\"55m\"), state: RECOMMENDED }],\n            [\"e6\", { day: FRI, lane: none, label: some(\"1h\"), state: ESTIMATED }],\n        ]),\n    }],\n    [\"crew-b\", {\n        label: \"Crew B\", sub: some(\"AM · PM\"), lanes: [{ key: \"am\", label: some(\"AM\") }, { key: \"pm\", label: some(\"PM\") }],\n        tasks: new Map([\n            [\"m1\", { day: MON, lane: some(\"am\"), label: some(\"30m\"), state: ACTUAL }],\n            [\"m2\", { day: MON, lane: some(\"pm\"), label: some(\"1h 30m\"), state: CONFIRMED }],\n            [\"t1\", { day: TUE, lane: some(\"am\"), label: some(\"15m\"), state: RUNNING }],\n            [\"t2\", { day: TUE, lane: some(\"am\"), label: some(\"25m\"), state: ADDED }],\n            [\"w1\", { day: WED, lane: some(\"pm\"), label: some(\"2h\"), state: ESTIMATED }],\n            [\"h1\", { day: THU, lane: some(\"am\"), label: some(\"1h\"), state: REJECTED }],\n            [\"h2\", { day: THU, lane: some(\"pm\"), label: some(\"10m\"), state: ACTUAL }],\n            [\"h3\", { day: THU, lane: some(\"pm\"), label: some(\"20m\"), state: ACTUAL }],\n            [\"h4\", { day: THU, lane: some(\"pm\"), label: some(\"30m\"), state: CONFIRMED }],\n            [\"h5\", { day: THU, lane: some(\"pm\"), label: some(\"40m\"), state: RECOMMENDED }],\n            [\"h6\", { day: THU, lane: some(\"pm\"), label: some(\"50m\"), state: RECOMMENDED }],\n        ]),\n    }],\n    [\"crew-c\", {\n        label: \"Crew C\", sub: some(\"three shifts\"),\n        lanes: [{ key: \"early\", label: some(\"Early\") }, { key: \"day\", label: some(\"Day\") }, { key: \"late\", label: some(\"Late\") }],\n        tasks: new Map([\n            [\"s1\", { day: MON, lane: some(\"early\"), label: some(\"8h\"), state: ACTUAL }],\n            [\"s2\", { day: TUE, lane: some(\"day\"), label: some(\"8h\"), state: CONFIRMED }],\n            [\"s3\", { day: WED, lane: some(\"late\"), label: some(\"8h\"), state: RECOMMENDED }],\n            [\"s4\", { day: THU, lane: some(\"day\"), label: some(\"4h\"), state: ACTUAL }],\n            [\"s5\", { day: THU, lane: some(\"day\"), label: some(\"4h\"), state: CONFIRMED }],\n            [\"s6\", { day: FRI, lane: some(\"late\"), label: some(\"2h\"), state: ACTUAL }],\n            [\"s7\", { day: FRI, lane: some(\"late\"), label: some(\"2h\"), state: RUNNING }],\n            [\"s8\", { day: FRI, lane: some(\"late\"), label: some(\"2h\"), state: CONFIRMED }],\n            [\"s9\", { day: FRI, lane: some(\"late\"), label: some(\"2h\"), state: ADDED }],\n        ]),\n    }],\n]);\n\n/** The crews, an input the Plan reads whole: a week of a few tasks. */\nexport const planTileCrews = e3.input(\"plan_tile_crews\", TileCrews, variant(\"value\", TILE_CREWS));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const crews = $.let(Data.bind(planTileCrews));\n            return <Plan\n                axis={Plan.axis({ window: { min: MON, max: new Date(\"2026-10-10T00:00:00Z\") }, resolution: \"day\", resolutions: [\"day\", \"week\"] })}\n                data={crews}\n                series={[\n                    Plan.series.buckets(TileCrew, {\n                        key: \"crews\", title: \"Crews\",\n                        label: (crew) => crew.label, sub: (crew) => crew.sub, lanes: (crew) => crew.lanes,\n                        events: Plan.items(\"tasks\", { at: \"day\" }, (t) => ({ lane: t.lane, label: t.label, state: t.state })),\n                    }),\n                ]} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:plan-windows.examples.tsx:planWindows",

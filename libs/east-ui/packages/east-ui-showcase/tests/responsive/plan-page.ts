@@ -96,6 +96,24 @@ export async function sizePlanFrame(page: Page, entry: Locator, width: number): 
 }
 
 /**
+ * Sizes a Plan's frame so each of its `buckets` is `pitch` px across on its buckets rows (#1735) — the rows the body
+ * scrolls, where a pinned row's plot may be a scroll bar wider: the plot widens as the frame does, so the frame takes
+ * the difference — again, should a pane move with it — until the plot is the buckets' pitch over.
+ */
+export async function sizeBuckets(page: Page, entry: Locator, pitch: number, buckets: number): Promise<void> {
+    const widths = () => entry.evaluate((root) => ({
+        frame: root.querySelector("[data-builder-frame]")!.getBoundingClientRect().width,
+        plot: root.querySelector("[data-plan-row][data-plan-kind='buckets'] [data-plan-plot]")!.getBoundingClientRect().width,
+    }));
+    for (let i = 0; i < 3; i++) {
+        const { frame, plot } = await widths();
+        if (plot === pitch * buckets) return;
+        await sizePlanFrame(page, entry, frame + pitch * buckets - plot);
+    }
+    expect((await widths()).plot, `the plot at ${pitch}px a bucket`).toBe(pitch * buckets);
+}
+
+/**
  * Leaves an example's page for another e3 page and comes back to it, in the
  * same page — its e3 kept in memory — so the Plan mounts afresh over what its
  * records hold.

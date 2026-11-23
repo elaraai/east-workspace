@@ -161,8 +161,8 @@ test.describe("A locked event on the Plan, and a card that makes one (#1541)", (
                 continue;
             }
             const [width, height] = [one.lock.right - one.lock.left, one.lock.bottom - one.lock.top];
-            // A tile draws each icon at the glyph's own width (#1263), a lock's under its height; a chip's and a mark's
-            // are the square.
+            // A tile draws its lock at the glyph's own width (#1263), under its height, beside its other icons' 10px
+            // squares (#1735); a chip's and a mark's are the square.
             const sized = one.draw === "data-event" ? same(height, LOCK) && width > 0 && width <= LOCK + 0.5 : same(width, LOCK) && same(height, LOCK);
             if (!sized) bad.push(`${what}: its lock is ${width}×${height}px, not ${LOCK}px tall${one.draw === "data-event" ? " at its glyph's width" : ` and ${LOCK}px wide`}`);
             if (one.draw === "data-mark") {

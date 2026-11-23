@@ -18,8 +18,9 @@
  * element draws is what lies inside its border, where it clips — and a tile's,
  * or a cell's `+n` chip's, what of that lies inside its cell, which clips it
  * too. Measured in a bar under a row or a narrow card, a chip, a tile, a rollup
- * band and a `+n` chip; a label is the element's `data-plan-label`, or its
- * first span where it has none, and text of the element's own, in no span, can
+ * band and a `+n` chip; a label is the element's `data-plan-label` — a `+n`
+ * chip's in the box of its count, which clips it (#1735) — or its first span
+ * where it has none, and text of the element's own, in no span, can
  * draw no ellipsis: it shows whole or not at all. Evaluated in the page: an
  * empty list holds.
  */
@@ -55,7 +56,8 @@ export const cutText = (root: Element): string[] => {
         // glyph, which the icons' rule above holds whole or not drawn: a locked bar too narrow for a letter draws its lock
         // alone, and that is no quantity drawn without its label.
         const spans = [...el.children].filter((c): c is HTMLElement => c.tagName === "SPAN" && !c.hasAttribute("data-plan-icon") && !c.hasAttribute("data-plan-lock"));
-        const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]") ?? spans[0];
+        // A `+n` chip's words stand in a box of their own, which clips them where they wrap off its line (#1735).
+        const label = el.querySelector<HTMLElement>(":scope > [data-plan-label], :scope > [data-tile-more-count] > [data-plan-label]") ?? spans[0];
         const inside = (r: DOMRect) => r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
         /** How far a part's box lies across the clip, and how far down it. */
         const across = (r: DOMRect) => Math.min(r.right, b.right) - Math.max(r.left, b.left);

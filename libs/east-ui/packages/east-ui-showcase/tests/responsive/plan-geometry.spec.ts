@@ -489,8 +489,7 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
     });
 
     test("row focus holds — the role bands, the rows they gather, the band the others fold into, open and folded, and the pinned rows' strips (R1), context strips and the grown focal row (R2)", async ({ page }) => {
-        // Wide enough that a strip's tile has the room for its two parts beside the 240px gutter (#1680's review): at
-        // 1440px a week's cell leaves its tiles 10.8px, short of a grip and its word.
+        // Wide enough that a strip's week holds its marks apart beside the 240px gutter (#1680's review, #1735).
         await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
         await entry.locator('[data-plan-control="links"]').first().click();
@@ -507,20 +506,25 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         await expect(entry.locator("[data-plan-row][data-ctx][data-plan-h]").first()).toBeVisible();
         await expect(entry.locator("[data-plan-row][data-expanded][data-plan-h]")).toHaveCount(1);
         await expect.poll(() => mismatches(entry), "R2").toEqual([]);
-        // A strip's tile is a mark as wide as its parts, nothing between them (#1266): those on its line, each one's —
-        // inside its border, which a proposal's dashed ring draws.
-        const stripTiles = () => entry.evaluate((root) => [...root.querySelectorAll("[data-plan-row][data-ctx] [data-event][data-ctx]")].flatMap((el) => {
-            const b = el.getBoundingClientRect();
-            const cs = getComputedStyle(el);
-            const parts = [...el.children].map((c) => c.getBoundingClientRect());
-            if (parts.length === 0 || parts.some((p) => p.top >= b.bottom)) return [];
-            const across = parts.reduce((sum, p) => sum + p.width, 0);
-            const inside = b.width - Number.parseFloat(cs.borderLeftWidth) - Number.parseFloat(cs.borderRightWidth);
-            return [{ key: el.getAttribute("data-event"), n: parts.length, width: Math.round(inside * 10) / 10, parts: Math.round(across * 10) / 10 }];
-        }));
-        // A proposal's grip and its word among them: two parts side by side.
-        await expect.poll(async () => (await stripTiles()).filter((t) => t.n > 1).length, "no strip tile of two parts on its line").toBeGreaterThan(0);
-        expect((await stripTiles()).filter((t) => Math.abs(t.width - t.parts) > 0.5)).toEqual([]);
+        // A strip's tiles are marks (#591), each its share of its day (#1735): side by side, 5 apart, inside the day's
+        // room, at a strip mark's height — once they have shrunk to it, over the motion's 380ms.
+        const stripMarks = () => entry.evaluate((root) => {
+            const faults = [...root.querySelectorAll("[data-plan-row][data-ctx] [data-plan-cell]")].flatMap((cell) => {
+                const c = cell.getBoundingClientRect();
+                const marks = [...cell.querySelectorAll("[data-event][data-ctx]")].map((el) => el.getBoundingClientRect()).sort((x, y) => x.left - y.left);
+                return marks.flatMap((m, i) => {
+                    const at = `${cell.getAttribute("data-plan-cell")} mark ${i}`;
+                    const out: string[] = [];
+                    if (m.left < c.left - 0.5 || m.right > c.right + 0.5) out.push(`${at}: outside its day`);
+                    if (Math.abs(m.height - 7) > 0.5) out.push(`${at}: ${m.height}px tall`);
+                    if (i > 0 && Math.abs(m.left - marks[i - 1]!.right - 5) > 0.5) out.push(`${at}: ${(m.left - marks[i - 1]!.right).toFixed(1)} after the one before`);
+                    return out;
+                });
+            });
+            return { marks: root.querySelectorAll("[data-plan-row][data-ctx] [data-event][data-ctx]").length, faults };
+        });
+        await expect.poll(async () => (await stripMarks()).marks, "no strip marks").toBeGreaterThan(0);
+        await expect.poll(async () => (await stripMarks()).faults, "the strip's marks").toEqual([]);
     });
 });
 
@@ -899,7 +903,7 @@ interface RulerPaintWindow {
 
 /**
  * Samples what a ruler paints, until {@link stopRulerPaint}: every frame as it
- * paints, as {@link startCellPaint} samples a cell — read after the ruler's own
+ * paints, as `plan-bucket-tiles.spec.ts` samples a bucket cell — read after the ruler's own
  * observer has answered the frame's width. Each sample is the track's width and
  * the labels drawn, by index.
  */
@@ -1061,7 +1065,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     /** The elements a state's border is drawn on, each where it is laid out at a width its cell sets: a bar, a tile, a chip. */
     const STATE_EDGES: readonly { name: string; file: string; sel: string; narrow: boolean }[] = [
         { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-run]", narrow: false },
-        // Its tiles fold at four weeks: five days lays them out, each as wide as its cell.
+        // At four weeks its tiles are a few pixels across: five days give each its day's slot.
         { name: "planPressTasks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-event]", narrow: true },
         { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-chip]", narrow: false },
     ];
@@ -1127,116 +1131,6 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             }), sel);
             await expect.poll(async () => (await drawn()).length, `no ${turn.sel} drawn`).toBeGreaterThan(0);
             await expect.poll(async () => (await drawn()).filter((d) => d.label !== turn.label || d.icon !== turn.icon)).toEqual([]);
-            await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-        });
-    }
-
-    /** Each planTargetState tile set either side of a room its parts turn at (#1266): the room its cell leaves it set,
-     *  which the tile shrinks to. A tile sets its parts at 9.5px inside its 5px padding either side, 4px apart, each
-     *  icon 8px tall at its own width: a proposal's grip 5px, the truck 10px; a letter and the ellipsis take 2ch,
-     *  11.4px. A proposal's dashed ring stands in that padding (#1680's review): its 1.5px ring draws 1px at the
-     *  suite's 1x, so its parts have 4.5px either side. So the MIXED tile, which fills its cell, draws its label from
-     *  21.4px of room and whole from 38.5px; a proposal's grip from 14px, and its "plan" beside it from 30px as drawn —
-     *  4px less were its parts not 4px apart; the regional van's truck from 18px. Each room here stands 2px clear of
-     *  a turn. What a tile draws sits on its line, centred along it and on its height, and the tile is never wider
-     *  than its room. */
-    const TILE_TURNS: readonly { key: string; room: number; label: boolean | null; icon: boolean | null }[] = [
-        { key: "m4", room: 20, label: false, icon: null },
-        { key: "m4", room: 24, label: true, icon: null },
-        { key: "m4", room: 46, label: true, icon: null },
-        { key: "a5", room: 12, label: false, icon: false },
-        { key: "a5", room: 20, label: false, icon: true },
-        { key: "a5", room: 28, label: false, icon: true },
-        { key: "a5", room: 36, label: true, icon: true },
-        { key: "m5", room: 16, label: null, icon: false },
-        { key: "m5", room: 24, label: null, icon: true },
-    ];
-
-    for (const key of [...new Set(TILE_TURNS.map(turn => turn.key))]) {
-        test(`planTargetState: tile ${key} keeps its parts centred and whole across width thresholds`, async ({ page }) => {
-            const entry = await openExample(page, "planTargetState");
-            for (const turn of TILE_TURNS.filter(turn => turn.key === key)) await test.step(`${turn.room}px`, async () => {
-            const tile = entry.locator(`[data-plan-row] [data-event=${JSON.stringify(turn.key)}]:not([data-ctx])`);
-            await expect(tile).toHaveCount(1);
-            // The cell as wide as its padding, and the room asked for.
-            await tile.evaluate((el, room) => {
-                const cell = el.closest<HTMLElement>("[data-plan-cell]")!;
-                const extra = cell.getBoundingClientRect().width - el.closest("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
-                cell.style.setProperty("width", `${room + extra}px`, "important");
-                cell.style.setProperty("min-width", "0", "important");
-            }, turn.room);
-            const drawn = () => tile.evaluate((el, room) => {
-                const b = el.getBoundingClientRect();
-                const cs = getComputedStyle(el);
-                // Inside its border, where it clips: a part on its line lies there; one moved off it lies below.
-                const top = b.top + Number.parseFloat(cs.borderTopWidth);
-                const bottom = b.bottom - Number.parseFloat(cs.borderBottomWidth);
-                const on = (part: Element) => {
-                    const r = part.getBoundingClientRect();
-                    return getComputedStyle(part).display !== "none" && r.top < bottom - 0.5 && r.bottom > top + 0.5;
-                };
-                const label = el.querySelector(":scope > [data-plan-label]");
-                const icon = el.querySelector(":scope > [data-plan-icon]");
-                // What each part draws: an icon its box; a label its text, inside its box.
-                const extents = [icon, label].filter((p): p is Element => p !== null && on(p)).map((p) => {
-                    const box = p.getBoundingClientRect();
-                    if (p === icon) return box;
-                    const range = document.createRange();
-                    range.selectNodeContents(p);
-                    const text = range.getBoundingClientRect();
-                    return { left: Math.max(text.left, box.left), right: Math.min(text.right, box.right), top: box.top, bottom: box.bottom };
-                });
-                const centred = extents.length === 0 || (
-                    Math.abs((Math.min(...extents.map((x) => x.left)) + Math.max(...extents.map((x) => x.right))) / 2 - (b.left + b.right) / 2) <= 0.5
-                    && extents.every((x) => Math.abs((x.top + x.bottom) / 2 - (top + bottom) / 2) <= 0.5));
-                const tiles = el.closest("[data-plan-cell-tiles]")!.getBoundingClientRect();
-                return {
-                    room: Math.round(tiles.width * 10) / 10,
-                    within: b.width <= room + 0.5,
-                    label: label === null ? null : on(label),
-                    icon: icon === null ? null : on(icon),
-                    centred,
-                };
-            }, turn.room);
-            await expect.poll(drawn).toEqual({ room: turn.room, within: true, label: turn.label, icon: turn.icon, centred: true });
-            await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-            });
-        });
-    }
-
-    test("planTargetState: a cell narrower inside than a tile's 20px floor holds the tile inside it, the tile its width (#1266)", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        // Van 1's first week, its ✓: the cell 24px wide, 12px inside its padding.
-        await page.addStyleTag({ content: "[data-plan-cell]:has([data-event='a0']) { width: 24px !important; min-width: 0 !important; }" });
-        const held = () => entry.locator("[data-event='a0']").evaluate((el) => {
-            const cell = el.closest("[data-plan-cell]")!;
-            const cs = getComputedStyle(cell);
-            const c = cell.getBoundingClientRect();
-            const [left, right] = [c.left + Number.parseFloat(cs.paddingLeft), c.right - Number.parseFloat(cs.paddingRight)];
-            const t = el.getBoundingClientRect();
-            return { cell: Math.round(c.width), inside: t.left >= left - 0.5 && t.right <= right + 0.5, width: Math.round(t.width * 10) / 10 };
-        });
-        await expect.poll(held).toEqual({ cell: 24, inside: true, width: 12 });
-        await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-    });
-
-    /** A room narrower than a tile's padding (#1276) — a phone's week cell may leave its tiles a few pixels: the
-     *  padding gives way, so the tile, a ✓ (a0) or a proposal in its 1.5px dashed ring (a2), takes the room and stays
-     *  in it. */
-    for (const key of ["a0", "a2"] as const) {
-        test(`planTargetState: a cell narrower inside than a tile's padding holds tile ${key} inside it, the tile its width (#1276)`, async ({ page }) => {
-            const entry = await openExample(page, "planTargetState");
-            // The cell 16px wide, 4px inside its padding.
-            await page.addStyleTag({ content: `[data-plan-cell]:has([data-event=${JSON.stringify(key)}]) { width: 16px !important; min-width: 0 !important; }` });
-            const held = () => entry.locator(`[data-plan-row] [data-event=${JSON.stringify(key)}]`).evaluate((el) => {
-                const cell = el.closest("[data-plan-cell]")!;
-                const cs = getComputedStyle(cell);
-                const c = cell.getBoundingClientRect();
-                const [left, right] = [c.left + Number.parseFloat(cs.paddingLeft), c.right - Number.parseFloat(cs.paddingRight)];
-                const t = el.getBoundingClientRect();
-                return { cell: Math.round(c.width), inside: t.left >= left - 0.5 && t.right <= right + 0.5, width: Math.round(t.width * 10) / 10 };
-            });
-            await expect.poll(held).toEqual({ cell: 16, inside: true, width: 4 });
             await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
         });
     }
@@ -1377,384 +1271,6 @@ test.describe("Plan element text on a phone (#1269)", { tag: "@mobile" }, () => 
             });
         }
     }
-});
-
-// ── A bucket cell's `+n` (#1267) ──
-
-/** planTargetState's Van 1, a row on a desktop and a card on a phone. */
-const VAN1 = rowId("vans", "van1");
-
-/** Van 1's Aug 24 cell, which holds two tiles: a ✓ (a7) and a resting proposal (a8). */
-const VAN1_CELL = `:is([data-plan-row=${JSON.stringify(VAN1)}], [data-plan-card=${JSON.stringify(VAN1)}]) [data-plan-cell]:has([data-event='a7'])`;
-
-/** Sets a cell's tiles' room: the cell as wide as its padding, and the room asked for. */
-async function setCellRoom(cell: Locator, room: number): Promise<void> {
-    await cell.evaluate((el: HTMLElement, r) => {
-        const extra = el.getBoundingClientRect().width - el.querySelector("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
-        el.style.setProperty("width", `${r + extra}px`, "important");
-        el.style.setProperty("min-width", "0", "important");
-    }, room);
-}
-
-/** One frame of a cell as it painted: its tiles' room, and what it showed. */
-interface CellPainted { room: number; sig: string }
-
-/** What the cell paint checks keep in the page ({@link startCellPaint}). */
-interface CellPaintWindow {
-    __cellPainted: CellPainted[];
-    __cellPaintStop: () => void;
-}
-
-/**
- * Samples what a cell paints, until {@link stopCellPaint}: every frame as it
- * paints — when a strip's resize is delivered, the strip a pixel wider or
- * narrower each frame and observed after the cell's own observer, so read once
- * the cell has answered the frame's room and after every animation-frame
- * callback, a pick's among them. Each sample is the room and what the cell
- * shows: its tiles that show, by key, then `|` and its chip's words, `!` when
- * the chip is cramped, and ` measuring` while it draws the stand-ins it
- * measures with.
- */
-async function startCellPaint(cell: Locator): Promise<void> {
-    await cell.evaluate((el) => {
-        const w = window as unknown as CellPaintWindow;
-        const box = el.querySelector("[data-plan-cell-tiles]")!;
-        const sig = () => {
-            const tiles = [...box.querySelectorAll(":scope > [data-event]")].filter((t) => getComputedStyle(t).display !== "none");
-            const chip = box.querySelector(":scope > [data-tile-more]");
-            const measuring = box.hasAttribute("data-tile-measure") || box.querySelector(":scope > [data-tile-more-measure]") !== null;
-            return `${tiles.map((t) => t.getAttribute("data-event")).join(" ")}|${chip?.textContent ?? ""}${chip?.hasAttribute("data-cramped") === true ? "!" : ""}${measuring ? " measuring" : ""}`;
-        };
-        const strip = document.body.appendChild(document.createElement("div"));
-        strip.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 0; pointer-events: none;";
-        w.__cellPainted = [];
-        const observer = new ResizeObserver(() => {
-            w.__cellPainted.push({ room: Math.round(box.getBoundingClientRect().width * 100) / 100, sig: sig() });
-        });
-        observer.observe(strip);
-        let frame = requestAnimationFrame(function tick() {
-            strip.style.width = strip.style.width === "1px" ? "2px" : "1px";
-            frame = requestAnimationFrame(tick);
-        });
-        w.__cellPaintStop = () => {
-            cancelAnimationFrame(frame);
-            observer.disconnect();
-            strip.remove();
-        };
-    });
-}
-
-/** Stops {@link startCellPaint}, returning what it sampled. */
-async function stopCellPaint(cell: Locator): Promise<CellPainted[]> {
-    return cell.evaluate(() => {
-        const w = window as unknown as CellPaintWindow;
-        w.__cellPaintStop();
-        return w.__cellPainted;
-    });
-}
-
-/**
- * Where a tap near a cell's `+n` chip lands that it should not, under a touch
- * pointer (#1267) — each a line saying where, empty when none does. The chip's
- * target is its halo, 44px across and down, held to its cell, less the tiles
- * in it: a tap at each of that area's corners, 1px in, the middle of each of
- * its edges and its middle lands on the chip, or on the tile there. A tap on
- * every tile its row or card shows — its middle, 1px inside each end — lands
- * on that tile. Evaluated on the chip, or on a lone tile a cell with no room
- * draws as a mark across itself, whose halo is the chip's (#1710); `onTile`
- * counts the area's taps that a tile took.
- */
-const tapFaults = (chip: Element): { bad: string[]; onTile: number } => {
-    const bad: string[] = [];
-    const cell = chip.closest("[data-plan-cell]")!;
-    cell.scrollIntoView({ block: "center", inline: "center" });
-    const holder = chip.closest("[data-plan-row], [data-plan-card]")!;
-    const tiles = [...holder.querySelectorAll("[data-event]:not([data-ctx])")].filter((t) => getComputedStyle(t).display !== "none");
-    const named = (el: Element | null) => {
-        if (el === null) return "nothing";
-        if (chip.contains(el)) return "the chip";
-        const tile = el.closest("[data-event]");
-        return tile !== null ? `tile ${tile.getAttribute("data-event")}`
-            : `${el.tagName.toLowerCase()}${[...el.attributes].filter((a) => a.name.startsWith("data-")).map((a) => `[${a.name}]`).join("")}`;
-    };
-    const tileAt = (x: number, y: number) => tiles.find((t) => {
-        const r = t.getBoundingClientRect();
-        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-    });
-    const c = cell.getBoundingClientRect();
-    const m = chip.getBoundingClientRect();
-    const [cx, cy] = [(m.left + m.right) / 2, (m.top + m.bottom) / 2];
-    const [left, right] = [Math.max(c.left, cx - 22) + 1, Math.min(c.right, cx + 22) - 1];
-    const [top, bottom] = [Math.max(c.top, cy - 22) + 1, Math.min(c.bottom, cy + 22) - 1];
-    let onTile = 0;
-    for (const x of [left, (left + right) / 2, right]) {
-        for (const y of [top, (top + bottom) / 2, bottom]) {
-            const hit = document.elementFromPoint(x, y);
-            const tile = tileAt(x, y);
-            if (tile !== undefined) onTile += 1;
-            const want = tile ?? chip;
-            if (hit === null || !want.contains(hit)) bad.push(`a tap at (${(x - c.left).toFixed(1)}, ${(y - c.top).toFixed(1)}) in the cell lands on ${named(hit)}, not ${named(want)}`);
-        }
-    }
-    for (const tile of tiles) {
-        const r = tile.getBoundingClientRect();
-        for (const [x, where] of [[r.left + 1, "start"], [(r.left + r.right) / 2, "middle"], [r.right - 1, "end"]] as const) {
-            const hit = document.elementFromPoint(x, (r.top + r.bottom) / 2);
-            if (hit === null || !tile.contains(hit)) bad.push(`a tap at tile ${tile.getAttribute("data-event")}'s ${where} lands on ${named(hit)}`);
-        }
-    }
-    return { bad, onTile };
-};
-
-/**
- * A cell folds whole tiles into +n before paint. Thresholds come from the
- * loaded theme's intrinsic tile and chip widths: fixed pixel guesses make a
- * font change fail this behavior check even when every glyph still fits.
- */
-test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
-    async function intrinsic(cell: Locator) {
-        await setCellRoom(cell, 128);
-        await expect(cell.locator("[data-event='a8']")).not.toHaveAttribute("data-folded", "");
-        const sizes = await cell.evaluate(el => {
-            const box = el.querySelector("[data-plan-cell-tiles]")!;
-            const tile = (key: string) => box.querySelector(`[data-event="${key}"]`)!.getBoundingClientRect().width;
-            return { a7: tile("a7"), a8: tile("a8"), gap: Number.parseFloat(getComputedStyle(box).columnGap) };
-        });
-        await setCellRoom(cell, 30);
-        await expect(cell.locator("[data-tile-more]")).toHaveText("+2");
-        const chip = await cell.locator("[data-tile-more]").evaluate(el => el.getBoundingClientRect().width);
-        return { ...sizes, chip, both: sizes.a7 + sizes.gap + sizes.a8, one: sizes.a7 + sizes.gap + chip };
-    }
-
-    test("planTargetState: Van 1's tiles and +n stay whole across every width threshold", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        const cell = entry.locator(VAN1_CELL);
-        const sizes = await intrinsic(cell);
-        const round = (n: number) => Math.round(n * 10) / 10;
-        const folds = [
-            { room: round(sizes.both + 0.5), shown: [["a7", round(sizes.a7)], ["a8", round(sizes.a8)]], chip: null },
-            { room: round(sizes.both - 0.5), shown: [["a7", round(sizes.a7)]], chip: { words: "+1", cramped: false } },
-            { room: round(sizes.one + 0.5), shown: [["a7", round(sizes.a7)]], chip: { words: "+1", cramped: false } },
-            { room: round(sizes.one - 0.5), shown: [], chip: { words: "+2", cramped: false } },
-            { room: round(sizes.chip + 0.5), shown: [], chip: { words: "+2", cramped: false } },
-            { room: round(sizes.chip - 0.5), shown: [], chip: { words: "+2", cramped: true } },
-        ];
-        for (const fold of folds) await test.step(`${fold.room}px`, async () => {
-            await setCellRoom(cell, fold.room);
-            const drawn = () => cell.evaluate((el) => {
-                const box = el.querySelector("[data-plan-cell-tiles]")!;
-                const room = box.getBoundingClientRect();
-                const shown = [...box.querySelectorAll(":scope > [data-event]")].filter((t) => getComputedStyle(t).display !== "none");
-                const chip = box.querySelector(":scope > [data-tile-more]");
-                const parts = [...shown, ...(chip === null ? [] : [chip])].map((p) => p.getBoundingClientRect());
-                return {
-                    room: Math.round(room.width * 10) / 10,
-                    shown: shown.map((t) => [t.getAttribute("data-event"), Math.round(t.getBoundingClientRect().width * 10) / 10]),
-                    chip: chip === null ? null : {
-                        words: chip.textContent,
-                        cramped: chip.hasAttribute("data-cramped"),
-                        count: getComputedStyle(chip.querySelector("[data-tile-more-count]")!).display !== "none",
-                    },
-                    inside: parts.every((r) => r.left >= room.left - 0.5 && r.right <= room.right + 0.5),
-                    measuring: box.hasAttribute("data-tile-measure") || box.querySelector("[data-tile-more-measure]") !== null,
-                };
-            });
-            await expect.poll(drawn).toEqual({
-                room: fold.room,
-                shown: fold.shown,
-                chip: fold.chip === null ? null : { ...fold.chip, count: !fold.chip.cramped },
-                inside: true,
-                measuring: false,
-            });
-            await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-        });
-    });
-
-    test("planTargetState: Van 1's Aug 24 cell never paints a fold it does not rest on — its room narrowed a pixel at a time across every turn, then widened back, each frame draws what that room rests on, and never the stand-ins it measures with", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        const cell = entry.locator(VAN1_CELL);
-        const sizes = await intrinsic(cell);
-        const rests = (room: number) => room >= sizes.both ? "a7 a8|" : room >= sizes.one ? "a7|+1" : room >= sizes.chip ? "|+2" : "|+2!";
-        await startCellPaint(cell);
-        await cell.evaluate(async (el: HTMLElement) => {
-            const extra = el.getBoundingClientRect().width - el.querySelector("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
-            const frames = (n: number) => new Promise<void>((resolve) => {
-                const step = (k: number) => { if (k === 0) resolve(); else requestAnimationFrame(() => step(k - 1)); };
-                step(n);
-            });
-            const rooms = [...Array.from({ length: 66 }, (_x, i) => 75 - i), ...Array.from({ length: 66 }, (_x, i) => 10 + i)];
-            for (const room of rooms) {
-                el.style.setProperty("width", `${room + extra}px`, "important");
-                el.style.setProperty("min-width", "0", "important");
-                await frames(3);
-            }
-        });
-        const painted = await stopCellPaint(cell);
-        expect(painted.length, "the frames sampled").toBeGreaterThan(300);
-        expect([...new Set(painted.filter((p) => p.sig !== rests(p.room)).map((p) => `at ${p.room}px: painted "${p.sig}", resting on "${rests(p.room)}"`))]).toEqual([]);
-    });
-
-    test("planTargetState: Van 1's Aug 24 cell's +2, named for what it holds and where, lists its tiles by their names; a pick does what the tile's click does — Van 1 selected — and no frame paints the tile alone: the cell folds it again, its chip taking the focus", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        const cell = entry.locator(VAN1_CELL);
-        const chip = cell.locator("[data-tile-more]");
-        await expect(chip).toHaveText("+2");
-        // Its two events, neither drawn: two events, none more than another (#1680's review).
-        await expect(chip).toHaveAttribute("aria-label", "2 events, Week of Aug 24, 2026");
-        await chip.click();
-        const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
-        await expect(items).toHaveText(["Event, Week of Aug 24, 2026, confirmed", "Event, Week of Aug 24, 2026, recommended"]);
-        await startCellPaint(cell);
-        await items.first().click();
-        await expect(entry.locator(rowSel("vans", "van1"))).toHaveAttribute("data-selected", "");
-        await expect(chip).toBeFocused();
-        await settled(page);
-        // One fold painted throughout — the chip alone, as wide as the room lets it be beside the 240px gutter (cramped
-        // where the room is narrower than it) — and never the tile alone.
-        const painted = [...new Set((await stopCellPaint(cell)).map((p) => p.sig))];
-        expect(painted).toHaveLength(1);
-        expect(painted[0]).toMatch(/^\|\+2!?$/);
-    });
-});
-
-/** A cell at its floor — 12px, its padding — in planTargetState: Van 1's first week (its ✓, a0), or Van 2's PM lane in
- *  its fourth (the truck, m5, which opens a popover; the lane's caption is the row's gutter's, #1680's review). */
-const floorCell = (key: string) => `[data-plan-row] [data-plan-cell]:has([data-event=${JSON.stringify(key)}])`;
-
-/** Narrows a cell to its 12px floor. */
-const toFloor = (page: Page, key: string) =>
-    page.addStyleTag({ content: `${floorCell(key)} { width: 12px !important; min-width: 0 !important; }` });
-
-/** A cell at its floor as it draws: the tiles that show; the mark a lone one draws as, by its key, whether it spans the
- *  cell and lies inside it; and its chip's words, whether it says its count, spans the cell and lies inside it. */
-const floorDrawn = (cell: Element) => {
-    const c = cell.getBoundingClientRect();
-    const spans = (r: DOMRect) => Math.abs(r.left - c.left) <= 0.5 && Math.abs(r.right - c.right) <= 0.5;
-    const inside = (r: DOMRect) => r.left >= c.left - 0.5 && r.right <= c.right + 0.5 && r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5;
-    const mark = cell.querySelector("[data-plan-cell-tiles][data-no-room] > [data-event]");
-    const chip = cell.querySelector("[data-tile-more]");
-    return {
-        shown: [...cell.querySelectorAll("[data-event]")].filter((t) => getComputedStyle(t).display !== "none").map((t) => t.getAttribute("data-event")),
-        mark: mark === null ? null : { key: mark.getAttribute("data-event"), spans: spans(mark.getBoundingClientRect()), inside: inside(mark.getBoundingClientRect()) },
-        chip: chip === null ? null : {
-            words: chip.textContent,
-            label: chip.getAttribute("aria-label"),
-            count: getComputedStyle(chip.querySelector("[data-tile-more-count]")!).display !== "none",
-            spans: spans(chip.getBoundingClientRect()),
-            inside: inside(chip.getBoundingClientRect()),
-        },
-    };
-};
-
-/**
- * A cell with no room for one whole tile (#1276): at its 12px floor its
- * padding leaves the tiles nothing. A lone tile draws as a mark across the
- * whole cell — its padding too — the tile itself, its click and its popover
- * its own, never a faint `+1` in its place (#1710); several fold into their
- * `+n` alone (the user's ruling "Fold into +n"), its menu listing every tile
- * (Van 1's Aug 24 cell, above).
- */
-test.describe("Plan bucket cells with no room for a tile (#1276, #1710)", { tag: "@desktop" }, () => {
-
-    test("planTargetState: a cell at its 12px floor draws its lone tile as a mark across the cell and inside it, never a +1; a click on it does what the tile's does, Van 1 selected", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        await toFloor(page, "a0");
-        const cell = entry.locator(floorCell("a0"));
-        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({ shown: ["a0"], mark: { key: "a0", spans: true, inside: true }, chip: null });
-        await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-        await cell.locator("[data-event='a0']").click();
-        await expect(entry.locator(rowSel("vans", "van1"))).toHaveAttribute("data-selected", "");
-        // Selected, the tile is still its cell's mark.
-        await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: ["a0"], chip: null });
-    });
-
-    test("planTargetState: a lane's cell at its floor draws its lone tile as a mark across the cell, never a +1; a click on it opens the tile's popover, hung from the mark, and it stays open", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        await toFloor(page, "m5");
-        const cell = entry.locator(floorCell("m5"));
-        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({ shown: ["m5"], mark: { key: "m5", spans: true, inside: true }, chip: null });
-        const mark = cell.locator("[data-event='m5']");
-        await mark.click();
-        const pop = page.locator('[data-plan-overlay="popover"]');
-        await expect(pop).toHaveText("Load 41 · 8 pallets");
-        // Over the mark, which it hangs from, and still open once the page is at rest.
-        await settled(page);
-        await expect(pop).toBeVisible();
-        const read = async () => {
-            const [p, m] = [await pop.boundingBox(), await mark.boundingBox()];
-            return p !== null && m !== null && p.y + p.height <= m.y + 0.5 && p.x <= m.x + m.width && p.x + p.width >= m.x;
-        };
-        await expect.poll(read).toBe(true);
-    });
-});
-
-/**
- * A cell's `+n` under a touch pointer (#1267): its tap target is its 44px
- * halo, held to its cell, less the tiles in it — so a tile beside it, or in
- * another cell, keeps its own taps. On the phone planTargetState's Van 1 card
- * folds its Aug 24 cell's tiles into a `+2` cramped to the room, its target
- * the whole cell; on a touch screen 1280px wide, 60px of room draws the ✓
- * beside `+1`, the halo reaching over the ✓, which keeps its taps. A lone
- * tile a cell with no room draws as a mark across itself takes the chip's
- * halo (#1710).
- */
-test.describe("Plan bucket cells' +n on touch (#1267)", { tag: "@mobile" }, () => {
-
-    test("planTargetState at the phone's width: Van 1's Aug 24 cell is a +2 cramped to its room, a tile tall; a tap anywhere in the cell lands on it, every tile of the card keeps its own; a tap opens its menu, and a pick does what the tile's tap does", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        // The narrow layout's Rows tab holds Van 1's card: its first rows drawn, a "more rows" button for the rest.
-        await entry.locator("[data-plan-narrow] [data-plan-tab='rows']").tap();
-        await settled(page);
-        const card = entry.locator(`[data-plan-card=${JSON.stringify(VAN1)}]`);
-        const more = entry.getByRole("button", { name: /^\d+ more rows?$/ });
-        for (let i = 0; i < 10 && await card.count() === 0 && await more.count() > 0; i++) {
-            await more.first().tap();
-            await settled(page);
-        }
-        const cell = entry.locator(VAN1_CELL);
-        const chip = cell.locator("[data-tile-more]");
-        await expect(chip).toHaveAttribute("data-cramped", "");
-        // A tile's height: the halo makes the target, never the chip's own box.
-        expect(await chip.evaluate((el) => Math.abs(el.getBoundingClientRect().height - Number.parseFloat(getComputedStyle(el).getPropertyValue("--plan-tile-h"))) <= 0.5)).toBe(true);
-        await expect.poll(() => chip.evaluate(tapFaults)).toEqual({ bad: [], onTile: 0 });
-        await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-        await chip.tap();
-        const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
-        await expect(items).toHaveText(["Event, Week of Aug 24, 2026, confirmed", "Event, Week of Aug 24, 2026, recommended"]);
-        await items.first().tap();
-        await expect(entry.locator(`[data-plan-card=${JSON.stringify(VAN1)}]`)).toHaveAttribute("data-selected", "");
-        await expect(chip).toBeFocused();
-    });
-
-    test("planTargetState on a touch screen 1280px wide: Van 1's Aug 24 cell in 60px of room draws its ✓ beside +1, whose halo reaches over the ✓ — a tap there lands on the ✓, one beside it on the chip", async ({ page }) => {
-        await page.setViewportSize({ width: 1280, height: 800 });
-        const entry = await openExample(page, "planTargetState");
-        const cell = entry.locator(VAN1_CELL);
-        await setCellRoom(cell, 60);
-        await expect(cell.locator("[data-tile-more]")).toHaveText("+1");
-        await expect(cell.locator("[data-event='a7']")).not.toHaveAttribute("data-folded", "");
-        const read = await cell.locator("[data-tile-more]").evaluate(tapFaults);
-        expect(read.bad).toEqual([]);
-        expect(read.onTile, "the halo's taps on the ✓").toBeGreaterThan(0);
-    });
-
-    test("planTargetState on a touch screen 1920px wide: a cell at its 12px floor draws its lone tile as a mark, its 44px halo held inside the cell — a tap anywhere in it lands on the mark, one just outside it never does, and every tile of the row keeps its own (#1276, #1710)", async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 900 });
-        const entry = await openExample(page, "planTargetState");
-        await toFloor(page, "a0");
-        const mark = entry.locator(`${floorCell("a0")} [data-plan-cell-tiles][data-no-room] > [data-event='a0']`);
-        await expect(mark).toHaveCount(1);
-        await expect(entry.locator(`${floorCell("a0")} [data-tile-more]`)).toHaveCount(0);
-        // The taps on the mark's own box are on a tile; those above and below it, on its halo.
-        await expect.poll(() => mark.evaluate(tapFaults)).toMatchObject({ bad: [] });
-        const outside = () => mark.evaluate((el) => {
-            const c = el.closest("[data-plan-cell]")!.getBoundingClientRect();
-            const [mx, my] = [(c.left + c.right) / 2, (c.top + c.bottom) / 2];
-            return ([[c.left - 2, my, "left"], [c.right + 2, my, "right"], [mx, c.top - 2, "above"], [mx, c.bottom + 2, "below"]] as const)
-                .flatMap(([x, y, side]) => { const hit = document.elementFromPoint(x, y); return hit !== null && el.contains(hit) ? [`a tap 2px ${side} the cell lands on the mark`] : []; });
-        });
-        expect(await outside()).toEqual([]);
-    });
 });
 
 /**
