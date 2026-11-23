@@ -625,7 +625,9 @@ from its admission until its guest asked for its lease; `ran` its execution;
 `sent` the bytes it sent its source, and how long after its result the last
 object was in the store. The same is the last line of the work's log (`e3: on
 its rack: …`, which `e3 task logs` shows, its grant measured by the hub's
-clock, from the lease's creation to its claim), and follows each unit's line in its
+clock, from the lease's creation to its claim; written once the attempt's
+outcome is recorded, and best effort, so a log store that refuses it loses no
+outcome), and follows each unit's line in its
 split task's log. A rack whose agent says none prints nothing more, and a hub
 or source that knows none ignores them: they are JSON in the result, read by
 name, as its reason is.

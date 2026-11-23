@@ -87,6 +87,11 @@ it('reads a result\'s phases for the marks and counts it knows, keeps a mark of 
     + '"runner-ended": "9"}, "fetchedBytes": 10, "fetchMs": -1, "cachedBytes": 1152921504606846976, "sentBytes": "4", "later": true}')),
   { marks: { 'admitted': 5, 'warmed-up': 7 }, fetchedBytes: 10 });
   assert.equal(Object.keys(readRackPhases({ marks: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`mark-${i}`, i])) })!.marks).length, 32);
+  // Marks that do not read take no place of those after them that do, and no more entries than a bound are looked at
+  const unread = Array.from({ length: 40 }, (_, i) => [`Bad-${i}`, i] as const);
+  assert.deepEqual(readRackPhases({ marks: Object.fromEntries([...unread, ['admitted', 0], ['booted', 3_000]]) })?.marks, { 'admitted': 0, 'booted': 3_000 });
+  const flood = Array.from({ length: 10_000 }, (_, i) => [`Bad-${i}`, i] as const);
+  assert.equal(readRackPhases({ marks: Object.fromEntries([...flood, ['admitted', 0]]) }), undefined, 'past the bound, nothing more is read');
   // A rack from before them says none, and one that says nothing that reads says none
   for (const none of [undefined, null, 'phases', [], {}, { marks: [] }, { marks: { booted: 'soon' } }]) {
     assert.equal(readRackPhases(none), undefined, JSON.stringify(none));

@@ -463,8 +463,12 @@ export interface RackLeasePhases {
   readonly sentBytes?: number;
 }
 
-/** The most marks of a result's phases that are read. */
+/** The most marks of a result's phases that are kept. */
 const MOST_MARKS = 32;
+
+/** The most entries of a result's marks that are looked at, for the marks
+ *  kept: a rack that says more than this says nothing more that is read. */
+const MOST_MARK_ENTRIES = 8 * MOST_MARKS;
 
 const PHASE_COUNTS = ['fetchedBytes', 'fetchMs', 'cachedBytes', 'sentBytes'] as const;
 
@@ -474,7 +478,8 @@ const PHASE_COUNTS = ['fetchedBytes', 'fetchMs', 'cachedBytes', 'sentBytes'] as 
  * @remarks
  * As a reason is, phases are read for what this build knows: a mark is kept
  * where its name is a word and its time a whole number of ms, at most
- * {@link MOST_MARKS} of them, a mark a later release names among them; a
+ * {@link MOST_MARKS} of them, of the first {@link MOST_MARK_ENTRIES} the
+ * result names, a mark a later release names among them; a
  * count is kept where it is a whole number; the rest is left out, and a
  * result is never refused for them. A rack from before them says none.
  *
@@ -493,8 +498,15 @@ export function readRackPhases(value: unknown): RackLeasePhases | undefined {
   const fields = value as Record<string, unknown>;
   const marks: Record<string, number> = {};
   if (typeof fields.marks === 'object' && fields.marks !== null && !Array.isArray(fields.marks)) {
-    for (const [mark, ms] of Object.entries(fields.marks as Record<string, unknown>).slice(0, MOST_MARKS)) {
-      if (WORD.test(mark) && typeof ms === 'number' && Number.isSafeInteger(ms) && ms >= 0) marks[mark] = ms;
+    // The marks that read, up to the most kept: one that does not read takes
+    // no place of one after it that does
+    let kept = 0;
+    let looked = 0;
+    for (const mark in fields.marks as Record<string, unknown>) {
+      if (kept >= MOST_MARKS || looked++ >= MOST_MARK_ENTRIES) break;
+      if (!Object.hasOwn(fields.marks, mark)) continue;
+      const ms = (fields.marks as Record<string, unknown>)[mark];
+      if (WORD.test(mark) && typeof ms === 'number' && Number.isSafeInteger(ms) && ms >= 0) { marks[mark] = ms; kept++; }
     }
   }
   const phases: { -readonly [K in keyof RackLeasePhases]: RackLeasePhases[K] } = { marks };
