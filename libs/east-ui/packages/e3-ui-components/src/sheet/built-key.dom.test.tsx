@@ -19,7 +19,8 @@
  * it keeps, and a typed cell is saved under its row's own key. And lanes keyed
  * by the number their row builds, paged from the rail's `rows` source: a lane
  * a typed slot moves stands where it stood, under its new key, until its
- * source reads it again.
+ * source reads it again. A lane a typed slot moves is the lane it was, edited:
+ * it has no new row's discard.
  */
 
 import { expect, test } from "vitest";
@@ -175,6 +176,8 @@ async function press(c: HTMLElement, name: string): Promise<void> {
 const blank = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-blank] [data-key="${key}"]`)!;
 /** The key of the row the ring is on; `null` where it is on none. */
 const ringOn = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="cell"][data-selected]')?.closest<HTMLElement>('[data-slot="row"]')?.getAttribute("data-row-id") ?? null;
+/** Whether a row offers the discard of a new row in its gutter, by the row's key. */
+const discardable = (c: HTMLElement, id: string) => c.querySelector(`[data-slot="row"][data-row-id=${JSON.stringify(id)}] [data-slot="discardDraft"]`) !== null;
 /** A row's cell under a column, by the row's key: a key East prints with quotes in it, a variant's, quoted as CSS reads it. */
 const cellOf = (c: HTMLElement, id: string, key: string) => c.querySelector<HTMLElement>(`[data-slot="row"][data-row-id=${JSON.stringify(id)}] [data-key="${key}"]`)!;
 
@@ -283,4 +286,13 @@ test("ruling 16 — over lanes paged from the rail's `rows` source, a lane a typ
     // Saved and not yet read again, it stood where it was typed: never at the rows' end for that one read, the lanes
     // under the ring changing places with it.
     expect([...new Set(drawn)]).toEqual(["101 107 103 201 | 107", "101 103 107 201 | 107"]);
+});
+
+test("review finding 1 — a lane a typed slot moves under another key is the lane it was, edited: no new row's discard in its gutter, which would drop it under its new key while its removal under the old one stood; a lane typed into the blank row has one", async () => {
+    const { container: c } = await h.mountPayload(lanesKeyed, { storageKey: "sheet-built-key-discard" });
+    await waitFor(() => expect(ids(c)).toEqual(["101", "102"]));
+    await paste(c, cellOf(c, "102", "slot"), "9");
+    await paste(c, blank(c, "aisle"), "2\t5\tDock");
+    expect(ids(c)).toEqual(["101", "109", "205"]);
+    expect([discardable(c, "109"), discardable(c, "205")]).toEqual([false, true]);
 });

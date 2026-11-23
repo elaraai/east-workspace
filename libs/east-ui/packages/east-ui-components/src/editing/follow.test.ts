@@ -18,12 +18,13 @@
  * is the entry its source holds under the id it had — through Undo and Redo,
  * a move on, a carry-over and a Save — and what the last Undo or Redo put back
  * under another id (`EditSession.rekeyed`), which a host follows its selection
- * by.
+ * by; and a moved entry as a person counts it, one change (`changeCount`).
  */
 
 import { expect, test } from "vitest";
 import { FloatType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
+import { changeCount } from "./change-count.js";
 import { liftDraft } from "./draft.js";
 import { EditHistory } from "./history.js";
 import type { EntryKeys } from "./keys.js";
@@ -290,4 +291,16 @@ test("a Save lands a move: the entry is its source's under the id it moved to, a
     expect([session.pending, [...session.moved]]).toEqual([0, []]);
     session.record(moved("Spring", "Summer", SPRING), "typed", "Edit job");
     expect([...session.moved]).toEqual([["Summer", "Spring"]]);
+});
+
+test("a moved entry is one change as a person counts them (`changeCount`): never the entry removed and the entry added the session holds of it — one session's, and a history's of several", () => {
+    const session = jobs();
+    session.record(moved("J-1", "Spring", SPRING), "typed", "Edit job");
+    session.record([{ id: "J-2", before: job(POSTERS), after: job({ ...POSTERS, sheets: 1.0 }) }], "typed", "Edit job");
+    expect([session.pending, changeCount(session)]).toEqual([3, 2]);
+    const [press, finish] = [jobs(), jobs()];
+    const history = new EditHistory<string>();
+    history.sync([["press", press], ["finish", finish]]);
+    history.record([{ key: "press", updates: moved("J-1", "X", SPRING) }, { key: "finish", updates: moved("J-2", "Y", POSTERS) }], "typed", "Edit two");
+    expect([history.pending, changeCount(history)]).toEqual([4, 2]);
 });

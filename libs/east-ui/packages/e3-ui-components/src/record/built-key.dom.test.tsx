@@ -14,7 +14,8 @@
  * danger tone. A code typed over moves its rack; one another rack has is
  * refused, the rack marked where it stands, again each time; and a rack stored
  * apart from the key its row builds stays where it is until its code changes.
- * A rack moved and then discarded is one change dropped.
+ * A rack moved and then discarded is one change dropped; moved, it is the rack
+ * it was, edited, and one change pending.
  */
 
 import { describe, expect, test } from "vitest";
@@ -24,6 +25,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Record } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
+import { reloadPage } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
@@ -42,8 +44,8 @@ const h = sheetHarness({ modules: { "record/built-key": { racks } }, frame: 2000
 const rackEqual = equalFor(Rack);
 const printRacks = printFor(racks.type);
 
-/** The racks, each keyed by its code: a new one's bay given by `newRow`, its code left to its person. */
-const racksKeyed = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** The racks, each keyed by its code: a new one's bay given by `newRow`, its code left to its person — with the inspector pane where asked. */
+const racksOf = (inspector: boolean) => East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const held = $.let(Record.bind(racks));
     const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Rack), () => Record.patch(Rack, { bay: "Dock" })));
     return Record({
@@ -56,9 +58,12 @@ const racksKeyed = East.function([], UIComponentType, (_$) => Reactive.Root(East
             bay: Record.column.text(Rack, { header: "Bay" }),
         },
         newRow,
+        ...(inspector ? { inspector: true } : {}),
         name: "racksKeyed",
     });
 })));
+const racksKeyed = racksOf(false);
+const racksInspected = racksOf(true);
 
 /** The Record's rows, in order. */
 const rows = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-record] [data-slot="row"]')];
@@ -174,5 +179,20 @@ describe("a record whose rows' keys are built from them", () => {
         expect(ids(c)).toEqual(["OLD", "R-1", "R-5"]);
         await press(c, editingMessages.discard());
         expect([status(c), ids(c)]).toEqual(["Discarded 1 change", ["OLD", "R-1", "R-2"]]);
+    });
+
+    test("review findings 1 and 3 — a rack moved under another key is the rack it was, edited: its code's cell tinted as changed and its bay's not, its Details saying it is changed — never a new rack — and with no rack selected the Record counts one change pending, never two", async () => {
+        const first = await h.mount({ fn: racksInspected }, { storageKey: "record-built-key-edited" });
+        await type(first.container, "R-2", "code", "R-5");
+        expect(ids(first.container)).toEqual(["OLD", "R-1", "R-5"]);
+        expect([cellOf(first.container, "R-5", "code")!.hasAttribute("data-dirty"), cellOf(first.container, "R-5", "bay")!.hasAttribute("data-dirty")]).toEqual([true, false]);
+        const chip = () => slot(first.container, "end")?.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-record-details="row"] [data-inspector-id] + * > [data-state]');
+        await waitFor(() => expect(chip()?.getAttribute("data-state")).toBe("pending"));
+        // Opened again in this tab, the move kept and no rack selected.
+        reloadPage();
+        const { container: c } = await h.mount({ fn: racksInspected }, { storageKey: "record-built-key-edited" });
+        await waitFor(() => expect(ids(c)).toEqual(["OLD", "R-1", "R-5"]));
+        const nothing = slot(c, "end")!.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-record-details="none"]')!;
+        expect(nothing.querySelector('[data-count="pending"]')!.firstElementChild!.textContent).toBe("1");
     });
 });

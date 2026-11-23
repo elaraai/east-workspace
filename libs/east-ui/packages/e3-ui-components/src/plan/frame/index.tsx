@@ -100,7 +100,7 @@ import { FuncBindingType, Plan, PlanComponent, PlanEventSeamType, PlanPayloadTyp
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, changeCount, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
@@ -528,9 +528,11 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
     }, [rowsPart, eventParts, m, words.locale]);
     // What the footer's counts say before the event kinds' first read lands (#1398, CL13): "…", never 0.
     const kindsUnread = kinds.length > 0 && kindsRead.counts === undefined;
+    // The changes waiting on Save as the history bar counts them: an event moved under another key is one (east-workspace#1709).
+    const pending = session === undefined ? undefined : changeCount(session);
     const footer = chrome !== undefined
         ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
-            counts={counts} unread={kindsUnread} pending={session?.pending} notices={notices}
+            counts={counts} unread={kindsUnread} pending={pending} notices={notices}
             optimise={chrome.optimise === undefined ? undefined : { line: chrome.optimise.line, legend: chrome.optimise.legend, flash: chrome.optimise.flash }} />
         : undefined;
     // The Plan's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view

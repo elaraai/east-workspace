@@ -82,6 +82,8 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         await typeCustomer(c, "Quay Books");
         // Under the key its customer builds, its bar where it was, the inspector on it still.
         expect([job(c, "J-2001"), job(c, "Quay Books") !== null, inspected(c)]).toEqual([null, true, "Catalogue covers"]);
+        // Three changes wait on Save: the job, one change — never the job removed and the job added — and its two flows.
+        expect(pending(c)).toBe("3 pending");
         expect([job(c, "Quay Books")!.getAttribute("aria-pressed"), customerBox(c).getAttribute("value")]).toEqual(["true", "Quay Books"]);
         // Its copy would build the key it now stands under: Duplicate is off.
         expect(duplicateOff(c)).toBe(true);

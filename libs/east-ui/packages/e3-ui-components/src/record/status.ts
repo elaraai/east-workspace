@@ -34,7 +34,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { StringType, equalFor } from "@elaraai/east";
 import type { EditIssue, HistoryAction } from "@elaraai/east-ui-components";
-import { DRAFT_ISSUE_TEXT } from "@elaraai/east-ui-components/internal";
+import { DRAFT_ISSUE_TEXT, baselineOf, changeCount } from "@elaraai/east-ui-components/internal";
 import type { SheetNotice } from "../sheet/sheet-types.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { noticeText, type SheetWords } from "../sheet/words.js";
@@ -120,7 +120,7 @@ export function tallyDrafts(session: SheetTransactions, fields: (before: unknown
         const now = entry.draft;
         // The key a moved row left: its row is counted under the key it stands under.
         if (now === undefined && left.has(id)) continue;
-        const was = session.originals.get(moved.get(id) ?? id)?.draft;
+        const was = baselineOf(session, id)?.draft;
         if (was === undefined) {
             if (now !== undefined) added += 1;
             continue;
@@ -159,9 +159,9 @@ export function stepOf(action: HistoryAction, session: SheetTransactions, fields
         case "discard": {
             if (!session.canDiscard || session.pending === 0) return undefined;
             const tally = tallyDrafts(session, fields);
-            // A change of a row's place alone is a change too. A row moved under another key is pending twice — the key
-            // it left, and the key it stands under — and is one row changed.
-            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, session.pending - session.moved.size) };
+            // A change of a row's place alone is a change too, and a row moved under another key one change, as the
+            // history bar counts it.
+            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, changeCount(session)) };
         }
         case "apply":
             return session.canApply ? { id: "applied", tally: tallyDrafts(session, fields) } : undefined;

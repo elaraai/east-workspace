@@ -18,7 +18,7 @@ import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
     type EditIssue, type EditPoint, type EntryKeys,
 } from "@elaraai/east-ui-components";
-import { kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { baselineOf, kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
@@ -427,7 +427,8 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         return (id: string, row: SheetRowValue): SheetRowChanges | undefined => {
             const known = byId.get(id);
             if (known !== undefined) return known ?? undefined;
-            const began = session.originals.get(id);
+            // A row moved under another key began as the row it was (east-workspace#1709): changed, never added.
+            const began = baselineOf(session, id);
             const draft = session.entries.get(id)?.draft;
             let found: SheetRowChanges | null = null;
             if (began !== undefined && draft !== undefined) {
