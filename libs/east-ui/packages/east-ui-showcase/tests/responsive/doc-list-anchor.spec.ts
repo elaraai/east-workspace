@@ -24,6 +24,10 @@
  * which dropped the entry, and nothing scrolled it back: the spec driving it
  * waited for its control until it timed out.
  *
+ * And a link to a page's last example lands on it when the example draws
+ * late: the list, held at its end short of the link, scrolls to it again as
+ * it grows.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test doc-list-anchor --project desktop`.
  */
@@ -83,8 +87,12 @@ test.describe("the doc list keeps a linked entry where the link put it", () => {
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
         await page.locator(ENTRY).scrollIntoViewIfNeeded();
         await settled(page);
+        expect(await entryTop(page), "the link opened its entry").not.toBeNull();
+        // The list stepped back two pixels first, so the row above the entry shows and the one above that is
+        // mounted: the row the frame below changes, wholly above the fold once the list steps back again.
+        await page.evaluate((selector) => { document.querySelector(selector)!.parentElement!.parentElement!.scrollTop -= 2; }, ENTRY);
+        await settled(page);
         const at = await entryTop(page);
-        expect(at, "the link opened its entry").not.toBeNull();
 
         await backThenResize(page, true);
         await settled(page);
@@ -109,6 +117,21 @@ test.describe("the doc list keeps a linked entry where the link put it", () => {
 
         await entry.locator(`a[href="${link}"]`).scrollIntoViewIfNeeded();
         await expect(entry.locator(`a[href="${link}"]`)).toBeInViewport();
+    });
+
+    test("a link to its page's last example, which draws late, lands on it: the list, held at its end, scrolls to the link again as it grows", async ({ page }) => {
+        // The Studio page's last example. Till it has drawn there is not room enough below it to bring it to the top,
+        // and the virtualizer stops once its scroll stands at the list's end: as the example drew, growing by
+        // thousands of pixels, the list stood at that end, the example above in view and the link 751px down (the
+        // manual test of 22 Nov 2026).
+        const link = "#e3/studio/studio/studioVisuals";
+        const entry = page.locator("[data-doc-scroll] > div > [data-index]", { has: page.locator(`a[href="${link}"]`) });
+        await page.goto(`/${link}`);
+        await expect(entry).toHaveCount(1, { timeout: 20_000 });
+        await expect(entry.locator("[data-studio-visual-tile]").first()).toBeVisible({ timeout: 30_000 });
+        await expect.poll(() => entry.evaluate((row) => Math.round(row.getBoundingClientRect().top - row.parentElement!.parentElement!.getBoundingClientRect().top)), {
+            message: "the linked entry's top, under the list's", timeout: 20_000,
+        }).toBe(0);
     });
 });
 
