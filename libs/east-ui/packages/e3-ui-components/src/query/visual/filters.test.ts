@@ -27,9 +27,10 @@ import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../model/words.js";
 import {
     addFilter, changeFilter, clearFilters, filterChip, filterQuery, filterWords, filtersOn, markedBy, ownFilterAt, pageRange, printStateOf, removeFilter, selectOf,
-    readerFilters, startingOf, whereOf,
+    readerFilters, rowsKept, startingOf, whereOf,
     type PageFilter,
 } from "./filters.js";
+import type { StepQuery } from "../steps/values.js";
 import { printVisual } from "./print.js";
 import { printSourceOf } from "./source.js";
 import { ORDERS_ROOT, ORDERS_SOURCE, condition } from "./visual.test-utils.js";
@@ -359,6 +360,25 @@ describe("a filter as the query its condition rows edit", () => {
     it("starts a filter still to be written as an empty step, which holds no condition until it is finished", () => {
         const query = filterQuery(undefined, ORDERS_SOURCE, root);
         expect([query.source, query.steps.map((step) => step.type), whereOf(query, root)]).toEqual(["orders", ["filter"], undefined]);
+    });
+
+    it("keeps a host's rows standing: a step an edit left with no condition is given one empty row, as a filter still to be written starts; rows that stand, and a step of another kind, are as they were", () => {
+        const one = filterQuery(condition(`.region == "SA"`), ORDERS_SOURCE, root);
+        const [step] = one.steps;
+        if (step?.type !== "filter") throw new Error("the filter's step is no Keep rows where step");
+        // Its last condition removed.
+        const none: StepQuery = { ...one, steps: [variant("filter", { ...step.value, conds: [] })] };
+        const [kept] = rowsKept(none).steps;
+        if (kept?.type !== "filter") throw new Error("the kept step is no Keep rows where step");
+        // The same step, one row in it, its slots still to be chosen — so it holds no condition until it is finished.
+        const slots = kept.value.conds.map((held) => (held.type === "test" ? [held.value.field.type, held.value.cmp.type, held.value.value.type] : held.type));
+        expect([kept.value.id, slots, whereOf(rowsKept(none), root)]).toEqual([step.value.id, [["none", "none", "none"]], undefined]);
+        // The row a filter still to be written starts with, in kind.
+        const fresh = filterQuery(undefined, ORDERS_SOURCE, root).steps[0];
+        expect(fresh?.type === "filter" ? fresh.value.conds.map((held) => held.type) : []).toEqual(["test"]);
+        expect(rowsKept(one)).toBe(one);
+        const jq: StepQuery = { source: "orders", steps: [variant("jq", { id: "s", text: "sort_by(.revenue)" })] };
+        expect(rowsKept(jq)).toBe(jq);
     });
 
     it("reads no condition from a query that is not one narrowing of its rows", () => {

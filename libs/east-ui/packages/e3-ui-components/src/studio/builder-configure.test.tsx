@@ -312,7 +312,7 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         expect([tinted(), lines().length, lines()[0]!.includes("North"), remove()]).toEqual([["where"], 1, false, null]);
     });
 
-    test("a visual's own filter's last condition removed in its rows removes the filter, as Remove filter does — the rows left to write another, one gesture Undo takes back (ruled 22 November 2026)", async () => {
+    test("a visual's own filter's last condition removed in its rows removes the filter, as Remove filter does — the rows starting again with one empty row, as Remove filter leaves them — one gesture Undo takes back (ruled 22 November 2026)", async () => {
         const { container } = await mountBoard();
         await select(container, "b-sales");
         const rows = () => configurePart(container, "where").querySelector<HTMLElement>("[data-studio-filter-rows]")!;
@@ -324,9 +324,12 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         await waitFor(() => expect(offers()).toContain("North"));
         await pick("North");
         expect([tinted(), remove() !== null]).toEqual([["where"], true]);
-        // Its only row's ×: no condition, so no filter — Remove filter goes with it, the visual as it was saved.
+        // Its only row's ×: no condition, so no filter — Remove filter goes with it, the visual as it was saved, and the rows
+        // start again as a filter still to be written does: one empty row, as before the first was written (the manual
+        // test of 23 Nov found none left).
         await pressOn(within(rows()).getByRole("button", { name: "Remove" }));
-        expect([lines(), remove(), tinted(), within(rows()).getByRole("button", { name: "Add condition" }).textContent]).toEqual([[], null, [], "Add condition"]);
+        expect([lines().length, lines()[0]!.includes("North"), remove(), tinted(), within(rows()).getByRole("button", { name: "Add condition" }).textContent])
+            .toEqual([1, false, null, [], "Add condition"]);
         await press("Undo");
         expect([lines().length, lines()[0]!.includes("North"), remove() !== null]).toEqual([1, true, true]);
     });

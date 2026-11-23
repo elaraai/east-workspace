@@ -21,7 +21,8 @@
  * - One that applies each edit as it is made — a visual's own filter, in the
  *   inspector, a gesture of the canvas — hears the condition its finished
  *   rows hold, at once, and that it holds none once its last finished row is
- *   removed (`onChange`, `conditionTold`).
+ *   removed (`onChange`, `conditionTold`). Rows an edit left with none start
+ *   again, one empty row, as Remove filter leaves them (`rowsKept`).
  * - One that commits by a button of its own — a page filter's popover (Add
  *   filter, Apply), an alert's (Save) — hears the rows as a draft after every
  *   edit: their condition, that none is left, or that none is finished
@@ -47,7 +48,7 @@ import { QUERY_HEADER_ID, entriesQuery, queryEntries, type QueryEntry, type Quer
 import type { StepQuery } from "../query/steps/values.js";
 import type { QueryView } from "../query/toolbar.js";
 import { useQueryEditor } from "../query/use-query-editor.js";
-import { conditionDraft, conditionTold, filterQuery, whereOf, type ConditionDraft } from "../query/visual/filters.js";
+import { conditionDraft, conditionTold, filterQuery, rowsKept, whereOf, type ConditionDraft } from "../query/visual/filters.js";
 import type { PrintSource } from "../query/visual/print.js";
 import { useQueryWords } from "../query/words.js";
 
@@ -117,9 +118,14 @@ export function ConditionEditor({ id, query, held: was, conditionOf, root, onCha
     // The condition it holds: what it was opened with, then each one told.
     const held = useRef(was);
     const gesture = useCallback((next: readonly QueryEntry[]) => {
-        const [before, after] = [entriesQuery(latest.current).query, entriesQuery(next).query];
-        latest.current = next;
-        setDrafts((was) => ({ entries: next, version: was.version + 1 }));
+        const before = entriesQuery(latest.current).query;
+        const { header, query: after } = entriesQuery(next);
+        // A host that applies each edit keeps its rows standing (`rowsKept`); one that commits by a button keeps them
+        // as the edit left them. Either is told what the edit did.
+        const kept = onDraft === undefined ? rowsKept(after) : after;
+        const shown = Object.is(kept, after) ? next : queryEntries(header, kept.steps);
+        latest.current = shown;
+        setDrafts((was) => ({ entries: shown, version: was.version + 1 }));
         if (onDraft !== undefined) {
             onDraft(conditionDraft(after, conditionOf));
             return true;

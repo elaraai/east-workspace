@@ -10,8 +10,9 @@
  * finished, all or any, and a line of jq where no row says the condition;
  * its removes (ruled 22 November 2026) — a row's ×, and a group's Remove group
  * in words at its foot — a group left with one row that row, plain, and the
- * filter removed once its last finished row is. The rules themselves, step by
- * step, are `query/visual/filter-flow.test.ts`'s.
+ * filter removed once its last finished row is, the rows then one empty row,
+ * as Remove filter leaves them. The rules themselves, step by step, are
+ * `query/visual/filter-flow.test.ts`'s.
  * In place: no frame of their own, a lone condition with no joiner column,
  * the shared picker in the flow under them — open on a new filter's field,
  * Esc closing it and leaving the rows, Tab choosing as Enter does. Its
@@ -184,18 +185,16 @@ describe("a page filter's conditions", () => {
         expect([lines(rows).length, rows.querySelectorAll("[data-query-group-box]").length, screen.queryByRole("button", { name: "Remove group" }), told]).toEqual([2, 0, null, []]);
     });
 
-    test("its only condition's × removes the filter — told once — and leaves the adds to write another, which is a filter again once finished", async () => {
+    test("its only condition's × removes the filter — told once — and leaves one empty row to write another, as Remove filter does, which is a filter again once finished", async () => {
         const { rows, told } = await rowsOf(`.region == "SA"`);
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove" })); });
         await settle();
-        expect([lines(rows), told, popover()]).toEqual([[], ["removed"], null]);
-        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add condition" })); });
-        await settle();
-        await waitFor(() => expect(popover()).not.toBeNull());
+        expect([lines(rows), told, popover()]).toEqual([["field"], ["removed"], null]);
+        await openSlot(rows, "field");
         await pick("region");
         await waitFor(() => expect(offers()).toContain("NSW"));
         await pick("NSW");
-        expect(told).toEqual(["removed", `.region == "NSW"`]);
+        expect([told, lines(rows).length]).toEqual([["removed", `.region == "NSW"`], 1]);
     });
 
     test("its last finished row removed beside a row still empty removes the filter, and the empty row stands", async () => {

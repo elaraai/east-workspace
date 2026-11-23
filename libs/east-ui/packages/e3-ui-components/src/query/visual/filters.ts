@@ -21,8 +21,9 @@
  * once, as the days it holds; a filter as the query its condition
  * rows edit, and read back from it ({@link filterQuery}, {@link whereOf});
  * what an edit of those rows tells a host that applies it at once
- * ({@link conditionTold}), what they say as a draft, and what committing one
- * does ({@link conditionDraft}, {@link draftEdit});
+ * ({@link conditionTold}) and the rows it keeps standing ({@link rowsKept}),
+ * what they say as a draft, and what committing one does
+ * ({@link conditionDraft}, {@link draftEdit});
  * and the page's state as a visual's
  * printer reads it ({@link printStateOf}) — the filters, and the window they
  * hold the source's date to ({@link pageRange}), which a value over another
@@ -41,12 +42,12 @@ import { isoDateTime } from "@elaraai/east/internal";
 import type { StudioFilterType, StudioPageFilterType } from "@elaraai/e3-ui/internal";
 import { conditionChip, conditionWords, windowChip } from "../model/step-words.js";
 import type { QueryWords } from "../model/words.js";
-import { newStep } from "../steps/edit.js";
+import { emptyCondition, newStep } from "../steps/edit.js";
 import { chain, pathNode, readCall, readChain, readPipe } from "../steps/jq.js";
 import { parseSteps, readCondition } from "../steps/parse.js";
 import { SEP, printSteps } from "../steps/print.js";
 import { shapeOf, singular, type Shape } from "../steps/shape.js";
-import { freshId, isComplete, lastUnit, type Condition, type LastUnit, type StepQuery } from "../steps/values.js";
+import { freshId, isComplete, lastUnit, type Condition, type LastUnit, type Step, type StepQuery } from "../steps/values.js";
 import type { PrintRange, PrintSource, PrintState } from "./print.js";
 
 /** One filter of a page, decoded: its source's key, and its condition over one of the source's rows. */
@@ -425,6 +426,26 @@ export function conditionTold(before: StepQuery, after: StepQuery, held: JqNode 
     const where = conditionOf(after);
     if (where !== undefined) return held !== undefined && sameCondition(where, held) ? NOTHING : { kind: "condition", where };
     return held !== undefined && conditionRows(after) < conditionRows(before) ? REMOVED : NOTHING;
+}
+
+/**
+ * The rows an edit leaves a host that applies each edit as it is made: never
+ * none. An edit that took the last one away took the host's condition with it
+ * ({@link conditionTold}), and the rows start again as a condition still to be
+ * written does — one empty row ({@link filterQuery}), as Remove filter leaves
+ * them. A host that commits by a button of its own keeps the rows as the edit
+ * left them: none is its draft's `none`, which its button commits as the
+ * filter removed ({@link conditionDraft}, {@link draftEdit}).
+ *
+ * @param query - The query the rows edit, as an edit left it: its last step the condition's Keep rows where step
+ * @returns The query; where that step holds no condition, with one empty row in it
+ */
+export function rowsKept(query: StepQuery): StepQuery {
+    const last = query.steps.length - 1;
+    const step = query.steps[last];
+    if (step?.type !== "filter" || step.value.conds.length > 0) return query;
+    const kept: Step = variant("filter", { ...step.value, conds: [emptyCondition()] });
+    return { source: query.source, steps: query.steps.map((held, i) => (i === last ? kept : held)) };
 }
 
 /**
