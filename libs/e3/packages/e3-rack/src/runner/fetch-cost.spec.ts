@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { none, variant } from '@elaraai/east';
 import { LocalStorage, repoInit, uuidv7 } from '@elaraai/e3-core';
-import { RACK_LINK_ASSUMED_BYTES_PER_SECOND, RecordedRunTimes, fetchBound, weighFetch } from './fetch-cost.js';
+import { RACK_LINK_ASSUMED_BYTES_PER_SECOND, RecordedRunTimes, fetchBound, rackRanMs, weighFetch } from './fetch-cost.js';
 
 const MB = 1024 * 1024;
 
@@ -76,4 +76,35 @@ it('reads how long work last ran from its execution records: the same inputs, el
   // A hub that does not answer, or an object the store does not hold, weighs nothing: the work follows its policy
   assert.equal(await weighFetch({ links: () => Promise.resolve(null), racks: ['rack-a'], storage, repo, hashes: [object], ranMs: 1, times }), null);
   assert.equal(await weighFetch({ links: () => Promise.resolve(new Map()), racks: ['rack-a'], storage, repo, hashes: ['d'.repeat(64)], ranMs: 1, times }), null);
+});
+
+it('weighs work this process saw run on a rack by its rack\'s ran phase, not its record\'s span with the fetch before it (#1723)', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'e3fc-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const repo = join(home, 'repo'); assert(repoInit(repo).success);
+  const storage = new LocalStorage();
+  const task = 'a'.repeat(64);
+  const record = async (inHash: string, unit: boolean, ms: number) => {
+    const executionId = uuidv7();
+    const completedAt = new Date();
+    await storage.refs.executionWrite(repo, task, inHash, executionId,
+      variant('success', { executionId, inputHashes: [], outputHash: 'f'.repeat(64), startedAt: new Date(completedAt.getTime() - ms), completedAt, peakBytes: none, plan: none, unit }));
+  };
+  assert.equal(rackRanMs({ marks: { 'booted': 3_000, 'runner-started': 3_200, 'runner-ended': 22_200 } }), 19_000, 'from its runner\'s start to its end');
+  assert.equal(rackRanMs({ marks: { 'runner-started': 3_200 } }), undefined, 'a rack that did not mark its end says nothing of it');
+  assert.equal(rackRanMs(undefined), undefined);
+
+  // A unit whose record spans a 260 s fetch, and which ran 19 s on its rack
+  const [first, second, third] = ['1', '2', '3'].map((digit) => digit.repeat(64)) as [string, string, string];
+  await record(first, true, 280_000);
+  const times = new RecordedRunTimes();
+  assert.equal(await times.ranMs(storage, repo, task, first, true), 280_000, 'the record alone: its fetch among it');
+  times.ran(repo, task, first, true, 19_000);
+  assert.equal(await times.ranMs(storage, repo, task, first, true), 19_000, 'its rack\'s ran, in place of its record');
+  // Units seen on a rack that the records do not name yet count among the task's units
+  times.ran(repo, task, second, true, 21_000);
+  assert.equal(await times.ranMs(storage, repo, task, third, true), 20_000, 'the median of the units, each at its ran');
+  assert.equal(await times.ranMs(storage, repo, task, third, false), null, 'a unit says nothing of its task\'s own execution');
+  await record(third, true, 300_000);
+  assert.equal(await new RecordedRunTimes().ranMs(storage, repo, task, 'e'.repeat(64), true), 290_000, 'another process sees the records alone');
 });

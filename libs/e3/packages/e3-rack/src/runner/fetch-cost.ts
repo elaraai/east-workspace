@@ -21,7 +21,11 @@
  * How long work ran is its execution records': the latest success of the
  * same inputs, else, for a task, its latest success, and for a unit of a
  * split task, the median of its task's units' latest successes. Work with no
- * recorded success — a first run — follows its policy.
+ * recorded success — a first run — follows its policy. A record of work that
+ * ran on a rack spans its fetch; work this process saw run on a rack is
+ * taken at its rack's `ran` phase instead (#1723: from its runner's start to
+ * its end), which counts what it fetched only as its work read it, and stands
+ * as a success of its own until the records name it.
  *
  * Placement never changes a task's hash, nor its execution cache: the
  * weighing reads records, and writes none.
@@ -29,6 +33,7 @@
 
 import type { StorageBackend } from '@elaraai/e3-core';
 import type { RackFetchCost } from '../protocol/placement.js';
+import type { RackLeasePhases } from '../protocol/task-envelope.js';
 
 /** The rate a link is taken to carry before the hub has measured it, in
  *  bytes a second: a gigabit. */
@@ -82,6 +87,22 @@ export function fetchBound(objects: ReadonlyArray<{ readonly size: number }>, ra
 interface RecordedRun { readonly inHash: string; readonly unit: boolean; readonly ms: number; readonly endedAt: number }
 
 /**
+ * How long work ran on its rack, as its rack says it: from its runner's start
+ * to its end (`ran`, #1723), without the grant, the boot, nor the fetch before
+ * its runner started. What its work fetched as it read it is in it.
+ *
+ * @param phases - What the rack said of the lease's time ({@link readRackPhases})
+ * @returns The time in ms, or undefined when the rack did not mark both
+ * @example
+ * rackRanMs({ marks: { 'runner-started': 3_200, 'runner-ended': 22_200 } }); // 19_000
+ */
+export function rackRanMs(phases: RackLeasePhases | undefined): number | undefined {
+  const started = phases?.marks['runner-started'];
+  const ended = phases?.marks['runner-ended'];
+  return started === undefined || ended === undefined ? undefined : Math.max(0, ended - started);
+}
+
+/**
  * The run times e3 recorded of a run's tasks, read once a minute for a task
  * however many of its units are placed, and the sizes of the objects their
  * closures name, which never change.
@@ -93,6 +114,31 @@ interface RecordedRun { readonly inHash: string; readonly unit: boolean; readonl
 export class RecordedRunTimes {
   private readonly records = new Map<string, { at: number; runs: Promise<RecordedRun[]> }>();
   private readonly known = new Map<string, number>();
+  /** By task, the work this process saw run on a rack, at its rack's `ran`
+   *  phase, by whether it was a unit's and its inputs */
+  private readonly ranOnRack = new Map<string, Map<string, RecordedRun>>();
+
+  /**
+   * Notes how long work ran on its rack, as its rack said it
+   * ({@link rackRanMs}): what the work is weighed by from now on, in place of
+   * its record's span, which counts its fetch.
+   * @param repo - The repository
+   * @param taskHash - The task the work is of
+   * @param inHash - The work's inputs hash
+   * @param unit - Whether the work is a unit of a split task
+   * @param ms - How long its runner ran, in ms
+   */
+  ran(repo: string, taskHash: string, inHash: string, unit: boolean, ms: number): void {
+    const key = `${repo}\0${taskHash}`;
+    let runs = this.ranOnRack.get(key);
+    if (runs === undefined) {
+      if (this.ranOnRack.size >= KEPT_MAX) this.ranOnRack.clear();
+      runs = new Map();
+      this.ranOnRack.set(key, runs);
+    }
+    if (runs.size >= KEPT_MAX) runs.clear();
+    runs.set(`${unit}\0${inHash}`, { inHash, unit, ms, endedAt: Date.now() });
+  }
 
   /**
    * How long work last ran, as e3 recorded it.
@@ -105,7 +151,16 @@ export class RecordedRunTimes {
    * @returns The time in ms, or null when nothing of it succeeded before
    */
   async ranMs(storage: StorageBackend, repo: string, taskHash: string, inHash: string, unit: boolean): Promise<number | null> {
-    const runs = (await this.runs(storage, repo, taskHash)).filter((run) => run.unit === unit);
+    // A record of work seen on a rack is taken at its rack's `ran`; seen work
+    // the records do not name yet is a success of its own
+    const seen = new Map(this.ranOnRack.get(`${repo}\0${taskHash}`) ?? []);
+    const recorded = (await this.runs(storage, repo, taskHash)).map((run) => {
+      const key = `${run.unit}\0${run.inHash}`;
+      const onRack = seen.get(key);
+      seen.delete(key);
+      return onRack ?? run;
+    });
+    const runs = [...recorded, ...seen.values()].filter((run) => run.unit === unit);
     const same = runs.find((run) => run.inHash === inHash);
     if (same !== undefined) return same.ms;
     if (runs.length === 0) return null;

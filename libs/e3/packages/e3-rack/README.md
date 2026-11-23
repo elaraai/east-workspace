@@ -304,7 +304,9 @@ Work that would spend longer fetching than it ran runs here, and says so:
   the same inputs, else the task's latest success, and for a unit the median
   of its task's units. Work that has not succeeded before follows its policy.
   A record of work that ran on a rack counts its time there, its fetch among
-  it.
+  it; work the same e3 process saw run on a rack (a run's earlier units, a
+  watch's earlier runs) is taken at its rack's `ran` phase instead, from its
+  runner's start to its end.
 - Each rack that could take the work is weighed, and the work runs here only
   if every one of them would fetch it for longer than it ran. A hub that does
   not answer weighs nothing.

@@ -9,7 +9,7 @@ import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
 import { RACK_LEASE_VERSION, describeRackPhases, leaseReserve, readRackPhases, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import type { RackFetchCost } from '../protocol/placement.js';
-import { weighFetch } from './fetch-cost.js';
+import { rackRanMs, weighFetch } from './fetch-cost.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
   wholeResources, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
 
@@ -265,6 +265,10 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       const state = result.state ?? (result.status === 'success' ? 'success' : (result.exitCode ?? 0) > 0 ? 'failed' : 'error');
       if (state === 'success') {
         if (result.outputHash === undefined || !await touchReachable(request.storage, request.repo, [result.outputHash])) return await runLocal('fallback:incomplete-output');
+        // How long it ran there, its fetch before its runner started not
+        // among it: what later work of its task is weighed by
+        const ranMs = rackRanMs(phases);
+        if (ranMs !== undefined) delegation.runTimes.ran(request.repo, request.taskHash, request.ids.inHash, request.unit !== undefined && !request.unit.own, ranMs);
         return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: result.outputHash,
           exitCode: 0, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
       }
