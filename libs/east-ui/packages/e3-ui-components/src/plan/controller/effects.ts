@@ -28,12 +28,16 @@
  * periods, where the second one used to be computed from the window the first
  * had already moved.
  *
- * # A resolution only re-buckets
+ * # A zoom keeps its time
  *
- * A record's resolution is presentation: switching WEEK → DAY re-buckets the
- * window shown, and fetches nothing — it is no part of a source's narrowing.
- * It is written to each source holding the window, else to every source — a
- * slice with no window holds it there.
+ * A record's resolution is presentation, written to each source holding the
+ * window, else to every source — a slice with no window holds it there. A zoom
+ * moves the window with it (#1438, #1710): the time it showed, within the
+ * periods the new resolution shows (`shared/time/zoom.ts` — six weeks of days
+ * at most, two years at least), so zooming out never shows a period alone and
+ * zooming in never a year of days; the sources holding the window read the
+ * range it lands on, and a zoom whose window already fits writes the
+ * resolution alone, and reads nothing.
  *
  * @packageDocumentation
  */
@@ -47,7 +51,8 @@ import { instantOrder, type PlanInstantValue } from "../instant.js";
 import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 import { planSlices, planWindowParts } from "../root/sources.js";
-import { leadingWindow, slicedResolution, statedWindow, zoomedWindow, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
+import { leadingWindow, slicedResolution, statedWindow, windowPartsDomain, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
+import { zoomedWindow } from "../../shared/time/zoom.js";
 
 /**
  * The scale as the window is held NOW — the same resolution the canvas
@@ -118,18 +123,25 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
             }
             case "slice.setResolution": {
                 // A resolution is a TIME-axis fact — the segment only mounts there (a number axis has `step`; an
-                // ordinal list no unit). Where a source holds the window it is the source's narrowing, and a zoom only
-                // re-buckets; a canvas holding its own zooms with it (#1438): as many buckets of the new resolution as
-                // it showed of the old, about the same middle — or the middle the zoom names — inside the span of what
-                // its series read.
+                // ordinal list no unit). The window zooms with it (#1438, #1710): the time it showed, within the
+                // periods the new resolution shows, about the same middle — or the middle the zoom names — inside the
+                // data: the sources' domain where they hold the window, the span of what its series read where the
+                // canvas holds its own. Written as every window is — into the sources holding it, or the canvas's own.
                 if (chrome === undefined || value.axis.type !== "time") break;
                 const holders = bound ? parts.map(({ part }) => part) : chrome.slice.parts.map(({ slice }) => slice);
-                const shown = !bound && hold !== undefined ? currentScale(value, hold) : undefined;
+                // The window shown before the zoom, read before the new resolution is written.
+                const shown = writable ? currentScale(value, hold) : undefined;
                 const resolution = some(variant(eff.resolution, null)) as Parameters<(typeof holders)[number]["setResolution"]>[0];
                 for (const part of holders) part.setResolution(resolution);
-                if (shown?.resolution !== undefined && hold !== undefined) {
-                    const zoomed = zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, hold.span, eff.about);
-                    if (zoomed !== undefined) hold.move(zoomed[0], zoomed[1]);
+                if (shown?.resolution !== undefined) {
+                    const domain = bound ? windowPartsDomain(parts) : undefined;
+                    const span = domain !== undefined ? [domain.min, domain.max] as const : hold?.span;
+                    const zoomed = zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, span, eff.about);
+                    // A window the new resolution's periods already hold is written again nowhere: such a zoom reads nothing.
+                    const held = bound ? leadingWindow(parts, value.axis.type) : hold?.last;
+                    if (zoomed !== undefined && (held === undefined || held[0] !== zoomed[0] || held[1] !== zoomed[1])) {
+                        writePlanWindow(parts, zoomed[0], zoomed[1], hold);
+                    }
                 }
                 break;
             }

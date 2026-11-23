@@ -11,8 +11,8 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushHorizon, brushKey, brushRelease, brushZones,
-    type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHeld, brushHitTest, brushHorizon, brushKey, brushKeyHeld,
+    brushRelease, brushZones, type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -192,6 +192,22 @@ describe("brushDragWindow — the in-flight window (#192)", () => {
             .toEqual({ lo: 40, hi: 100 });
         expect(brushDragWindow(drag({ mode: "resize-hi", win: WIN, start: 200, current: 999 })))
             .toEqual({ lo: 100, hi: 400 });
+    });
+});
+
+describe("brushHeld / brushKeyHeld — the edge a gesture holds in place (#1710)", () => {
+    test("a resize holds the edge it does not drag — the other, once dragged past it; a draw the edge it started at; a move neither", () => {
+        expect(brushHeld(drag({ mode: "resize-hi", win: WIN, start: 200, current: 320 }))).toBe("lo");
+        expect(brushHeld(drag({ mode: "resize-hi", win: WIN, start: 200, current: 40 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "resize-lo", win: WIN, start: 100, current: 130 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "resize-lo", win: WIN, start: 100, current: 250 }))).toBe("lo");
+        expect(brushHeld(drag({ start: 50, current: 120 }))).toBe("lo");
+        expect(brushHeld(drag({ start: 120, current: 50 }))).toBe("hi");
+        expect(brushHeld(drag({ mode: "move", win: WIN, start: 150, current: 190 }))).toBeUndefined();
+    });
+
+    test("a key on a handle holds the other handle's edge; on the window, neither", () => {
+        expect([brushKeyHeld("lo"), brushKeyHeld("hi"), brushKeyHeld("window")]).toEqual(["hi", "lo", undefined]);
     });
 });
 

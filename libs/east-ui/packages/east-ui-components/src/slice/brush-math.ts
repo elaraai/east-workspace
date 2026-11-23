@@ -187,6 +187,25 @@ export function brushDragWindow(drag: BrushDrag): BrushWindowPx {
     return { lo: Math.min(s, x), hi: Math.max(s, x) };
 }
 
+/** An edge of the window a gesture holds in place while the other moves. */
+export type BrushHeld = "lo" | "hi";
+
+/**
+ * The edge a drag holds in place (#1710) — what a host keeping the window
+ * within limits holds, letting the other give way: a resize holds the edge it
+ * does not drag, which is the window's other end once dragged past it; a draw
+ * holds the edge it started at; a move holds neither, its width kept.
+ *
+ * @param drag - The in-flight drag state
+ * @returns The edge it holds; `undefined` for a move
+ */
+export function brushHeld(drag: BrushDrag): BrushHeld | undefined {
+    const { mode, start, current, width, win } = drag;
+    if (mode === "move") return undefined;
+    const fixed = mode === "resize-lo" && win !== undefined ? win.hi : mode === "resize-hi" && win !== undefined ? win.lo : clamp(start, 0, width);
+    return fixed <= clamp(current, 0, width) ? "lo" : "hi";
+}
+
 /** What a completed brush gesture should do. */
 export type BrushRelease =
     | { kind: "commit"; lo: number; hi: number }
@@ -300,6 +319,17 @@ export function brushKey(key: string, shift: boolean, target: BrushKeyTarget, wi
         return commit(1 - width, 1);
     }
     return undefined;
+}
+
+/**
+ * The edge a key holds in place (#1710), as {@link brushHeld} names a drag's: a handle's key holds the other handle's
+ * edge; the window's moves both, holding neither.
+ *
+ * @param target - What has the focus
+ * @returns The edge it holds; `undefined` for the window
+ */
+export function brushKeyHeld(target: BrushKeyTarget): BrushHeld | undefined {
+    return target === "lo" ? "hi" : target === "hi" ? "lo" : undefined;
 }
 
 // ── The histogram's bars (#1438) ─────────────────────────────────────────────

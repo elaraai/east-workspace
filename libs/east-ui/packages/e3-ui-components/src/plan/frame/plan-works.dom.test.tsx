@@ -216,18 +216,19 @@ describe("the works on a Plan (#1438)", () => {
         expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual([...quarters].sort(([a], [b]) => a - b).map(([, n]) => n));
     });
 
-    test("a zoom shows as many buckets as before about the same middle: the year shows the ten years, and the week again a few weeks in their middle", async () => {
+    test("a zoom keeps the time its window showed within the periods the new resolution shows: out to the year, the thirteen weeks are the least a year shows, two years about their middle — never the ten; back to the week, the most a week shows about the two years' middle (#1438, #1710)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
-        const ruler = () => container.querySelector("[data-slot='ruler'], [data-plan-ruler]")?.textContent ?? "";
+        const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((tick) => tick.textContent);
+        // Late September to late December 2026, its middle in November: that year and the next.
         await zoomTo(container, "year");
-        await waitFor(() => expect(ruler()).toContain("2022"));
-        for (const year of ["2023", "2026", "2029", "2031"]) expect(ruler()).toContain(year);
+        await waitFor(() => expect(ticks()).toEqual(["2026", "2027"]));
+        // Their middle, New Year 2027: twenty-six weeks from the week of 5 October 2026.
         await zoomTo(container, "week");
-        await waitFor(() => expect(ruler()).toContain("2027"));
-        expect(ruler()).not.toContain("2022");
+        await waitFor(() => expect(ticks()).toHaveLength(26));
+        expect(ticks()[0]).toBe("W41");
     });
 
     test("a works' crew hours, folded, draw each week's sum of its crews' hours as e3 keeps it", async () => {

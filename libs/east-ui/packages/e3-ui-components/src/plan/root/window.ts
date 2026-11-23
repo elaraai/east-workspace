@@ -29,16 +29,19 @@
  *
  * The resolution is the leading source's, written to each source holding the
  * window, else to every source (`controller/effects.ts`); a record's
- * resolution only re-buckets the canvas, and is no part of a source's
- * narrowing, so zooming fetches nothing.
+ * resolution re-buckets the canvas, and is no part of a source's narrowing. A
+ * zoom keeps the time its window showed within the periods the new resolution
+ * shows (`zoomedWindow`, `shared/time/zoom.ts`, #1710): where that moves
+ * the window, it is written as every window is, and the sources holding it
+ * read the range it lands on; where the window already fits, a zoom reads
+ * nothing.
  *
  * @packageDocumentation
  */
 
 import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getSomeorUndefined, useSlicesReactivity } from "@elaraai/east-ui-components";
-import { recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
-import { tileNext, tileStart, type RecordTile } from "@elaraai/east-ui/internal";
+import { recordSliceDomain, recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { resolveScale, type PlanAxisValue } from "../axis.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanAxisKind } from "../instant.js";
@@ -126,55 +129,26 @@ export function createPlanWindowHold(initial?: readonly [number, number], resolu
     return hold;
 }
 
-/** The resolutions a zoom counts in buckets of the calendar. */
-const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "month", "quarter", "year"]);
-
-/** A bucket's mean length, in ms: how far a run of them around an instant reaches, before the calendar cuts them. */
-const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
+/** A source's range domain, on the axis's arm: its kind, and its bounds as numbers. */
+export type PlanWindowDomain = NonNullable<ReturnType<typeof recordSliceDomain>>;
 
 /**
- * Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. The axis's domain
- * is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
- */
-function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
-    const out: number[] = [];
-    for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());
-    return out;
-}
-
-/**
- * The window a zoom shows on a canvas holding its own (#1438): as many
- * buckets of the new resolution as the window shown held of the old, about
- * the same middle, or the one given — inside the span of what its series read where it is
- * known, the whole span where they do not fit, and over the window shown too
- * where it lies outside the span. Where a source holds the window it is that
- * source's narrowing, and a zoom only re-buckets.
+ * The domain of the sources holding the window (#1344): from the earliest to
+ * the latest of their range fields' values, each of the axis's arm — where
+ * their data is: what the horizon spans, and what a zoom keeps its window
+ * inside (#1710).
  *
- * @param shown - The window shown, `[from, to)` in ms
- * @param from - The resolution it shows at
- * @param to - The resolution zoomed to
- * @param span - The span of what the series read, `[from, to)` in ms; `undefined` where none is known
- * @param about - The middle it zooms about, in ms: the window shown's own unless given — a table cell's period, where a
- *   double click on it zooms to edit it (#1438)
- * @returns The window, `[from, to)` in ms, each end a bucket's edge; `undefined` for a resolution no calendar bucket names
+ * @param parts - The sources holding the window
+ * @returns Their domain; `undefined` while no source has one
  */
-export function zoomedWindow(shown: readonly [number, number], from: string, to: string,
-    span: readonly [number, number] | undefined, about?: number): readonly [number, number] | undefined {
-    if (!ZOOM_TILES.has(from) || !ZOOM_TILES.has(to)) return undefined;
-    const tile = to as RecordTile;
-    const n = Math.max(1, bucketsOver(from as RecordTile, shown[0], shown[1]).length);
-    const middle = about ?? (shown[0] + shown[1]) / 2;
-    const reach = (n + 1) * BUCKET_MS[tile];
-    const buckets = span === undefined
-        ? bucketsOver(tile, middle - reach, middle + reach)
-        : bucketsOver(tile, Math.min(span[0], shown[0]), Math.max(span[1], shown[1]));
-    if (buckets.length === 0) return undefined;
-    let at = 0;
-    while (at + 1 < buckets.length && buckets[at + 1]! <= middle) at++;
-    const first = Math.max(0, Math.min(at - Math.floor(n / 2), buckets.length - n));
-    const last = Math.min(buckets.length, first + n);
-    const end = last < buckets.length ? buckets[last]! : tileNext(tile, new Date(buckets[last - 1]!)).getTime();
-    return [buckets[first]!, end];
+export function windowPartsDomain(parts: readonly PlanWindowPart[]): PlanWindowDomain | undefined {
+    let out: PlanWindowDomain | undefined;
+    for (const { part } of parts) {
+        const domain = recordSliceDomain(part);
+        if (domain === undefined) continue;
+        out = out === undefined ? domain : { kind: out.kind, min: Math.min(out.min, domain.min), max: Math.max(out.max, domain.max) };
+    }
+    return out;
 }
 
 /** The canvas's narrowing chrome and scale. */

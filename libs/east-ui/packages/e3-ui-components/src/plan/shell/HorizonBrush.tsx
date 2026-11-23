@@ -43,13 +43,14 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { BrushStrip, PlaceholderShape, brushHorizon, recordSliceDomain, type BrushBucket } from "@elaraai/east-ui-components/internal";
+import { BrushStrip, PlaceholderShape, brushHorizon, type BrushBucket, type BrushHeld } from "@elaraai/east-ui-components/internal";
 import { useContainerWidth, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { periodText, resolutionInterval } from "../../shared/time/scale.js";
+import { brushPeriodsOf, limitWindow } from "../../shared/time/zoom.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
-import type { PlanWindowPart } from "../root/window.js";
+import { windowPartsDomain, type PlanWindowDomain, type PlanWindowPart } from "../root/window.js";
 import type { PlanNestedSpan, PlanNestedSpanRead, SPAN_READING } from "../root/nested.js";
 import { usePlanWords, type PlanWords } from "../words.js";
 import { horizonDensity, type HorizonDensity } from "./horizon-density.js";
@@ -64,7 +65,7 @@ const LENS_W = 1000;
 const MAX_PERIODS = 100_000;
 
 /** A source's range domain, on the axis's arm: its kind, and its bounds as numbers. */
-type RecordSliceRange = NonNullable<ReturnType<typeof recordSliceDomain>>;
+type RecordSliceRange = PlanWindowDomain;
 
 export interface HorizonBrushProps {
     styles: Styles;
@@ -80,23 +81,6 @@ export interface HorizonBrushProps {
     span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
-}
-
-/**
- * The horizon over several sources' domains: from the earliest to the latest
- * of them, each of the axis's arm.
- *
- * @param parts - The sources holding the window
- * @returns Their horizon; `undefined` while no source has a domain
- */
-function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefined {
-    let out: RecordSliceRange | undefined;
-    for (const { part } of parts) {
-        const domain = recordSliceDomain(part);
-        if (domain === undefined) continue;
-        out = out === undefined ? domain : { kind: out.kind, min: Math.min(out.min, domain.min), max: Math.max(out.max, domain.max) };
-    }
-    return out;
 }
 
 /**
@@ -165,7 +149,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     // Self-subscribe (#611): each source's domain is a STORE read through its choices, and a re-render does not
     // bust a memo whose deps did not move.
     useSlicesReactivity(parts.map(({ part }) => part.key));
-    const readDomain = useCallback(() => horizonOf(parts), [parts]);
+    const readDomain = useCallback(() => windowPartsDomain(parts), [parts]);
     const { result: recordDomain } = useTrackedEvaluation(readDomain);
     // No source holding the window, the canvas holds its own (#1344): the horizon is the axis's stated window and the
     // window shown, as long again either side, which nothing reads — half-open, as a window is, where a source's domain
@@ -250,15 +234,20 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     // period boundaries of the ACTIVE resolution (a whole step on a number
     // axis), at least one period wide. The scale's OWN `snap` / `offset` —
     // this band used to carry a hand-copy of the same floor/offset/midpoint
-    // over the same interval (#617).
-    const snapPair = (f0: number, f1: number): [PlanInstantValue, PlanInstantValue] => {
+    // over the same interval (#617). On a time axis the window keeps within the
+    // most its zoom shows (#1710) — six weeks of days, six months of weeks: the
+    // edge the gesture holds stays (the strip names it), and the other gives way.
+    const limits = scale.kind === "time" ? brushPeriodsOf(scale.resolution) : undefined;
+    const snapPair = (f0: number, f1: number, held?: BrushHeld): readonly [PlanInstantValue, PlanInstantValue] => {
         const a = scale.snap(fromFraction(f0));
         let b = scale.snap(fromFraction(f1));
         if (scale.toNumber(b) <= scale.toNumber(a)) b = scale.offset(a, 1);
-        return [a, b];
+        if (limits === undefined) return [a, b];
+        return limitWindow(a, b, held === "lo" ? "start" : held === "hi" ? "end" : undefined, limits,
+            (at, n) => scale.offset(at, n), (at) => scale.toNumber(at));
     };
-    const snapWindow = (f0: number, f1: number): { from: number; to: number } => {
-        const [a, b] = snapPair(f0, f1);
+    const snapWindow = (f0: number, f1: number, held?: BrushHeld): { from: number; to: number } => {
+        const [a, b] = snapPair(f0, f1, held);
         return { from: toFrac(a), to: toFrac(b) };
     };
     // The caption spans the whole brushable horizon, not the applied window

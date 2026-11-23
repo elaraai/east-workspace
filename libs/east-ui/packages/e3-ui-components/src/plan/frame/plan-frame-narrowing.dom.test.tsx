@@ -221,11 +221,13 @@ describe("the Plan's one window (#1344)", () => {
         expect(screen.getByRole("dialog").querySelector('[data-record-slice-editor="start"][data-record-slice-source="job"]')).not.toBeNull();
         await act(async () => { fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" }); });
         await settle();
-        // The resolution, written to each source holding the window; the window stands.
+        // The resolution, written to each source holding the window, and the window with it (#1710): the one week comes out
+        // to the least a week shows, four weeks about its middle, in both sources — never a week alone in one column.
         await press(toolbar(container).getByText("WEEK"));
         expect(state("job").resolution).toEqual(some(variant("week", null)));
         expect(state("shift").resolution).toEqual(some(variant("week", null)));
-        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), day("10-19"), false));
+        expect(narrowing("job").get("start")).toEqual(range(day("10-05"), day("11-02"), true));
+        expect(narrowing("shift").get("start")).toEqual(range(day("10-05"), day("11-02"), false));
     });
 });
 
