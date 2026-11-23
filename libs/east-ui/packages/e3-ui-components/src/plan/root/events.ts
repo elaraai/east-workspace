@@ -85,7 +85,7 @@ import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRo
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
-import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, type PlanLandingValue } from "./landings.js";
 import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
@@ -303,8 +303,9 @@ export function usePlanEventPlaced(
     const failed = useRef<PlanEventFailure | undefined>(undefined);
     // A kind the reader could not read (#1599, #1710): its window, its count, or its cells over the paged rows — the
     // reader names the kind whose read threw — said as the events' own failure is, on the footer's line, with its Retry.
-    // A failure of the cells said nowhere left the rows in view waiting on them, and the line loading, for ever.
-    const cellsFailure = cells?.error;
+    // A failure of the cells said nowhere left the rows in view waiting on them, and the line loading, for ever. The paged
+    // rows' own failure the paging says, where those rows are.
+    const cellsFailure = schedulePeriodFailure(cells);
     const error = useMemo((): PlanEventFailure | undefined => {
         if (result.ok && cellsFailure === undefined) return undefined;
         let next: PlanEventFailure;

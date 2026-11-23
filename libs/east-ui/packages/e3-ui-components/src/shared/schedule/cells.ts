@@ -549,16 +549,24 @@ type HeldRows = ScheduleKindRows;
 /**
  * A read of the event kinds that failed: why, and the kinds whose own read
  * threw — a kind's window, its count over the range, what its narrowing holds
- * of its drafts, or its cells over the paged kind's blocks (#1599, #1710). Its
- * host says it as its period's read failed, with Retry: a read that threw is
- * no read in flight, and nothing waits on it — the rows whose cells it could
- * not read draw no "loading" for it.
+ * of its drafts, or its cells over the paged kind's blocks (#1599, #1710) — or
+ * the paged kind's own rows. A read that threw is no read in flight, and
+ * nothing waits on it: the rows whose cells it could not read draw no
+ * "loading" for it. Its host says a kind's failure as its period's read
+ * failed, with Retry; the paged kind's own rows' failure its paging says
+ * where those rows are ({@link ScheduleCellsFailure.rows}).
  */
 export interface ScheduleCellsFailure {
     /** Why it failed, in the read's own words. */
     readonly reason: string;
     /** The slots of the kinds whose own read threw, in the kinds' order; none where the failure was no one kind's. */
     readonly kinds: readonly string[];
+    /**
+     * Whether it was the paged kind's own rows that could not be read — their count, a window, as its paging runtime
+     * says (`isPagedReadError`): which its host's paging says where those rows are, never as its period's. Every other
+     * failure, a kind's cells among them, nothing else says: its host says it.
+     */
+    readonly rows: boolean;
 }
 
 /** What the reader read: what its host's seams draw the kinds from, and what a gesture finds an event's row in. */
@@ -1030,15 +1038,34 @@ class LaidRows implements ScheduleKindRows {
     }
 }
 
+/** What a read threw, kept, its message the thrown one's: what the reader's failures are. */
+class ReadFailure extends Error {
+    /**
+     * @param thrown - What the read threw
+     * @param name - The failure's name
+     */
+    constructor(readonly thrown: unknown, name: string) {
+        super(thrown instanceof Error ? thrown.message : String(thrown));
+        this.name = name;
+    }
+}
+
 /** What a read of one kind threw, and the kind: what a failed read names the kinds it could not read by. */
-class KindReadFailure extends Error {
+class KindReadFailure extends ReadFailure {
     /**
      * @param thrown - What the kind's read threw
      * @param kind - The kind's slot
      */
-    constructor(readonly thrown: unknown, readonly kind: string) {
-        super(thrown instanceof Error ? thrown.message : String(thrown));
-        this.name = "KindReadFailure";
+    constructor(thrown: unknown, readonly kind: string) {
+        super(thrown, "KindReadFailure");
+    }
+}
+
+/** What reading the paged kind's own rows threw, as its paging runtime says a read failed: no one kind's failure (#1710). */
+class PagedRowsFailure extends ReadFailure {
+    /** @param thrown - What reading the rows threw: a `PagedReadError` */
+    constructor(thrown: unknown) {
+        super(thrown, "PagedRowsFailure");
     }
 }
 
@@ -1424,7 +1451,13 @@ class CellsReader {
         let pagedBlocks: ScheduleCellBlock[] | typeof READING | undefined;
         const blocksOfPaged = (): ScheduleCellBlock[] | typeof READING => {
             if (pagedBlocks !== undefined) return pagedBlocks;
-            pagedBlocks = paged === undefined || paged.hidden ? [] : schedulePagedBlocks(paged, span) ?? READING;
+            try {
+                pagedBlocks = paged === undefined || paged.hidden ? [] : schedulePagedBlocks(paged, span) ?? READING;
+            } catch (thrown) {
+                // The paged kind's own rows — their count, a window — failing to read: what its host's paging says where
+                // those rows are, never as its period's (#1710). Anything else thrown is the reader's own failure.
+                throw isPagedReadError(thrown) ? new PagedRowsFailure(thrown) : thrown;
+            }
             if (pagedBlocks !== READING) {
                 const wanted = new Set(pagedBlocks.flatMap((block) => block.keys.map((key) => scheduleCellId(block.slot, key))));
                 if (!sameKeys(wanted, this.wantedKeys)) this.wantedKeys = wanted;
@@ -1483,7 +1516,7 @@ class CellsReader {
                     }
                 }
             } catch (thrown) {
-                throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key);
+                throw thrown instanceof KindReadFailure || thrown instanceof PagedRowsFailure ? thrown : new KindReadFailure(thrown, kind.key);
             }
             if (read === READING || outside === READING) return READING;
             if (outside.size > 0) dropped.set(kind.key, outside);
@@ -1988,6 +2021,21 @@ export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: Sch
 }
 
 /**
+ * The failure of a read its host says as its period's read failed, with Retry
+ * (#1599, #1710): every one but the paged kind's own rows', which its paging
+ * says where those rows are ({@link ScheduleCellsFailure.rows}) — a kind's
+ * window, its count, its drafts, and its cells over the paged kind's blocks,
+ * which nothing else says.
+ *
+ * @param read - What the reader handed on; `undefined` before it reads
+ * @returns The failure its host says; `undefined` with none
+ */
+export function schedulePeriodFailure(read: Pick<ScheduleCellsRead, "error"> | undefined): ScheduleCellsFailure | undefined {
+    const error = read?.error;
+    return error === undefined || error.rows ? undefined : error;
+}
+
+/**
  * The kinds' cells and counts (see the module docs), read in the component
  * that reads the event kinds' rows: what the host's seams draw the kinds from,
  * every kind's drafts as they take them, and what a gesture finds an event's
@@ -2060,13 +2108,14 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         let error: ScheduleCellsFailure | undefined;
         if (!result.ok) {
             const failure = result.error instanceof KindReadFailure ? result.error : undefined;
-            const thrown = failure?.thrown ?? result.error;
+            const rows = result.error instanceof PagedRowsFailure;
+            const thrown = failure?.thrown ?? (result.error instanceof PagedRowsFailure ? result.error.thrown : result.error);
             console.error(`[${host}] the event kinds' cells could not be read:`, thrown);
             const reason = thrown instanceof Error ? thrown.message : String(thrown);
             const was = failed.current;
-            error = was !== undefined && stringEqual(was.reason, reason)
+            error = was !== undefined && stringEqual(was.reason, reason) && was.rows === rows
                 && (failure === undefined ? was.kinds.length === 0 : was.kinds.length === 1 && stringEqual(was.kinds[0]!, failure.kind))
-                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind] };
+                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind], rows };
             failed.current = error;
         }
         const inFlight = !result.ok || result.value === READING;

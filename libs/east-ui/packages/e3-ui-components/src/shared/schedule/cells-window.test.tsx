@@ -25,7 +25,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
-import { useScheduleCells, type ScheduleCellKind, type ScheduleCellsArgs } from "./cells.js";
+import { schedulePeriodFailure, useScheduleCells, type ScheduleCellKind, type ScheduleCellsArgs } from "./cells.js";
 import type { ScheduleEventDraftsValue, ScheduleLanded } from "./editing.js";
 
 const Row = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });
@@ -203,7 +203,9 @@ describe("a read that fails names the kind (#1599, #1710)", () => {
         jobs.fails = new Error("the store is down");
         rerender(asked(jobs));
         const failure = result.current.error;
-        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"] });
+        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"], rows: false });
+        // Its host says it as its period's.
+        expect(schedulePeriodFailure(result.current)).toBe(failure);
         expect([titles(result.current.reads.get("job")), result.current.view]).toEqual([[["J1", BROCHURES]], "current"]);
         rerender(asked(jobs));
         expect(result.current.error).toBe(failure);
@@ -217,7 +219,14 @@ describe("a read that fails names the kind (#1599, #1710)", () => {
         const jobs = record([["J1", BROCHURES]]);
         const failing = kindOver(jobs, { count: () => { throw new Error("no count"); } });
         const { result } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: { ...asked(jobs), kinds: [failing] } });
-        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"] });
+        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"], rows: false });
+    });
+
+    test("its host says every failure as its period's but the paged kind's own rows', which its paging says where those rows are (#1710)", () => {
+        const kind = { reason: "the store is down", kinds: ["job"], rows: false };
+        const rows = { reason: "the store is down", kinds: [], rows: true };
+        expect([schedulePeriodFailure({ error: kind }), schedulePeriodFailure({ error: rows }), schedulePeriodFailure({ error: undefined }), schedulePeriodFailure(undefined)])
+            .toEqual([kind, undefined, undefined, undefined]);
     });
 });
 

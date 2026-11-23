@@ -52,7 +52,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { DateTimeType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
+import { schedulePeriodFailure, scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
 import { viewOfPeriod } from "../shared/view-read.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
@@ -265,8 +265,9 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     const loading = result.ok && (result.value.loading || windowReading);
     const filtering = cells.view === "filtering";
     // Why the period could not be read: the window's own read, or the reader's of a kind — its window, its count, or its
-    // cells over the paged resources (#1710), which nothing else says: their rows would wait on cells no read brings.
-    const error = result.ok ? cells.error?.reason : reasonOf(result.error);
+    // cells over the paged resources (#1710), which nothing else says: their rows would wait on cells no read brings. A
+    // read of the paged resources' own rows that failed is said where those rows are, never as the period's.
+    const error = result.ok ? schedulePeriodFailure(cells)?.reason : reasonOf(result.error);
     const heldApart = useRef<readonly CalendarItem[] | undefined>(undefined);
     if (apartResult.ok && !apartResult.value.loading) heldApart.current = apartResult.value.items;
     const apartItems = heldApart.current;
