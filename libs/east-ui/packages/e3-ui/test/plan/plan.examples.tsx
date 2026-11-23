@@ -111,6 +111,20 @@ export const planTargetDeliveries = e3.record("plan_target_deliveries", DictType
         plan_target_deliveries_by_risk_at: index.on(["risk", "at"]),
         plan_target_deliveries_by_hall_at: index.on(["hall", "at"]),
         plan_target_deliveries_by_hall_risk_at: index.on(["hall", "risk", "at"]),
+        // The deliveries' totals a month, a quarter and a year (#1732), led as those are — by nothing, a risk, a hall and
+        // both — so the horizon's bars read the deliveries the rail's narrowing holds, each an instant, never counting them.
+        plan_target_deliveries_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
+        plan_target_deliveries_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
+        plan_target_deliveries_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
+        plan_target_deliveries_by_risk_month_totals: index.summary({ on: ["risk"], from: "at", to: "at", tile: "month" }),
+        plan_target_deliveries_by_risk_quarter_totals: index.summary({ on: ["risk"], from: "at", to: "at", tile: "quarter" }),
+        plan_target_deliveries_by_risk_year_totals: index.summary({ on: ["risk"], from: "at", to: "at", tile: "year" }),
+        plan_target_deliveries_by_hall_month_totals: index.summary({ on: ["hall"], from: "at", to: "at", tile: "month" }),
+        plan_target_deliveries_by_hall_quarter_totals: index.summary({ on: ["hall"], from: "at", to: "at", tile: "quarter" }),
+        plan_target_deliveries_by_hall_year_totals: index.summary({ on: ["hall"], from: "at", to: "at", tile: "year" }),
+        plan_target_deliveries_by_hall_risk_month_totals: index.summary({ on: ["hall", "risk"], from: "at", to: "at", tile: "month" }),
+        plan_target_deliveries_by_hall_risk_quarter_totals: index.summary({ on: ["hall", "risk"], from: "at", to: "at", tile: "quarter" }),
+        plan_target_deliveries_by_hall_risk_year_totals: index.summary({ on: ["hall", "risk"], from: "at", to: "at", tile: "year" }),
     }),
 });
 
@@ -497,7 +511,7 @@ export const planTargetState = example({
         "persisted", "same entity", "adjacent", "seek", "order", "State", "bind", "selection", "deep link",
         "sizing", "maxHeight", "variable", "estimateSize", "interleave",
         "narrow", "mobile", "phone", "responsive", "compact", "container", "breakpoint", "tabs", "Groups", "Rows", "Measures",
-        "hottest", "two-finger", "pan", "review", "§10",
+        "hottest", "two-finger", "pan", "review", "§10", "totals", "summary with no key", "#1732",
     ],
     description: "The data flagship — every row kind on one axis from one raw ops source bound from e3, grouped by hall in one data step: a pinned KPI, bucket rows derived and stored in lanes, a group strip per hall, span rows with proposal flavours, decisions and ports, contracts rolling up by union and by status, links weighed by quantity, a collapsed section, cards and event rows, a table, a views series and literal rows; expand in place on a row of every kind, the series picked in the library's Series tab, a bound ui state the host drives beside the frame, popover, hover and every callback, one Slice.bindRecords rail whose deliveries source narrows the Deliveries tab and holds the window, and the Plan filling a bounded host; in a box under 480px the same canvas is its narrow layout (Groups · Rows · Measures)",
     fn: East.function([], UIComponentType, (_$) => {
@@ -826,9 +840,18 @@ export const planTargetState = example({
             // index, and its range — the delivery's instant — is the canvas's
             // window, W27 to W39 (half-open) as the axis states it. The two
             // presets narrow the deliveries and keep the window.
+            // Its totals, led as its indexes are, are what the horizon's bars read under each narrowing (#1732).
             const slice = $.let(Slice.bindRecords("ex.plan.target", {
                 deliveries: {
-                    source: Data.bindPaged(planTargetDeliveries, { indexes: ["plan_target_deliveries_by_at", "plan_target_deliveries_by_risk_at", "plan_target_deliveries_by_hall_at", "plan_target_deliveries_by_hall_risk_at"] }),
+                    source: Data.bindPaged(planTargetDeliveries, {
+                        indexes: ["plan_target_deliveries_by_at", "plan_target_deliveries_by_risk_at", "plan_target_deliveries_by_hall_at", "plan_target_deliveries_by_hall_risk_at"],
+                        totals: [
+                            "plan_target_deliveries_month_totals", "plan_target_deliveries_quarter_totals", "plan_target_deliveries_year_totals",
+                            "plan_target_deliveries_by_risk_month_totals", "plan_target_deliveries_by_risk_quarter_totals", "plan_target_deliveries_by_risk_year_totals",
+                            "plan_target_deliveries_by_hall_month_totals", "plan_target_deliveries_by_hall_quarter_totals", "plan_target_deliveries_by_hall_year_totals",
+                            "plan_target_deliveries_by_hall_risk_month_totals", "plan_target_deliveries_by_hall_risk_quarter_totals", "plan_target_deliveries_by_hall_risk_year_totals",
+                        ],
+                    }),
                     label: "Deliveries", icon: { prefix: "fas", name: "truck" },
                     fields: {
                         hall: { label: "Hall", hints: ["Hall 1", "Hall 2"] },
@@ -1553,6 +1576,10 @@ export const planMeasureWeeks = e3.record("plan_measure_weeks", DictType(StringT
     indexes: (index) => ({
         // The weeks by their first instant: what the window narrows them through.
         plan_measure_weeks_by_week: index.on(["week"]),
+        // The weeks' totals a month, a quarter and a year (#1732), each week an instant: what the horizon's bars read.
+        plan_measure_weeks_month_totals: index.summary({ from: "week", to: "week", tile: "month" }),
+        plan_measure_weeks_quarter_totals: index.summary({ from: "week", to: "week", tile: "quarter" }),
+        plan_measure_weeks_year_totals: index.summary({ from: "week", to: "week", tile: "year" }),
     }),
 });
 
@@ -1600,7 +1627,8 @@ export const planMeasures = example({
         "strong", "muted", "rollup", "mirror", "position", "fold", "temporal fold", "resolution", "week", "month",
         "rebucket", "bucket", "max", "last", "count", "default", "override", "layer", "Plan.layer", "column",
         "line", "Slice", "Slice.bindRecords", "source", "Data.bindPaged", "indexes", "toolbar", "range", "brush", "section", "match", "gutter",
-        "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "e3.record", "library", "Plan.library.tab", "#824", "#1258", "#1344",
+        "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "e3.record", "library", "Plan.library.tab", "horizon", "totals",
+        "#824", "#1258", "#1344", "#1732",
     ],
     description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), the toolbar's resolution segment switches MONTH and WEEK, and one Slice.bindRecords rail's weeks source, which the Weeks tab lists, holds the window the horizon brush moves",
     fn: East.function([], UIComponentType, (_$) => {
@@ -1853,7 +1881,11 @@ export const planMeasures = example({
             // resolution, MONTH to start; the Weeks tab lists the weeks in it.
             const slice = $.let(Slice.bindRecords("ex.plan.measures", {
                 weeks: {
-                    source: Data.bindPaged(planMeasureWeeks, { indexes: ["plan_measure_weeks_by_week"] }),
+                    source: Data.bindPaged(planMeasureWeeks, {
+                        indexes: ["plan_measure_weeks_by_week"],
+                        // The weeks' totals, which the horizon's bars read (#1732).
+                        totals: ["plan_measure_weeks_month_totals", "plan_measure_weeks_quarter_totals", "plan_measure_weeks_year_totals"],
+                    }),
                     label: "Weeks", fields: { week: { label: "Week", format: { date: "MMM D" } } }, range: "week",
                 },
             }));

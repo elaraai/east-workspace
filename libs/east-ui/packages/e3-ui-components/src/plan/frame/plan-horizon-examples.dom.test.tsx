@@ -14,8 +14,11 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { waitFor } from "@testing-library/react";
-import { StringType, equalFor, type option } from "@elaraai/east";
+import { East, StringType, equalFor, type option } from "@elaraai/east";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { Data, Plan } from "@elaraai/e3-ui/internal";
 import type { TreePath } from "@elaraai/e3-types";
+import * as plan from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as windows from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as optimise from "@elaraai/e3-ui/examples/plan/optimise-windows";
@@ -27,8 +30,8 @@ import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { horizonLaidOut, planHarness, settle } from "./harness.test-utils.js";
 
 const h = planHarness({
-    "plan/plan-events": events, "plan/plan-windows": windows, "plan/optimise-windows": optimise, "plan/plan-records": records,
-    "sheet/sheet-records": sheet,
+    "plan/plan": plan, "plan/plan-events": events, "plan/plan-windows": windows, "plan/optimise-windows": optimise,
+    "plan/plan-records": records, "sheet/sheet-records": sheet,
 });
 
 /** A record's path, as e3's requests name it. */
@@ -100,6 +103,10 @@ const WINDOWS_FORTNIGHT: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 9, 19)];
 const ORDERS_FORTNIGHT: Span = [Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 15)];
 /** The window the print works' Plans' axes state: the four weeks from Monday 5 October 2026. */
 const WORKS_FOUR_WEEKS: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 10, 2)];
+/** The window the data flagship's axis states: W27 to W39 of 2026. */
+const FLAGSHIP_WEEKS: Span = [Date.UTC(2026, 5, 29), Date.UTC(2026, 8, 28)];
+/** The window the measures' axis states: W23 to W35 of 2026. */
+const MEASURE_WEEKS: Span = [Date.UTC(2026, 5, 1), Date.UTC(2026, 7, 24)];
 
 /** The press tasks, each an instant on its day. */
 const pressTasks = () => [...events.planPressTaskRows.default!.values()];
@@ -167,9 +174,73 @@ const CASES: readonly HorizonCase[] = [
             ...instants(events.planWorksDeliveries.default!.values(), (delivery) => delivery.at),
         ],
     },
+    {
+        // The flagship's rail narrows its deliveries by hall and by risk, and chooses neither to start: their own totals.
+        name: "planTargetState", example: plan.planTargetState, window: FLAGSHIP_WEEKS,
+        sources: [{ record: plan.planTargetDeliveries, totals: "plan_target_deliveries" }],
+        events: () => instants(plan.planTargetDeliveries.default!.values(), (delivery) => delivery.at),
+    },
+    {
+        name: "planMeasures", example: plan.planMeasures, window: MEASURE_WEEKS,
+        sources: [{ record: plan.planMeasureWeeks, totals: "plan_measure_weeks" }],
+        events: () => instants(plan.planMeasureWeeks.default!.values(), (week) => week.week),
+    },
 ];
 
+/** The flagship's deliveries' totals, every leading its binding lists. */
+const DELIVERY_TOTALS = [
+    "plan_target_deliveries_month_totals", "plan_target_deliveries_quarter_totals", "plan_target_deliveries_year_totals",
+    "plan_target_deliveries_by_risk_month_totals", "plan_target_deliveries_by_risk_quarter_totals", "plan_target_deliveries_by_risk_year_totals",
+    "plan_target_deliveries_by_hall_month_totals", "plan_target_deliveries_by_hall_quarter_totals", "plan_target_deliveries_by_hall_year_totals",
+    "plan_target_deliveries_by_hall_risk_month_totals", "plan_target_deliveries_by_hall_risk_quarter_totals", "plan_target_deliveries_by_hall_risk_year_totals",
+] as const;
+
+/**
+ * The flagship's deliveries on a Plan of the test's own, its rail's source choosing the late ones to start — the
+ * flagship's Deliveries tab naming it — over the status record's one press: the horizon's bars are the late
+ * deliveries alone, read through the totals led by the risk.
+ */
+const lateDeliveries = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Data.bind(plan.planStatusPresses));
+    const deliveries = $.const(Data.bind(plan.planTargetDeliveries));
+    const slice = $.const(Slice.bindRecords("plan.horizon.late", {
+        deliveries: {
+            source: Data.bindPaged(plan.planTargetDeliveries, {
+                indexes: ["plan_target_deliveries_by_at", "plan_target_deliveries_by_risk_at", "plan_target_deliveries_by_hall_at", "plan_target_deliveries_by_hall_risk_at"],
+                totals: DELIVERY_TOTALS,
+            }),
+            fields: { hall: { label: "Hall" }, risk: { label: "Risk" }, at: { label: "Delivered" } },
+            range: "at", initial: { risk: ["late"] },
+        },
+    }));
+    return Plan({
+        // The flagship's window, W27 to W39 of 2026.
+        axis: Plan.axis({ window: { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-09-28T00:00:00Z") }, resolution: "week", resolutions: ["month", "week", "day"] }),
+        slice: { slice },
+        data: presses,
+        series: [Plan.series.span(plan.StatusPressRow, {
+            key: "jobs", title: "Jobs", label: (press) => press.name,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.title, state: job.state })),
+        })],
+        library: [Plan.library.tab(deliveries.read(), { name: "Deliveries", icon: "truck", label: (d) => d.key, source: "deliveries" })],
+    });
+}))) };
+
 describe("the Plan examples' horizons over their sources' totals (#1732)", () => {
+    test("a rail choosing a risk: the horizon's bars are that risk's deliveries alone, read through the totals the risk leads, in one request of one range", async () => {
+        horizonLaidOut()(3000);
+        const { container: c } = await h.mount(lateDeliveries);
+        await settle();
+        const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
+        await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
+        const late = [...plan.planTargetDeliveries.default!.values()].filter((delivery) => sameText(delivery.risk, "late"));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(instants(late, (delivery) => delivery.at), FLAGSHIP_WEEKS));
+        const dataset = pathText(plan.planTargetDeliveries.path as TreePath);
+        const read = h.requests("find", dataset).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
+        expect(read.map((request) => request.query.get("index"))).toEqual(["plan_target_deliveries_by_risk_month_totals"]);
+        expect(read[0]!.searches).toHaveLength(1);
+    });
+
     test.each(CASES)("$name: the horizon draws each month's events of its sources from their month totals, each source's in one request of one range", async ({ example, window, sources, events }) => {
         // The strip laid out 3,000px wide: a month keeps 4px over any of these horizons, a bar a month.
         horizonLaidOut()(3000);
