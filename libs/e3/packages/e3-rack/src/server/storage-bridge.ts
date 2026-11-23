@@ -28,6 +28,38 @@ export type RackObjectRead =
   | { kind: 'inline'; data: Uint8Array }
   | { kind: 'url'; url: string };
 
+/**
+ * What one storage reply has room for inline: an object is served inline only
+ * when it is at most `objectBytes`, and its bytes fit in what is `left` of the
+ * reply's, which it takes them from. So a reply of many objects holds a
+ * bounded number of bytes, and the rest of its objects are URLs.
+ */
+export interface RackInlineRoom {
+  /** The largest object served inline: what the request names, at most the source's own */
+  readonly objectBytes: number;
+  /** The reply's inline bytes not yet taken */
+  left: number;
+}
+
+/**
+ * Takes an object's bytes from a reply's inline room, when they fit.
+ *
+ * @param room - The reply's room
+ * @param size - The object's size in bytes
+ * @returns Whether the object is served inline: then its size is taken from
+ *   what is left
+ *
+ * @example
+ * ```ts
+ * if (takeInline(room, size)) return { kind: 'inline', data: await read(hash) };
+ * ```
+ */
+export function takeInline(room: RackInlineRoom, size: number): boolean {
+  if (size > room.objectBytes || size > room.left) return false;
+  room.left -= size;
+  return true;
+}
+
 /** A PUT target for one object at its content address (#214). */
 export interface RackPutTarget {
   /** The presigned URL */
@@ -41,12 +73,16 @@ export interface RackPutTarget {
 export interface RackStorageBridge {
   /**
    * Descriptor for an object the agent lacks: a presigned GET URL, or the
-   * bytes inline when the bridge holds them at hand.
+   * bytes inline when the bridge holds them at hand and they fit the reply's
+   * inline room, which they are taken from ({@link takeInline}).
    *
    * @param repo - The lease's repo
    * @param hash - The object hash (already scope-validated by the route)
+   * @param room - What the reply has room for inline: as the request asked,
+   *   and within the route's bound on a reply; absent, a bridge serves what it
+   *   would before a request could name it
    */
-  readDescriptor(repo: string, hash: string): Promise<RackObjectRead>;
+  readDescriptor(repo: string, hash: string, room?: RackInlineRoom): Promise<RackObjectRead>;
 
   /**
    * A PUT target for an object a lease's guest wrote, at its content address,

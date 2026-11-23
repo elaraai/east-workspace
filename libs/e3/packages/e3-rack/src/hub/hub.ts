@@ -725,6 +725,10 @@ export class RackHub {
       callValueObjects: true,
       // A session builds an environment over the tier image a rack reports
       tierManifests: true,
+      // The hub reads each object's bytes from its session: a small one rides
+      // the reply that asked for it, in place of a URL to be read in another
+      // round trip of the rack's link
+      inlineObjects: true,
       onLeaseSignal: (signal) => this.signal(signal),
       // A heartbeat that was read is of this protocol: what was wrong is not.
       onReport: (rackId, report) => this.reported(rackId, report),

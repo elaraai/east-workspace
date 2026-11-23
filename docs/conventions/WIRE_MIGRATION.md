@@ -1536,3 +1536,20 @@ Each wire changed under this rule, with the kind it is.
   the step, naming this release. No wire between e3, a hub and a rack
   changes: a merge its policy keeps here is never leased, nor weighed for
   what it would fetch.
+- **e3-rack's storage replies carry larger objects inline, and a hub serves a
+  rack more transfers at once** — neither package-borne nor stored: what a
+  rack's agent and its source exchange (`/api/rack/storage`, `GET
+  /api/rack/hello`). No type changes. A storage request may name, in the
+  `x-e3-rack-inline-max` header (`RACK_INLINE_MAX_HEADER`), the largest object
+  it takes inline in the reply; a hub serves one of at most that size, and at
+  most 64 KiB (`RACK_INLINE_OBJECT_MAX`), as the `inline` descriptor it always
+  could, within 2 MiB of inline bytes a reply (`RACK_INLINE_REPLY_BYTES`), the
+  rest as URLs. A request that names none is served as every request was,
+  objects of at most 4 KiB inline (`RACK_INLINE_OBJECT_DEFAULT`); a source
+  that does not read the header serves it so too. A hub's hello names
+  `inline-objects` (`RACK_INLINE_OBJECTS`), and an agent names a size only to
+  a source that does: so an agent and a source of either release keep working
+  with each other. A hub's hello's `limits.transfersAtOnce` is 32
+  (`RACK_TRANSFERS_AT_ONCE`): an agent takes what the hello says, and one that
+  asks for more is told to ask again (`429 busy`), as before. No form is stored
+  in these, so no repository upgrade step ships.

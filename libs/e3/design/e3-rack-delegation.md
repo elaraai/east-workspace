@@ -171,9 +171,13 @@ bound to the repository alias, lease and attempt, restricted to the admitted
 closure or declared outputs, expire after fifteen minutes, and are revoked on
 lease termination or reclaim. A transfer may take the rest of its capability's
 lifetime. Every transfer streams through the launching process, so the hub
-serves one rack `limits.transfersAtOnce` (8) at once, counted from the request
+serves one rack `limits.transfersAtOnce` (32) at once, counted from the request
 to the last byte of its stream, and answers one more `429 busy` with
-`retryAfterMs` before it reads it. A read honours `Range: bytes=N-` with `206`,
+`retryAfterMs` before it reads it. An object a storage request asks for is
+read from the session and sent inline in the reply when it is at most the size
+the request names (`x-e3-rack-inline-max`, at most 64 KiB; 4 KiB for a request
+that names none) and the reply has room (2 MiB of inline bytes a reply), else
+as a capability URL: the hello names `inline-objects`. A read honours `Range: bytes=N-` with `206`,
 read by range from the store, so a transfer cut short is taken up from the byte
 it reached; a capability that ended is minted again by the next storage request
 for the same lease and object. A transfer whose rack went away, or whose

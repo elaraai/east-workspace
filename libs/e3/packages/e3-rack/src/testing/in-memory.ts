@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import type { StorageBackend } from '@elaraai/e3-core';
 import type { RackLeaseStore } from '../lease/lease-store.js';
-import type { RackObjectRead, RackPutTarget, RackStorageBridge } from '../server/storage-bridge.js';
+import { takeInline, type RackInlineRoom, type RackObjectRead, type RackPutTarget, type RackStorageBridge } from '../server/storage-bridge.js';
 
 /**
  * Models versioned rack uploads in memory over an explicit repository backend.
@@ -15,7 +15,7 @@ import type { RackObjectRead, RackPutTarget, RackStorageBridge } from '../server
  * const bridge = new InMemoryRackStorageBridge(storage, leases);
  */
 export class InMemoryRackStorageBridge implements RackStorageBridge {
-  /** Serves objects up to this size inline. */
+  /** Serves objects up to this size inline: at most, within what a request names. */
   inlineThreshold = 4096;
   /** The store objects are read from, and committed to */
   readonly storage: StorageBackend;
@@ -100,10 +100,14 @@ export class InMemoryRackStorageBridge implements RackStorageBridge {
     return { version };
   }
 
-  /** Serves small objects inline and larger objects through the test transport. */
-  async readDescriptor(repo: string, hash: string): Promise<RackObjectRead> {
+  /**
+   * Serves small objects inline and larger objects through the test
+   * transport: inline at most {@link inlineThreshold} bytes, and within the
+   * reply's room when the route gives one.
+   */
+  async readDescriptor(repo: string, hash: string, room?: RackInlineRoom): Promise<RackObjectRead> {
     const data = await this.storage.objects.read(repo, hash);
-    if (data.length <= this.inlineThreshold) {
+    if (data.length <= this.inlineThreshold && (room === undefined || takeInline(room, data.length))) {
       return { kind: 'inline', data };
     }
     return { kind: 'url', url: `mem://${encodeURIComponent(repo)}/${hash}` };
