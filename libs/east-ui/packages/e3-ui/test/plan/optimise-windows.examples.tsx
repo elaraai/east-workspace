@@ -64,10 +64,15 @@ export const planOptimiseWindows = example({
             const jobs = $.let(Record.bind(planWindowJobs));
             const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // One rail: its `job` source lists the series and the summary beside the interval index, its range the window
-            // in view — the Plan reads the jobs' cells through them.
+            // in view — the Plan reads the jobs' cells through them — and the jobs' totals, which the horizon's bars read (#1732).
             const slice = $.let(Slice.bindRecords("ex.plan.optimise.windows", {
-                job: { source: Data.bindPaged(planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
-                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
+                job: {
+                    source: Data.bindPaged(planWindowJobs, {
+                        indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"],
+                        totals: ["plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
+                    }),
+                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
+                },
             }));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },

@@ -119,6 +119,11 @@ export const planOperations = e3.record("plan_operations", Operations, {
         plan_operations_by_work_month: index.summary({
             key: "work", from: "start", to: "end", tile: "month",
         }),
+        // The operations' totals a month, a quarter and a year (#1732): how many of them touch each, under no work order —
+        // what the horizon's bars read at the period that fits the strip, never counting operations.
+        plan_operations_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
+        plan_operations_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
+        plan_operations_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The operations' patch door: a canvas's Save commits through it, by the operation's key.
@@ -168,7 +173,11 @@ export const planRecordIndexes = example({
                     search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
                 },
                 operation: {
-                    source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
+                    source: Data.bindPaged(planOperations, {
+                        indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
+                        // The operations' totals, which the horizon's bars read (#1732).
+                        totals: ["plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                    }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
@@ -215,7 +224,11 @@ export const planRecordIndexesMobile = example({
                     search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
                 },
                 operation: {
-                    source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
+                    source: Data.bindPaged(planOperations, {
+                        indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
+                        // The operations' totals, which the horizon's bars read (#1732).
+                        totals: ["plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                    }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
