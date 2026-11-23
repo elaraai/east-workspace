@@ -217,9 +217,9 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   ok(await f.cli('rack', 'policy', '.', 'unset', 'train_*'));
   assert(!ok(await f.cli('rack', 'policy', '.', 'show')).includes('1. train_'));
   // A policy weighs what work would fetch unless told not to
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=true$/m);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false$/m);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=false$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=true, merges=rack$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false, merges=rack$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=false, merges=rack$/m);
   ok(await f.cli('rack', 'stop'));
   assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
 });
