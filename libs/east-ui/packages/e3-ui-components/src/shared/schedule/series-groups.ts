@@ -27,7 +27,9 @@
  * group's keys nest under, which a reader knows by their keys' texts. Each is
  * given to the planner as the leading field it fills holds it
  * ({@link underOf}): the text read at the field's type, a String field's as
- * the text itself, and an Option's as the value it holds.
+ * the text itself, and an Option's as the value it holds. A drop under rows
+ * writes the same fields into the event it lands ({@link underWrites}), so the
+ * event is read where it is drawn.
  *
  * @packageDocumentation
  */
@@ -138,6 +140,35 @@ export function underOf(cellsType: EastTypeValue, text: string): RecordUnder {
         const read = parseFor(held)(text);
         return read.success ? printFor(type)(some(read.value) as never) : undefined;
     };
+}
+
+/**
+ * What a drop under rows writes into the event it lands (#1710): for each
+ * series index in time order a kind's source lists, its last leading fields —
+ * as many as the rows the drop lands under, outermost first — each the key of
+ * the row it stands under, as the reader fills them to read those rows'
+ * events (`seriesIndexFor`), whatever a narrowing chooses of them: so an event
+ * dropped under another group is read where it is drawn. An index led by fewer
+ * fields than the rows it lands under is written none of, as the reader fills
+ * it none, and so is one a field of which can hold no such key; a field two
+ * indexes share is written once.
+ *
+ * @param indexes - The kind's source's indexes
+ * @param under - The keys' texts of the rows the drop lands under, outermost first ({@link CellGroup.under})
+ * @param write - A key's text written into a field of the event; `undefined` for a field that can hold no such key
+ * @returns The writes
+ */
+export function underWrites<W>(indexes: readonly Index[], under: readonly string[], write: (field: string, text: string) => W | undefined): W[] {
+    if (under.length === 0) return [];
+    const written = new Map<string, W>();
+    for (const index of indexes) {
+        if (index.series.type !== "some" || index.series.value.order.type !== "time" || under.length > index.fields.length) continue;
+        const standing = index.fields.slice(index.fields.length - under.length);
+        const own = standing.map((field, i) => write(field, under[i]!));
+        if (own.some((one) => one === undefined)) continue;
+        standing.forEach((field, i) => { if (!written.has(field)) written.set(field, own[i]!); });
+    }
+    return [...written.values()];
 }
 
 /**

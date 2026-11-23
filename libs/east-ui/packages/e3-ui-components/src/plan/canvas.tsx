@@ -249,6 +249,8 @@ const NO_LINK_ENDS: { readonly focus: string; readonly ids: readonly string[] } 
 const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
 /** No run of the optimiser has left anything on the canvas. */
 const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
+/** No index of an event kind's source: a kind with none. */
+const NO_INDEXES: readonly never[] = [];
 
 /** Default gutter width (px, desktop — #1680's review, over the §8 sheet's 168). */
 const GUTTER_W = 240;
@@ -1136,8 +1138,12 @@ export function usePlanCanvas({
         const kind = tools.tool === "connect" && held !== undefined ? linkKinds.find((one) => stringEqual(one.key, held)) : undefined;
         return kind === undefined ? undefined : { kind, veto: connectVeto };
     }, [tools, linkKinds, connectVeto]);
+    // Each kind's source's indexes (#1710): a drop under rows writes the rows it lands under into the event, where a series
+    // index in time order among them reads it under them. The same function while the sources hold.
+    const sourceIndexes = useCallback((slot: string) => eventParts.find((p) => stringEqual(p.kind.key, slot))?.part.config.indexes ?? NO_INDEXES,
+        [eventParts]);
     const eventDrag = usePlanEventDrag({
-        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, connectVeto, linkValues, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, indexes: sourceIndexes, veto, connect: connecting, connectVeto, linkValues, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         resource: (ref) => resourceRowsRef.current?.byRef.get(scheduleCellId(ref.kind, ref.key)),
         selected: () => controller.getSnapshot().store.ui.elements,

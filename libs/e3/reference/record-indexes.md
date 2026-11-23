@@ -228,7 +228,7 @@ event kind changes.
 |---|---|
 | The last leading field's type | It holds the group's key at the key's type, or an Option of it. A field of another type is never filled, and the block is read through another series index the rail's narrowing serves. With none, the whole kind shades from its summary index, as one past 10,000 events does |
 | The last leading field holds something else | A field of the group's type that is not the group — a status the rail chooses — is filled with the group's key all the same, and the rows draw no events, with nothing to say why. Check this first when a Plan's rows are empty |
-| An event's group field disagrees with its row's group | It is read under the group its field names, where its row is not, and drawn nowhere. Keep the field in step: moving a resource to another group means writing its events' field too |
+| An event's group field disagrees with its row's group | It is read under the group its field names, where its row is not, and drawn nowhere. A Plan keeps its own writes in step: an event dragged, scheduled or made on a row under another group takes that group's key in the field, beside its resource and its child. Keep the app's own writes in step too: moving a resource to another group means writing its events' field |
 | A leading field before the group's | The rail's to choose exactly, as for any series index. Left unchosen, the index serves no block |
 | Rows under no group, or a page of no groups | Read through a series index the rail's narrowing serves alone: one in key order listed beside it, or one in time order led by no field |
 | Events on no row (a resource field that may hold none) | Not read: over rows read a page at a time a Plan draws no Unassigned row. They need no index of their own |

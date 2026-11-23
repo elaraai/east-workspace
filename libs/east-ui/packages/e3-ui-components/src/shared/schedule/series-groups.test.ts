@@ -21,7 +21,7 @@ import {
     toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceIndexType, levelRuns } from "@elaraai/east-ui/internal";
-import { NO_UNDER, groupQueries, keyOrderOf, keyRunOf, sameUnder, underOf, type SeriesGroup } from "./series-groups.js";
+import { NO_UNDER, groupQueries, keyOrderOf, keyRunOf, sameUnder, underOf, underWrites, type SeriesGroup } from "./series-groups.js";
 
 /** A job: the press it is on, by its number or not at all, the hall and the line it stands in, and when it runs. */
 const Job = StructType({
@@ -108,5 +108,36 @@ describe("a group's searches through the series index that serves it (#1710)", (
         const mondays = ["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12"].map((monday) => `${monday}T00:00:00.000`);
         expect(groupQueries(byHall, inTime, run)).toEqual(mondays.map((tile) =>
             variant("range", { from: ['"H-01"', ".week", tile, "9"], to: ['"H-01"', ".week", tile, "12", "true"] })));
+    });
+});
+
+describe("what a drop under rows writes into the event it lands (#1710)", () => {
+    const indexType = ArrayType(RecordSliceIndexType);
+    const plain = { interval: none, area: none, series: none, summary: none, entries: false };
+    const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("time", null), copy: false };
+    const indexes = (...led: { name: string; fields: string[]; order?: "key" | "time" }[]) => decodeBeast2For(indexType)(encodeBeast2For(indexType)(led.map(
+        ({ name, fields, order = "time" }) => ({ name, fields, sets: new Set<string>(), structured: true, ...plain, series: some({ ...week, order: variant(order, null) }) }),
+    ))) as ValueTypeOf<typeof RecordSliceIndexType>[];
+    /** A write as the drag makes one: the field and the key's text, for any field but `line`, which holds no hall's key. */
+    const write = (field: string, text: string) => (field === "line" ? undefined : `${field}=${text}`);
+
+    test("through an index in time order, its last leading fields, as many as the rows the drop lands under, each that row's key", () => {
+        expect(underWrites(indexes({ name: "by_hall", fields: ["hall"] }), ["H-02"], write)).toEqual(["hall=H-02"]);
+        // Led by the site and the hall: a drop under a site's hall writes both, outermost first; under a hall alone, the last.
+        const bySite = indexes({ name: "by_site_hall", fields: ["site", "hall"] });
+        expect(underWrites(bySite, ["S-1", "H-02"], write)).toEqual(["site=S-1", "hall=H-02"]);
+        expect(underWrites(bySite, ["H-02"], write)).toEqual(["hall=H-02"]);
+    });
+
+    test("none under no rows, through an index in key order, or one led by fewer fields than the rows it lands under", () => {
+        expect(underWrites(indexes({ name: "by_hall", fields: ["hall"] }), NO_UNDER, write)).toEqual([]);
+        expect(underWrites(indexes({ name: "by_hall", fields: ["hall"], order: "key" }), ["H-02"], write)).toEqual([]);
+        expect(underWrites(indexes({ name: "by_hall", fields: ["hall"] }), ["S-1", "H-02"], write)).toEqual([]);
+    });
+
+    test("none of an index a field of which holds no such key; a field two indexes share, once", () => {
+        expect(underWrites(indexes({ name: "by_line_hall", fields: ["line", "hall"] }), ["S-1", "H-02"], write)).toEqual([]);
+        expect(underWrites(indexes({ name: "by_line_hall", fields: ["line", "hall"] }, { name: "by_hall", fields: ["hall"] }), ["H-02"], write))
+            .toEqual(["hall=H-02"]);
     });
 });

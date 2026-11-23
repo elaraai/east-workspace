@@ -73,7 +73,7 @@ import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanEventPart } from "./sources.js";
-import { readResourceOf } from "./landings.js";
+import { landingUnderOf, readResourceOf } from "./landings.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -169,7 +169,7 @@ export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: readon
             const last = out[out.length - 1];
             if (last !== undefined && stringEqual(last.slot, read.slot) && stringEqual(last.key, read.key)) continue;
             // The rows it stands under: its path's steps before its own key, which a row a step beneath it follows.
-            const under = path.slice(0, path.length - (landing!.under.type === "some" ? 2 : 1));
+            const under = landingUnderOf(landing!, path);
             out.push(under.length === 0 ? read : { ...read, under });
         }
     }

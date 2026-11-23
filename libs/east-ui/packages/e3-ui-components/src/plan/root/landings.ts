@@ -177,6 +177,20 @@ export function readResourceOf(landing: PlanLandingValue, path: readonly string[
 }
 
 /**
+ * The rows a landing row's resource stands under (#1710): its path's steps before the resource's key — for a row of a
+ * landing standing beneath another, before the resource it stands beneath — outermost first: a Plan's group. A series
+ * index in time order led by them reads the resource's events under them (`cells.ts`), and a drop onto the row writes
+ * them into the event it lands (`../edit/event-drag.ts`), so each event is read where it is drawn.
+ *
+ * @param landing - The landing series the row is of
+ * @param path - The row's path
+ * @returns The keys' texts of the rows it stands under, outermost first; none for a resource under no row
+ */
+export function landingUnderOf(landing: PlanLandingValue, path: readonly string[]): readonly string[] {
+    return path.slice(0, Math.max(0, path.length - (landing.under.type === "some" ? 2 : 1)));
+}
+
+/**
  * The resource a resource's row stands for, as an event names it (#1541, U1) — by {@link readResourceOf}: the row's
  * own, or the one it stands a step beneath — and there the child's key its events name.
  *
