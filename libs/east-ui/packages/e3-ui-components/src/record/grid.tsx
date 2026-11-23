@@ -56,6 +56,7 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import type { DensityLiteral } from "@elaraai/east-ui";
 import type { RecordPayloadType } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { ConflictMarks, SlotStyles } from "@elaraai/east-ui-components/internal";
@@ -89,6 +90,8 @@ const printKey = printFor(StringType);
 export interface RecordGrid {
     /** The record recipe's slot styles, at the Record's density. */
     styles: SlotStyles;
+    /** The Record's density: how tall a trace's steps stand in its rows. */
+    density: DensityLiteral;
     /** The rows ticked. */
     ticks: RecordTicks;
     /** The column groups, in order. */
@@ -120,7 +123,7 @@ export function useRecordGrid(): RecordGrid {
 
 /**
  * How a column's cells and its header sit in them (GR2): a cycle's, a toggle's and a boolean's centred; an age's and a
- * number's at the end, a number's header over its figures; every other at the start.
+ * number's at the end, a number's header over its figures; every other at the start — a trace's filling its cell.
  */
 function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
     return meta.kind === "cycle" || meta.kind === "toggle" || meta.kind === "boolean" ? "center"
@@ -186,7 +189,7 @@ function conflicted(meta: SheetColumnMeta, conflicts: ConflictMarks | undefined)
  */
 export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
     const { styles: sheetStyles, r, row, columns, registers, gridTemplate, layout, rowPx, idPrefix, selC, range, editor, draft, changes, refused, writable } = props;
-    const { styles, ticks } = useRecordGrid();
+    const { styles, ticks, density } = useRecordGrid();
     const words = useSheetWords();
     // Each cell's issue, read out as its description: `{issuePrefix}-{c}`.
     const issuePrefix = useId();
@@ -262,7 +265,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 const summary = action !== undefined ? row?.cells.get(action.summary) : undefined;
                 // A Record kind's cell, and what it says on hover; a Sheet kind's is the Sheet's (C11).
                 const view = row === undefined || required ? undefined
-                    : recordCell({ styles, meta, row, cell, registers, changes, now, words, chip: chips.get(meta.key) });
+                    : recordCell({ styles, meta, row, cell, registers, changes, now, words, chip: chips.get(meta.key), density });
                 // A mark's words: in an empty cell in its place — but an action cell's, whose state draws whatever it holds — else
                 // after the value; a lock's as the Tag either way.
                 const alone = mark !== undefined && action === undefined && cellIsBlank(cell);

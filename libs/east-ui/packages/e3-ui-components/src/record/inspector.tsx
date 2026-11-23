@@ -16,7 +16,8 @@
  *   under its label — an unlabelled group's `Other` — and the fields no column
  *   shows after them (IN4), each member of a column from data a line of its
  *   own in its group's section (#1561), a cycle, a toggle and a boolean each
- *   one line of radios (IN5); a cell's mark its field's help, and a lock's
+ *   one line of radios (IN5), and a trace's series the Trace its cell draws,
+ *   read only (east-workspace#1728); a cell's mark its field's help, and a lock's
  *   field read only (D1); its facts last, the audit's and the age's, read
  *   only, an age warning once stale (IN6); then Duplicate and Delete (IN7);
  * - **nothing** — the rows shown, the drafts pending and the rows stale, then
@@ -59,6 +60,7 @@ import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
 import { staleCountOf } from "./footer.js";
+import { RecordTrace } from "./cells.js";
 import { nameOf, titleColumnOf, titleOf, useRecordGrid } from "./grid.js";
 import { recordMessages as rm } from "./messages.js";
 import type { RecordNoun, RecordStatus } from "./status.js";
@@ -264,9 +266,24 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
         });
         return out;
     }, [edit.specs, edit.columns, inspect, r, registers]);
+    // A trace's field, the Trace its cell draws, read only (east-workspace#1728): its series as the row holds it — a
+    // `value`'s as it derives it — in the field's line, at Trace's compact steps whatever the rows' height.
+    const traces = useMemo(() => {
+        const out = new Map<string, ReactNode>();
+        edit.specs.forEach((spec, i) => {
+            const key = edit.columns[i];
+            const kind = key === undefined ? undefined : inspect.columnAt(r, key)?.raw.kind;
+            if (key === undefined || kind?.type !== "trace") return;
+            out.set(formKey(spec.path), <RecordTrace styles={record} kind={kind.value} cell={cells.get(key)} density="compact" storageKey={`record.details.${key}.trace`} />);
+        });
+        return out;
+    }, [edit.specs, edit.columns, inspect, r, record, cells]);
     // A line draws its choices, or read only the choice made — a lock's too: never its cell's own control.
     const editControl = edit.renderControl;
-    const renderControl = useCallback((spec: FieldSpecValue) => (lines.has(formKey(spec.path)) ? undefined : editControl(spec)), [lines, editControl]);
+    const renderControl = useCallback((spec: FieldSpecValue) => {
+        const key = formKey(spec.path);
+        return traces.get(key) ?? (lines.has(key) ? undefined : editControl(spec));
+    }, [traces, lines, editControl]);
 
     // The fields its issues name, washed in the form (IN3), each saying under it what its issues say of it, in their
     // order (ruled 13 Nov 2026): a field gone to says why it is named, whatever of the issues over the form is in view.

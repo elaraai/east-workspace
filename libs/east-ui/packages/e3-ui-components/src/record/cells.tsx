@@ -19,6 +19,9 @@
  * - **age** (C7) — whole units to the Record's clock, a dot once it is stale;
  * - **audit** (C8, C9) — the date, and in blame mode the verb and who; while
  *   the row's drafts change its fields, PENDING and how many;
+ * - **trace** (east-workspace#1728) — the row's series as east-ui's Trace, one
+ *   unnamed track across the cell, its steps as tall as the row fits: Trace's
+ *   compact 22 in a 36 or 32 row, its condensed 15 in a 28 row;
  * - **an absent value** (C10) — in the column's words, else a dash.
  *
  * A row the record does not hold yet has no age and no audit to show. Every
@@ -31,18 +34,30 @@ import type { CSSProperties, ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck } from "@fortawesome/free-solid-svg-icons";
-import { IntegerType, StringType, equalFor } from "@elaraai/east";
+import { IntegerType, StringType, defaultValue, equalFor, some, variant } from "@elaraai/east";
+import type { DensityLiteral } from "@elaraai/east-ui";
+import { Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { formatDatePattern, type SlotStyles } from "@elaraai/east-ui-components/internal";
+import { EastChakraTrace, formatDatePattern, type SlotStyles, type TraceValue } from "@elaraai/east-ui-components/internal";
 import type { SheetRowChanges } from "../sheet/index.js";
 import { resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
-import type { SheetCellValue, SheetRowValue } from "../sheet/values.js";
+import type { SheetCellValue, SheetColumnKindValue, SheetRowValue } from "../sheet/values.js";
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf } from "./clock.js";
 import { recordMessages as m } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
 const integerEqual = equalFor(IntegerType);
+
+/** A trace column's kind, decoded: Trace's own parts, and its words for no series. */
+type RecordTraceKind = Extract<SheetColumnKindValue, { type: "trace" }>["value"];
+
+/** A Trace's payload and its style with nothing set: East's defaults for their types, which a cell sets its parts on. */
+const TRACE = defaultValue<typeof Trace.Types.Trace>(Trace.Types.Trace);
+const TRACE_STYLE = defaultValue<typeof Trace.Types.Style>(Trace.Types.Style);
+
+/** A cell's Trace spans its whole width: the plot gutter's mode, no room kept at either side for a name. */
+const NO_GUTTER = some({ left: some("0px"), right: some("0px") });
 
 /** What a cell of a Record's own kind draws, and what it says on hover. */
 export interface RecordCellView {
@@ -72,6 +87,63 @@ export interface RecordCellInput {
     words: SheetWords;
     /** A cycle's or a toggle's chip's least width in characters: its column's widest label. */
     chip: number | undefined;
+    /** The Record's density: how tall a trace's steps stand in its rows. */
+    density: DensityLiteral;
+}
+
+/**
+ * The Trace a trace column draws a series with (east-workspace#1728): one unnamed track — the header names it — its steps
+ * across the width it is given, at the column's `now`, `axis`, `scale`, `future` and `domain`.
+ *
+ * @param kind - The column's kind
+ * @param values - The series
+ * @param density - Trace's density: compact's 22px steps, or condensed's 15px, its values unshown
+ * @returns The Trace's payload
+ */
+function traceOf(kind: RecordTraceKind, values: number[], density: "compact" | "condensed"): TraceValue {
+    return {
+        ...TRACE,
+        tracks: [{ name: "", values }],
+        now: kind.now,
+        axis: kind.axis,
+        density: some(variant(density, null)),
+        scale: some(kind.scale),
+        future: some(kind.future),
+        domain: kind.domain,
+        style: some({ ...TRACE_STYLE, plotGutter: NO_GUTTER }),
+    };
+}
+
+/** What {@link RecordTrace} draws. */
+export interface RecordTraceProps {
+    /** The record recipe's slot styles. */
+    styles: SlotStyles;
+    /** The trace column's kind. */
+    kind: RecordTraceKind;
+    /** The cell: a series, or none. */
+    cell: SheetCellValue | undefined;
+    /** Trace's density: the row's fit, or Details' compact. */
+    density: "compact" | "condensed";
+    /** Where the Trace keeps its state. */
+    storageKey: string;
+}
+
+/**
+ * A trace column's value (east-workspace#1728): its series as east-ui's Trace, read only — in a row's cell and in
+ * Details' field alike — or, for none or an empty series, the column's words for it, else a dash (C10).
+ *
+ * @param props - The cell, its column's kind, and the density its steps stand at
+ * @returns The Trace, or the absent words
+ */
+export function RecordTrace({ styles, kind, cell, density, storageKey }: RecordTraceProps) {
+    if (cell?.type !== "Series" || cell.value.length === 0) {
+        return <Box as="span" css={styles.absent} data-slot="absent">{getSomeorUndefined(kind.absent) ?? m.absent()}</Box>;
+    }
+    return (
+        <Box css={styles.display} data-slot="display" data-density={density}>
+            <EastChakraTrace value={traceOf(kind, cell.value, density)} storageKey={storageKey} />
+        </Box>
+    );
 }
 
 /**
@@ -142,7 +214,7 @@ export function chipWidths(columns: SheetColumnIndex, registers: SheetRegisterIn
  * @returns What the cell draws and says on hover; `undefined` for a Sheet kind, which the Sheet's cell content draws
  */
 export function recordCell(input: RecordCellInput): RecordCellView | undefined {
-    const { styles, meta, row, cell, registers, changes, now, words, chip } = input;
+    const { styles, meta, row, cell, registers, changes, now, words, chip, density } = input;
     const kind = meta.raw.kind;
     // A chip's least width: its column's widest label, at the chip's own face.
     const chipStyle = { "--record-chip-ch": chip ?? 0 } as CSSProperties;
@@ -303,6 +375,16 @@ export function recordCell(input: RecordCellInput): RecordCellView | undefined {
                     </>
                 ),
                 title: m.auditTitle({ when: formatDatePattern("YYYY-MM-DD HH:mm", cell.value), verb, by }),
+            };
+        }
+        case "trace": {
+            // Each step says its label, value and whether it is measured on hover, Trace's own words; no series, the
+            // column's words, said on hover too where a narrow column ends them in an ellipsis.
+            const shown = cell?.type === "Series" && cell.value.length > 0;
+            return {
+                content: <RecordTrace styles={styles} kind={kind.value} cell={cell} density={density === "condensed" ? "condensed" : "compact"}
+                    storageKey={`record.${meta.key}.trace`} />,
+                title: shown ? undefined : getSomeorUndefined(kind.value.absent),
             };
         }
         default:

@@ -168,7 +168,7 @@ Task → Which tag?
 │   ├─ <BarStrip data={rows} item={r => ({ label, value, tone? })} /> — ranked horizontal-bar list, axis-free (fits a <Stat>)
 │   ├─ <EditableChip> — chip whose text becomes an inline input on click
 │   ├─ <ChipRail> — rail of mixed chip-shaped children; provides its density to them
-│   └─ <Trace> — read-only inline heatmap (tracks × steps) with a now-line
+│   └─ <Trace> — read-only inline heatmap (tracks × steps) with a now-line; domain={[min, max]} puts every track on one scale
 ├─ Feedback (status & async signals)
 │   ├─ <Banner status title subtitle? icon? dismissible?> — page-spanning notice (staleness, partial data)
 │   ├─ <Status value> — dot + uppercase word

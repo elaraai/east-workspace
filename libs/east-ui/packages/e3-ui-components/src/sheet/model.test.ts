@@ -9,13 +9,13 @@
  *
  * The sheet model (B§7 — Sheet Spec §5 row 15): blanks below the last real
  * row, exhaustion-aware on the paged arm; real row numbers; cell display, in
- * the viewer's language (#852).
+ * the viewer's language (#852) — a trace's series among it (east-workspace#1728).
  */
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
-import { BAND_MIN_PX, buildBody, buildLensBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, parseLineId, layoutLensRun, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
+import { BAND_MIN_PX, buildBody, buildLensBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rawCellText, rowIsBlank, lastRealId, parseWidth, seriesText, stickyRows, withLine, withoutLines, withProposals, lineId, parseLineId, layoutLensRun, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
@@ -140,6 +140,23 @@ describe("cells", () => {
         expect(cellText(cell("Float", 1234.5), columns.list[1]!, de)).toBe("1.234,5");
         expect(cellText(cell("Integer", 1234n), columns.list[2]!, de)).toBe("1.234");
         expect(cellText(cell("DateTime", utcDate(2026, 2, 16)), columns.list[0]!, de)).toBe("16 Feb 26");
+    });
+
+    test("a trace's series (east-workspace#1728): its numbers as data in the viewer's language, between separators never their decimal one; empty, blank; 240 wide", () => {
+        const [trace] = indexColumns([
+            { key: "load", header: "Load", sub: none, width: none, kind: variant("trace", {
+                now: none, axis: none, scale: variant("brand", null), future: variant("ghost", null), domain: none, absent: none,
+            }), dataType: null, payloadType: null, editable: false, fill: [], detailCell: none },
+        ] as never).list;
+        expect([trace!.kind, trace!.width, trace!.editable]).toEqual(["trace", 240, false]);
+        const series = cell("Series", [12, 14.5, 1234, 13]);
+        // What copy puts: every digit, never grouped — `1234`, not `1,234`.
+        expect(cellText(series, trace!, en)).toBe("12, 14.5, 1234, 13");
+        expect(cellText(series, trace!, formatters("de-DE"))).toBe("12; 14,5; 1234; 13");
+        // Kind-agnostic, as East prints each Float.
+        expect(rawCellText(series)).toBe("12.0, 14.5, 1234.0, 13.0");
+        expect([cellIsBlank(cell("Series", [])), cellIsBlank(series)]).toEqual([true, false]);
+        expect(seriesText([], en)).toBe("");
     });
 });
 

@@ -26,6 +26,7 @@ import {
     BooleanType,
     DateTimeType,
     DictType,
+    FloatType,
     FunctionType,
     IntegerType,
     NullType,
@@ -34,6 +35,8 @@ import {
     StringType,
     StructType,
     isTypeEqual,
+    isVariant,
+    lessFor,
     printType,
     toEastTypeValue,
     variant,
@@ -41,9 +44,10 @@ import {
     none,
 } from "@elaraai/east";
 
-import { DensityType, StatusValueType, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
+import { DensityType, StatusValueType, Trace, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
 import {
     CarriedEntryType,
+    NumberDomainType,
     RecordSlicesChromeType,
     TickFormatType,
     buildCarriedRowSource,
@@ -626,7 +630,44 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             by:     cellKey !== undefined ? East.str`$by:${cellKey}` : sheetRuleCell("by", meta.key),
             verb:   cellKey !== undefined ? East.str`$verb:${cellKey}` : sheetRuleCell("verb", meta.key),
         });
+        case "trace": {
+            // A trace's `scale` is read by its own name: a cycle's is whether it steps up the heat ramp.
+            const scale = (cfg as unknown as { scale?: "brand" | "diverge" | "categorical" | SubtypeExprOrValue<typeof Trace.Types.Scale> }).scale ?? "brand";
+            // Its word, or its case given as a value: an expression's is drawn as the brand's, a cell's one track the first.
+            const named = typeof scale === "string" ? scale : isVariant(scale) ? scale.type : undefined;
+            if (named === "categorical") {
+                throw new Error(`Sheet: trace column "${meta.key}" is drawn \`categorical\`, which colours a Trace's tracks apart — a cell has one: give it "brand" or "diverge"`);
+            }
+            return kindOf("trace", {
+                now:    optionOf(cfg.now, IntegerType),
+                axis:   optionOf(cfg.axis, ArrayType(StringType)),
+                scale:  resolveTag(scale, Trace.Types.Scale),
+                future: resolveTag(cfg.future ?? "ghost", Trace.Types.Future),
+                domain: domainOf(meta.key, cfg.domain),
+                absent: optionOf(cfg.absent, StringType),
+            });
+        }
     }
+}
+
+/** Two Floats in East's order: a domain's min below its max. */
+const floatLess = lessFor(FloatType);
+
+/**
+ * A display column's one scale for every row, `[min, max]` (east-workspace#1728), as the wire holds it: `none` without one.
+ *
+ * @param key - The column, as a refusal names it
+ * @param domain - The column's `domain`, each bound a Float or an expression of one
+ * @returns The domain, or `none`
+ * @throws {Error} When both bounds are written and the min is not below the max
+ */
+function domainOf(key: string, domain: readonly [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>] | undefined): ExprType<OptionType<typeof NumberDomainType>> {
+    if (domain === undefined) return East.value(none, OptionType(NumberDomainType));
+    const [min, max] = domain;
+    if (typeof min === "number" && typeof max === "number" && !floatLess(min, max)) {
+        throw new Error(`Sheet: column "${key}" has the domain [${min}, ${max}] — one scale for every row runs from its min to a max past it`);
+    }
+    return East.value(some({ min, max }), OptionType(NumberDomainType));
 }
 
 /**

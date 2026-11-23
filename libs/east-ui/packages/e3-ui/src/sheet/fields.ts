@@ -22,6 +22,7 @@
  * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
  * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
+ * | `trace` | Read only — the renderer draws the series with the column's own Trace |
  * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
  * | Columns from data | None: the renderer draws each member's cell as a line of its own (#1561) |
@@ -133,6 +134,7 @@ function isHint(value: unknown): value is AnyHint {
 /** Why a column's field takes no editor hint, or `undefined` when it does. */
 function readOnlyReason(meta: SheetColumnMeta): string | undefined {
     if (meta.kind === "audit") return "is an audit column, which shows the change the app keeps";
+    if (meta.kind === "trace") return "is a trace column, which shows its series";
     if (meta.derived !== undefined) return "is a `value` projection, a derived read";
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;
