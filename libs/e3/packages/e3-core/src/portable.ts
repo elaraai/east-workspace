@@ -494,6 +494,7 @@ export {
 // the driver that runs a task on its own
 export {
   SplitTask,
+  isMergeUnitInputs,
   isSplitTask,
   stageUnits,
   executeSplitTask,

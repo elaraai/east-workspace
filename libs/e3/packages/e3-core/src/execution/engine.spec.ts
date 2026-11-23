@@ -24,7 +24,7 @@ import {
 import e3, { type TaskDef } from '@elaraai/e3';
 import { StopReasonType, decodeTaskObject, decodeUnitPlan, type PartitionProgress, type TaskObject } from '@elaraai/e3-types';
 import { executeSplitTask, probeExecutionCache, taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
-import { SplitTask, inputReads } from './engine.js';
+import { SplitTask, inputReads, isMergeUnitInputs } from './engine.js';
 import { processOwner } from './processHelpers.js';
 import { Budget } from './budget.js';
 import type { MemorySampler } from './memory.js';
@@ -522,6 +522,8 @@ describe('a task split into pieces', () => {
     for (const line of lines) {
       const recorded = await storage.refs.executionGetLatest(repo, taskHash, / inputs=(\w+) /.exec(line)![1]!);
       assert.equal(recorded?.value.unit, true, line);
+      // A merge's record names its inputs as a merge's, a piece's as no merge's
+      assert.equal(recorded !== null && isMergeUnitInputs(recorded.value.inputHashes), line.startsWith('merge '), line);
     }
     assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.value.unit, false);
   });

@@ -235,7 +235,8 @@ local is no rack's work: rack-only, which keeps a rack's work for a rack,
 leaves it here, and `selected` (a command's `--rack`) takes it from the
 rule as it takes the rule's size. A merge kept local is never weighed for
 what it would fetch (the policy's `weighFetch`), since it is judged here
-first; a merge on a rack is weighed as any unit is. Both came with the local
+first; a merge on a rack is weighed by its task's earlier merges, never its
+pieces, and follows its policy before one has run. Both came with the local
 repository's third step (`rack-policy-merges`), which carries the form the
 second (`rack-policy-weigh-fetch`) writes into this one, every merge on a
 rack.

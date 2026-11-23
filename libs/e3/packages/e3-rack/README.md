@@ -301,29 +301,40 @@ Work that would spend longer fetching than it ran runs here, and says so:
   average. A byte counts as it is written to the rack's connection, and a
   transfer is in flight until its answer has finished; the buffers past the
   hub (its host's, a tunnel's) still take a burst of small objects at once,
-  so a rate errs fast, not slow. A rate no transfer has refreshed for thirty minutes is forgotten.
-  A rack whose link is not measured yet is taken to carry a gigabit (`at an
+  so a rate errs fast, not slow. A rate no transfer has refreshed for thirty
+  minutes is forgotten. A rack whose link is not measured yet is taken to carry a gigabit (`at an
   assumed 1 Gbit/s` on the line), so a first run keeps on the rack all but
   what would be fetch-bound even over a LAN, and its transfers measure the
   link.
 - **What a rack holds** is each object the hub served it whole — its
-  answer finished, not cut short — by repository, since the hub started: what the next unit over the same
-  collection does not fetch again. An output a rack wrote is not counted,
+  answer finished, not cut short — by repository, since the hub started:
+  what the next unit over the same collection does not fetch again. An output a rack wrote is not counted,
   but for work whose lease names a scope: what a lease of the same scope
   that feeds it wrote on a rack, which that rack keeps, is held there
   (`fetch-costs` is asked with the scope). So under `--keep session` a task
   whose input a rack made earlier in the run is weighed as fetching none of
   it there.
 - **How long the work ran** is its execution records': the latest success of
-  the same inputs, else the task's latest success, and for a unit the median
-  of its task's units. Work that has not succeeded before follows its policy.
+  the same inputs, else the task's latest success; for a piece the median of
+  its task's pieces, and for a merge the median of its task's merges, never
+  its pieces', which a wide fan-in far outruns. Work with no success of its
+  kind before — a first run, a task's first merge — follows its policy.
   A record of work that ran on a rack counts its time there, its fetch among
   it; work the same e3 process saw run on a rack (a run's earlier units, a
   watch's earlier runs) is taken at its rack's `ran` phase instead, from its
   runner's start to its end.
-- Each rack that could take the work is weighed, and the work runs here only
-  if every one of them would fetch it for longer than it ran. A hub that does
-  not answer weighs nothing.
+- Each rack that could take the work, and hold it, is weighed, and the work
+  runs here only if every one of them would fetch it for longer than it ran.
+  A hub that does not answer weighs nothing.
+- **Work this machine could not run is never weighed**: work that takes a GPU
+  (a rule's `--gpu`), or expects to need more memory than the run's budget has
+  (`--memory`; what its earlier runs peaked at, not what its size books on a
+  rack), stays on its rack however long its fetch. Work its size gives more
+  cores on a rack than the budget runs at once here (`-j`) is taken to run
+  that many times longer here, and is weighed against that.
+- Work is weighed before its environment's layers are built for a rack, so
+  fetch-bound work builds none; the layers' own bytes are not among what it
+  is weighed as fetching.
 
 `--rack-only` keeps its work for the rack whatever it would fetch, as it does
 whatever the local machine has free. `e3 rack policy . defaults
@@ -332,8 +343,8 @@ and so what it measured and what its racks hold. The weighing reads records
 and writes none: placement never changes a task's hash or its cache. A
 function call is not weighed: e3 records no run time of one. Nor is a merge
 its policy keeps here (`--merges local`): it runs here before any weighing,
-and fetches nothing; a merge on a rack (`--merges rack`) is weighed as any
-unit is, by the median of its task's units.
+and fetches nothing; a merge on a rack (`--merges rack`) is weighed by the
+median of its task's merges.
 
 ### Tasks that declare an environment
 
@@ -599,15 +610,18 @@ for a unit of a split task, as `describeRackPhases` says them:
   [PART] score_rows 3/48 #3 [271204ms] — granted +12 s · fetched 903 MB (0 B cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s
 ```
 
-`granted` is how long the work waited for a rack to claim it, by this machine's
-clock; `admitted` (shown when half a second or more) how long its rack took to
+`granted` is how long the work's lease waited for a rack to claim it, from that
+lease's hand-over, by this machine's clock (work leased again — a unit its cap
+stopped, a transfer that failed — counts its last lease's wait alone);
+`admitted` (shown when half a second or more) how long its rack took to
 have room for it; `fetched` the bytes its source sent the rack, those its guest
 read from the rack's cache, and how long a fetch was under way, which overlaps
 the run, since a guest fetches its inputs as its work reads them; `booted`
 from its admission until its guest asked for its lease; `ran` its execution;
 `sent` the bytes it sent its source, and how long after its result the last
 object was in the store. The same is the last line of the work's log (`e3: on
-its rack: …`, which `e3 task logs` shows), and follows each unit's line in its
+its rack: …`, which `e3 task logs` shows, its grant measured by the hub's
+clock, from the lease's creation to its claim), and follows each unit's line in its
 split task's log. A rack whose agent says none prints nothing more, and a hub
 or source that knows none ignores them: they are JSON in the result, read by
 name, as its reason is.

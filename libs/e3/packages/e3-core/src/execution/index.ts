@@ -70,6 +70,7 @@ export {
 // is this machine's unless its caller gives its runner's
 export {
   SplitTask,
+  isMergeUnitInputs,
   isSplitTask,
   stageUnits,
   type SplitStage,

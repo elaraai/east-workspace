@@ -111,6 +111,22 @@ const NO_OWNER: ExecutionOwner = { pid: 0n, pidStartTime: 0n, bootId: '' };
  *  a piece of the same task. */
 const MERGE_UNIT = 'merge';
 
+/**
+ * Whether a unit's inputs, as its execution records them, are a merge unit's
+ * — a set's or a dict's merge over a key range, or a step of a fold's combine
+ * — rather than a piece's: they begin with the merge's tag.
+ *
+ * @param inputHashes - The inputs a unit's execution record names
+ * @returns Whether they are a merge unit's
+ * @example
+ * ```ts
+ * isMergeUnitInputs(stageUnits(stage)[0]!.inputs); // true for a merge level's unit
+ * ```
+ */
+export function isMergeUnitInputs(inputHashes: readonly string[]): boolean {
+  return inputHashes[0] === MERGE_UNIT;
+}
+
 /** An error's message. */
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

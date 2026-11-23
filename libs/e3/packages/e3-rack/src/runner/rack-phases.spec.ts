@@ -41,8 +41,8 @@ const PHASES: RackLeasePhases = {
 /** What a run prints of them: how long the lease waited for its grant is this machine's measure, and so varies. */
 const SAID = /^granted \+[0-9.]+ s · fetched 903 MB \(0 B cached\) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s$/;
 
-/** A hub, a repository whose one task a rack runs, and a rack that does not complete its next lease itself. */
-async function fixture() {
+/** A hub, a repository whose one task a rack runs, and a rack that does not complete its next lease itself; its runner keeps work for a rack when told. */
+async function fixture(rackOnly = false) {
   const home = await mkdtemp(join(tmpdir(), 'e3r-phases-'));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   await saveHubConfig({ ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 0n }) }, home);
@@ -68,7 +68,7 @@ async function fixture() {
   });
   cleanup.push(() => agent.close());
   const rack = await openRackRunner({ repoPath: repo, workspace: 'dev', storage, label: 'phases test', budget,
-    policy: setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), home, waitForRackMs: 0 });
+    policy: setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), home, waitForRackMs: 0, rackOnly });
   cleanup.push(() => rack.close());
   return { repo, storage, hash, inputs, budget, agent, rack };
 }
@@ -164,4 +164,23 @@ it('prints nothing more of a task whose rack says no phases, as one of an older 
   assert.equal(done?.state, 'success');
   assert.equal(done?.timing, undefined);
   assert.doesNotMatch(stderr, /on its rack/);
+});
+
+it('measures a lease\'s grant from its own hand-over, not from the first lease of the work, when the work is leased again', async () => {
+  const f = await fixture(true);
+  const running = f.rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  // The first lease's transfer fails its tries a while after its claim: work kept for a rack is leased once more
+  const first = await f.agent.claim(); assert(first);
+  await delay(1500);
+  await f.agent.complete(first, { taskName: 'length', status: 'failed', reason: { code: 'input-transfer-failed', attempts: 5, cause: 'connection reset' } });
+  const again = await f.agent.claim(); assert(again);
+  assert.notEqual(again.leaseId, first.leaseId);
+  const result = await f.agent.execute(again);
+  assert.equal(result.status, 'success', result.error);
+  await f.agent.complete(again, { ...result, phases: PHASES });
+  const done = await running;
+  assert.equal(done.state, 'success', done.error);
+  const granted = /^granted \+([0-9.]+) s/.exec(done.timing ?? '');
+  assert(granted, done.timing);
+  assert.ok(Number(granted[1]) < 1, `the second lease waited ${granted[1]} s for its grant, not the first lease's time too`);
 });
