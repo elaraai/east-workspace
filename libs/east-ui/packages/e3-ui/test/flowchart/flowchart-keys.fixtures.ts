@@ -22,15 +22,15 @@
  * makes them:
  *
  * - **Moves keyed by their ends** (`joinedMoves`) — the key the transitions'
- *   `key` builds from the row: Mix to Proof, which a move between them again
+ *   `rowKey` builds from the row: Mix to Proof, which a move between them again
  *   would take.
  * - **Steps keyed by their station and their name** (`placedSteps`) — the key
- *   the states' `key` builds: Weigh and Mix at the bench — and the moves
+ *   the states' `rowKey` builds: Weigh and Mix at the bench — and the moves
  *   between them (`placedMoves`), by number, each end a step's station and
  *   name, and the index the rail reads them through, by their note: Weigh to
  *   Mix (#1580).
  * - **Stations keyed by their labels** (`labelledStations`) — the key the
- *   lanes' `key` builds — and the steps standing at them, by number
+ *   lanes' `rowKey` builds — and the steps standing at them, by number
  *   (`labelledSteps`): Weigh at the Bench and Bake at the Oven (#1580).
  * - **Shifts and batches keyed by when each starts** (`timedShifts`,
  *   `timedBatches`) — DateTime keys, which the viewer types for a new row: the

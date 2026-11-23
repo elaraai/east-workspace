@@ -35,6 +35,7 @@ import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
+import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
 import { act, currentHarness, e3Harness, settle, slot, type E3Harness, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
 import { fitCalls, type FitCalls } from "../shared/func/fit-calls.test-utils.js";
 import "./index.js";
@@ -97,14 +98,18 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
  * has locked, whose patch door refuses every change; the warehouse's own fit,
  * or the app's that warns past contract; the Shifts layout's Thursday,
  * or People by month alone, Week not offered; its month's marks lettered, as
- * by default, or not (`letters`, #1569); and given `failingValues`, a new
- * week's own fields failing as they are made (#1526).
+ * by default, or not (`letters`, #1569); given `failingValues`, a new
+ * week's own fields failing as they are made (#1526); given `rowKey`, each duty
+ * keyed by the key its row builds (east-workspace#1709); and given `optimise`,
+ * the warehouse's optimiser behind the Elara eye (`roster/optimise`, which the
+ * file deploys).
  *
- * @param options - Whether its duties are the locked ones, which fit it asks, whether it offers People by month alone, whether a month's marks carry their letters, and whether a new week's values fail
+ * @param options - Whether its duties are the locked ones, which fit it asks, whether it offers People by month alone, whether a month's marks carry their letters, whether a new week's values fail, the key a duty's row builds, and whether it has the warehouse's optimiser
  * @returns The example
  */
 export function warehouseRoster(options: {
     readonly locked?: boolean; readonly fit?: "warehouse" | "contract"; readonly monthOnly?: boolean; readonly letters?: boolean; readonly failingValues?: boolean;
+    readonly rowKey?: (duty: ExprType<typeof ex.WarehouseDuty>) => ExprType<StringType>; readonly optimise?: boolean;
 } = {}): Example {
     const locked = options.locked === true, contract = options.fit === "contract";
     const shown = options.monthOnly === true
@@ -144,6 +149,7 @@ export function warehouseRoster(options: {
         const rates = $.const(rateRows.read());
         // The fit over the duties the Roster edits: the locked duties' own, which reads them through their index.
         const fit = $.let(locked ? Func.bind(ex.rosterLockedFit) : contract ? Func.bind(ex.rosterContractFit) : Func.bind(ex.rosterStaffFit));
+        const optimise = options.optimise === true ? $.let(Func.bind(opt.rotaOptimise)) : undefined;
         // The warehouse's pay, as its example writes it: ordinary time to the contract, OT1 past it, an agency at its rate.
         const pay = $.const(East.function([Roster.Types.PayRequest(ex.WarehouseDuty)], Roster.Types.Pay, ($2, req) => {
             const out = $2.let(new Map(), Roster.Types.Pay);
@@ -189,9 +195,9 @@ export function warehouseRoster(options: {
         }));
         return Roster({
             id: "warehouseRoster", slice: { slice }, fit, pay, currency: "AUD", check, inspector: true, ...(options.letters === undefined ? {} : { letters: options.letters }),
-            week: { start: "sunday" }, ...shown,
+            week: { start: "sunday" }, ...shown, ...(optimise === undefined ? {} : { optimise }),
             events: { duty: Schedule.events(rota, {
-                name: "Duty", icon: "user-clock", entries,
+                name: "Duty", icon: "user-clock", entries, ...(options.rowKey === undefined ? {} : { rowKey: options.rowKey }),
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
                 shift: "shift", group: "team", position: "role", activity: "task",
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
@@ -227,8 +233,10 @@ export function warehouseRoster(options: {
     }))) };
 }
 
-export const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment="${id}"]`)!;
-export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card="${id}"]`)!;
+/** A duty drawn on the board, by its key: a key East prints with quotes in it, a struct's or a variant's, quoted as CSS reads it. */
+export const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment=${JSON.stringify(id)}]`)!;
+/** A duty's card, on a phone, by its key, quoted as `assignment` quotes it. */
+export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card=${JSON.stringify(id)}]`)!;
 
 const byString = compareFor(StringType);
 const byDate = compareFor(DateTimeType);

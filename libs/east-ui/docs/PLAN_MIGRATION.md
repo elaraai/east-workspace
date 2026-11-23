@@ -1235,7 +1235,7 @@ const flows = $.let(Record.bind(planLinkFlows));
 | `quantity` | `{ field, unit?, format? }`: what the link moves, a Float or an Option of one. It weighs the ribbon and prints its caption; a link holding none draws at the thinnest weight, with no caption |
 | `fields` | the inspector's form over the fields no end is (`Fields`); every such field unless given |
 | `templates` | its presets, a templates record's: `Schedule.templates(rows, { name, group?, values })`, `values` every field of a link but its two ends. The library's Events tab lists them under the kind's name; a click holds one, and a link Connect draws takes its values |
-| `key` | a new link's key, built from its row: for a record keyed by another type than String or Integer |
+| `rowKey` | a new link's key, built from its row: for a record keyed by another type than String or Integer |
 
 A link kind's link is a row of the record, its key the link's identity. The
 record is bound whole, with `Record.bind` and its patch door to edit it or

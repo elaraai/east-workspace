@@ -14,6 +14,8 @@ export const DomainDuty = StructType({
 });
 /** A week of the app's duties, as the Roster reads it. */
 export const DomainWeek = Roster.Types.Week(DomainDuty);
+/** What a fit's function read of the week (#1624), and one candidate of it, the duties keyed by String. */
+export const DomainRead = Roster.Types.FitContext(), DomainCandidate = Roster.Types.Candidate();
 
 /** Small staffing fixture with independently calculable hours and cost. */
 export const context: ValueTypeOf<typeof Roster.Types.Context> = {
@@ -117,7 +119,7 @@ const leadSunday: DutyRoles = {
  * What a fit's function read of the same Sunday (#1624): the people it asks about, the week's duties as their roles —
  * the lead's, the agency worker's and the request to the agency — the configuration, and ten hours' rest.
  */
-export const read: ValueTypeOf<typeof Roster.Types.FitContext> = {
+export const read: ValueTypeOf<typeof DomainRead> = {
     people: context.people,
     duties: new Map<string, DutyRoles>([
         ["a", leadSunday],
@@ -129,7 +131,7 @@ export const read: ValueTypeOf<typeof Roster.Types.FitContext> = {
     shifts: context.shifts, groups: context.groups, positions: context.positions, activities: context.activities, rest: 10,
 };
 /** The lead against the week, for Monday's early shift: their Sunday duty where the Roster places it, and its ten hours. */
-export const leadCandidate: ValueTypeOf<typeof Roster.Types.Candidate> = {
+export const leadCandidate: ValueTypeOf<typeof DomainCandidate> = {
     need: variant("trainers", null), slot: { day: 1n, group: "goods", shift: "early" }, start, person: context.people.get("lead")!,
     duties: new Map([["a", { place, roles: leadSunday }]]), hours: 10,
     shifts: context.shifts, groups: context.groups, positions: context.positions, activities: context.activities, rest: 10,
@@ -142,7 +144,7 @@ export const rosterFitTrainer = example({
     description: "The ready-made fit over one candidate — a person against the week: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group",
     keywords: ["Roster", "Roster.fit", "Roster.Types.Candidate", "fit", "Find", "trainer", "spare hours", "rest"], inputs: [leadCandidate],
     returns: variant("fits", { score: 198, why: "Goods · 30 h spare", warn: none }),
-    fn: East.function([Roster.Types.Candidate], Roster.Types.Fit, ($, candidate) => {
+    fn: East.function([Roster.Types.Candidate()], Roster.Types.Fit, ($, candidate) => {
         // Monday's early shift: the lead's Sunday duty ends at 17:00, so 13 hours' rest is kept; 10 of their 40 contract hours are rostered.
         const fit = $.const(Roster.fit());
         return fit(candidate);
@@ -189,7 +191,7 @@ export const rosterSlotOfPlaces = example({
     }),
 });
 export const rosterAnswerLeads = example({
-    description: "Roster.answer maps a rule over every person of what a fit's function read (Roster.Types.FitContext), echoing the need and the slot: it places the duties in the week as the page does, and the lead fits while the two associates are refused as not leads",
+    description: "Roster.answer() maps a rule over every person of what a fit's function read (Roster.Types.FitContext()), echoing the need and the slot: it places the duties in the week as the page does, and the lead fits while the two associates are refused as not leads",
     keywords: ["Roster", "Roster.answer", "Roster.fit", "Roster.Types.FitContext", "Roster.Types.FitRequest", "fit", "Find", "lead", "refused"], inputs: [leadsRequest, read],
     returns: {
         need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" },
@@ -199,8 +201,8 @@ export const rosterAnswerLeads = example({
             ["off", variant("refused", { group: "Not a lead", reason: "Crew · not a lead", measure: variant("none", null) })],
         ]),
     },
-    fn: East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, read) => {
-        const answer = $.const(Roster.answer);
+    fn: East.function([Roster.Types.FitRequest, Roster.Types.FitContext()], Roster.Types.FitResult, ($, request, read) => {
+        const answer = $.const(Roster.answer());
         const fit = $.const(Roster.fit());
         return answer(request, read, fit);
     }),

@@ -545,14 +545,33 @@ function bindRecord(record: RecordDef<EastType>, names?: readonly string[]): unk
  * record's own entries — a Sheet or a Plan whose entries are the record's, each
  * named by its key's text.
  */
-export interface RecordApplyOptions {
+export interface RecordApplyOptions<F extends string = string> {
     /** The patch mutation each Apply commits through — the name the record
      *  declares its `mutation.patch()` under; `patch` when omitted. */
     mutation?: string;
     /** The collection hands keyed batches, `ChangeSet(V, K)`, as the Plan does;
      *  a Sheet hands `ChangeSet(V)`, the default. */
     keyed?: boolean;
+    /**
+     * The field of an entry that holds its key, for a record whose entries carry their own — a crew keyed by staff id,
+     * each member's `staff` their key. An entry a batch adds is saved with its key there, whatever the batch drafted in
+     * the field: a new entry's key is its editing session's to make, and to make again where another Save took it
+     * first, so only the Save knows the key the entry is saved under. An entry the record holds already is written as
+     * the batch has it. The field is of the record's key type.
+     */
+    keyField?: F;
 }
+
+/**
+ * The fields of a record's entry that are of its key type: what `keyField`
+ * may name ({@link RecordApplyOptions}).
+ *
+ * @typeParam K - The record's key type
+ * @typeParam V - The record's entry type
+ */
+export type RecordKeyField<K extends EastType, V extends EastType> = V extends StructType
+    ? { [F in keyof V["fields"] & string]: V["fields"][F] extends K ? F : never }[keyof V["fields"] & string]
+    : never;
 
 /**
  * Options for {@link Record.onApply} and {@link Record.toDraft} over a
@@ -576,6 +595,26 @@ export interface RecordApplyInsideOptions<K extends EastType, V extends EastType
     idField: string;
     /** The patch mutation each Apply commits through; `patch` when omitted. */
     mutation?: string;
+}
+
+/**
+ * Checks a record's key field: the field of its entries that holds each one's
+ * key ({@link RecordApplyOptions}), as every builder that takes one checks it.
+ *
+ * @param label - Who is asked, for the refusal (`Record.onApply`, `Sheet`)
+ * @param recordType - The record's type
+ * @param keyField - The field named
+ * @throws {Error} Naming the field: the entries are no struct, hold no such field, or hold one of another type than the key
+ * @internal
+ */
+export function checkRecordKeyField(label: string, recordType: DictType<EastType, EastType>, keyField: string): void {
+    const entryType = recordType.value;
+    const held = entryType.type === "Struct" ? (entryType.fields as Record<string, EastType | undefined>)[keyField] : undefined;
+    if (held === undefined || !isTypeEqual(held, recordType.key)) {
+        throw new Error(
+            `${label}: \`keyField\` names the field of an entry that holds its key, a ${printType(recordType.key)} as the key is — ` +
+            `"${keyField}" is ${held === undefined ? "not a field" : `a ${printType(held)} field`} of ${printType(entryType)}`);
+    }
 }
 
 /** A bound record whose state is keyed, `Dict<K, V>` — what an Apply writes by key. */
@@ -728,7 +767,8 @@ interface CheckedWrite {
  * @param options - The entries form's options, or the form over one entry's rows
  * @returns The write, checked
  * @throws {Error} When the record is not a Dict, the mutation is not bound as
- *   its patch door, or `get` / `set` do not fit the entry
+ *   its patch door, `keyField` names no field of the entries that is of the
+ *   key's type, or `get` / `set` do not fit the entry
  */
 function checkWrite(
     what: "onApply" | "toDraft",
@@ -837,6 +877,13 @@ function checkWrite(
 
     const keyType = recordType.key;
     const entryType = recordType.value as StructType<Record<never, never>>;
+    const keyField = "keyField" in options ? options.keyField : undefined;
+    if (keyField !== undefined) checkRecordKeyField(`Record.${what}`, recordType, keyField);
+    // An entry as it is saved under a key: its key field holding that key.
+    const underKey = keyField === undefined ? undefined : East.function([keyType, entryType], entryType, (_$, key, entry) => {
+        const drafted = entry as unknown as Record<string, ExprType<EastType>>;
+        return Object.fromEntries(Object.keys(entryType.fields).map((field) => [field, field === keyField ? key : drafted[field]!])) as never;
+    });
     const batchType = "keyed" in options && options.keyed === true
         ? Editing.Types.ChangeSet(entryType, keyType)
         : Editing.Types.ChangeSet(entryType);
@@ -847,6 +894,7 @@ function checkWrite(
         : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as ExprType<FunctionType<[StringType], EastType>>;
     const plan = East.function([batchType], planType, ($, batch) => {
         const keyFrom = $.const(keyOf);
+        const keyed = underKey === undefined ? undefined : $.const(underKey);
         // Each change is its entry's insert, update or delete, restated by key.
         // The values and entry patches are the batch's own, carrying what each
         // entry was when the edit began, which the record checks.
@@ -858,7 +906,8 @@ function checkWrite(
                     $.match(swap.after, {
                         some: ($, after) => {
                             $.match(swap.before, {
-                                none: ($) => { $(ops.insert(key, variant("insert", after))); },
+                                // A new entry holds the key it is saved under, which its session may have made again since it was drafted.
+                                none: ($) => { $(ops.insert(key, variant("insert", keyed === undefined ? after : keyed(key, after)))); },
                                 some: ($, before) => { $(ops.insert(key, variant("update", East.diff(before, after)))); },
                             });
                         },
@@ -1058,7 +1107,9 @@ type RecordDoors = {
  *   collection's entries are the record's, each change naming its entry by
  *   the key's text — a String key as it is, any other its `.east` printing.
  *   Each change is its entry's insert, update or delete: the batch's own
- *   entry patches, restated by key.
+ *   entry patches, restated by key. Where the entries hold their own key in
+ *   a field, `keyField` names it, and an entry the batch adds is saved with
+ *   its key there.
  * - **Over a collection inside one entry** (`{ entry, get, set, idField }`):
  *   the rows of one entry's Array field — row structs, or a Sheet's entries of
  *   groups and loose rows, as `Editing.apply` takes them. The batch is applied
@@ -1103,7 +1154,8 @@ type RecordDoors = {
  *   collection's batch; over a handle that makes no drafts, the Save alone, an
  *   async East function over the batch answering `Editing.Types.ApplyResult`
  * @throws {Error} When the record is not a Dict, the mutation is not bound as
- *   its patch door, or `get` / `set` do not fit the entry
+ *   its patch door, `keyField` names no field of the entries that is of the
+ *   key's type, or `get` / `set` do not fit the entry
  *
  * @example
  * ```tsx
@@ -1169,10 +1221,53 @@ type RecordDoors = {
  * });
  * // a draft of bindery_jobs.patch, of 1 argument
  * ```
+ *
+ * @example
+ * ```ts
+ * // A record whose rows hold their own key in a field: a new row is saved with its key there.
+ * import { DictType, East, OptionType, PatchType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { Editing } from "@elaraai/east-ui";
+ * import { Record } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * const CrewMemberType = StructType({ staff: StringType, name: StringType });
+ * const crew = e3.record("crew", DictType(StringType, CrewMemberType), {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
+ *
+ * // Mirrors `recordKeyField` in test/bind/record/record-draft.examples.ts.
+ * const recordKeyField = East.function([], StringType, ($) => {
+ *     const members = $.let(Record.bind(crew));
+ *     // `staff` holds a member's key: `Record.onApply(members, { keyed: true, keyField: "staff" })` saves the same way
+ *     const toDraft = $.const(Record.toDraft(members, { keyed: true, keyField: "staff" }));
+ *     const absent = $.const(none, OptionType(CrewMemberType));
+ *     // A member added under the key S-1, their `staff` as the editing surface drafted it
+ *     const added = $.const(some({ staff: "", name: "Ada" }), OptionType(CrewMemberType));
+ *     const pending = $.const({
+ *         requestId: "", base: variant("revision", "a41c09d2"), label: "Add a member",
+ *         changes: [{ id: "S-1", patch: East.diff(absent, added), place: some(variant("keyOrder", null)) }],
+ *     }, Editing.Types.ChangeSet(CrewMemberType, StringType));
+ *     return toDraft(pending).match({
+ *         draft: ($, draft) => {
+ *             // The patch that Save commits, laid over a crew of nobody
+ *             const patch = $.const(draft.args.get(0n).decodeBeast(PatchType(crew.type), "v2"));
+ *             const saved = $.const(East.applyPatch(East.value(new Map(), crew.type), patch));
+ *             return East.str`${saved.get("S-1").name} is saved under S-1 with staff ${saved.get("S-1").staff}`;
+ *         },
+ *         unchanged: _$ => East.str`nothing to send`,
+ *         rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+ *         conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+ *     });
+ * });
+ * // Ada is saved under S-1 with staff S-1
+ * ```
  */
 function applyToRecord<K extends EastType, V extends EastType, H>(
     handle: KeyedRecordHandle<K, V> & H,
-    options?: RecordApplyOptions & { keyed?: false },
+    options?: RecordApplyOptions<RecordKeyField<K, V>> & { keyed?: false },
 ): RecordSaveOf<H, ReturnType<typeof Editing.Types.ChangeSet<V>>>;
 /**
  * The entries form for a collection that hands keyed batches — the Plan.
@@ -1186,7 +1281,7 @@ function applyToRecord<K extends EastType, V extends EastType, H>(
  */
 function applyToRecord<K extends EastType, V extends EastType, H>(
     handle: KeyedRecordHandle<K, V> & H,
-    options: RecordApplyOptions & { keyed: true },
+    options: RecordApplyOptions<RecordKeyField<K, V>> & { keyed: true },
 ): RecordSaveOf<H, ReturnType<typeof Editing.Types.ChangeSet<V, K>>>;
 /**
  * The form over a collection inside one entry.
@@ -1257,7 +1352,8 @@ function applyToRecord(
  * @returns An East function over the collection's batch, answering with
  *   {@link RecordToDraftResultType}
  * @throws {Error} When the record is not a Dict, the mutation is not bound as
- *   its patch door, or `get` / `set` do not fit the entry
+ *   its patch door, `keyField` names no field of the entries that is of the
+ *   key's type, or `get` / `set` do not fit the entry
  *
  * @example
  * ```ts
@@ -1304,7 +1400,7 @@ function applyToRecord(
  */
 function draftOfRecord<K extends EastType, V extends EastType>(
     handle: KeyedRecordHandle<K, V>,
-    options?: RecordApplyOptions & { keyed?: false },
+    options?: RecordApplyOptions<RecordKeyField<K, V>> & { keyed?: false },
 ): RecordToDraftFunction<ReturnType<typeof Editing.Types.ChangeSet<V>>>;
 /**
  * The entries form for a collection that hands keyed batches — the Plan.
@@ -1317,7 +1413,7 @@ function draftOfRecord<K extends EastType, V extends EastType>(
  */
 function draftOfRecord<K extends EastType, V extends EastType>(
     handle: KeyedRecordHandle<K, V>,
-    options: RecordApplyOptions & { keyed: true },
+    options: RecordApplyOptions<RecordKeyField<K, V>> & { keyed: true },
 ): RecordToDraftFunction<ReturnType<typeof Editing.Types.ChangeSet<V, K>>>;
 /**
  * The form over a collection inside one entry.

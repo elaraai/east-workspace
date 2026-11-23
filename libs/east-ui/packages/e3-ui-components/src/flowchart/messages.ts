@@ -36,7 +36,7 @@ import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
 import { withArticle as aNoun } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords, kindPlural, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, keyRefusedText, kindPlural, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartBinsRefusalWord } from "./details.js";
 import type { FlowchartGesture } from "./edits.js";
 import type { FlowchartIssueWord } from "./issues.js";
@@ -97,7 +97,8 @@ export type FlowchartDropRefusalWord =
  * Why a gesture records nothing (#1549), as the footer says it: the row
  * holding the key a row builds — a transition by its ends' names, any other row
  * by its own; a row named in another's field while its key is still to be
- * typed; a kind adding no row, its keys of a type the form can't type; and a
+ * typed; a kind adding no row, its keys of a type the form can't type; a row
+ * no key could be made for (east-workspace#1709); and a
  * row whose key would move, by its name, while the rows of another kind that
  * may name it — `by` — the rail hides some of, the page's scope holds only some
  * of (#1621), or take no edit now (#1580).
@@ -107,6 +108,7 @@ export type FlowchartRefusalWord =
     | { readonly refusal: "taken"; readonly sort: "transitions"; readonly from: string; readonly to: string }
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort }
     | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
+    | { readonly refusal: "unkeyed"; readonly sort: FlowchartSort }
     | { readonly refusal: "unheld"; readonly name: string; readonly by: FlowchartSort; readonly why: "filtered" | "scoped" | "busy" };
 
 /**
@@ -336,7 +338,7 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorKeyRefused: (p: { name: string; key: string; why: "empty" | "taken" }) => string;
     /**
      * Why a kind adds no row (#1549) — on Duplicate's off line, "+ LANE"'s and "+ STATE"'s tooltips, a drop and the
-     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `key` to add them`; `name` as a
+     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `rowKey` to add them`; `name` as a
      * sentence says one of its rows, `type` its key type's name.
      */
     keysUntyped: (p: { name: string; type: string }) => string;
@@ -344,7 +346,7 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     keyPlaceholder: (p: { sort: FlowchartSort }) => string;
     /**
      * Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new
-     * lane's key first`, `Scan isn't changed: the rail hides some transitions that may name it — clear its choices, then
+     * lane's key first`, `No key can be made for this state` (east-workspace#1709), `Scan isn't changed: the rail hides some transitions that may name it — clear its choices, then
      * try again` (#1580), `Scan isn't changed: this page holds only some transitions, and one it does not may name it —
      * edit it where they are all held` (#1621).
      */
@@ -405,7 +407,7 @@ const quoted = printFor(StringType);
 const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 
 /** Why a kind adds no row (#1549): its rows' name as a sentence says one, and its key type's name. */
-const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
+const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`rowKey\` to add them`;
 
 /** Each field's label in the inspector's own forms. */
 const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } = {
@@ -655,6 +657,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                     : `${capital(aNoun(ONE[p.sort]))} ${p.name} is there already`;
                 case "placeholder": return `Type the new ${ONE[p.sort]}'s key first`;
                 case "untyped": return keysUntyped(ONE[p.sort], p.type);
+                // The words every builder says it in.
+                case "unkeyed": return keyRefusedText(ONE[p.sort], { failed: undefined });
                 case "unheld": switch (p.why) {
                     case "filtered": return `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`;
                     // A page's scope (#1621) is no choice of the viewer's: nothing on the rail clears it.

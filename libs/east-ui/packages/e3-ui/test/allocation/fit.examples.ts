@@ -13,6 +13,8 @@ export const GradeBin = StructType({ bay: StringType, at: DateTimeType, load: Op
 /** One day of the yard's bins as the board reads them, and one of its bins. */
 export const GradeDay = Allocation.Types.Day(GradeBin);
 export const GradeBoardBin = Allocation.Types.Bin(GradeBin);
+/** What a fit's function read of the yard (#1624), its bins keyed by String; and over bins keyed by number, each part made over their key type. */
+export const GradeRead = Allocation.Types.FitContext(), GradeReadByNumber = Allocation.Types.FitContext({ key: IntegerType });
 
 const byString = compareFor(StringType);
 /** The plan day: Tue 11 May 2027. */
@@ -47,12 +49,17 @@ export const plan: ValueTypeOf<typeof GradeDay> = {
  * What a fit's function read of Tue 11 (#1624): the day's bin as its roles, the yard's loads and kilns, the rules and
  * the unit — what the page holds of them, with no row.
  */
-export const read: ValueTypeOf<typeof Allocation.Types.FitContext> = {
+export const read: ValueTypeOf<typeof GradeRead> = {
     bins: new SortedMap<string, ValueTypeOf<typeof Schedule.Types.AllocationRoles>>([
         ["b1", { at: new Date("2027-05-11T06:15:00Z"), lane: "B-1", arrival: some("L-1"), quantity: 12,
             parts: new SortedMap<string, number>([["K-1", 12]], byString), hold: variant("days", 8), kind: some("MC12") }],
     ], byString),
     arrivals: context.arrivals, resources: context.resources, rules: context.rules, unit: context.unit,
+};
+/** The same read of a yard whose bins are keyed by number: b1 is bin 1. */
+export const readByNumber: ValueTypeOf<typeof GradeReadByNumber> = {
+    ...read,
+    bins: new SortedMap<bigint, ValueTypeOf<typeof Schedule.Types.AllocationRoles>>([[1n, read.bins.get("b1")!]], compareFor(IntegerType)),
 };
 /** The same day with two more bins drafted: L-2's 30 m³ with 26 on K-2, and L-3's 8 m³ on no kiln yet. */
 export const drafted: ValueTypeOf<typeof GradeDay> = {
@@ -82,24 +89,24 @@ export const allocationDayLoads = example({
 });
 
 export const allocationRules = example({
-    description: "Allocation.fit, the built-in rules, over the candidates of placing L-2's 30 m³ (Allocation.candidates over what a fit's function read: one per resource, in key order) — K-1 refused over its max, K-2 fits with an open gap, K-3 refused busy",
+    description: "Allocation.fit(), the built-in rules, over the candidates of placing L-2's 30 m³ (Allocation.candidates() over what a fit's function read: one per resource, in key order) — K-1 refused over its max, K-2 fits with an open gap, K-3 refused busy",
     keywords: ["Allocation", "Allocation.fit", "Allocation.candidates", "Allocation.Types.FitContext", "Allocation.Types.FitRequest", "candidate", "rules", "over max", "busy", "refused", "score"], inputs: [read],
     returns: [
         variant("refused", { group: "Over max", reason: "over max by 18 m³", measure: variant("amount", { lead: "by", value: 18 }) }),
         variant("fits", { score: 0.6975, why: "open gap · leaves 30 m³ · takes 20–32", warn: none }),
         variant("refused", { group: "Busy", reason: "busy until Fri 14", measure: variant("day", { lead: "until", at: new Date("2027-05-14T00:00:00Z") }) }),
     ],
-    fn: East.function([Allocation.Types.FitContext], ArrayType(Allocation.Types.Fit), ($, read) => {
-        const candidates = $.const(Allocation.candidates);
-        const rule = $.const(Allocation.fit);
+    fn: East.function([Allocation.Types.FitContext()], ArrayType(Allocation.Types.Fit), ($, read) => {
+        const candidates = $.const(Allocation.candidates());
+        const rule = $.const(Allocation.fit());
         // The question carries the plan day and what is asked, and no row: the page holds no scope.
-        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-2"), quantity: 30 }), scope: new Map() }, Allocation.Types.FitRequest);
+        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-2"), quantity: 30 }), scope: new Map() }, Allocation.Types.FitRequest());
         return candidates(request, read).map(($2, candidate) => rule(candidate));
     }),
 });
 
 export const allocationAnswerPlace = example({
-    description: "Allocation.answer over the built-in rules, placing L-3's 8 m³: a verdict per resource — K-1 fits best, beside a bin of its kind with a day spare before its next charge; K-2 fits under its minimum, a warning; K-3 refused busy",
+    description: "Allocation.answer() over the built-in rules, placing L-3's 8 m³: a verdict per resource — K-1 fits best, beside a bin of its kind with a day spare before its next charge; K-2 fits under its minimum, a warning; K-3 refused busy",
     keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "fit", "place", "FitRequest", "FitContext", "FitResult", "under min", "e3.function"], inputs: [read],
     returns: {
         ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }),
@@ -112,16 +119,16 @@ export const allocationAnswerPlace = example({
         arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
         reserve: none, basis: "ranked by load, kind and spare days",
     },
-    fn: East.function([Allocation.Types.FitContext], Allocation.Types.FitResult, ($, read) => {
-        const answer = $.const(Allocation.answer);
-        const rule = $.const(Allocation.fit);
-        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), scope: new Map() }, Allocation.Types.FitRequest);
+    fn: East.function([Allocation.Types.FitContext()], Allocation.Types.FitResult(), ($, read) => {
+        const answer = $.const(Allocation.answer());
+        const rule = $.const(Allocation.fit());
+        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), scope: new Map() }, Allocation.Types.FitRequest());
         return answer(request, read, rule, "ranked by load, kind and spare days");
     }),
 });
 
 export const allocationAnswerTake = example({
-    description: "Allocation.answer for a take — what can K-1 take: a verdict for its bin, one for each arrival the plan has not booked (L-2 over its max, L-3 beside a bin of its kind) and one for reserving an empty slot",
+    description: "Allocation.answer() for a take — what can K-1 take: a verdict for its bin, one for each arrival the plan has not booked (L-2 over its max, L-3 beside a bin of its kind) and one for reserving an empty slot",
     keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "fit", "take", "reserve", "FitContext", "FitResult", "bins", "arrivals"], inputs: [read],
     returns: {
         ask: variant("take", { resource: "K-1" }),
@@ -136,16 +143,41 @@ export const allocationAnswerTake = example({
         reserve: some(variant("fits", { score: 0.32, why: "2 d spare to Fri 21 · leaves 12 m³ · takes 10–24", warn: none })),
         basis: "ranked by load, kind and spare days",
     },
-    fn: East.function([Allocation.Types.FitContext], Allocation.Types.FitResult, ($, read) => {
-        const answer = $.const(Allocation.answer);
-        const rule = $.const(Allocation.fit);
-        const request = $.const({ day: planDay, ask: variant("take", { resource: "K-1" }), scope: new Map() }, Allocation.Types.FitRequest);
+    fn: East.function([Allocation.Types.FitContext()], Allocation.Types.FitResult(), ($, read) => {
+        const answer = $.const(Allocation.answer());
+        const rule = $.const(Allocation.fit());
+        const request = $.const({ day: planDay, ask: variant("take", { resource: "K-1" }), scope: new Map() }, Allocation.Types.FitRequest());
+        return answer(request, read, rule, "ranked by load, kind and spare days");
+    }),
+});
+
+export const allocationAnswerByNumber = example({
+    description: "Allocation.answer over bins keyed by number: the parts, the question and the answer each made over the bins' key type, { key: IntegerType } — what can K-1 take answers its bin by its number, 1, beside the arrivals it could book and an empty slot reserved",
+    keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "Allocation.Types.FitRequest", "Allocation.Types.FitContext", "Allocation.Types.FitResult", "key", "IntegerType", "keyed by number", "take", "bins", "e3.function"], inputs: [readByNumber],
+    returns: {
+        ask: variant("take", { resource: "K-1" }),
+        resources: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
+        bins: new SortedMap<bigint, ValueTypeOf<typeof Allocation.Types.Fit>>([
+            [1n, variant("fits", { score: 0.42, why: "2 d spare to Fri 21 · leaves 12 m³ · takes 10–24", warn: none })],
+        ], compareFor(IntegerType)),
+        arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
+            ["L-2", variant("refused", { group: "Over max", reason: "over max by 18 m³", measure: variant("amount", { lead: "by", value: 18 }) })],
+            ["L-3", variant("fits", { score: 1.0433333333333334, why: "1 d spare to Fri 21 · leaves 20 m³ · takes 10–24", warn: none })],
+        ], byString),
+        reserve: some(variant("fits", { score: 0.32, why: "2 d spare to Fri 21 · leaves 12 m³ · takes 10–24", warn: none })),
+        basis: "ranked by load, kind and spare days",
+    },
+    fn: East.function([Allocation.Types.FitContext({ key: IntegerType })], Allocation.Types.FitResult({ key: IntegerType }), ($, read) => {
+        // Over bins keyed by number, each part is made over their key type, and so are the question and the answer.
+        const answer = $.const(Allocation.answer({ key: IntegerType }));
+        const rule = $.const(Allocation.fit({ key: IntegerType }));
+        const request = $.const({ day: planDay, ask: variant("take", { resource: "K-1" }), scope: new Map() }, Allocation.Types.FitRequest({ key: IntegerType }));
         return answer(request, read, rule, "ranked by load, kind and spare days");
     }),
 });
 
 export const allocationLookahead = example({
-    description: "Allocation.lookahead over the built-in rules, as a fit's body: placing L-3 on K-2 would leave L-2 with nowhere to go, so that fit drops by one and says so; K-1's leaves room for L-2 on K-2 and stands",
+    description: "Allocation.lookahead() over the built-in rules, as a fit's body: placing L-3 on K-2 would leave L-2 with nowhere to go, so that fit drops by one and says so; K-1's leaves room for L-2 on K-2 and stands",
     keywords: ["Allocation", "Allocation.lookahead", "Allocation.answer", "Allocation.fit", "FitContext", "greedy", "look-ahead", "fit", "e3.function"], inputs: [read],
     returns: {
         ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }),
@@ -158,12 +190,12 @@ export const allocationLookahead = example({
         arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
         reserve: none, basis: "ranked by load, kind and spare days, and what it leaves for the day's other loads",
     },
-    fn: East.function([Allocation.Types.FitContext], Allocation.Types.FitResult, ($, read) => {
-        const answer = $.const(Allocation.answer);
-        const rule = $.const(Allocation.fit);
-        const ahead = $.const(Allocation.lookahead);
-        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), scope: new Map() }, Allocation.Types.FitRequest);
-        return answer(request, read, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
+    fn: East.function([Allocation.Types.FitContext()], Allocation.Types.FitResult(), ($, read) => {
+        const answer = $.const(Allocation.answer());
+        const rule = $.const(Allocation.fit());
+        const ahead = $.const(Allocation.lookahead());
+        const request = $.const({ day: planDay, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), scope: new Map() }, Allocation.Types.FitRequest());
+        return answer(request, read, East.function([Allocation.Types.Candidate()], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
             "ranked by load, kind and spare days, and what it leaves for the day's other loads");
     }),
 });

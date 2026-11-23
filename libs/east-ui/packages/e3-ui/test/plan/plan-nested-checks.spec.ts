@@ -101,6 +101,12 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             '"output" and "stops" — read the row\'s own fields in label');
     });
 
+    test("refuses a function that hands the row whole to a builtin, printing it: that reads every collection a page carries empty", () => {
+        refusedBoth([Plan.series.span(Machine, { key: "presses", title: "Presses", label: (m) => East.print(m), runs: () => [] })], machines,
+            'Plan: series "presses" reads "alarms" in a function (label), and its rows are paged — a page carries each row without its collections: ' +
+            "read the row's own fields in label");
+    });
+
     test("refuses a read of a collection the index does not declare, and by other times than it files by", () => {
         refusedBoth([Plan.series.span(Machine, {
             key: "presses", title: "Presses", label: (m) => m.name, runs: () => [],

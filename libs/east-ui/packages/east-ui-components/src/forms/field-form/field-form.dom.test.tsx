@@ -499,9 +499,11 @@ describe("FieldForm — a draft's missing field, a date's precision, and a host'
         const value = { on: new Date(Date.UTC(2026, 9, 12)), at: new Date(Date.UTC(2026, 9, 12, 14, 30)) };
         const { field } = mountDraft(value as unknown as Partial<JobValue>, { specs: [dated, at!] });
         const segments = (key: string) => within(field(key)).getAllByRole("spinbutton").length;
-        // en-US: month, day, year — and a time's hour, minute and AM/PM besides.
+        // en-US: month, day, year — and a time's hour and minute besides: its hours run 0 to 23, as the app prints every
+        // time, so it has no AM/PM to set.
         expect(segments("on")).toBe(3);
-        expect(segments("at")).toBeGreaterThan(3);
+        expect(segments("at")).toBe(5);
+        expect(within(field("at")).getAllByRole("spinbutton").some((part) => part.getAttribute("aria-label")?.startsWith("AM/PM") === true)).toBe(false);
     });
 
     test("a host draws a field's control itself: the field keeps its label, and no input or Set is drawn", () => {
@@ -1127,19 +1129,21 @@ describe("FieldForm — an edit the host refuses: the field shows what it holds 
         const { field, edits } = mountRefusing();
         const user = userEvent.setup();
         const length = () => within(field("length")).getByRole("spinbutton");
-        // 9 AM on to 9 PM, past noon, and on to the length.
-        act(() => { segment(field("due"), "AM/PM").focus(); });
-        await act(async () => { fireEvent.keyDown(segment(field("due"), "AM/PM"), { key: "ArrowUp" }); });
+        /** The hour the box shows, of 0 to 23. */
+        const hour = () => Number(segment(field("due"), "hour").textContent);
+        // 09:00 on to 21:00, past noon — twelve hours on, its hours running 0 to 23 — and on to the length.
+        act(() => { segment(field("due"), "hour").focus(); });
+        for (let on = 0; on < 12; on++) await act(async () => { fireEvent.keyDown(segment(field("due"), "hour"), { key: "ArrowUp" }); });
         await settle();
-        expect(segment(field("due"), "AM/PM").textContent).toBe("PM");
+        expect(hour()).toBe(21);
         await user.click(length());
         await settle();
         expect(edits.map((e) => e.path)).toEqual(["due"]);
-        expect([segment(field("due"), "hour").textContent, segment(field("due"), "AM/PM").textContent]).toEqual(["9", "AM"]);
+        expect(hour()).toBe(9);
         expect(refusalOf(field("due"))).toBe(MORNING);
         expect(field("due").querySelector("[data-scope=field][data-part=root]")!.hasAttribute("data-invalid")).toBe(true);
         expect(document.activeElement).toBe(length());
-        // 9 AM on to 10 AM: taken, and the words go.
+        // 09:00 on to 10:00: taken, and the words go.
         act(() => { segment(field("due"), "hour").focus(); });
         await act(async () => { fireEvent.keyDown(segment(field("due"), "hour"), { key: "ArrowUp" }); });
         await settle();
@@ -1147,7 +1151,7 @@ describe("FieldForm — an edit the host refuses: the field shows what it holds 
         await settle();
         expect(edits.map((e) => e.path)).toEqual(["due", "due"]);
         expect(compareDates(edits[1]!.value as Date, new Date(Date.UTC(2026, 9, 6, 10, 0)))).toBe(0);
-        expect(segment(field("due"), "hour").textContent).toBe("10");
+        expect(hour()).toBe(10);
         expect(refusalOf(field("due"))).toBeUndefined();
     });
 

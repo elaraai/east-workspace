@@ -17,7 +17,9 @@
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
  * status of the period holding the day — the day's, or its week's (#1550) —
- * once every record reads back as saved (B7, `publishPeriod`).
+ * once every record reads back as saved (B7, `publishPeriod`). A gesture a
+ * bin's key refuses (east-workspace#1709) — the key its fields build is
+ * another bin's, or its kind's rule makes none — records nothing, and says why.
  *
  * @packageDocumentation
  */
@@ -26,6 +28,7 @@ import { SortedMap, none, some, variant, type option } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
 import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
 import { one } from "./nouns.js";
 import {
@@ -104,13 +107,16 @@ export interface AllocationState {
     readonly domain: AllocationDomain;
     /** The plan day. */
     readonly day: Date;
-    /** The day as drafted, and as the records hold it. */
+    /**
+     * The day as drafted, and as the records hold it — a bin an edit moved under the key its fields build filed under
+     * that key, the bin it was (east-workspace#1709).
+     */
     readonly plan: Day;
     readonly held: Day;
     /** The own row of the period holding the day — the day's, or its week's (#1550) — as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
-    /** The bins the day's window read, by key: each stored bin's bytes. */
+    /** The bins the day's window read, by key — filed as `held` is: each stored bin's bytes. */
     readonly read: ReadonlyMap<string, StoredBin>;
     /** The editing; `undefined` for a read-only board. */
     readonly editing: AllocationEditing | undefined;
@@ -194,9 +200,11 @@ export interface AllocationCommands {
  * @param state - The day, its rows and the editing
  * @param select - Sets what is selected, keeping the panes as they are
  * @param publish - Publishes the period holding the day: Save, then its status
+ * @param refused - Told why a gesture a bin's key refuses recorded nothing; nothing unless given
  * @returns The commands
  */
-export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void): AllocationCommands {
+export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void,
+    refused: (why: string) => void = () => undefined): AllocationCommands {
     const { value, domain, day, plan, held, editing } = state;
     const schedule = editing?.schedule;
     const bins = value.bin.kind.key;
@@ -204,7 +212,17 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         && editableStatus(state.heldPeriod.status) && editableStatus(state.period.status) && schedule.available(bins);
     // Retained, the board keeps its controls and takes no gesture (#1398, CL8).
     const takes = available && state.retained !== true;
-    const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
+    /** Says why the key just asked for, or the gesture just refused, made no row: its key's refusal, in the shared words. */
+    const sayKeyRefused = (): void => {
+        const refusal = schedule?.keyRefusal();
+        if (refusal !== undefined) refused(keyRefusedText(refusal.name, refusal.why));
+    };
+    const record = (changes: readonly ScheduleChange[], origin: Origin, label: string): boolean => {
+        if (schedule === undefined || changes.length === 0) return false;
+        if (schedule.record(changes, origin, label)) return true;
+        sayKeyRefused();
+        return false;
+    };
     /**
      * The rows a day as it leaves a gesture changes, from the day as drafted: each bin gone removed; each new or changed one's
      * row written through the kind's `write` over its own row, every field no role maps as it was (B1) — a bin back as the day
@@ -241,7 +259,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         const bin = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
         if (bin.type !== "some") return undefined;
         const id = schedule?.mint(bins, "", minted);
-        if (id === undefined) return undefined;
+        if (id === undefined) { sayKeyRefused(); return undefined; }
         minted.add(id);
         return { id, bin: bin.value };
     };
@@ -257,11 +275,23 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         remove(id) {
             if (!plan.bins.has(id)) return;
             const committed = held.bins.has(id);
-            if (write(`Back to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id } : undefined);
+            // One an edit moved under the key its fields build stays under Removed from plan by the key it had (east-workspace#1709).
+            const kept = schedule?.movedFrom(bins).get(id) ?? id;
+            if (write(`Back to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id: kept } : undefined);
         },
         revert(id) {
             if (!held.bins.has(id)) {
                 if (plan.bins.has(id) && write(`Return to ${value.labels.arrival.other}`, "remove", next => { next.bins.delete(id); })) select(undefined);
+                return;
+            }
+            // One an edit moved under the key its fields build goes back under the key it had, its stored row whole
+            // (east-workspace#1709): a row its record holds there stays there, whatever key its fields build.
+            const home = schedule?.movedFrom(bins).get(id);
+            if (home !== undefined) {
+                const stored = state.read.get(id)?.bytes;
+                if (takes && stored !== undefined && record([{ kind: bins, id, remove: true }, { kind: bins, id: home, row: stored }], "typed", "Revert")) {
+                    select({ type: "bin", id: home });
+                }
                 return;
             }
             if (write("Revert", "typed", next => { next.bins.set(id, domain.copyDay(held).bins.get(id)!); })) select({ type: "bin", id });

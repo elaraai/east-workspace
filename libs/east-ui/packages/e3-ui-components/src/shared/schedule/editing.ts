@@ -15,486 +15,38 @@
  * `shown`): a Save's confirmation reads its events by their keys, never the
  * cells.
  */
-import { useCallback, useMemo, useRef, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-    BlobType, DictType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
-    isVariant, none, parseFor, some, variant, type EastType, type ValueTypeOf, type option,
+    BlobType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
+    isVariant, none, parseFor, some, variant, type EastType, type option,
 } from "@elaraai/east";
-import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
     EntryRefType, drawnFromKeys, fieldBreaches, historyKeyOf, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, randomKeys, useEditHistory,
     useTrackedEvaluation,
-    type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
+    type EditHistory, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditPoint, type EditSession,
     type EntryKeys, type EntryVersion, type LandedEntry, type Origin,
 } from "@elaraai/east-ui-components";
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
-import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
+import { builtKeyOrigins, settleBuiltKeys } from "../built-keys.js";
+import { givenKeys } from "../given-keys.js";
+import { newsOf, useLatestOf } from "../use-latest.js";
 import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
+import {
+    heldRowOf,
+    type ScheduleChange, type ScheduleEditing, type ScheduleEditingArgs, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef,
+    type ScheduleEventDraftsValue, type ScheduleItemValue, type ScheduleKeyRefusal, type ScheduleKindDraftsValue, type ScheduleKindSession,
+    type ScheduleLanded, type ScheduleLandedRow, type ScheduleLandedRows, type ScheduleRange, type ScheduleRead, type ScheduleRenumbered,
+    type SchedulePoint, type ScheduleRowRead,
+} from "./editing-types.js";
+
+// The editing's contract — what a builder hands it and what it hands back — in a module of its own (`editing-types.ts`).
+export * from "./editing-types.js";
 
 /** The common event projection decoded from Schedule. */
-type Item = ValueTypeOf<typeof ScheduleItemType>;
-/** An event's projected facts and its full record row. */
-export type ScheduleRead<I extends Item = Item> = Omit<ValueTypeOf<typeof ScheduleReadType>, "item"> & { readonly item: I };
-/**
- * The common kind, with a renderer's richer projection when it has one: one event by its key's text, the drafts in
- * place, its row as a reader of the kind's cells holds it given (#1039) — `none` for a kind given no cells, which reads
- * the window; `some(none)` for an event they do not hold, read by its key ({@link heldRowOf}).
- */
-export type ScheduleEditingKind<I extends Item = Item> = Omit<ValueTypeOf<typeof ScheduleKindType>, "event"> & {
-    readonly event: (id: string, drafts: ScheduleKindDraftsValue, from: Date, to: Date, held: option<option<Uint8Array>>) => option<ScheduleRead<I>>;
-};
-/**
- * The rows a builder's reads hold of one kind, by the event's key's text: each its row's bytes — read one at a time by a
- * gesture or an inspector, or every one in turn by a check over them all.
- */
-export interface ScheduleKindRows extends Iterable<readonly [string, { readonly row: Uint8Array }]> {
-    /**
-     * Whether they hold an event.
-     *
-     * @param id - The event's key's text
-     */
-    has(id: string): boolean;
-    /**
-     * An event's row.
-     *
-     * @param id - The event's key's text
-     * @returns Its row's bytes; `undefined` for an event they do not hold
-     */
-    get(id: string): { readonly row: Uint8Array } | undefined;
-}
-/**
- * The rows each kind a reader gives cells holds (#1039, #1599) — a kind read by its series index's cells, or its
- * window's own rows — by the kind's slot, then by the event's key's text: where a gesture, the inspector and a banner
- * find one of its events, with no read of its own.
- */
-export type ScheduleHeldRows = ReadonlyMap<string, ScheduleKindRows>;
-/**
- * What the cells' reader holds of one event of a kind (#1039), as the kind's `event` takes it: `none` for a kind it gives
- * no cells, which reads the window; `some(none)` for an event they do not hold, read by its key; else the event's row.
- *
- * @param held - The rows each kind given cells holds, by its slot
- * @param kind - The event's kind's slot
- * @param id - The event's key's text
- * @returns What its `event` is given
- */
-export function heldRowOf(held: ScheduleHeldRows | undefined, kind: string, id: string): option<option<Uint8Array>> {
-    const rows = held?.get(kind);
-    if (rows === undefined) return none;
-    const row = rows.get(id);
-    return some(row === undefined ? none : some(row.row));
-}
-/**
- * Where an issue of a kind's session is, as a builder names it — its event's
- * title, read with the drafts in place; for an event the drafts removed, its
- * title as its record held it when last read ({@link ScheduleEditing.heldEvent}):
- * a conflict's card names the event a person removed, never its key — or its
- * key's text while the event is read, or where its read fails; empty for the
- * source as a whole.
- *
- * @param editing - The shared editing
- * @param kind - The kind's slot
- * @param entry - The issue's entry: its event's key's text
- * @returns The event's name
- */
-export function scheduleIssueName(editing: Pick<ScheduleEditing, "read" | "heldEvent">, kind: string, entry: string): string {
-    if (entry === "") return "";
-    try {
-        return (editing.read(kind, entry) ?? editing.heldEvent(kind, entry))?.item.title ?? entry;
-    } catch {
-        return entry;
-    }
-}
-
-/** One event entry's identity in the shared session. */
-export interface ScheduleEntryRef { readonly id: string }
-/** The time range the renderer reads. */
-export interface ScheduleRange { readonly from: Date; readonly to: Date }
-/** Every kind's drafts, by kind then entry id. */
-export type ScheduleEventDraftsValue = ValueTypeOf<DictType<StringType, typeof ScheduleDraftsType>>;
-/** One kind's drafts. */
-export type ScheduleKindDraftsValue = ValueTypeOf<typeof ScheduleDraftsType>;
-/** A write through a kind's field names. */
-export type ScheduleGestureValue = ValueTypeOf<typeof ScheduleGestureType>;
-
-/**
- * One event a gesture changes, and how: through its kind's `write` (a move,
- * a resize, a drop, a schedule or an unschedule, a field edited), its new row
- * whole (an author's `update`, a duplicate — `created`, an event under a new
- * key), or deleted. A row of a record beside the kinds is given whole,
- * rewritten from the row as the gesture finds it (#1388: the Schematic's
- * gestures, each through its kind's own `write`; Publish's status, over the
- * period's row as its Save left it), or deleted.
- */
-export type ScheduleChange =
-    | { readonly kind: string; readonly id: string; readonly gesture: ScheduleGestureValue }
-    | {
-        readonly kind: string; readonly id: string; readonly row: Uint8Array; readonly created?: true | undefined;
-        /**
-         * The row the change begins from, where what made it read the row itself — an optimiser's answer, landed on a
-         * row read by its key (east-workspace#1622, rule 8): what the step begins from where the session holds none of
-         * the entry, in place of the builder's own read of it.
-         */
-        readonly was?: Uint8Array | undefined;
-    }
-    | {
-        readonly kind: string; readonly id: string;
-        /**
-         * The row as the gesture leaves it, from the row as it finds it — drafted, else as the record holds it: the
-         * row the session's original is, so a rewrite never rests on a copy older than it. `undefined` refuses
-         * it, and the gesture records nothing.
-         */
-        readonly rewrite: (row: Uint8Array) => Uint8Array | undefined;
-        /**
-         * The row the gesture writes where it finds none, made only then: a period its record holds no row of, which
-         * Publish writes afresh from the app's `values`. Left out, or making none — `values` that fail as they run —
-         * a gesture that finds no row records nothing.
-         */
-        readonly absent?: (() => Uint8Array | undefined) | undefined;
-    }
-    | {
-        readonly kind: string; readonly id: string; readonly remove: true;
-        /** The row the removal begins from, where what made it read the row itself (as a whole row's `was`). */
-        readonly was?: Uint8Array | undefined;
-    };
-
-/**
- * A record a builder writes beside its event kinds, a whole row at a time
- * (#1369): the Roster's weeks (`Schedule.periods`) and targets
- * (`Roster.targets`), and each of the Schematic's kinds and their details
- * (#1388). Its session joins the history as a kind's does; a change names it
- * by its key, and gives its new row whole, rewrites it, or removes it.
- */
-export interface ScheduleEditingRecord {
-    /** What a change names it by (`periods`, `targets`, a Schematic kind's slot): distinct from every other's. */
-    readonly key: string;
-    /** What its banners call it. */
-    readonly name: string;
-    /** Its session over the record: its entry and key types, and its patch door. */
-    readonly editing: ValueTypeOf<typeof ScheduleKindType>["editing"];
-    /** The record read by key, for one read a window at a time; `none` for one read whole. */
-    readonly entries: ValueTypeOf<typeof ScheduleKindType>["entries"];
-    /** The app's check over its drafted rows, which holds Save, naming the row; none unless given. */
-    readonly ready?: ValueTypeOf<typeof ScheduleKindType>["ready"] | undefined;
-    /**
-     * Its row's form, as its builder's inspector draws it (#1585): a changed row's number outside its field's bounds
-     * holds Save as the app's check does, naming the row and the field. None unless given.
-     */
-    readonly fields?: readonly FieldSpecValue[] | undefined;
-    /**
-     * Whether the builder draws what a confirmed Save landed of it over the rows it read before the commit, until they
-     * are read again (`EditSession.landed`): a record read by key whose rows the builder reads apart from the
-     * confirmation — the Schematic's kinds read by area, their windows. `false` by default.
-     */
-    readonly drawsLanded?: boolean | undefined;
-}
-
-/**
- * A row as a builder's own reads hold it, by its key's text (#1369): `undefined`
- * for one they do not hold, which is read by its key; `none` while they are
- * read; `some(none)` for one they hold the record has none of; else its bytes.
- * Every read of a record is pinned to one revision, so a builder's window
- * holds its rows at the revision a Save committed once it lands: the Save
- * confirms what the window holds from it, and reads by key only the rest.
- */
-export type ScheduleRowRead = (id: string) => option<option<Uint8Array>> | undefined;
-
-/**
- * Each kind's or record's rows as its builder draws them now, by its slot or key, then by the row's key's text: its
- * bytes, or `undefined` for one the builder draws none of ({@link ScheduleEditingArgs.standing}).
- */
-export type ScheduleStandingRows = Readonly<Record<string, (id: string) => Uint8Array | undefined>>;
-
-/** An event a confirmed Save landed, as it left it ({@link ScheduleLandedRows}). */
-export interface ScheduleLandedRow {
-    /** The event as the Save left it, as the seams take a draft: its row, or `missing` for one the Save deleted. */
-    readonly draft: Uint8Array;
-    /** Its row as the Save left it, as a reader of the kind's cells holds a row; `undefined` for one the Save deleted. */
-    readonly row: Uint8Array | undefined;
-}
-
-/**
- * What confirmed Saves landed of a kind whose events its builder reads apart from a Save's confirmation — a kind a reader
- * reads by its cells (#1424) — as its session keeps them (`EditSession.landed`), each event encoded once; and the
- * revision each of their Saves was drafted at, which tells a read of the kind from before them from one that holds them
- * (east-ui-components' `readBeforeSaves`).
- */
-export interface ScheduleLandedRows {
-    /** Each event a Save landed, by its key's text. */
-    readonly rows: ReadonlyMap<string, ScheduleLandedRow>;
-    /** The revisions the Saves' requests were drafted at; `undefined` among them for an event held from none (`LandedEntry.from`). */
-    readonly from: ReadonlySet<string | undefined>;
-}
-
-/** What confirmed Saves landed of each kind that draws them, by the kind's slot. */
-export type ScheduleLanded = ReadonlyMap<string, ScheduleLandedRows>;
-
-/**
- * The new events the last carry-over of each kind's drafts gave another key (#1583), by the kind's slot, then by the key
- * the event had (`EditSession.renumbered`): the key made for each was taken by another Save's own new event.
- */
-export type ScheduleRenumbered = ReadonlyMap<string, ReadonlyMap<string, string>>;
-
-/** One kind's session, or one record's, as the history holds it, for its banners. */
-export interface ScheduleKindSession {
-    /** The kind's slot, or the record's key. */
-    readonly kind: string;
-    /** Its key in the history. */
-    readonly key: string;
-    /** Its session. */
-    readonly session: EditSession<ScheduleEntryRef>;
-    /** Its row's form, as its builder's inspector draws it: what its issues name a field by (#1585). */
-    readonly fields: readonly FieldSpecValue[];
-}
-
-/** What {@link useScheduleEditing} hands the canvas. */
-export interface ScheduleEditing<I extends Item = Item> {
-    /** The one history across the kinds, the records and the joined sessions — `data`'s. */
-    readonly history: EditHistory<ScheduleEntryRef>;
-    /** Each kind's session, in the kinds' order, then each record's. */
-    readonly sessions: readonly ScheduleKindSession[];
-    /** Every kind's drafts and every record's, by kind or record then by entry id — the same object while their bytes hold. */
-    readonly drafts: ScheduleEventDraftsValue;
-    /** Moves each time the drafts do. */
-    readonly draftsVersion: number;
-    /**
-     * What confirmed Saves landed of each kind given {@link ScheduleEditingArgs.drawsLanded}, by its slot: what a reader
-     * of its cells draws over cells read before the commit, until they are read again ({@link ScheduleEditing.shown}).
-     * The same object while nothing landed moves, a kind's the same while its own holds; one empty object while nothing
-     * is held.
-     */
-    readonly landed: ScheduleLanded;
-    /**
-     * The new events the last carry-over of each kind's drafts gave another key ({@link ScheduleEditingArgs.rekeys}):
-     * what a builder moves on to the new key with them — its selection. The same object until a carry-over gives an
-     * event another key; one empty object while none has.
-     */
-    readonly renumbered: ScheduleRenumbered;
-    /** The history's version: it moves with every change of it or of its sessions. */
-    readonly version: number;
-    /**
-     * Lets go of what Saves landed of a kind's events, once its builder's reads hold them as the record does now
-     * ({@link ScheduleEditing.landed}).
-     *
-     * @param kind - The kind's slot
-     * @param ids - The events' keys' texts
-     */
-    shown(kind: string, ids: Iterable<string>): void;
-    /**
-     * A kind's drafts, or a record's, by entry id: what its seams read.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @returns Its drafts; none for one with none
-     */
-    draftsOf(kind: string): ScheduleKindDraftsValue;
-    /**
-     * Whether a kind or a record takes a gesture now: its record read, its session writable.
-     *
-     * @param kind - The kind's slot, or the record's key
-     */
-    available(kind: string): boolean;
-    /**
-     * Whether a kind's session — or a record's — has yet to judge its drafts where its record reads now (#1599): it is
-     * carrying them over to a record that moved, or — from the very render the record moves in, before the session is
-     * told — it stands, no request of its own out, at another revision than the one its record reads at. What it says
-     * of a drafted row meanwhile, that its record holds it ({@link ScheduleEditing.held}), is of the record as it was: a
-     * builder keeps such a row as it last drew it (`drafted-rows.ts`' `DraftedStanding`). Tracked where it is called:
-     * it reads the record's revision.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @returns Whether it has; never for one read whole, whose session judges its drafts as its record is read
-     */
-    carrying(kind: string): boolean;
-    /**
-     * Whether an event — or a row of a record a builder writes — holds a
-     * conflict not yet chosen: what wears the warn ring on a canvas.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @param id - The event's key's text
-     */
-    conflicted(kind: string, id: string): boolean;
-    /**
-     * An event's row as its kind's record held it when last read — what its
-     * drafts are tinted against — or a row of a record a builder writes.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @param id - The event's key's text
-     * @returns The row, decoded; `undefined` for an event the record does not hold — and, for a kind read a window at
-     *   a time (#1199), for one its drafts do not hold, which stands as the record holds it
-     */
-    held(kind: string, id: string): unknown;
-    /**
-     * An event as its kind's record held it when last read ({@link ScheduleEditing.held}), read as its kind reads a row
-     * — its title, its start and its end — with none of its drafts in place and no read of the record: what names an
-     * event its drafts removed.
-     *
-     * @param kind - The kind's slot
-     * @param id - The event's key's text
-     * @returns The event; `undefined` for one {@link ScheduleEditing.held} holds no row of, or a record beside the kinds
-     * @throws {Error} When the kind's read of the row fails
-     */
-    heldEvent(kind: string, id: string): ScheduleRead<I> | undefined;
-    /**
-     * A row read as its kind reads an event — its title, its start and its end — with nothing read of the record or of
-     * the drafts: what names a row an optimiser's answer gives or changes, and says where it stood and where the answer
-     * puts it (east-workspace#1622, rules 10 and 11).
-     *
-     * @param kind - The kind's slot
-     * @param id - The event's key's text
-     * @param row - The row, decoded
-     * @returns The event; `undefined` for a record beside the kinds, or no such kind
-     * @throws {Error} When the kind's read of the row fails
-     */
-    eventOf(kind: string, id: string, row: unknown): ScheduleRead<I> | undefined;
-    /**
-     * One event as its kind reads it now, its drafts in place (#1197, #1199):
-     * what a gesture, the inspector and a banner read of it. Where the
-     * builder's own reads hold its row (`reads`: a page of the Calendar's
-     * Backlog, #1424), it is read from that row; else a kind read a window at
-     * a time looks for it among the rows its windows hold over the range the
-     * canvas reads, then reads it by its key — tracked, inside a tracked
-     * evaluation, so the read lands there.
-     *
-     * @param kind - The kind's slot
-     * @param id - The event's key's text
-     * @returns The event as Plan draws it, and its row; `undefined` for no such event, or one whose read is in flight
-     * @throws {Error} When the kind's read fails
-     */
-    read(kind: string, id: string): ScheduleRead<I> | undefined;
-    /**
-     * An entry's row as the page holds it (east-workspace#1622, rule 8): its session's own version, with its drafts
-     * in place; what its last Save left; else the record's row — as the builder draws it, or as its own reads or its
-     * cells hold it. What an optimiser's answer lands on: a row the page does not hold is read by its key first
-     * ({@link ScheduleEditing.rowsByKey}).
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @param id - The entry's key's text
-     * @returns The row, decoded; `none` for a key no row stands under — the drafts removed it, or the record, read
-     *   whole, holds none; `undefined` for one the page does not hold of a record read a window at a time, while one
-     *   of its own reads is in flight, and for no such kind
-     */
-    row(kind: string, id: string): option<unknown> | undefined;
-    /**
-     * Several entries of a kind's record — or of a record beside the kinds — read by their keys, every one in one
-     * read (#1596), as a Save's entries are read back: the rows an optimiser's answer touches that the page does not
-     * hold (east-workspace#1622, rule 8). A tracked read: inside a tracked evaluation, its landing moves it.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @param ids - The entries' keys' texts
-     * @returns Each row, decoded, `none` for one the record does not hold, by its key's text; `undefined` while the
-     *   read is on its way. A record read whole holds every row there is: each is `none`.
-     */
-    rowsByKey(kind: string, ids: readonly string[]): ReadonlyMap<string, option<unknown>> | undefined;
-    /**
-     * A new event's key, as its text — its kind's session's to make
-     * (`EditSession.mint`): a text key from an event's key or a template's,
-     * else made up — the next in a row (`J-1001-2`) for a kind whose record
-     * its session holds whole, and with a suffix drawn at random
-     * (`J-1001-5f3a9c2e`) for one read a window at a time, whose earlier
-     * copies stand out of view; an Integer key one past the largest; past
-     * every key the record is known to hold, the drafts hold, the builder
-     * shows a row under and `minted` holds. Two sessions that hold a record
-     * whole make the same key from the same one: where another Save takes it
-     * first, a kind given {@link ScheduleEditingArgs.rekeys} has the event
-     * made another, and any other raises the two as a conflict.
-     *
-     * @param kind - The kind's slot, or the record's key
-     * @param from - The key's text it is made from; empty for a row made from none
-     * @param minted - The keys a gesture has made already
-     * @returns The key's text; `undefined` for a kind keyed by neither String nor Integer, and while an Integer kind
-     *   read a window at a time has its largest key read
-     */
-    mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined;
-    /**
-     * Record one gesture as one step of the history: each event it changes,
-     * in its kind's session, and each row of a record, in the record's — a
-     * record's row given whole, rewritten from the row as it stands, or
-     * removed.
-     *
-     * @param changes - Each event or row it changes, and how; one changed twice composes, in order
-     * @param origin - The gesture
-     * @param label - Its label in the history
-     * @returns Whether anything changed; nothing is, when a rewrite refuses, or finds no row and gives none in its place
-     */
-    record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean;
-}
-
-/** What {@link useScheduleEditing} reads. */
-export interface ScheduleEditingArgs<I extends Item = Item> {
-    /** The event kinds, as the payload carries them. */
-    kinds: readonly ScheduleEditingKind<I>[];
-    /** The records the builder writes beside its kinds, a whole row at a time (#1369): a session each, after the kinds'. */
-    records?: readonly ScheduleEditingRecord[] | undefined;
-    /**
-     * Each kind's or record's rows as the builder's own reads hold them, by its slot or key (#1369): what a gesture
-     * finds an entry as before it, and what a Save confirms its entries by, before any is read by its key.
-     */
-    reads?: Readonly<Record<string, ScheduleRowRead>> | undefined;
-    /**
-     * Where the rows the builder draws now are kept, by kind or record ({@link ScheduleStandingRows}): what its person
-     * sees. A gesture's original is found there first, after the session's own version and what its last Save left
-     * (`EditSession.startOf`) — so a gesture begins from the row shown, and is taken at once while a record's rows are
-     * read again after a Save, or after another session's write, never refused for a read on its way (a Save never
-     * stops the editing). Never a Save's confirmation, which reads the revision it committed. A row drawn may have been
-     * read at the revision before: where another write changed the same part of it since, the source refuses the Save
-     * that sends it, and the session carries its drafts over at its own revision (`EditSession.nameConflicts`), the
-     * part both changed a conflict to choose. Read as a gesture is recorded, so rows moving make no new session.
-     */
-    standing?: RefObject<ScheduleStandingRows | undefined> | undefined;
-    /** The canvas's storage key: the sessions and their history are kept under it. */
-    storageKey: string;
-    /** Sessions made elsewhere that join the history, ahead of the kinds': `data`'s. */
-    joined: readonly EditHistoryJoined<ScheduleEntryRef>[];
-    /** The range the canvas reads its event kinds' rows over (#1199): a kind read a window at a time holds every event it draws there. */
-    range?: ScheduleRange | undefined;
-    /**
-     * The record Slices over the edited kinds' primary records, for confirmed Save feedback: each kind's is the one
-     * over its record (`sourceId`) — the Calendar's, its slice's part named after the kind (#1343).
-     */
-    recordSlices?: readonly ValueTypeOf<RecordSliceBindType>[] | undefined;
-    /**
-     * Where the rows each kind read by its cells holds are kept (#1039), by the kind's slot, then by the event's key's
-     * text: where a gesture, the inspector and a banner find one of its events, with no read of its own; one they do not
-     * hold is read by its key, never over the window. Read as each read runs, so new cells make no new kinds and draw
-     * nothing (#1594).
-     */
-    held?: RefObject<ScheduleHeldRows | undefined> | undefined;
-    /**
-     * The kinds whose events the builder reads apart from a Save's confirmation, by their slots: those a reader may read
-     * by their cells (#1424), whose cells stand at the revision they were read at until they are read again. What each
-     * Save lands of them is kept (`EditSession.landed`) and handed on ({@link ScheduleEditing.landed}) until the builder
-     * lets it go. None by default: a kind read over the window keeps its drafted read until the read again lands.
-     */
-    drawsLanded?: ReadonlySet<string> | undefined;
-    /**
-     * The kinds whose new events take another key where another Save took the one made for them (#1583), by their
-     * slots: two people who each make an event from one template, over a kind whose record their sessions hold whole,
-     * are given the same key ({@link ScheduleEditing.mint}), and the event made here goes on under another its session
-     * makes — both kept, nothing to choose. Only for a kind none of whose events anything else the builder drafts names by its key: under
-     * a new key, such a name would be left on the other session's event (keys.ts' `onceKeys`). None by default: the
-     * two are a conflict to choose between. Its builder moves on what it holds by the old key
-     * ({@link ScheduleEditing.renumbered}).
-     */
-    rekeys?: ReadonlySet<string> | undefined;
-    /**
-     * What a conflict at a kind's quantity, or at its split across resources, is called — the builder's own word for
-     * a quantity: the two change together, so the conflicts popover shows them as one card under it.
-     */
-    quantityLabel?: string | undefined;
-    /**
-     * The fields of a kind's form a changed row's numbers are held to the bounds of (#1585), by the kind's slot, from the
-     * row as its draft holds it — every bounded field of its form unless given: an Allocation's reservation holds no
-     * quantity until an arrival is booked into it, so none of its quantity's bounds are its own.
-     */
-    boundsOf?: Readonly<Record<string, (row: unknown) => readonly FieldSpecValue[]>> | undefined;
-    /**
-     * What the builder's author begins its Autosave at — its payload's `autosave`, which every builder hands on, so none
-     * leaves its author's word unread. Its viewer's own choice, once made, stands over it (east-ui-components'
-     * `useEditHistory`).
-     */
-    autosave: boolean;
-}
+type Item = ScheduleItemValue;
 
 /** An event kind or a record, as the history holds its session. */
 interface EditedPart<I extends Item> {
@@ -506,6 +58,10 @@ interface EditedPart<I extends Item> {
     readonly editing: ScheduleEditingKind<I>["editing"];
     /** Its record read by key, for one read a window at a time. */
     readonly entries: ScheduleEditingKind<I>["entries"];
+    /** The app's rule for a new entry's key, where it gives one. */
+    readonly newKey: ScheduleEditingKind<I>["newKey"];
+    /** An entry's key's text, built from its row, where its kind builds one. */
+    readonly rowKey: ScheduleEditingKind<I>["rowKey"];
     /** The author's check over its drafts: a kind's. */
     readonly ready: ScheduleEditingKind<I>["ready"];
     /** Its row's form: its numbers held to bounds (#1585). */
@@ -530,6 +86,12 @@ interface KindCodecs {
     readonly keys: "string" | "integer" | undefined;
     /** A key of the kind's type, by its text; `undefined` for text naming none. */
     readonly keyOf: (id: string) => unknown;
+    /**
+     * A row as it stands under a key, where its record's rows hold their own key in a field — a keyed session's
+     * identity field: the row with that key there. The row as it is where they hold none, and under a text no key
+     * prints as, a placeholder for a key still to be typed.
+     */
+    readonly underKey: (id: string, row: unknown) => unknown;
 }
 
 /** A deleted entry's draft, as the seams read it. */
@@ -550,10 +112,14 @@ const NO_LAST: ReadonlyMap<string, option<option<string>>> = new Map();
 const NO_RECORDS: readonly ScheduleEditingRecord[] = [];
 /** A record given no form. */
 const NO_FIELDS: readonly FieldSpecValue[] = [];
+/** How many times over the rows that follow a moved row may move in their turn: a link keyed by its ends, an end moved. */
+const FOLLOW_ROUNDS = 4;
 /** Nothing a Save landed is held. */
 const NO_LANDED: ScheduleLanded = new Map();
 /** No carry-over gave a new event another key. */
 const NO_RENUMBERED: ScheduleRenumbered = new Map();
+/** The drafts hold no row moved under another key. */
+const NO_MOVES: ReadonlyMap<string, string> = new Map();
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -590,7 +156,8 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
 export function useScheduleEditing<I extends Item = Item>({
-    kinds, records = NO_RECORDS, reads, standing, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, rekeys, quantityLabel, boundsOf, autosave,
+    kinds, records = NO_RECORDS, reads, standing, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, rekeys, following, quantityLabel, boundsOf,
+    autosave,
 }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
@@ -601,13 +168,21 @@ export function useScheduleEditing<I extends Item = Item>({
     // new ones make no new sessions.
     const boundsRef = useRef(boundsOf);
     boundsRef.current = boundsOf;
+    // Why the last gesture, or the last key asked for, added or moved no row for its key ({@link ScheduleEditing.keyRefusal}).
+    const keyRefusedRef = useRef<ScheduleKeyRefusal | undefined>(undefined);
+    // How the rows that name a moved row follow it, as it stands when a gesture is recorded.
+    const followingRef = useRef(following);
+    followingRef.current = following;
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
         ...kinds.map((kind) => ({
-            key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind, read: reads?.[kind.key],
-            drawsLanded: drawsLanded?.has(kind.key) === true ? true : undefined, rekeys: rekeys?.has(kind.key) === true,
+            key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, newKey: kind.newKey, rowKey: kind.rowKey, ready: kind.ready,
+            fields: kind.fields, kind, read: reads?.[kind.key],
+            // A key its row builds is the row's identity: where another Save takes it, the two are a conflict, never re-made.
+            drawsLanded: drawsLanded?.has(kind.key) === true ? true : undefined, rekeys: rekeys?.has(kind.key) === true && kind.rowKey.type !== "some",
         })),
-        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: record.ready ?? none,
+        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, newKey: record.newKey ?? none,
+            rowKey: record.rowKey ?? none, ready: record.ready ?? none,
             fields: record.fields ?? NO_FIELDS, kind: undefined, read: reads?.[record.key], drawsLanded: record.drawsLanded, rekeys: false })),
     ], [kinds, records, reads, drawsLanded, rekeys]);
     const codecs = useMemo(() => parts.map((kind): KindCodecs => {
@@ -616,13 +191,19 @@ export function useScheduleEditing<I extends Item = Item>({
         const keyType = kind.editing.keyType.type === "some" ? fromEastTypeValue(kind.editing.keyType.value) as EastType : undefined;
         const draftEqual = equalFor(OptionType(draftType));
         const optionOf = (version: EntryVersion<ScheduleEntryRef> | undefined) => (version?.draft === undefined ? none : some(version.draft));
+        const keyOf = keyType === undefined ? (id: string): unknown => id : keyReaderOf(keyType);
+        const keyField = keyType !== undefined && kind.editing.idField.type === "some" ? kind.editing.idField.value : undefined;
         return {
             encodeRow: encodeBeast2For(entryType) as (row: unknown) => Uint8Array,
             decodeRow: decodeBeast2For(entryType) as (bytes: Uint8Array) => unknown,
             encodeDraft: encodeBeast2For(draftType) as (draft: unknown) => Uint8Array,
             sameDraft: (a, b) => draftEqual(optionOf(a) as never, optionOf(b) as never),
             keys: keyType?.type === "String" ? "string" : keyType?.type === "Integer" ? "integer" : undefined,
-            keyOf: keyType === undefined ? (id) => id : keyReaderOf(keyType),
+            keyOf,
+            underKey: (id, row) => {
+                const key = keyField === undefined ? undefined : keyOf(id);
+                return keyField === undefined || key === undefined ? row : { ...(row as Record<string, unknown>), [keyField]: key };
+            },
         };
     }), [parts]);
     // Each kind's source and each record's: its closed editing; a kind's author's check over drafted events; and, for
@@ -656,7 +237,11 @@ export function useScheduleEditing<I extends Item = Item>({
         const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
             (id, held) => fieldBreaches(heldTo(held), held).map((breach) => breachIssue(breach, id)), originals, app);
         // How its new entries are keyed (#1583, east-ui-components' `keys.ts`): its session makes each key, and holds it as
-        // its own until the entry is saved. A text key is made from the key its entry is made from — a template's, a
+        // its own until the entry is saved. A part that builds its keys from its rows (`rowKey`) is given one made up, which
+        // stands for a new row only until its gesture is recorded: the recorder moves the row under the key it builds.
+        // By the app's own rule where it gives one (`newKey`), given every key known
+        // taken: a key it gives that is taken, or a rule that throws, makes none, and the gesture adds nothing. Else by
+        // its key's type. A text key is made from the key its entry is made from — a template's, a
         // copied event's — else made up: the next in a row (`brackets-2`) where the session holds the record whole, and
         // with a suffix drawn at random where it is read a window at a time — there the session cannot know which of a
         // row's keys are taken, and the next in a row is, as often as not, an earlier copy's out of view. An Integer key
@@ -664,7 +249,11 @@ export function useScheduleEditing<I extends Item = Item>({
         // a key of another type is given none here. A kind given `rekeys` has it made another where another Save took
         // it; any other part keeps the key, the two a conflict.
         const windowed = kind.entries.type === "some";
-        const rule: EntryKeys | undefined = codecs[i]!.keys === "string" ? (windowed ? drawnFromKeys(randomKeys()) : madeFromKeys(randomKeys()))
+        const rule: EntryKeys | undefined = kind.rowKey.type === "some" ? randomKeys() : kind.newKey.type === "some" ? givenKeys(kind.newKey.value, (why) => {
+            if ("failed" in why) console.error(`[Schedule] ${kind.name}'s newKey failed: nothing was added:`, why.failed);
+            keyRefusedRef.current = { kind: kind.key, name: kind.name, id: "", why };
+        })
+            : codecs[i]!.keys === "string" ? (windowed ? drawnFromKeys(randomKeys()) : madeFromKeys(randomKeys()))
             : codecs[i]!.keys !== "integer" ? undefined
                 : nextIntegerKeys(!windowed ? undefined : () => {
                     const last = lastKeysRef.current.get(kind.key);
@@ -676,17 +265,30 @@ export function useScheduleEditing<I extends Item = Item>({
         const once = rule === undefined || kind.rekeys ? rule : onceKeys(rule);
         // Read a window at a time, its session knows none of its record's keys but those it has met: each key is made
         // past those its builder shows a row under — what it draws, what its own reads and its cells hold — so a new row
-        // is never drawn over one on the page. One the record holds out of view is refused at Save, and made another.
+        // is never drawn over one on the page; and its rule is told them beside those its session holds, as the Sheet's is
+        // told the rows it has read, so the app's own rule makes its key from every key the page shows, never only from
+        // those it runs into. One the record holds out of view is refused at Save, and made another.
         const shows = (id: string): boolean => {
-            if (standing?.current?.[kind.key]?.(id) !== undefined) return true;
-            const own = kind.read?.(id);
+            if (standing?.current?.[kind.key]?.row(id) !== undefined) return true;
+            const own = kind.read?.row(id);
             if (own !== undefined && own.type === "some" && own.value.type === "some") return true;
             const held = heldRowOf(cellRows?.current, kind.key, id);
             return held.type === "some" && held.value.type === "some";
         };
-        const made = once === undefined || !windowed ? once : pastKeys(once, shows);
-        // An entry's projection is its id: under another key, that key's.
-        const underKey = (id: string, entry: EntryVersion<ScheduleEntryRef>): EntryVersion<ScheduleEntryRef> => ({ ...entry, wire: { id } });
+        const shown = function* (): Iterable<string> {
+            yield* standing?.current?.[kind.key]?.ids() ?? [];
+            yield* kind.read?.ids() ?? [];
+            for (const [id] of cellRows?.current?.get(kind.key) ?? []) yield id;
+        };
+        const made = once === undefined || !windowed ? once : pastKeys({
+            make: (known, from, taken) => once.make({ has: (id) => known.has(id), ids: function* () { yield* shown(); yield* known.ids(); } }, from, taken),
+        }, shows);
+        // An entry's projection is its id: under another key, that key's — and its row's key field, where its record's
+        // rows hold their key in one.
+        const underKey = (id: string, entry: EntryVersion<ScheduleEntryRef>): EntryVersion<ScheduleEntryRef> => {
+            const row = rowOf(entry);
+            return { ...entry, draft: row === undefined ? entry.draft : variant("value", codecs[i]!.underKey(id, row)), wire: { id } };
+        };
         if (!windowed) return { editing, ready, prepare, wireType: EntryRefType, ranges, together, keys: made, underKey };
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;
@@ -694,7 +296,7 @@ export function useScheduleEditing<I extends Item = Item>({
         // Where the builder's own reads hold an entry, at the revision every read of the record is pinned to: read with no
         // request, so a Save's confirmation judges every one of them at once.
         const heldRow = own === undefined ? undefined : (id: string): option<option<unknown>> | undefined => {
-            const held = own(id);
+            const held = own.row(id);
             if (held === undefined) return undefined;
             return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
         };
@@ -827,10 +429,11 @@ export function useScheduleEditing<I extends Item = Item>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, codecs, keys, history, version]);
 
-    // ── The new events a carry-over gave another key ─────────────────────────
-    // Each kind's session says them once, a new map at each carry-over: handed on as one object, the same until one moves.
+    // ── The entries that last went on under another key ──────────────────────
+    // The new events a carry-over gave another key: each kind's session says them once, a new map at each carry-over,
+    // handed on as one object, the same until one moves.
     const heldRenumbered = useRef<ScheduleRenumbered>(NO_RENUMBERED);
-    const renumbered = useMemo((): ScheduleRenumbered => {
+    const carried = useMemo((): ScheduleRenumbered => {
         const was = heldRenumbered.current;
         const out = new Map<string, ReadonlyMap<string, string>>();
         parts.forEach((part, i) => {
@@ -843,6 +446,35 @@ export function useScheduleEditing<I extends Item = Item>({
         // The sessions are mutable: the history's version records each carry-over.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, keys, history, version]);
+
+    // The rows the last Undo or Redo put back under another key (east-workspace#1709): each part's session says its own,
+    // a new map at each that moves one (`EditSession.rekeyed`). Only what a session says after it is first heard here is
+    // new (`newsOf`): the history takes its sessions up after the first render, each saying still what its last Undo
+    // moved before this builder mounted, and the key an entry left then may be another row's since.
+    const heardRekeyed = useRef(new WeakMap<EditSession<ScheduleEntryRef>, ReadonlyMap<string, string>>());
+    const heldStepped = useRef<ScheduleRenumbered>(NO_RENUMBERED);
+    const stepped = useMemo((): ScheduleRenumbered => {
+        const out = new Map<string, ReadonlyMap<string, string>>();
+        parts.forEach((part, i) => {
+            const session = history.session(keys[i]!);
+            const said = session === undefined ? undefined : newsOf(heardRekeyed.current, session, session.rekeyed);
+            if (said !== undefined && said.size > 0) out.set(part.key, said);
+        });
+        if (out.size > 0) heldStepped.current = out;
+        return heldStepped.current;
+        // The sessions are mutable: the history's version records each Undo and Redo.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [parts, keys, history, version]);
+
+    // The rows a gesture moved under the key their fields build, and whichever of the three came last: a builder follows
+    // each once, so one it has followed is never met again beside another — the key a carry-over left may since be
+    // another session's event's. What stood as the editing mounted is none of them: a builder that mounts again follows
+    // only what moves from then on.
+    const [moved, setMoved] = useState<ScheduleRenumbered>(NO_RENUMBERED);
+    const renumbered = useLatestOf([carried, moved, stepped], NO_RENUMBERED);
+
+    // What the last gesture recorded moved, by the part's key, then by the key each row had ({@link ScheduleEditing.under}).
+    const lastMovesRef = useRef<ScheduleRenumbered>(NO_RENUMBERED);
 
     // ── The gestures ─────────────────────────────────────────────────────────
     /**
@@ -862,10 +494,10 @@ export function useScheduleEditing<I extends Item = Item>({
         if (("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true)) return ABSENT;
         const codec = codecs[indexOf(part.key)]!;
         // The row as the builder draws it now, where it draws one: what its person sees and acts on.
-        const drawn = standing?.current?.[part.key]?.(change.id);
+        const drawn = standing?.current?.[part.key]?.row(change.id);
         if (drawn !== undefined) return { draft: variant("value", codec.decodeRow(drawn)), wire: undefined, place: KEY_ORDER };
         // Where the builder's own reads hold it: in flight, absent, or its row.
-        const held = part.read?.(change.id);
+        const held = part.read?.row(change.id);
         if (held !== undefined) {
             if (held.type !== "some") return undefined;
             return held.value.type === "some" ? { draft: variant("value", codec.decodeRow(held.value.value)), wire: undefined, place: KEY_ORDER } : ABSENT;
@@ -909,6 +541,22 @@ export function useScheduleEditing<I extends Item = Item>({
         const at = codecs[i]!.keyOf(id);
         return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
     };
+    /**
+     * The moves the drafts hold of a part's rows ({@link ScheduleEditing.movedFrom}): its session's own
+     * (`EditSession.moved`), with its drafts — the same object while they hold — so a builder that mounts again, or a
+     * page that loads again, finds them as the drafts stand.
+     */
+    const movedOf = (kind: string): ReadonlyMap<string, string> => {
+        const i = indexOf(kind);
+        return (i < 0 ? undefined : history.session(keys[i]!)?.moved) ?? NO_MOVES;
+    };
+    /** A row as its record holds it, or — moved by the drafts under the key its fields build — as it holds it under the key it had ({@link ScheduleEditing.held}). */
+    const heldNow = (kind: string, id: string): unknown => {
+        const row = heldRow(kind, id);
+        if (row !== undefined) return row;
+        const from = movedOf(kind).get(id);
+        return from === undefined ? undefined : heldRow(kind, from);
+    };
     /** A row read as its kind reads an event, nothing read of the record or of the drafts ({@link ScheduleEditing.eventOf}). */
     const eventOfRow = (kind: string, id: string, row: unknown): ScheduleRead<I> | undefined => {
         const i = indexOf(kind);
@@ -921,119 +569,34 @@ export function useScheduleEditing<I extends Item = Item>({
         const got = event.event(id, alone, at.from, at.to, heldRowOf(cellRows?.current, kind, id));
         return got.type === "some" ? got.value : undefined;
     };
-    const api = {
-        shown(kind: string, ids: Iterable<string>): void {
-            const i = indexOf(kind);
-            if (i >= 0) history.session(keys[i]!)?.shown(ids);
-        },
-        draftsOf(kind: string): ScheduleKindDraftsValue {
-            return drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS;
-        },
-        available(kind: string): boolean {
-            const i = indexOf(kind);
-            return i >= 0 && state.available(keys[i]!);
-        },
-        carrying(kind: string): boolean {
-            const i = indexOf(kind);
-            const session = i < 0 ? undefined : history.session(keys[i]!);
-            if (session === undefined) return false;
-            if (session.carrying) return true;
-            // At another revision than its record reads at, no request of its own out: told of it only after this render.
-            // A session whose Save is out reads its own commit back, and carries nothing over meanwhile.
-            const seam = parts[i]!.entries;
-            if (seam.type !== "some" || session.locked) return false;
-            const base = session.drafts.revision;
-            const now = seam.value.revision();
-            return base !== undefined && now.type === "some" && !stringEqual(base, now.value);
-        },
-        conflicted(kind: string, id: string): boolean {
-            const i = indexOf(kind);
-            return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
-        },
-        held(kind: string, id: string): unknown {
-            return heldRow(kind, id);
-        },
-        heldEvent(kind: string, id: string): ScheduleRead<I> | undefined {
-            const row = heldRow(kind, id);
-            return row === undefined ? undefined : eventOfRow(kind, id, row);
-        },
-        eventOf(kind: string, id: string, row: unknown): ScheduleRead<I> | undefined {
-            return eventOfRow(kind, id, row);
-        },
-        read(kind: string, id: string): ScheduleRead<I> | undefined {
-            const i = indexOf(kind);
-            const event = i < 0 ? undefined : parts[i]!.kind;
-            // A record beside the kinds holds rows, not events: its builder reads them itself.
-            if (event === undefined) return undefined;
-            const at = rangeRef.current ?? NO_RANGE;
-            // Where the builder's own reads hold its row — a page of the Calendar's Backlog (#1424) — from them, read no more.
-            const own = parts[i]!.read?.(id);
-            const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(cellRows?.current, kind, id);
-            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, held);
-            return got.type === "some" ? got.value : undefined;
-        },
-        row(kind: string, id: string): option<unknown> | undefined {
-            const i = indexOf(kind);
-            if (i < 0) return undefined;
-            const part = parts[i]!;
-            const codec = codecs[i]!;
-            // The session's own version, what its last Save left, or — its record read whole — the record's row.
-            const known = state.original(keys[i]!, id);
-            if (known !== undefined) {
-                const row = rowOf(known);
-                return row === undefined ? none : some(row);
+    /**
+     * What a gesture changes, each row under the key it then stands under, with nothing recorded: each kind's events
+     * and each record's rows, as it found them and as it leaves them, and the rows it moves under another key.
+     * `undefined` where a change, or a row's key, refuses the whole gesture — a key's refusal said ({@link keyRefusedRef}).
+     */
+    const gestureOf = (changes: readonly ScheduleChange[]): { readonly touched: ReadonlyMap<string, ReadonlyMap<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>;
+        readonly moves: ReadonlyMap<string, ReadonlyMap<string, string>> } | undefined => {
+        const touched = new Map<string, Map<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>();
+        /**
+         * Whether an event's kind holds it where it is (#1541, U9): the kind's own `locked`, over the row the
+         * gesture finds of it — in hand already, so no event is read for it. Never for a kind with no rule, a
+         * record a builder writes whole, or an event the gesture finds no row of.
+         */
+        const lockedAt = (part: EditedPart<I>, codec: KindCodecs, id: string, found: EntryVersion<ScheduleEntryRef>): boolean => {
+            const lock = part.kind?.locked;
+            if (lock === undefined || lock.type !== "some") return false;
+            const row = rowOf(found);
+            if (row === undefined) return false;
+            try {
+                return lock.value([{ id, entry: codec.encodeRow(row) }])[0] === true;
+            } catch (err) {
+                console.error(`[Schedule] ${part.name}'s lock of ${id} failed; it is taken as not locked:`, err);
+                return false;
             }
-            // Read a window at a time, and its session holds none of it: as its builder draws it now.
-            const drawn = standing?.current?.[part.key]?.(id);
-            if (drawn !== undefined) return some(codec.decodeRow(drawn));
-            // Where the builder's own reads hold it: in flight, absent, or its row.
-            const own = part.read?.(id);
-            if (own !== undefined) {
-                if (own.type !== "some") return undefined;
-                return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;
-            }
-            const cell = heldRowOf(cellRows?.current, part.key, id);
-            if (cell.type === "some" && cell.value.type === "some") return some(codec.decodeRow(cell.value.value));
-            // Not held: read by its key ({@link ScheduleEditing.rowsByKey}). A text no key prints as names no row the
-            // record holds (#1549).
-            return codec.keyOf(id) === undefined ? none : undefined;
-        },
-        rowsByKey(kind: string, ids: readonly string[]): ReadonlyMap<string, option<unknown>> | undefined {
-            const i = indexOf(kind);
-            if (i < 0) return undefined;
-            const reader = byKeys[i];
-            // A record read whole holds every row there is.
-            if (reader === undefined) return new Map(ids.map((id) => [id, none] as const));
-            const read = reader(ids);
-            return read === undefined || read.type !== "some" ? undefined : read.value;
-        },
-        mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined {
-            const i = indexOf(kind);
-            // Its session's to make (#1583): by the kind's rule, past every key its drafts and its record are known to
-            // hold and `minted` holds — none until the history holds the session.
-            return i < 0 ? undefined : history.session(keys[i]!)?.mint(from === "" ? undefined : from, minted);
-        },
-        record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean {
-            // Each kind's events and each record's rows the gesture changes: as it found them, and as it leaves them.
-            const touched = new Map<string, Map<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>();
-            /**
-             * Whether an event's kind holds it where it is (#1541, U9): the kind's own `locked`, over the row the
-             * gesture finds of it — in hand already, so no event is read for it. Never for a kind with no rule, a
-             * record a builder writes whole, or an event the gesture finds no row of.
-             */
-            const lockedAt = (part: EditedPart<I>, codec: KindCodecs, id: string, found: EntryVersion<ScheduleEntryRef>): boolean => {
-                const lock = part.kind?.locked;
-                if (lock === undefined || lock.type !== "some") return false;
-                const row = rowOf(found);
-                if (row === undefined) return false;
-                try {
-                    return lock.value([{ id, entry: codec.encodeRow(row) }])[0] === true;
-                } catch (err) {
-                    console.error(`[Schedule] ${part.name}'s lock of ${id} failed; it is taken as not locked:`, err);
-                    return false;
-                }
-            };
-            for (const change of changes) {
+        };
+        /** Takes a batch of changes into what the gesture touches; `false` where one refuses the whole gesture. */
+        const apply = (batch: readonly ScheduleChange[]): boolean => {
+            for (const change of batch) {
                 const i = indexOf(change.kind);
                 if (i < 0) return false;
                 const part = parts[i]!;
@@ -1106,12 +669,252 @@ export function useScheduleEditing<I extends Item = Item>({
                     if (written === undefined || written.type !== "some") continue;
                     row = codec.decodeRow(written.value);
                 }
-                entries.set(change.id, { before, after: { draft: variant("value", row), wire: { id: change.id }, place: KEY_ORDER } });
+                // A row the gesture adds holds its key in its record's key field from the first: a duplicate its own, never
+                // the key of the row it copies. A row its record holds, written back where the drafts removed it — a
+                // Restore — is left as it is: a stored row whose field never held its key keeps what it holds
+                // (east-workspace#1705, ruling 3).
+                const adds = creates || heldRow(part.key, change.id) === undefined;
+                const held = before.draft === undefined && adds ? codec.underKey(change.id, row) : row;
+                entries.set(change.id, { before, after: { draft: variant("value", held), wire: { id: change.id }, place: KEY_ORDER } });
             }
-            const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...touched]
-                .map(([key, entries]) => ({ key, updates: [...entries].map(([id, versions]) => ({ id, ...versions })) }))
+            return true;
+        };
+        if (!apply(changes)) return undefined;
+        // A part that builds its keys from its rows (`rowKey`): each row the gesture leaves stands under the key its row
+        // builds, by the one rule every builder follows (`../built-keys.ts`). A key another row stands under, or one
+        // that fails as it is built, refuses the whole gesture.
+        const settle = (): { readonly all: Map<string, Map<string, string>>; readonly held: Map<string, Map<string, string>> } | undefined => {
+            const now = new Map<string, Map<string, string>>();
+            // Those of them its record held: what the rows naming one by its key follow.
+            const held = new Map<string, Map<string, string>>();
+            for (const [key, entries] of touched) {
+                const i = keys.indexOf(key);
+                const part = parts[i]!;
+                const codec = codecs[i]!;
+                if (part.rowKey.type !== "some") continue;
+                const build = part.rowKey.value;
+                const settled = settleBuiltKeys(entries, {
+                    holds: (version) => rowOf(version) !== undefined,
+                    build: (_id, version) => build(codec.encodeRow(rowOf(version))),
+                    // The session's own, what its last Save left, its record's as last read.
+                    original: (id) => state.original(key, id),
+                    // The row its record holds under a key: what a row written back there after the drafts removed it is.
+                    stored: (id) => {
+                        const row = heldRow(part.key, id);
+                        return row === undefined ? undefined : { draft: variant("value", row), wire: undefined, place: KEY_ORDER };
+                    },
+                    // One its builder shows, of a record read a window at a time.
+                    shown: (id) => {
+                        if (part.entries.type !== "some") return false;
+                        const cell = heldRowOf(cellRows?.current, part.key, id);
+                        return standing?.current?.[part.key]?.row(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
+                    },
+                    underKey: (id, version) => ({ draft: variant("value", codec.underKey(id, rowOf(version))), wire: { id }, place: KEY_ORDER }),
+                });
+                if ("refused" in settled) {
+                    if ("failed" in settled.refused.why) console.error(`[Schedule] ${part.name}'s key could not be built from a row:`, settled.refused.why.failed);
+                    keyRefusedRef.current = { kind: part.key, name: part.name, ...settled.refused };
+                    return undefined;
+                }
+                if (settled.all.size === 0) continue;
+                now.set(part.key, settled.all);
+                if (settled.held.size > 0) held.set(part.key, settled.held);
+            }
+            return { all: now, held };
+        };
+        // The rows that name a moved row by its key follow it, where the builder says how (`following`) — a Plan's
+        // links, an event they join moved — in the same step; and a row that follows may move in its turn, its own key
+        // built from the keys it names. Rows whose names cannot follow refuse the whole gesture.
+        const moves = new Map<string, Map<string, string>>();
+        for (let round = 0; ; round++) {
+            const now = settle();
+            if (now === undefined) return undefined;
+            if (now.all.size === 0) break;
+            // Each row from the key it had before the gesture to the key it stands under now: one a round moves again
+            // moves on from where an earlier round left it, and one moved back is no move.
+            for (const [kind, byKey] of now.all) {
+                const went = moves.get(kind) ?? new Map<string, string>();
+                const first = new Map([...went].map(([from, to]) => [to, from] as const));
+                for (const [from, to] of byKey) {
+                    const had = first.get(from) ?? from;
+                    if (stringEqual(had, to)) went.delete(had);
+                    else went.set(had, to);
+                }
+                moves.set(kind, went);
+            }
+            const follow = now.held.size === 0 ? undefined : followingRef.current?.(now.held);
+            if (follow === undefined) break;
+            if ("refused" in follow) {
+                keyRefusedRef.current = { kind: follow.kind, name: parts[indexOf(follow.kind)]?.name ?? follow.kind, id: follow.id, why: { named: follow.refused } };
+                return undefined;
+            }
+            if (follow.changes.length === 0) break;
+            if (round >= FOLLOW_ROUNDS || !apply(follow.changes)) {
+                // The rows that name a moved row cannot follow it: one of their own changes is refused, or each moves
+                // another on in its turn with no end. Said of the first row moved, by the record of the first that follows.
+                const [kind, byKey] = [...now.held][0]!;
+                const named = follow.changes[0]!.kind;
+                keyRefusedRef.current = {
+                    kind, name: parts[indexOf(kind)]?.name ?? kind, id: byKey.keys().next().value ?? "",
+                    why: { named: parts[indexOf(named)]?.name ?? named },
+                };
+                return undefined;
+            }
+        }
+        return { touched, moves };
+    };
+    const api = {
+        shown(kind: string, ids: Iterable<string>): void {
+            const i = indexOf(kind);
+            if (i >= 0) history.session(keys[i]!)?.shown(ids);
+        },
+        draftsOf(kind: string): ScheduleKindDraftsValue {
+            return drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS;
+        },
+        available(kind: string): boolean {
+            const i = indexOf(kind);
+            return i >= 0 && state.available(keys[i]!);
+        },
+        carrying(kind: string): boolean {
+            const i = indexOf(kind);
+            const session = i < 0 ? undefined : history.session(keys[i]!);
+            if (session === undefined) return false;
+            if (session.carrying) return true;
+            // At another revision than its record reads at, no request of its own out: told of it only after this render.
+            // A session whose Save is out reads its own commit back, and carries nothing over meanwhile.
+            const seam = parts[i]!.entries;
+            if (seam.type !== "some" || session.locked) return false;
+            const base = session.drafts.revision;
+            const now = seam.value.revision();
+            return base !== undefined && now.type === "some" && !stringEqual(base, now.value);
+        },
+        conflicted(kind: string, id: string): boolean {
+            const i = indexOf(kind);
+            return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
+        },
+        held(kind: string, id: string): unknown {
+            return heldNow(kind, id);
+        },
+        movedFrom(kind: string): ReadonlyMap<string, string> {
+            return movedOf(kind);
+        },
+        heldEvent(kind: string, id: string): ScheduleRead<I> | undefined {
+            const row = heldNow(kind, id);
+            return row === undefined ? undefined : eventOfRow(kind, id, row);
+        },
+        eventOf(kind: string, id: string, row: unknown): ScheduleRead<I> | undefined {
+            return eventOfRow(kind, id, row);
+        },
+        read(kind: string, id: string): ScheduleRead<I> | undefined {
+            const i = indexOf(kind);
+            const event = i < 0 ? undefined : parts[i]!.kind;
+            // A record beside the kinds holds rows, not events: its builder reads them itself.
+            if (event === undefined) return undefined;
+            const at = rangeRef.current ?? NO_RANGE;
+            // Where the builder's own reads hold its row — a page of the Calendar's Backlog (#1424) — from them, read no more.
+            const own = parts[i]!.read?.row(id);
+            const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(cellRows?.current, kind, id);
+            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, held);
+            return got.type === "some" ? got.value : undefined;
+        },
+        row(kind: string, id: string): option<unknown> | undefined {
+            const i = indexOf(kind);
+            if (i < 0) return undefined;
+            const part = parts[i]!;
+            const codec = codecs[i]!;
+            // The session's own version, what its last Save left, or — its record read whole — the record's row.
+            const known = state.original(keys[i]!, id);
+            if (known !== undefined) {
+                const row = rowOf(known);
+                return row === undefined ? none : some(row);
+            }
+            // Read a window at a time, and its session holds none of it: as its builder draws it now.
+            const drawn = standing?.current?.[part.key]?.row(id);
+            if (drawn !== undefined) return some(codec.decodeRow(drawn));
+            // Where the builder's own reads hold it: in flight, absent, or its row.
+            const own = part.read?.row(id);
+            if (own !== undefined) {
+                if (own.type !== "some") return undefined;
+                return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;
+            }
+            const cell = heldRowOf(cellRows?.current, part.key, id);
+            if (cell.type === "some" && cell.value.type === "some") return some(codec.decodeRow(cell.value.value));
+            // Not held: read by its key ({@link ScheduleEditing.rowsByKey}). A text no key prints as names no row the
+            // record holds (#1549).
+            return codec.keyOf(id) === undefined ? none : undefined;
+        },
+        rowsByKey(kind: string, ids: readonly string[]): ReadonlyMap<string, option<unknown>> | undefined {
+            const i = indexOf(kind);
+            if (i < 0) return undefined;
+            const reader = byKeys[i];
+            // A record read whole holds every row there is.
+            if (reader === undefined) return new Map(ids.map((id) => [id, none] as const));
+            const read = reader(ids);
+            return read === undefined || read.type !== "some" ? undefined : read.value;
+        },
+        mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined {
+            const i = indexOf(kind);
+            keyRefusedRef.current = undefined;
+            // Its session's to make (#1583): by the kind's rule, past every key its drafts and its record are known to
+            // hold and `minted` holds — none until the history holds the session.
+            return i < 0 ? undefined : history.session(keys[i]!)?.mint(from === "" ? undefined : from, minted);
+        },
+        keyRefusal(): ScheduleKeyRefusal | undefined {
+            return keyRefusedRef.current;
+        },
+        keyRefusalOf(changes: readonly ScheduleChange[]): ScheduleKeyRefusal | undefined {
+            // Only a part that builds its keys from its rows has a gesture's rows refused for their keys: asked of any
+            // other, a drag's every rest reads and writes nothing more.
+            if (!parts.some((part) => part.rowKey.type === "some")) return undefined;
+            const said = keyRefusedRef.current;
+            keyRefusedRef.current = undefined;
+            gestureOf(changes);
+            const why = keyRefusedRef.current;
+            keyRefusedRef.current = said;
+            return why;
+        },
+        record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean {
+            keyRefusedRef.current = undefined;
+            const made = gestureOf(changes);
+            if (made === undefined) return false;
+            const recorded: EditHistoryPart<ScheduleEntryRef>[] = [...made.touched]
+                .map(([key, entries]) => {
+                    // Where each row the gesture moved came from, which the session follows it by (ruling 16 of
+                    // east-workspace#1709).
+                    const came = builtKeyOrigins(made.moves.get(parts[keys.indexOf(key)]!.key) ?? NO_MOVES, entries);
+                    return { key, updates: [...entries].map(([id, versions]) => ({ id, ...versions, from: came.get(id) })) };
+                })
                 .filter((part) => part.updates.length > 0);
-            return recorded.length > 0 && history.record(recorded, origin, label);
+            if (recorded.length === 0 || !history.record(recorded, origin, label)) return false;
+            lastMovesRef.current = made.moves.size === 0 ? NO_RENUMBERED : made.moves;
+            if (made.moves.size > 0) setMoved(made.moves);
+            return true;
+        },
+        under(kind: string, id: string): string {
+            return lastMovesRef.current.get(kind)?.get(id) ?? id;
+        },
+        point(): SchedulePoint {
+            const out = new Map<string, EditPoint>();
+            for (const key of keys) {
+                const session = history.session(key);
+                if (session !== undefined) out.set(key, session.point());
+            }
+            return out;
+        },
+        since(point: SchedulePoint): ((kind: string, id: string) => string | undefined) | undefined {
+            // Each session's way from the point: one that can say none — what it held up to the point dropped since — says
+            // the history holds none of it.
+            const follows = new Map<string, (id: string) => string | undefined>();
+            for (const [key, at] of point) {
+                const follow = history.session(key)?.follow(at);
+                if (follow === undefined) return undefined;
+                follows.set(key, follow);
+            }
+            return (kind, id) => {
+                const i = indexOf(kind);
+                const follow = i < 0 ? undefined : follows.get(keys[i]!);
+                return follow === undefined ? id : follow(id);
+            };
         },
     };
     // Stable to the canvas and the inspector: each runs the latest render's.
@@ -1123,6 +926,7 @@ export function useScheduleEditing<I extends Item = Item>({
     const carrying = useCallback((kind: string) => latest.current.carrying(kind), []);
     const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
+    const movedFrom = useCallback((kind: string) => latest.current.movedFrom(kind), []);
     const heldEvent = useCallback((kind: string, id: string) => latest.current.heldEvent(kind, id), []);
     const eventOf = useCallback((kind: string, id: string, row: unknown) => latest.current.eventOf(kind, id, row), []);
     const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
@@ -1130,10 +934,16 @@ export function useScheduleEditing<I extends Item = Item>({
     const rowsByKey = useCallback((kind: string, ids: readonly string[]) => latest.current.rowsByKey(kind, ids), []);
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
     const record = useCallback((changes: readonly ScheduleChange[], origin: Origin, label: string) => latest.current.record(changes, origin, label), []);
+    const keyRefusal = useCallback(() => latest.current.keyRefusal(), []);
+    const keyRefusalOf = useCallback((changes: readonly ScheduleChange[]) => latest.current.keyRefusalOf(changes), []);
+    const under = useCallback((kind: string, id: string) => latest.current.under(kind, id), []);
+    const point = useCallback(() => latest.current.point(), []);
+    const since = useCallback((at: SchedulePoint) => latest.current.since(at), []);
 
     return useMemo(() => ({
-        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
-        shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint, record,
-    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, eventOf, read, row, rowsByKey, mint,
-        record]);
+        history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version, lastKeys,
+        shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read, row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under,
+        point, since,
+    }), [history, sessions, drafts, landed, renumbered, version, lastKeys, shown, draftsOf, available, carrying, conflicted, held, movedFrom, heldEvent, eventOf, read,
+        row, rowsByKey, mint, record, keyRefusal, keyRefusalOf, under, point, since]);
 }

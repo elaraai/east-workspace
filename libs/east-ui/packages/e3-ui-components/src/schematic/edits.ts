@@ -37,10 +37,11 @@
  * key still to be typed (#1549) — in a link's end or a net's side.
  *
  * **A key built from the row follows the row** (#1549, {@link followBuiltKeys}):
- * a gesture writing the fields its kind's `key` reads moves the row under the
+ * a gesture writing the fields its kind's `rowKey` reads moves the row under the
  * key they build, its details row with it, and the links and nets naming an
  * item follow — refused, naming the row, where another row holds that key
- * once the gesture is made, so a swap or a shift passes (#1581), and where a
+ * once the gesture is made, so a swap or a shift passes (#1581), where the
+ * key fails as it is built (east-workspace#1709), and where a
  * link or net kind that may name a moving item isn't held whole (#1580): its
  * rows the rail's filters hide, its page's scope leaves out (#1621), or not
  * read, would keep the old key; and where
@@ -76,7 +77,7 @@ import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { SourceUnheld } from "../shared/schedule/unheld.js";
 import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
-import type { SchematicMove, SchematicNewKey } from "./editing.js";
+import type { SchematicMove, SchematicMoveFailed, SchematicNewKey } from "./editing.js";
 import { detailsKey } from "./record-keys.js";
 import { connectVetoOf, type ConnectVetoOf } from "../shared/links/veto.js";
 
@@ -236,6 +237,11 @@ export type SchematicKeyRefusal =
     /** Its kind's keys are of a type the form can't type — by the type's name — and its kind builds none: by the kind's slot. */
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
     /**
+     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `rowKey` failed on
+     * the row, or the app's `newKey` did — by the kind's slot.
+     */
+    | { readonly refusal: "unkeyed"; readonly kind: string }
+    /**
      * An item whose key the gesture moves, which a link or a net kind that writes may name, the Schematic not holding every
      * row of that kind — by its slot, and why (#1580): what names the item there would keep naming its old key; or rows of
      * it naming the item taking no edit now — `busy`, a Save of them in flight (#1584): what follows the item could not.
@@ -256,6 +262,7 @@ export function keyedRow(slot: string, keyed: SchematicNewKey | undefined): { re
     if (keyed === undefined) return undefined;
     if ("taken" in keyed) return { refused: { refusal: "taken", ref: { kind: slot, key: keyed.taken } } };
     if ("untyped" in keyed) return { refused: { refusal: "untyped", kind: slot, type: keyed.untyped } };
+    if ("failed" in keyed) return { refused: { refusal: "unkeyed", kind: slot } };
     return keyed;
 }
 
@@ -778,11 +785,12 @@ export interface SchematicKeyHolding {
     /** The Schematic's kinds. */
     readonly kinds: EditKinds;
     /**
-     * The rows a gesture moves under the keys their fields build once it writes them (`editing.ts`' `moves`).
+     * The rows a gesture moves under the keys their fields build once it writes them (`editing.ts`' `moves`), or the row
+     * its kind's `rowKey` failed on as the gesture leaves it.
      *
      * @param edits - The gesture's edits
      */
-    readonly moves: (edits: readonly SchematicEdit[]) => readonly SchematicMove[];
+    readonly moves: (edits: readonly SchematicEdit[]) => readonly SchematicMove[] | SchematicMoveFailed;
     /**
      * Whether a row of a kind stands under a key: drafted, else read — one a draft deletes stands free.
      *
@@ -933,12 +941,14 @@ function heldOnceMoved(holding: SchematicKeyHolding, moves: readonly SchematicMo
  * inspector — is followed the same way by what names it. An item that a link
  * or a net kind the Schematic doesn't hold whole may name refuses the gesture
  * too (#1580): what it leaves out would keep the old key; and so does a row
- * whose details, or the rows naming it, take no edit now (#1584).
+ * whose details, or the rows naming it, take no edit now (#1584), and a row
+ * its kind's `rowKey` fails on as the gesture leaves it (east-workspace#1709), as
+ * in every builder.
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
- * @returns The edits with every move, and the rows moved by the keys they build; or the refusal, where a key is taken,
- *   what may name a moving item isn't held, or what follows a moving row takes no edit now
+ * @returns The edits with every move, and the rows moved by the keys they build; or the refusal, where a key is taken, a
+ *   key fails as it is built, what may name a moving item isn't held, or what follows a moving row takes no edit now
  */
 export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly SchematicEdit[]): FollowedEdits {
     const typed = made.flatMap((edit): SchematicMove[] => (edit.op === "move" && edit.details !== true ? [{ ref: edit.ref, to: edit.to }] : []));
@@ -948,6 +958,7 @@ export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly Sch
     const moved: SchematicMove[] = [];
     for (let pass = 0; pass < FOLLOWS && edits.length > 0; pass++) {
         const moves = holding.moves(edits);
+        if ("failed" in moves) return { refused: { refusal: "unkeyed", kind: moves.failed.kind } };
         if (moves.length === 0) break;
         for (const move of moves) {
             if (heldOnceMoved(holding, moves, move)) return { refused: { refusal: "taken", ref: { kind: move.ref.kind, key: move.to } } };

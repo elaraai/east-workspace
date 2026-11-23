@@ -5,7 +5,8 @@
 
 /**
  * The footer (B§9): the host's counts · a state-sensitive key hint · a
- * right-aligned `aria-live` message for every action · and over a paged
+ * right-aligned `aria-live` message for every action — in the danger tone
+ * where it says a gesture was refused (`refusal.ts`) · and over a paged
  * source the shared loading line at its trailing end (#1398, CL3): what is
  * read, in what the rail counts the rows in — `Loading work orders
  * 8,301–8,500`, `Filtering work orders…`, `Couldn't read work orders
@@ -47,6 +48,8 @@ export interface SheetFooterProps {
     summary?: string | undefined;
     hint: string;
     message: string;
+    /** Whether the message says a gesture was refused (east-workspace#1709): it says so in the danger tone. */
+    refused?: boolean | undefined;
     /** What a paged source reads now, or could not read; `undefined` while nothing is in flight or failed, and inline (#1398). */
     loading: SheetLoadingLine | undefined;
     /** What the rail counts the rows in — `work orders`, a grouped sheet's groups: what the loading line names them by. */
@@ -68,7 +71,7 @@ const HINT_SEPARATOR = " · ";
 const NO_RETRY = () => undefined;
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, loading, noun, onRetry, saved, recordSlice, optimise }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, refused, loading, noun, onRetry, saved, recordSlice, optimise }: SheetFooterProps) {
     // The loading line, in the sheet's words and the app's locale (#850, #861), on the sheet's one reveal clock (CL4):
     // its frame's `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const words = useSheetWords();
@@ -115,7 +118,8 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
             </Box>
             <FooterMore shown={fit.kept < units} />
             {/* The message takes the rail's slack: the fit leaves it what the hints and the line leave, its words cut there. */}
-            <Box as="span" css={styles.footerMessage} data-slot="footerMessage" data-footer-slack="" data-footer-live={message === "" ? undefined : ""} aria-live="polite">{message}</Box>
+            <Box as="span" css={styles.footerMessage} data-slot="footerMessage" data-footer-slack="" data-footer-live={message === "" ? undefined : ""}
+                data-tone={refused === true ? "refused" : undefined} aria-live="polite">{message}</Box>
             <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />
         </Box>
     );

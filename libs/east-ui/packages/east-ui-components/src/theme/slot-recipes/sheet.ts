@@ -34,6 +34,8 @@
  *     on a 2 px brand insertion line. States:
  *     hover `bg.panel` · picked `brandTint` · group band `bg.panel` · dirty 8 %
  *     warn. A group's identity is its band and the connector — no per-group colour.
+ *     A row, or a band, a gesture was refused on — its key another row's —
+ *     flashes the danger ring and wash once (`refused-mark.ts`).
  *   - Rows: density height including the 1 px bottom rule. Cells leave room
  *     for that rule, with padding 6/10 and a 1 px `border.subtle` right edge;
  *     text 13 `fg`; mono values 12; ghosts `fg.subtle`; unit mono 9.5.
@@ -52,7 +54,8 @@
  *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
  *     moves it; counts mono 11; key hint mono 10, each of its hints whole — a
  *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
- *     right-aligned, the shared loading line after it.
+ *     right-aligned — in the danger ink while it says a gesture was refused —
+ *     the shared loading line after it.
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
@@ -172,6 +175,7 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
+import { refusedRow, refusedTone } from "../refused-mark.js";
 import { toolbarControlBox } from "../toolbar-row.js";
 import { FOOTER_FIT, RAIL_LINE } from "./builder-footer.js";
 import { ACTION_LINE, ACTION_LINE_EVEN } from "./sheetAction.js";
@@ -654,6 +658,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-picked]": { background: "brandTint" },
+            // A row a gesture was refused on: it flashes, and holds what it held.
+            ...refusedRow,
             // A row that is a conflict itself (both added it, or one side removed it) wears the warn ring inside its edge.
             "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // The row an author's card lands on (#1187); a row that refuses the drag.
@@ -1510,6 +1516,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-picked]": { background: "brandTint" },
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-panel))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
+            // A band whose group a gesture was refused on: it flashes, as a row does.
+            ...refusedRow,
             "&[data-folded]": { borderBottomColor: "border.strong" },
             // The copy under the header while the group's lines scroll (G1).
             "&[data-slot=stickyBand]": { borderBottomColor: "border.strong" },
@@ -1818,6 +1826,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            ...refusedTone,
         },
         diagnostic: {
             padding: "20px",

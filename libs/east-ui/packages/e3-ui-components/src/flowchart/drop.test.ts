@@ -419,7 +419,7 @@ describe("a drop is refused, in its words", () => {
 
     test("a card adding a row of a kind whose keys can't be typed, building none, is refused wherever it rests, saying why — a card setting fields lands (#1549)", () => {
         const blobs = ctx(model, { untyped: (sort) => (sort === "lanes" ? "Blob" : undefined) });
-        const said = "Lanes are keyed by Blob, which can't be typed — give the kind `key` to add them";
+        const said = "Lanes are keyed by Blob, which can't be typed — give the kind `rowKey` to add them";
         for (const where of [gap(1), ON_CANVAS]) {
             const plan = planDrop(DOCK, where, blobs);
             expect([dropCaption(plan, m), dropRefusal(plan, m)]).toEqual([said, said]);

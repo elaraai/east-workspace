@@ -26,6 +26,11 @@
  *   door — is a record of the shared editing, its session named by its slot,
  *   and its links are selected, drawn by Connect and removed. A kind read only
  *   draws its links as a link built in code is drawn: none is selected.
+ * - **An event that moves under another key takes its links with it**
+ *   (east-workspace#1709, `linkFollowing`): each link naming it is written to
+ *   name its new key, in the gesture that moves it. A kind read only, or
+ *   holding more links than are read, cannot follow: an event it may name
+ *   stays under its key, the gesture refused, naming the kind.
  * - **Past the cap, none drawn**: a kind holding more links than an event
  *   kind's events are drawn under draws none of them, is named with how many
  *   it holds (`linksOver`), which the frame says in a notice, and Connect
@@ -39,7 +44,7 @@ import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@el
 import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
-import type { ScheduleChange, ScheduleEditingRecord } from "../../shared/schedule/editing.js";
+import type { ScheduleChange, ScheduleEditingRecord, ScheduleFollowing, ScheduleRenumbered } from "../../shared/schedule/editing.js";
 import { lowerWord } from "../../shared/schedule/words.js";
 import type { PlanEventEditing } from "../edit/events.js";
 import type { PlanLinkValue } from "../model.js";
@@ -109,7 +114,7 @@ export interface PlanLinkEnd {
 
 /**
  * Why a kind makes no link between two events: its `start` or its `end` holds no event of that kind — or, at its
- * `end`, no key that event's prints as; no `key` can be made for it, or its `key` failed as it was built; the record
+ * `end`, no key that event's prints as; no `key` can be made for it, or its `rowKey` failed as it was built; the record
  * `held`s a link under the key its row builds; or its new row `failed` as it was made.
  */
 export type PlanConnectRefusal = "start" | "end" | "key" | "held" | "failed";
@@ -124,7 +129,8 @@ export interface PlanConnectMade {
 
 /**
  * The link a Connect would draw between two events (#1541, U10): a new row of the kind's record, its ends their keys
- * and every other field its type's default, under a key its row builds (`rowKey`) or its session makes.
+ * and every other field its type's default, under a key its row builds (`rowKey`) or its session makes — by the app's
+ * own rule where the kind gives one (`newKey`).
  *
  * @param kind - The link kind Connect draws
  * @param ends - The event it runs from, and the one it runs to
@@ -140,7 +146,7 @@ export function connectLink(
 ): PlanConnectMade | { readonly refused: PlanConnectRefusal } {
     if (!holdsSlot(kind.ends.from, ends.from.kind)) return { refused: "start" };
     if (!holdsSlot(kind.ends.to, ends.to.kind)) return { refused: "end" };
-    // The kind's own functions, run as a drag rests: its row, and the author's `key` over it. One that throws makes no
+    // The kind's own functions, run as a drag rests: its row, and the author's `rowKey` over it. One that throws makes no
     // link, and says so, where it would otherwise throw out of the drag.
     let made: ReturnType<PlanLinkKindValue["create"]>;
     try {
@@ -235,15 +241,67 @@ export function editableLinkKinds(kinds: readonly PlanLinkKindValue[]): readonly
 }
 
 /**
- * The link kinds edited here, as records of the shared editing: a session each, named by its slot.
+ * The link kinds edited here, as records of the shared editing: a session each, named by its slot, with the app's rule
+ * for a new link's key where its kind gives one.
  *
  * @param kinds - The link kinds
  * @returns The records
  */
 export function linkKindRecords(kinds: readonly PlanLinkKindValue[]): ScheduleEditingRecord[] {
     return editableLinkKinds(kinds).flatMap((kind) => (kind.editing.type === "some"
-        ? [{ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, fields: kind.fields }]
+        ? [{ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, newKey: kind.newKey, rowKey: kind.rowKey, fields: kind.fields }]
         : []));
+}
+
+/**
+ * How a Plan's links follow the events a gesture moves under the key their fields build (east-workspace#1709): each
+ * link naming a moved event is written to name its new key — a stored link, or a drafted one — through its kind's own
+ * `write`, in the same step. A link that cannot follow refuses the gesture, naming its kind: one of a kind read only
+ * that names the event; and, of a kind holding more links than are read, whichever might.
+ *
+ * @param kinds - The link kinds
+ * @param read - Each kind's stored links
+ * @param drafted - Every kind's drafted rows (`useDraftedRows`)
+ * @returns What the shared editing asks as a gesture moves a row
+ */
+export function linkFollowing(kinds: readonly PlanLinkKindValue[], read: PlanLinkKindsRead, drafted: DraftedRowsByKind): ScheduleFollowing {
+    return (moved: ScheduleRenumbered) => {
+        /** The key an event went on under, where the gesture moved it. */
+        const under = (end: PlanLinkEnd): string | undefined => moved.get(end.kind)?.get(end.key);
+        const changes: ScheduleChange[] = [];
+        for (const kind of kinds) {
+            // Only a kind whose ends may name a moved event's kind is asked.
+            const names = [...moved.keys()].filter((slot) => holdsSlot(kind.ends.from, slot) || holdsSlot(kind.ends.to, slot));
+            if (names.length === 0) continue;
+            const stored = read.stored.get(kind.key);
+            if (stored === undefined) {
+                const slot = names[0]!;
+                return { refused: kind.name, kind: slot, id: moved.get(slot)!.keys().next().value ?? "" };
+            }
+            // Each link as the Plan holds it: a stored one its drafts leave alone, then each they hold — none they delete.
+            const drafts = draftedOf<PlanLinkRolesValue>(drafted, kind) ?? NO_DRAFTS;
+            const held = [
+                ...[...stored].flatMap(([id, link]) => (drafts.has(id) ? [] : [[id, link.roles] as const])),
+                ...[...drafts].flatMap(([id, link]) => (link === undefined ? [] : [[id, link.roles] as const])),
+            ];
+            const edits = linkKindEdits(kind);
+            for (const [id, roles] of held) {
+                const from = under(roles.from);
+                const to = under(roles.to);
+                if (from === undefined && to === undefined) continue;
+                if (!edits) {
+                    const named = from === undefined ? roles.to : roles.from;
+                    return { refused: kind.name, kind: named.kind, id: named.key };
+                }
+                const ends = { from: from === undefined ? roles.from : { kind: roles.from.kind, key: from }, to: to === undefined ? roles.to : { kind: roles.to.kind, key: to } };
+                changes.push({ kind: kind.key, id, rewrite: (row) => {
+                    const written = kind.write(row, ends);
+                    return written.type === "some" ? written.value : undefined;
+                } });
+            }
+        }
+        return { changes };
+    };
 }
 
 /**

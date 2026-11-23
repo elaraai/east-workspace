@@ -91,26 +91,36 @@
  * `values` of what the builder decided of it (#1526), or its type's default.
  *
  * A record may be keyed by any type: an event is named by its key's text, a
- * String key as it is, any other key as East prints it.
+ * String key as it is, any other key as East prints it. Where its rows hold
+ * their own key in a field too, `keyField` names it: an event a builder adds
+ * holds its key there, and is saved with it. A new event's key is its
+ * builder's to make, or the app's own rule's, `newKey`, as a Record's is — or
+ * built from the event's row, `rowKey`, the event moving under the key an edit
+ * of the fields it reads builds: one of the two, or neither. A builder makes
+ * a String key up and counts an Integer one on; the Roster's duties and the
+ * Allocation's bins keyed by any other type take `rowKey` or `newKey`, and are
+ * refused where the page is built without either.
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType,
-    defaultValue, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    defaultValue, isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ExprType, type FunctionType, type NullType, type SetType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
 import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
+import { checkMadeKeys, checkOneKeyRule, keyBuilderOf, newKeyOf, type KindKeyBuilder, type KindRowKeys } from "../utils/record-kind.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
-import { scheduleRecordSession } from "./session.js";
+import { keyFieldHints, scheduleRecordSession } from "./session.js";
+import type { RecordKeyField } from "../bind/record.js";
 import { checkEntries, checkIndexWindow, keyText, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
 import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import {
@@ -324,7 +334,7 @@ export interface ScheduleParts<R extends StructType> {
  * @typeParam F - The resource field, when the kind has one
  * @typeParam SF - The status field, when the kind has one
  */
-export interface ScheduleEventsBase<K extends EastType, R extends StructType, F extends string, SF extends string> {
+export interface ScheduleEventsBase<K extends EastType, R extends StructType, F extends string, SF extends string> extends KindRowKeys<R, K> {
     /** The kind's name: on its events, in the filter and the inspector. */
     name: string;
     /** Its Font Awesome icon. */
@@ -345,6 +355,28 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * `quantity` field holds the quantity to its bounds, on a Plan and an Allocation, as it holds a form field (#1585).
      */
     fields?: FieldHints<R["fields"]>;
+    /**
+     * The field of the record's rows that holds each one's key, for a record whose rows carry their own — jobs keyed by
+     * their number, each job's `number` its key. An event a builder adds holds its key there from the first, whatever
+     * its template's values give, and is saved with it: where another Save takes the key first and the builder gives
+     * the event another, the field follows. An event the record holds already keeps what its field holds. The form shows
+     * the field read only, and no role writes it. The field is of the record's key type, and the kind's `rowKey` never reads
+     * it.
+     */
+    keyField?: RecordKeyField<K, R>;
+    /**
+     * A new event's key, in the app's own scheme: an East function given the keys taken — every key its builder knows
+     * the record to hold, and every one its drafts hold — to one that is not. Without it the builder makes one: a text
+     * key from the key the event is made from (a copy of `J-1` is `J-1-2`), else made up, and an Integer key one past
+     * the largest. Where another Save takes the key first, a builder that keeps both events asks it again.
+     */
+    newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
+    /**
+     * An event's key, built from its row — `(visit) => East.str\`${visit.site}-${visit.day}\``: what a builder makes a
+     * new event under, and what an event moves to as an edit changes the fields it reads — refused, naming it, when
+     * another event holds that key. Never beside `newKey`.
+     */
+    rowKey?: KindKeyBuilder<R, K>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
@@ -622,9 +654,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
-     * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by anything but String, a kind
-     *   with no `shift`, `group` or `resource`, two of the Roster's roles naming one field, and a `values` giving other
-     *   fields than the ones no role maps, or one of another type, naming it; and as `build` does
+     * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by neither String nor Integer and
+     *   given neither `rowKey` nor `newKey`, a kind with no `shift`, `group` or `resource`, two of the Roster's roles naming
+     *   one field, and a `values` giving other fields than the ones no role maps, or one of another type, naming it; and as
+     *   `build` does
      */
     buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType>;
     /**
@@ -639,10 +672,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
-     * @throws {Error} For a span kind (`start` and `end`), a record keyed by anything but String, a kind with no
-     *   `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a String key of one kind, two of the
-     *   Allocation's roles naming one field, and a `values` giving other fields than the ones no role maps, or one of
-     *   another type, naming it; and as `build` does
+     * @throws {Error} For a span kind (`start` and `end`), a record keyed by neither String nor Integer and given neither
+     *   `rowKey` nor `newKey`, a kind with no `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a
+     *   String key of one kind, two of the Allocation's roles naming one field, and a `values` giving other fields than
+     *   the ones no role maps, or one of another type, naming it; and as `build` does
      */
     buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType>;
 }
@@ -659,6 +692,9 @@ interface AnyConfig {
     status?: { field: string; cases: unknown };
     backlog?: { duration: (row: unknown, key: unknown) => unknown; due?: (row: unknown, key: unknown) => unknown };
     fields?: Readonly<Record<string, unknown>>;
+    keyField?: string;
+    newKey?: unknown;
+    rowKey?: unknown;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
     locked?: (row: unknown, key: unknown) => unknown;
@@ -689,6 +725,9 @@ const ROSTER_ROLES = ["shift", "group", "position", "activity", "hours"] as cons
 
 /** The Allocation's roles, as a kind's options name them. */
 const ALLOCATION_ROLES = ["arrival", "parts", "hold", "kind"] as const;
+
+/** The field one of a kind's roles names, under the name of the option that names it; `undefined` for a role the kind is not given. */
+type RoleField = readonly [option: string, field: string | undefined];
 
 /** The ways a kind draws. */
 const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
@@ -734,7 +773,10 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  *   `of` that is not a slot name for a key field, or whose cases are not the variant's; a `status` that is not a variant;
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
  *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
- *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
+ *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a `keyField` that is no field
+ *   of the row of the record's key type, or that one of the kind's roles writes; a `newKey` that is no East function from a
+ *   Set of the record's keys to one; a `rowKey` that builds another type than the record's key, reads the field `keyField`
+ *   names, or is given beside `newKey`; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
@@ -978,10 +1020,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     }
     const holdField = role("hold", config.hold, TimeStepType, "a TimeStep field");
     const kindField = role("kind", config.kind, OptionType(StringType), "an Option of a String field");
+    // The fields the kind's roles name, each under its option's name, said once: every check of a role's field reads
+    // these, so a role named here is held to all of them. A drop places an event's times and its resource; the Roster
+    // writes a duty's roles beside those, and the Allocation a bin's — its quantity Plan's too.
+    const timeRoles: readonly RoleField[] = instantKind ? [["at", startField]] : [["start", startField], ["end", endField]];
+    const placedRoles: readonly RoleField[] = [...timeRoles, ["resource.field", resource?.field]];
+    const rosterRoles: readonly RoleField[] = [...placedRoles, ["shift", shiftField], ["group", groupField], ["position", positionField], ["activity", activityField]];
+    const allocationRoles: readonly RoleField[] = [...placedRoles, ["arrival", arrivalField], ["quantity.field", quantityField], ["parts.field", partsField],
+        ["hold", holdField], ["kind", kindField]];
+    // Every role's field: the two builders' — what a drop places in each of them — and the Calendar's and Plan's own.
+    const roleFields: readonly RoleField[] = [["title", titleField], ...rosterRoles, ...allocationRoles, ["status.field", config.status?.field],
+        ["state", stateField], ["lane", laneField], ["child.field", child?.field]];
     // The fields none of the Allocation's roles maps (#1371): what an arrival's values give a booked bin (B13) — every
     // field but its time, its lane and its roles' fields — which the Allocation reads at build, and `buildAllocation` writes.
-    const allocationMapped = new Set([startField, endField, ...[resource?.field, arrivalField, quantityField, partsField, holdField, kindField]
-        .filter((name): name is string => name !== undefined)]);
+    const allocationMapped = new Set(allocationRoles.flatMap(([, field]) => field ?? []));
     const allocationValues = StructType(Object.entries(fields).filter(([name]) => !allocationMapped.has(name)));
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
@@ -1000,7 +1052,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
 
     // The templates: unique keys, a span kind's duration, and values of the row less what a drop places.
-    const placed = new Set([startField, endField, ...(resource === undefined ? [] : [resource.field])]);
+    const placed = new Set(placedRoles.flatMap(([, field]) => field ?? []));
     const valuesType = StructType(Object.entries(fields).filter(([name]) => !placed.has(name)));
     const boundTemplates = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates
         ? checkedTemplates(config.templates, valuesType, where) : undefined;
@@ -1054,12 +1106,26 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // The record's session (`session.ts`): its reads, whole and by key, and its Save, one patch commit through the
     // record's patch door, its entries checked against what the drafts began from — declared now, so a record bound
     // without its patch door is refused where its kind is.
-    const session = scheduleRecordSession(record, keyType, rowType, entries);
+    // Where its rows hold their own key in a field, the builder keeps an event's key there: none of the kind's roles
+    // writes that field, and the form shows it read only.
+    const keyField = config.keyField;
+    if (keyField !== undefined) {
+        const writes = roleFields.find(([, field]) => field === keyField);
+        if (writes !== undefined) {
+            throw new Error(`${where}: \`keyField\` names "${keyField}", which \`${writes[0]}\` writes — an event's key is kept in its key field by the builder, and nothing else writes it`);
+        }
+    }
+    const session = scheduleRecordSession(record, keyType, rowType, entries, keyField === undefined ? undefined : { field: keyField, where });
     const { readAll, byKey, idOf, keyOf } = session;
+    // A new event's key by the app's own rule, where it gives one: over the keys' text, as every builder carries it.
+    // Or built from its row, the event moving with it: one of the two, or neither.
+    checkOneKeyRule(where, config);
+    const newKey = config.newKey === undefined ? undefined : newKeyOf(keyType, where, config.newKey);
+    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.rowKey, keyField);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
     // records draws its roles in its own sections, so its form leaves out the fields they name too.
-    const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, (config.fields ?? {}) as never,
+    const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, keyFieldHints(config.fields ?? {}, keyField) as never,
         [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
     const formSpecs = formOver([titleField, ...placed, config.status?.field]);
 
@@ -1887,6 +1953,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             locked: locked === undefined ? none : some(locked),
             editing,
             entries: entriesSeam,
+            newKey: newKey === undefined ? none : some(newKey),
+            rowKey: keyBuilt === undefined ? none : some(keyBuilt),
             history: session.history,
             event: seams.event,
             // A title worked out from the row names no field, its fields being the form's; nor does a kind with no title, which the
@@ -1950,7 +2018,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
     };
     /** Refuses two of a builder's roles naming one field: a builder writes each of its roles into a field of its own (B1). */
-    const oneFieldEach = (builder: string, named: readonly (readonly [string, string | undefined])[]): void => {
+    const oneFieldEach = (builder: string, named: readonly RoleField[]): void => {
         const seen = new Map<string, string>();
         for (const [prop, name] of named) {
             if (name === undefined) continue;
@@ -1991,27 +2059,25 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             return heldKind((once) => {
-                // A duty runs from its start to its end, keyed by String, on its slot's shift and group, rostered to someone.
+                // A duty runs from its start to its end, on its slot's shift and group, rostered to someone, under a key the
+                // Roster makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (instantKind) {
                     throw new Error(`${where}: the Roster reads a duty's \`start\` and \`end\`; this kind is one instant (\`at\`) — give \`start\` and \`end\` in its place`);
                 }
                 if (optional) throw new Error(`${where}: a duty has its times — \`start\` and \`end\` are DateTime fields, not Options`);
-                if (keyType.type !== "String") {
-                    throw new Error(`${where}: the Roster's duties are keyed by String — a duty is named by its key, and this record is keyed by ${printType(keyType)}`);
-                }
+                checkMadeKeys({ form: "record", keyType }, keyBuilt !== undefined || newKey !== undefined, where, "duties", "the Roster makes one");
                 if (shiftField === undefined || groupField === undefined) {
                     throw new Error(`${where}: the Roster places a duty by its \`shift\` and its \`group\` — give both`);
                 }
                 if (resource === undefined || resourceValue === undefined) {
                     throw new Error(`${where}: the Roster rosters each duty to a person or an agency, its \`resource\` — give it, resource: { field, of: "people" }`);
                 }
-                oneFieldEach("Roster", [["start", startField], ["end", endField], ["resource.field", resource.field], ["shift", shiftField],
-                    ["group", groupField], ["position", positionField], ["activity", activityField]]);
+                oneFieldEach("Roster", rosterRoles);
                 const shift = shiftField;
                 const group = groupField;
                 const who = resource.field;
                 const whoOf = resourceValue;
-                const mapped = [startField, endField, who, shift, group, positionField, activityField];
+                const mapped = rosterRoles.map(([, field]) => field);
                 const parts = kindParts(once, slot, part, formOver(mapped));
                 // A new duty's own fields, the ones no role maps (#1526): the kind's `values` of what the Roster decided of it.
                 const own = StructType(Object.entries(fields).filter(([name]) => !mapped.includes(name)));
@@ -2040,8 +2106,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         // Its length.
                         hours = $.const(start.durationMinutes(end).divide(60.0));
                     } else {
+                        // The app's, of the row and its key — the key's text read back at the record's key type.
                         const count = $.const(hoursOf);
-                        hours = $.const(count(row as never, key as never));
+                        const parse = $.const(keyOf);
+                        hours = $.const(count(row as never, parse(key) as never));
                     }
                     return East.value({
                         start, end, resource: ref(row), shift: fieldOf(row, shift), group: groupOptional ? fieldOf(row, group) : some(fieldOf(row, group)),
@@ -2117,13 +2185,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
             return heldKind((once) => {
-                // A bin is one instant, keyed by String, in one lane, booking an arrival, its quantity on its parts for its hold.
+                // A bin is one instant in one lane, booking an arrival, its quantity on its parts for its hold, under a key the
+                // Allocation makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (!instantKind) {
                     throw new Error(`${where}: the Allocation's bins are an instant kind: give \`at\` in place of \`start\` and \`end\``);
                 }
-                if (keyType.type !== "String") {
-                    throw new Error(`${where}: the Allocation's bins are keyed by String — a bin is named by its key, and this record is keyed by ${printType(keyType)}`);
-                }
+                checkMadeKeys({ form: "record", keyType }, keyBuilt !== undefined || newKey !== undefined, where, "bins", "the Allocation makes one");
                 if (resource === undefined) throw new Error(`${where}: the Allocation books a bin into a lane, its \`resource\` — give it`);
                 if (resource.shape !== "key" || resource.optional) {
                     throw new Error(`${where}: the Allocation books each bin into one lane — \`resource\` names a String field, a key of the lanes' kind, ` +
@@ -2133,8 +2200,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 if (quantityField === undefined) throw new Error(`${where}: the Allocation reads a bin's \`quantity\` — give it`);
                 if (partsField === undefined || config.parts === undefined) throw new Error(`${where}: the Allocation allocates a bin's \`parts\` — give it`);
                 if (holdField === undefined) throw new Error(`${where}: the Allocation holds a bin for its \`hold\` — give it`);
-                oneFieldEach("Allocation", [["at", startField], ["resource.field", resource.field], ["arrival", arrivalField], ["quantity.field", quantityField],
-                    ["parts.field", partsField], ["hold", holdField], ["kind", kindField]]);
+                oneFieldEach("Allocation", allocationRoles);
                 const lane = resource.field;
                 const arrival = arrivalField;
                 const quantity = quantityField;

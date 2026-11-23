@@ -27,9 +27,11 @@
  * in flight, which it waits on none of (ruled 27 Oct 2026, "Into the View
  * menu"). What it does with any answer — one that inserts, updates and
  * deletes, one that replaces the whole Dict, one that moves a duty out of the
- * week, another page's save while the call is out, a key another page takes —
- * is the builders' shared cases (`optimise-cases.test-utils.ts`), over the
- * week's duties.
+ * week, another page's save while the call is out, a key another page takes, a
+ * duty whose note builds its key (east-workspace#1709, ruling 14), and the
+ * run's mark on a duty a person then gives another note (ruling 16) — is the
+ * builders' shared cases (`optimise-cases.test-utils.ts`), over the week's
+ * duties.
  */
 
 import { describe, expect, test } from "vitest";
@@ -41,8 +43,8 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
-import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
-import { START, act, at, history, rosterHarness, settle, slot, toolbarAtFloor, weekDuties, width } from "./harness.test-utils.js";
+import { optimiseCases, typeInInspector } from "../shared/func/optimise-cases.test-utils.js";
+import { START, act, at, history, rosterHarness, settle, slot, toolbarAtFloor, warehouseRoster, weekDuties, width } from "./harness.test-utils.js";
 
 const h = rosterHarness({ "roster/optimise": opt });
 const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(), result: Roster.Types.OptimiseResult(opt.WarehouseDuties) });
@@ -116,6 +118,8 @@ async function viewEntry(c: HTMLElement): Promise<() => HTMLButtonElement> {
     return entry;
 }
 const commits = async () => (await h.history(ex.rosterDuties)).commits.map(commit => commit.mutation);
+/** A duty's chip on the board, by its key. */
+const dutyChip = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-roster-assignment="${key}"]`);
 /** The Roster with its optimiser, its week read: the eye is enabled once the week's duties have landed. */
 async function mounted() {
     const { container } = await h.mount(opt.rosterOptimise);
@@ -446,4 +450,22 @@ optimiseCases<typeof ex.WarehouseDuty>({
     outside: { to: (duty) => ({ ...duty, start: new Date(duty.start.getTime() + 7 * DAY), end: new Date(duty.end.getTime() + 7 * DAY) }), named: "R. Birch · Mon Mar 6 Early · Inbound",
         // A duty of a week the Roster holds none of is named by its start.
         standing: "a duty starting Mon, Mar 13, 2028" },
+    // Thursday's shifts, each duty keyed by its note: C. Clover's early given a note stands under it; given A. Alder's key, refused.
+    keyed: {
+        mounted: async () => {
+            const { container } = await h.mount(warehouseRoster({ rowKey: (duty) => duty.note, optimise: true }));
+            await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+            return container;
+        },
+        move: ["s37", (duty) => ({ ...duty, note: "N-37" }), "N-37"],
+        taken: [(duty) => ({ ...duty, note: "s1" }), 'Another duty is keyed "s1" already'],
+        op: (c, key) => dutyChip(c, key)?.getAttribute("data-op") ?? undefined,
+        // C. Clover's early on another cost centre, its note — and so its key — as it was.
+        mark: ["s37", (duty) => ({ ...duty, costCentre: "CC-OPS" })],
+        // Another of Thursday's duties.
+        another: "s10",
+        drawn: (c, key) => dutyChip(c, key) !== null,
+        // The duty's note typed in the inspector.
+        rename: (c, key, to) => typeInInspector(c, dutyChip(c, key), "note", to),
+    },
 });

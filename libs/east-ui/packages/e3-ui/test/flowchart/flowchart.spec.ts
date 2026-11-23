@@ -724,7 +724,7 @@ describe("the bakery's kinds, keyed as the bakery keys them (#1549)", () => {
         assert.ok(keysEqual([...stepRows.value.keys()], ["10"]), "a step's key as East prints it");
         const moves = kindOf(Flowchart.Types.TransitionKind, ($) => Flowchart.transitions($.let(recordHandle(DictType(ex.BakeryMoveKey, ex.BakeryMove),
             new SortedMap([[{ from: 10n, to: 20n }, { from: 10n, to: 20n, note: none }]], compareFor(ex.BakeryMoveKey)), "moves")()), {
-            from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }),
+            from: "from", to: "to", rowKey: (move) => ({ from: move.from, to: move.to }),
         }).build(undefined, false));
         assert.ok(isTypeEqual(fromEastTypeValue(moves.keyType), ex.BakeryMoveKey));
         const moveRows = moves.rows();

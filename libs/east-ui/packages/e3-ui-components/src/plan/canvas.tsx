@@ -114,7 +114,8 @@ import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { parseEventRef } from "../shared/schedule/event-ref.js";
 import {
-    NO_LINK_KINDS, NO_LINK_KINDS_READ, editableLinkKinds, kindLinkOf, kindLinks, linkKindEdits, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, editableLinkKinds, kindLinkOf, kindLinks, linkFollowing, linkKindEdits, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver,
+    readLinkKinds,
     type PlanLinkEnd, type PlanLinkKindValue,
 } from "./links/kinds.js";
 import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
@@ -125,7 +126,8 @@ import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
-import { scheduleIssueName } from "../shared/schedule/editing.js";
+import { scheduleIssueName, type ScheduleFollowing, type SchedulePoint } from "../shared/schedule/editing.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { drawnKinds, usePlanEventDrag, type PlanConnecting, type PlanDropAnswer } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -141,6 +143,7 @@ import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
 } from "./controller/index.js";
+import { planRowKeys } from "./controller/seek.js";
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
@@ -194,7 +197,7 @@ import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import {
-    landPlanOptimise, planOptimiseRequest, planOptimiseTypes,
+    landPlanOptimise, planMarksUnder, planOptimiseRequest, planOptimiseTypes,
     type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
 } from "./optimise.js";
 
@@ -496,8 +499,12 @@ export function usePlanCanvas({
     }, [kinds, linkKinds]);
     // Each link kind bound with its patch door is a record of the one history (#1541, U10), its session named by its slot.
     const linkRecords = useMemo(() => linkKindRecords(linkKinds), [linkKinds]);
+    // An event a gesture moves under the key its fields build takes the links naming it with it (east-workspace#1709):
+    // asked as the gesture is recorded, of the links this render holds — read below, with the editing's drafts in place.
+    const linksFollow = useRef<ScheduleFollowing | undefined>(undefined);
+    const following = useCallback<ScheduleFollowing>((moved) => linksFollow.current?.(moved) ?? { changes: [] }, []);
     const eventEditing = usePlanEventEditing({
-        kinds, records: linkRecords, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
+        kinds, records: linkRecords, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, following, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;
@@ -522,7 +529,9 @@ export function usePlanCanvas({
     const landingStyles = useLandingStyles();
     const format = useFormatters();
     const optimiseTypes = useMemo(() => planOptimiseTypes(kinds), [kinds]);
-    const [optimised, setOptimised] = useState<PlanOptimised | undefined>(undefined);
+    // What the runs left on the events (R17), each mark under the key its event stands under now, whoever moved it there —
+    // a gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<PlanOptimised, SchedulePoint>(eventEditing, eventEditing.version, planMarksUnder);
     const planWindow = useMemo((): PlanOptimiseWindow | undefined => {
         if (scale === undefined || scale.window.min.type !== "time" || scale.window.max.type !== "time") return undefined;
         return { from: scale.window.min.value, to: scale.window.max.value };
@@ -554,7 +563,7 @@ export function usePlanCanvas({
                 rows: now.index.current?.rows ?? [], format: now.format, before: now.optimised,
             });
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.
@@ -604,6 +613,7 @@ export function usePlanCanvas({
     const linkDrafted = useDraftedRows(eventEditing, linkKinds);
     const [linkStanding] = useState(() => new DraftedStanding());
     const ofKinds = useMemo(() => kindLinks(linkKinds, linksRead, linkDrafted, linkStanding), [linkKinds, linksRead, linkDrafted, linkStanding]);
+    linksFollow.current = useMemo(() => linkFollowing(linkKinds, linksRead, linkDrafted), [linkKinds, linksRead, linkDrafted]);
     // The kinds holding more links than are drawn: none of their links draws, and Connect draws none of them.
     const linksOverCap = useMemo(() => linksOver(linkKinds, linksRead), [linkKinds, linksRead]);
     const linked = useMemo(() => (ofKinds.length === 0 ? nested : {
@@ -857,8 +867,8 @@ export function usePlanCanvas({
     // is kept while that step is the next to redo.
     const historyVersion = eventEditing.version;
     useEffect(() => {
-        if (history.pending === 0 && history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [history, historyVersion]);
+        if (history.pending === 0 && history.redoOrigin !== "optimise") clearOptimised();
+    }, [history, historyVersion, clearOptimised]);
     const optimisedMarks = useMemo((): PlanOptimisedMarks => (optimised === undefined ? NO_OPTIMISED_MARKS
         : { ops: optimised.ops, ghosts: optimised.ghosts, lit: landing.lit }), [optimised, landing.lit]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
@@ -880,14 +890,18 @@ export function usePlanCanvas({
     const hiddenPick = useHiddenPick({ onError: setFindError, uncleared: words.m.keySearchUncleared() });
     const handOff = hiddenPick.handOff;
     const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
+    // Its box reads a key typed into it at the rows' key type (east-workspace#1696).
     const seekSearch = useMemo<PlanSearch | undefined>(
-        () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
-        [seekable, picking, sourceId, seek.again]);
+        () => (seekable ? { ...picking, keyType: planRowKeys(hostData.rowsKeyType).keyType, resetKey: sourceId, requery: seek.again } : undefined),
+        [seekable, picking, hostData.rowsKeyType, sourceId, seek.again]);
     const findsRows = useMemo(
         () => (data.rows.type !== "inline" ? planPart(slices, ROWS_SOURCE) : undefined),
         [data.rows.type, slices]);
-    const rowsHiding = useSourceHidden("Plan", findsRows);
-    const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
+    // The keys the `rows` source holds its rows by, where it gives the canvas its rows (east-workspace#1696): what Search
+    // Records reads a key typed into it at and orders the keys it finds by, and what its hidden pick reads a row's id at.
+    const rowsKeys = useMemo(() => (findsRows === undefined ? undefined : planRowKeys(hostData.rowsKeyType)), [findsRows, hostData.rowsKeyType]);
+    const rowsHiding = useSourceHidden("Plan", findsRows, undefined, rowsKeys?.keyType);
+    const rowsFind = usePlanRowsFind({ part: findsRows, keys: rowsKeys, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
     const search = useMemo(
         () => (rowsFind !== undefined ? hiddenPick.search(rowsFind) : seekSearch),
         [rowsFind, hiddenPick, seekSearch]);

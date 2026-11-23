@@ -16,9 +16,10 @@ import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor, SheetPatchEventTypeFor } from "./drafts.js";
-import { SheetEditingType, SheetWireApplyType } from "./editing-types.js";
+import { SheetEditingType, SheetSeedType, SheetWireApplyType } from "./editing-types.js";
 import { buildSheetSeed } from "./seed-bridge.js";
 import { resolveSheetEdits, type SheetEditsInput } from "./edits.js";
+import { keyBuilderOf } from "../utils/record-kind.js";
 
 /** Author editing behavior, erased only at the factory boundary. @internal */
 export interface SheetEditingInput {
@@ -35,6 +36,10 @@ export interface SheetEditingInput {
     sourceId?: unknown;
     /** A new row's (a line's) and a new group's required fields no person can set, each with its label (#1536). */
     unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
+    /** The field of a record's entries that holds each one's key, checked against the record — e3-ui's record forms only. */
+    keyField?: string | undefined;
+    /** An entry's key, built from the entry by the app (`rowKey`) — e3-ui's record forms only. */
+    rowKey?: unknown;
 }
 
 /**
@@ -192,6 +197,37 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
     const newGroup = groupConstructor === undefined || bridge.group === undefined ? undefined : buildSheetSeed(SheetNewGroupType, groupType,
         groupConstructor as ExprType<FunctionType<[StructType], StructType>>, buildPatchCells(groupType, bridge.group.cellMetas, {}, false),
         { field: bridge.group.linesField, project: bridge.projectRow });
+    // An entry's draft and its row as they stand under a key, where the entries hold their key in a field: the field
+    // holding it, and the cell of any column over the field showing it. The cells come from the code a constructor's do.
+    const keyField = input.keyField;
+    let underKey: ExprType<FunctionType<[BlobType, BlobType, StringType], typeof SheetSeedType>> | undefined;
+    if (keyField !== undefined) {
+        if (keyType === undefined || draftType.type !== "Struct") {
+            throw new Error("Sheet: `keyField` names a field of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
+        }
+        const entryPatchType = SheetPatchTypeFor(groupType) as unknown as StructType;
+        const entryCells = bridge.group === undefined ? bridge.seedCells : buildPatchCells(groupType, bridge.group.cellMetas, {}, false);
+        underKey = East.function([BlobType, BlobType, StringType], SheetSeedType, ($, draftBlob, rowBlob, id) => {
+            const cellsOf = $.const(entryCells);
+            const draft = $.const(draftBlob.decodeBeast(draftType, "v2")) as unknown as Record<string, ExprType<EastType>>;
+            const row = $.const(rowBlob.decodeBeast(SheetRowType, "v2"));
+            const key = $.const((keyType.type === "String" ? id : id.parse(keyType)) as ExprType<EastType>, keyType);
+            const patch = $.const(Object.fromEntries(Object.keys(groupType.fields).map((name) => [name, name === keyField ? some(key) : none])) as never, entryPatchType);
+            const cells = $.let(row.cells);
+            $.for(cellsOf(patch), ($, cell, column) => { $(cells.insertOrUpdate(column, cell)); });
+            const keyed = $.const(Object.fromEntries(Object.keys(draftType.fields).map((name) => [name, name === keyField ? variant("value", key) : draft[name]!])) as never, draftType);
+            return {
+                draft: East.Blob.encodeBeast(keyed, "v2"),
+                row: East.Blob.encodeBeast($.const({ id: row.id, owned: row.owned, cells, lines: row.lines, band: row.band, subRows: row.subRows }, SheetRowType), "v2"),
+            };
+        });
+    }
+    // An entry's key the app builds from the entry (`rowKey`): on the wire, the entry's bytes to its key's text — what a
+    // sheet makes a new entry under, and moves an entry to as an edit changes what its key reads.
+    if (input.rowKey !== undefined && (keyType === undefined || draftType.type !== "Struct")) {
+        throw new Error("Sheet: `rowKey` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
+    }
+    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.rowKey, keyField);
     const readyGroupExpr = input.ready?.group;
     if (readyGroupExpr !== undefined && field === undefined) throw new Error("Sheet: ready.group requires a group declaration");
     // A group's check takes its DraftGroup; the renderer sends the entry's
@@ -243,7 +279,9 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
         // batches arrive keyed (restated for the author above).
         keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
-        readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
+        readEntry, decode, project, underKey: underKey !== undefined ? some(underKey) : none,
+        rowKey: rowKey !== undefined ? some(rowKey) : none,
+        onApply: onApply !== undefined ? some(onApply) : none,
         toDraft: toDraft !== undefined ? some(toDraft) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
     }, SheetEditingType);

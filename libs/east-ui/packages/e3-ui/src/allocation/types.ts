@@ -15,6 +15,9 @@
  * The types over a day take the app's bin row type, `R`: each is a
  * constructor, and the same `R` gives the same East type (`isTypeEqual`), so a
  * row type declared once matches the board's bin kind and the check's request.
+ * The fit's take the bins' key type (east-workspace#1709, ruling 12): a fit
+ * names a bin by its key at the bins' record's own key type, String where
+ * none is given.
  *
  * @packageDocumentation
  */
@@ -25,7 +28,7 @@ import {
 } from "@elaraai/east";
 import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
 import { ScheduleAllocationRolesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
-import { OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
+import { OptimiseSliceType, optimisedRecordType, optionKeyType } from "../utils/optimise.js";
 
 // ============================================================================
 // The day, as the board reads it
@@ -281,8 +284,49 @@ export const AllocationResourceLineType = StructType({
 export type AllocationResourceLineType = typeof AllocationResourceLineType;
 
 /**
+ * What the fit's types and its ready-made parts are made over (east-workspace#1709, ruling 12): the bins' record's key
+ * type, which they name a bin by.
+ *
+ * @typeParam K - The bins' key type
+ * @property key - The bins' key type — `IntegerType` for bins keyed by number; omitted, String
+ */
+export interface AllocationFitOptions<K extends EastType = StringType> {
+    readonly key?: K;
+}
+
+/**
+ * The bins' key type a fit's type or part is made over, from its options.
+ *
+ * @param options - The options the app gave, if any
+ * @param where - The constructor, as its refusal names it
+ * @returns The key type; String where none is given
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type, naming the constructor
+ * @internal
+ */
+export function allocationFitKey(options: unknown, where: string): EastType {
+    return optionKeyType(options, where, "bins", "{ key: IntegerType }");
+}
+
+/**
+ * Type representing {@link AllocationCandidateTypeFor}: one candidate, its bin by a key of type `K`.
+ *
+ * @typeParam K - The bins' key type
+ */
+export type AllocationCandidateType<K extends EastType = StringType> = StructType<{
+    day: DateTimeType; bin: OptionType<K>; reserve: BooleanType; quantity: FloatType; arrival: OptionType<AllocationArrivalType>;
+    kind: OptionType<StringType>; resource: AllocationResourceType; load: AllocationLoadType; after: FloatType; hold: AllocationIntervalType;
+    spare: OptionType<FloatType>; kindMates: BooleanType; otherMates: BooleanType; rules: AllocationRulesType; unit: StringType;
+}>;
+
+/**
  * One quantity on one resource, against the drafted day: what a fit is asked
- * about, one candidate at a time.
+ * about, one candidate at a time — its bin by its key at the bins' own key type
+ * (ruling 12).
+ *
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ day, bin, reserve, quantity, arrival, kind, resource, load, after, hold, spare, kindMates, otherMates, rules, unit })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property day - The plan day
  * @property bin - The bin it is for; `none` for an arrival not yet booked and for a new reservation
@@ -300,14 +344,17 @@ export type AllocationResourceLineType = typeof AllocationResourceLineType;
  * @property rules - The built-in rules
  * @property unit - The quantity's unit
  */
-export const AllocationCandidateType = StructType({
-    day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType, arrival: OptionType(AllocationArrivalType),
-    kind: OptionType(StringType), resource: AllocationResourceType, load: AllocationLoadType, after: FloatType, hold: AllocationIntervalType,
-    spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType, rules: AllocationRulesType, unit: StringType,
-});
+export function AllocationCandidateTypeFor<K extends EastType = StringType>(options?: AllocationFitOptions<K>): AllocationCandidateType<K> {
+    const key = allocationFitKey(options, "Allocation.Types.Candidate");
+    return StructType({
+        day: DateTimeType, bin: OptionType(key), reserve: BooleanType, quantity: FloatType, arrival: OptionType(AllocationArrivalType),
+        kind: OptionType(StringType), resource: AllocationResourceType, load: AllocationLoadType, after: FloatType, hold: AllocationIntervalType,
+        spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType, rules: AllocationRulesType, unit: StringType,
+    }) as unknown as AllocationCandidateType<K>;
+}
 
-/** Type representing {@link AllocationCandidateType}. */
-export type AllocationCandidateType = typeof AllocationCandidateType;
+/** A candidate over bins keyed by String: the board's own, over the ids it names its bins by. @internal */
+export const AllocationCandidateType = AllocationCandidateTypeFor();
 
 /** Why something does not fit — Schedule's, shared with the Roster. */
 export const AllocationRefusalType = ScheduleRefusalType;
@@ -322,18 +369,43 @@ export const AllocationFitType = ScheduleFitType;
 export type AllocationFitType = typeof AllocationFitType;
 
 /**
- * The question a fit answers.
+ * Type representing {@link AllocationFitAskTypeFor}: a fit's question, a bin by a key of type `K`.
+ *
+ * @typeParam K - The bins' key type
+ */
+export type AllocationFitAskType<K extends EastType = StringType> = VariantType<{
+    place: StructType<{ subject: VariantType<{ bin: K; arrival: StringType }>; quantity: FloatType }>;
+    take: StructType<{ resource: StringType }>;
+}>;
+
+/**
+ * The question a fit answers — a bin by its key at the bins' own key type (ruling 12).
+ *
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `VariantType({ place, take })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property place - Where can this subject — a bin, or an arrival — go with this quantity: a verdict per resource
  * @property take - What can this resource take: a verdict per bin, one per arrival the day has not booked, and one for reserving an empty slot on it
  */
-export const AllocationFitAskType = VariantType({
-    place: StructType({ subject: VariantType({ bin: StringType, arrival: StringType }), quantity: FloatType }),
-    take: StructType({ resource: StringType }),
-});
+export function AllocationFitAskTypeFor<K extends EastType = StringType>(options?: AllocationFitOptions<K>): AllocationFitAskType<K> {
+    const key = allocationFitKey(options, "Allocation.Types.FitAsk");
+    return VariantType({
+        place: StructType({ subject: VariantType({ bin: key, arrival: StringType }), quantity: FloatType }),
+        take: StructType({ resource: StringType }),
+    }) as unknown as AllocationFitAskType<K>;
+}
 
-/** Type representing {@link AllocationFitAskType}. */
-export type AllocationFitAskType = typeof AllocationFitAskType;
+/** A question over bins keyed by String: the board's own, over the ids it names its bins by. @internal */
+export const AllocationFitAskType = AllocationFitAskTypeFor();
+
+/**
+ * Type representing {@link AllocationFitRequestTypeFor}: a fit's request, its question's bin by a key of type `K`.
+ *
+ * @typeParam K - The bins' key type
+ */
+export type AllocationFitRequestType<K extends EastType = StringType> = StructType<{ day: DateTimeType; ask: AllocationFitAskType<K>; scope: OptimiseSliceType }>;
 
 /**
  * One question to the app's fit (east-workspace#1624): the plan day, the
@@ -341,7 +413,14 @@ export type AllocationFitAskType = typeof AllocationFitAskType;
  * the board's unsaved edits as drafts, and the function reads what it needs
  * from the workspace with them laid over — the day's bins through the bins'
  * record's index, and the arrivals and the resources from the app's own
- * records.
+ * records. A bin it names it names by its key at the bins' own key type
+ * (ruling 12): `Allocation.Types.FitRequest({ key: IntegerType })` over bins
+ * keyed by number.
+ *
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ day, ask, scope })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property day - The plan day
  * @property ask - The question
@@ -349,15 +428,34 @@ export type AllocationFitAskType = typeof AllocationFitAskType;
  *   cannot clear, typed as an optimiser's `slice` is, each field its exact values as East prints them; empty for a page
  *   with no scope. The rail's own choices are never sent: a fit answers whatever the rail shows
  */
-export const AllocationFitRequestType = StructType({ day: DateTimeType, ask: AllocationFitAskType, scope: OptimiseSliceType });
+export function AllocationFitRequestTypeFor<K extends EastType = StringType>(options?: AllocationFitOptions<K>): AllocationFitRequestType<K> {
+    const key = allocationFitKey(options, "Allocation.Types.FitRequest");
+    return StructType({ day: DateTimeType, ask: AllocationFitAskTypeFor({ key }), scope: OptimiseSliceType }) as unknown as AllocationFitRequestType<K>;
+}
 
-/** Type representing {@link AllocationFitRequestType}. */
-export type AllocationFitRequestType = typeof AllocationFitRequestType;
+/** A request over bins keyed by String: the board's own, over the ids it names its bins by. @internal */
+export const AllocationFitRequestType = AllocationFitRequestTypeFor();
 
 /**
- * What a fit's function read (east-workspace#1624): what `Allocation.candidates`,
- * `Allocation.answer` and `Allocation.lookahead` answer from, which the
- * function makes of the app's own records, in the board's types.
+ * Type representing {@link AllocationFitContextTypeFor}: what a fit's function read, its bins by keys of type `K`.
+ *
+ * @typeParam K - The bins' key type
+ */
+export type AllocationFitContextType<K extends EastType = StringType> = StructType<{
+    bins: DictType<K, typeof ScheduleAllocationRolesType>; arrivals: DictType<StringType, AllocationArrivalType>;
+    resources: DictType<StringType, AllocationResourceType>; rules: AllocationRulesType; unit: StringType;
+}>;
+
+/**
+ * What a fit's function read (east-workspace#1624): what `Allocation.candidates()`,
+ * `Allocation.answer()` and `Allocation.lookahead()` answer from, which the
+ * function makes of the app's own records, in the board's types — its bins by
+ * their keys at the bins' own key type (ruling 12).
+ *
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ bins, arrivals, resources, rules, unit })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property bins - The day's bins by key, each its roles: those the function read of the plan day, the board's unsaved
  *   edits among them
@@ -366,17 +464,36 @@ export type AllocationFitRequestType = typeof AllocationFitRequestType;
  * @property rules - The built-in rules
  * @property unit - The quantity's unit (`m³`), or empty
  */
-export const AllocationFitContextType = StructType({
-    bins: DictType(StringType, ScheduleAllocationRolesType), arrivals: DictType(StringType, AllocationArrivalType),
-    resources: DictType(StringType, AllocationResourceType), rules: AllocationRulesType, unit: StringType,
-});
+export function AllocationFitContextTypeFor<K extends EastType = StringType>(options?: AllocationFitOptions<K>): AllocationFitContextType<K> {
+    const key = allocationFitKey(options, "Allocation.Types.FitContext");
+    return StructType({
+        bins: DictType(key, ScheduleAllocationRolesType), arrivals: DictType(StringType, AllocationArrivalType),
+        resources: DictType(StringType, AllocationResourceType), rules: AllocationRulesType, unit: StringType,
+    }) as unknown as AllocationFitContextType<K>;
+}
 
-/** Type representing {@link AllocationFitContextType}. */
-export type AllocationFitContextType = typeof AllocationFitContextType;
+/** What a fit's function read, over bins keyed by String: the board's own, over the ids it names its bins by. @internal */
+export const AllocationFitContextType = AllocationFitContextTypeFor();
+
+/**
+ * Type representing {@link AllocationFitResultTypeFor}: a fit's answer, its bins by keys of type `K`.
+ *
+ * @typeParam K - The bins' key type
+ */
+export type AllocationFitResultType<K extends EastType = StringType> = StructType<{
+    ask: AllocationFitAskType<K>; resources: DictType<StringType, AllocationFitType>; bins: DictType<K, AllocationFitType>;
+    arrivals: DictType<StringType, AllocationFitType>; reserve: OptionType<AllocationFitType>; basis: StringType;
+}>;
 
 /**
  * A fit's answer. It echoes its question, so the board matches each answer to
- * the question it asked.
+ * the question it asked; a bin it names it names by its key at the bins' own key
+ * type (ruling 12).
+ *
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns `StructType({ ask, resources, bins, arrivals, reserve, basis })`
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @property ask - The question answered
  * @property resources - A place's verdicts, by resource: one for each resource the function considered (east-workspace#1624)
@@ -385,13 +502,16 @@ export type AllocationFitContextType = typeof AllocationFitContextType;
  * @property reserve - A take's verdict for reserving an empty slot
  * @property basis - How the fits are ranked, in words (`ranked by load, kind and spare days`)
  */
-export const AllocationFitResultType = StructType({
-    ask: AllocationFitAskType, resources: DictType(StringType, AllocationFitType), bins: DictType(StringType, AllocationFitType),
-    arrivals: DictType(StringType, AllocationFitType), reserve: OptionType(AllocationFitType), basis: StringType,
-});
+export function AllocationFitResultTypeFor<K extends EastType = StringType>(options?: AllocationFitOptions<K>): AllocationFitResultType<K> {
+    const key = allocationFitKey(options, "Allocation.Types.FitResult");
+    return StructType({
+        ask: AllocationFitAskTypeFor({ key }), resources: DictType(StringType, AllocationFitType), bins: DictType(key, AllocationFitType),
+        arrivals: DictType(StringType, AllocationFitType), reserve: OptionType(AllocationFitType), basis: StringType,
+    }) as unknown as AllocationFitResultType<K>;
+}
 
-/** Type representing {@link AllocationFitResultType}. */
-export type AllocationFitResultType = typeof AllocationFitResultType;
+/** An answer over bins keyed by String: the board's own, over the ids it names its bins by. @internal */
+export const AllocationFitResultType = AllocationFitResultTypeFor();
 
 // ============================================================================
 // Issues and slots
@@ -569,7 +689,7 @@ export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> 
  * what a Save sends.
  *
  * @typeParam D - The bins' record type
- * @param bins - The bins' record type, `DictType(StringType, Bin)`
+ * @param bins - The bins' record type, `DictType(K, Bin)` at the bins' own key type
  * @returns `StructType({ bins })`
  * @throws {Error} When given a type that is no Dict of bins by key
  *
@@ -577,6 +697,6 @@ export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> 
  */
 export function AllocationOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(bins: D): AllocationOptimiseResultType<D> {
     const record = optimisedRecordType(bins as EastType, (given) =>
-        `Allocation.Types.OptimiseResult: is given ${given} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`);
+        `Allocation.Types.OptimiseResult: is given ${given} — it takes the bins' record type, a Dict of bins by their key: DictType(StringType, Bin), or DictType(IntegerType, Bin) for bins keyed by number`);
     return StructType({ bins: PatchType(record) }) as unknown as AllocationOptimiseResultType<D>;
 }

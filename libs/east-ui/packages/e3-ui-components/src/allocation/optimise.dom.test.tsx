@@ -28,7 +28,9 @@
  * (ruled 27 Oct 2026, "Into the View menu"). What it does with any answer —
  * one that inserts, updates and deletes, one that replaces the whole Dict, one
  * that moves a bin out of the day, another page's save while the call is out,
- * a key another page takes — is the builders' shared cases
+ * a key another page takes, a bin whose measured spec builds its key
+ * (east-workspace#1709, ruling 14), and the run's mark on a bin a person then
+ * measures anew (ruling 16) — is the builders' shared cases
  * (`optimise-cases.test-utils.ts`), over the day's bins.
  */
 
@@ -42,8 +44,8 @@ import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
 import { act, e3Harness, settle, slot, toolbarAtFloor, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
-import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
-import { stubLinkGeometry } from "./harness.test-utils.js";
+import { optimiseCases, typeInInspector } from "../shared/func/optimise-cases.test-utils.js";
+import { kilnYard, stubLinkGeometry } from "./harness.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "allocation/allocation": ex, "allocation/optimise": opt }, { main: "data-allocation-main" });
@@ -88,6 +90,8 @@ async function viewEntry(c: HTMLElement): Promise<() => HTMLButtonElement> {
     return entry;
 }
 const commits = async () => (await h.history(ex.kilnBins)).commits.map(commit => commit.mutation);
+/** A bin's card on the board, by its key. */
+const binCard = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${key}"]`);
 /** The board with its optimiser, its day read: the eye is enabled once the day's bins have landed. */
 async function mounted() {
     const { container } = await h.mount(opt.allocationOptimise);
@@ -313,4 +317,22 @@ optimiseCases<typeof ex.kilnBins.type.value>({
     other: ["3101", (bin) => ({ ...bin, instruction: some("Stack on bearers") })],
     // The same slot a day on.
     outside: { to: (bin) => ({ ...bin, at: new Date("2027-05-12T01:56:00Z") }), named: "LD-2202" },
+    // Each bin keyed by its measured spec: one the answer measures anew stands under it; one measured as another bin's key, refused.
+    keyed: {
+        mounted: async () => {
+            const { container } = await h.mount(kilnYard({ rowKey: (bin) => bin.specMeasured, optimise: true }));
+            await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+            return container;
+        },
+        move: ["3102", (bin) => ({ ...bin, specMeasured: "MC-3102" }), "MC-3102"],
+        taken: [(bin) => ({ ...bin, specMeasured: "3101" }), 'Another bin is keyed "3101" already'],
+        op: (c, key) => binCard(c, key)?.getAttribute("data-op") ?? undefined,
+        // A bin's loading instruction, its measured spec — and so its key — as it was.
+        mark: ["3102", (bin) => ({ ...bin, instruction: some("Kiln-dry slowly") })],
+        // Another bin of the day.
+        another: "3101",
+        drawn: (c, key) => binCard(c, key) !== null,
+        // The bin's measured spec typed in the inspector.
+        rename: (c, key, to) => typeInInspector(c, binCard(c, key), "specMeasured", to),
+    },
 });

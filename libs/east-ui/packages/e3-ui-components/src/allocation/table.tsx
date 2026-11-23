@@ -56,8 +56,14 @@ import {
 /** A band's and a row's height, the recipe's: the rows are virtualised by them. */
 const BAND_H = 38;
 const ROW_H = 36;
-/** The probe reservation a free row's resource Chooser asks the fit about. */
+/** The probe reservation a free slot asks the fit about, over bins keyed by String: a text no bin's key is. */
 export const RESERVE_PROBE = "\u0000reserve";
+/**
+ * What a free slot asks the fit (A48, A60): the place of a reservation imagined in it, and the day with it on — under
+ * {@link RESERVE_PROBE} over bins keyed by String, else under the key Reserve there would make (east-workspace#1709,
+ * ruling 13); why no such reservation has a key, in the board's words; or `undefined` while its key is still to be made.
+ */
+export type ReserveProbe = { readonly ask: FitAsk; readonly of: Day } | { readonly unkeyed: string } | undefined;
 
 /** The Table's props. */
 export interface TableProps {
@@ -83,9 +89,9 @@ export interface TableProps {
     drag: AllocationDrag;
     commands: AllocationCommands;
     fit: AllocationFit;
-    /** The day without a bin, and with a probe reservation in a free slot: what a cell's Chooser asks the fit of. */
+    /** The day without a bin, and a free slot's question with the day it is asked of: what a cell's Chooser asks the fit. */
     without: (bin: string) => Day;
-    reserving: (lane: string, at: Date) => Day;
+    reserving: (lane: string, at: Date) => ReserveProbe;
     /** The lanes, the resources and the arrivals the narrowing shows, by key; `none` for every one (#1336, #1339). */
     visibleLanes: option<Set<string>>;
     visibleResources: option<Set<string>>;
@@ -607,6 +613,9 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
     const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
     // The part a resource Chooser moves: the row's first, a chip's own, or none for the remainder, which it links.
     const from = part === undefined ? current : part ?? undefined;
+    // A free slot's reservation, imagined in it while its Chooser is open (A48): under the key Reserve there would make
+    // (ruling 13), made at each asking — the same question while the drafts and the key hold.
+    const probe = open && side === "resource" && row.bin === undefined ? props.reserving(row.lane, row.slotAt) : undefined;
     // The question (F1): an arrival cell takes its row's resource, of the day without its bin; a resource cell places what it moves of
     // its bin — the part, or the remainder (A73) — or a reservation in its free slot.
     const question = useMemo((): { ask: FitAsk; of: Day | undefined } | undefined => {
@@ -614,17 +623,18 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
             if (current === undefined || row.bin === undefined) return undefined;
             return { ask: variant("take", { resource: current }), of: props.without(row.bin) };
         }
-        if (row.bin === undefined) return { ask: variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 }), of: props.reserving(row.lane, row.slotAt) };
+        if (row.bin === undefined) return probe === undefined || "unkeyed" in probe ? undefined : probe;
         const quantity = bin === undefined ? 0 : bin.arrival.type === "none" ? 0 : linkedQuantity(bin, from)?.quantity ?? bin.quantity;
         return { ask: variant("place", { subject: variant("bin", row.bin), quantity }), of: undefined };
         // The question stands for the row's cell and the drafts.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [side, row.bin, row.lane, row.slotAt, current, from, plan]);
+    }, [side, row.bin, current, from, plan, probe]);
     const { ask } = fit;
     useEffect(() => { if (open && question !== undefined) ask(question.ask, question.of); }, [open, question, ask]);
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
-    // None coming: the board's fit failed, or the record refused the day this question is asked of (rule 10).
-    const failure = question === undefined ? undefined : fitFailure(fit, question.ask, question.of);
+    // None coming: a reservation in the slot has no key (ruling 13), the board's fit failed, or the record refused the day this
+    // question is asked of (rule 10).
+    const failure = probe !== undefined && "unkeyed" in probe ? probe.unkeyed : question === undefined ? undefined : fitFailure(fit, question.ask, question.of);
     // `+ resource` offers the resources its bin is not on: each it is on is a part of its own (A71).
     const except = part === null && bin !== undefined ? new Set(bin.parts.keys()) : undefined;
     const sections: ChooserSection[] = !open ? [] : side === "arrival"

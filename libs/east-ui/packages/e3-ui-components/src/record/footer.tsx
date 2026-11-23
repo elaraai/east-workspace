@@ -17,7 +17,9 @@
  * alone where not even its first member fits beside the counts. On a phone
  * it shows nothing but what speaks — the loading line, a Save's notice, and
  * the status line's words, which the phone's toolbar has no room for — in
- * the band the frame lays over main's foot (ruled 7 Nov 2026).
+ * the band the frame lays over main's foot (ruled 7 Nov 2026). On a wider
+ * frame the toolbar's status line says its words, and where its row cuts them
+ * for want of room — a rail's chips beside it — the footer says them whole.
  *
  * @packageDocumentation
  */
@@ -159,6 +161,10 @@ export interface RecordFooterProps {
     legend: RecordLegend;
     /** The status line's words: what a phone's band says, its toolbar having no room for them. */
     live: string;
+    /** Whether they say a gesture was refused: said in the danger tone. */
+    refused: boolean;
+    /** Whether the toolbar's line cuts them for want of room: the footer then says them whole, on any frame. */
+    band: boolean;
     /** What a paged source reads now, or could not read. */
     loading: SheetLoadingLine | undefined;
     /** What the rail counts the rows in: what the loading line names them by. */
@@ -171,7 +177,7 @@ export interface RecordFooterProps {
 const NO_RETRY = () => undefined;
 
 /** Renders the footer — see the module docs. */
-export const RecordFooter = memo(function RecordFooter({ styles, count, saved, stale, recordSlice, legend, live, loading, noun, onRetry }: RecordFooterProps) {
+export const RecordFooter = memo(function RecordFooter({ styles, count, saved, stale, recordSlice, legend, live, refused, band, loading, noun, onRetry }: RecordFooterProps) {
     // The loading line, in the Sheet's words, on the frame's one reveal clock (CL4) — else, alone, a clock of its own.
     const words = useSheetWords();
     const line = useMemo(() => pagedLoadingLine(loading, noun, words.m, words.number, onRetry ?? NO_RETRY), [loading, noun, words, onRetry]);
@@ -207,8 +213,11 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
                 </Box>
             )}
             <FooterMore shown={fit.kept < units} />
-            {/* The status line's words, seen and heard on a phone alone: elsewhere the toolbar's line says them. */}
-            <Box as="span" css={styles.footerLive} data-slot="footerLive" data-footer-live={live === "" ? undefined : ""} role="status" aria-live="polite">{live}</Box>
+            {/* The status line's words, seen and heard on a phone: elsewhere the toolbar's line says them — and where it cuts
+                them for want of room, they are seen here whole, the toolbar's line still the one a screen reader hears. */}
+            <Box as="span" css={styles.footerLive} data-slot="footerLive" data-footer-live={live === "" ? undefined : ""} data-band={band ? "" : undefined}
+                data-tone={refused ? "refused" : undefined} role="status" aria-live="polite" aria-hidden={band ? true : undefined}
+                title={band && live !== "" ? live : undefined}>{live}</Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>
     );

@@ -13,12 +13,14 @@
  * it, each edge duty marked in its own week, and one Undo reverts it. An
  * answer that changes what a gesture could not — a fixed duty, or one whose
  * week was published while the run was out — is refused, naming the duty, and
- * records nothing.
+ * records nothing. Over shifts keyed by number, the run names the fixed ones
+ * by their numbers (east-workspace#1709, ruling 11).
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, SortedMap, compareFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, DictType, East, IntegerType, SortedMap, compareFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui/internal";
@@ -28,12 +30,43 @@ import type { Example } from "../e3-web-mount.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { act, at, history, rosterHarness, settle, slot } from "./harness.test-utils.js";
 
-const h = rosterHarness({ "roster/optimise": opt });
+/**
+ * The night warehouse's shifts keyed by number, as an app counts them (east-workspace#1709): the example's shifts,
+ * numbered from 1 in its rows' order — Tom's night before the week 7, Mia's 13.
+ */
+const NumberedNights = DictType(IntegerType, opt.NightsShift);
+const numberedNights = e3.record("rota_numbered_nights", NumberedNights, {
+    initial: new SortedMap([...opt.nightsShiftRows.values()].map((shift, i) => [BigInt(i + 1), shift] as const), compareFor(IntegerType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+/**
+ * An optimiser over the numbered shifts that takes away every shift its request names fixed, each read from the record
+ * by the number `fixed` holds it under (ruling 11): what the Roster refuses, naming the first, and records nothing.
+ */
+const removeFixed = e3.function("rota_numbered_remove_fixed", {
+    inputs: [numberedNights],
+    drafts: [numberedNights],
+    args: [Roster.Types.OptimiseRequest({ edges: true, key: IntegerType })],
+    output: Roster.Types.OptimiseResult(NumberedNights),
+}, ($, rota, request) => {
+    const held = $.let(new Map(), NumberedNights);
+    $.for(request.fixed, ($2, key) => {
+        $2.if(rota.has(key), ($3) => { $3(held.insert(key, rota.get(key))); });
+    });
+    const cleared = $.const(new Map(), NumberedNights);
+    return { duties: East.diff(held, cleared) };
+});
+
+const h = rosterHarness({ "roster/optimise": opt, "roster/numbered-nights": { numberedNights, removeFixed } });
 const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest({ edges: true }), result: Roster.Types.OptimiseResult(opt.NightsShifts) });
+/** The numbered shifts' optimiser's calls: its request names the fixed shifts by their numbers. */
+const numbered = fitCalls(h, { request: Roster.Types.OptimiseRequest({ edges: true, key: IntegerType }), result: Roster.Types.OptimiseResult(NumberedNights) });
 /** The night warehouse's optimiser, by its `e3.function` name. */
 const RUN = "rota_plan_nights";
 /** The optimiser that takes every duty at the week's edges away, by its name. */
 const CLEAR = "rota_clear_edges";
+/** The optimiser that takes away every numbered shift it is told is fixed, by its name. */
+const REMOVE = "rota_numbered_remove_fixed";
 
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 const eye = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-optimise-button]");
@@ -78,17 +111,21 @@ async function assign(c: HTMLElement, person: string, day: number, shift: string
     const placed = await waitFor(() => { const el = slot(c, "main").querySelector<HTMLElement>(`${cell} [data-roster-tile][data-added]`); expect(el).not.toBeNull(); return el!; });
     return placed.getAttribute("data-roster-assignment")!;
 }
-/** The night warehouse's Roster as `rosterOptimiseEdges` binds it, its optimiser the one that takes every duty at the week's edges away. */
-function clearingRoster(): Example {
+/**
+ * The night warehouse's Roster as `rosterOptimiseEdges` binds it, its optimiser the one that takes every duty at the week's
+ * edges away — or, `numbered`, over its shifts keyed by number, its optimiser the one that takes away every shift its
+ * request names fixed.
+ */
+function clearingRoster(numbered = false): Example {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const rota = $.let(Record.bind(opt.nightsShifts));
+        const rota = $.let(Record.bind((numbered ? numberedNights : opt.nightsShifts) as typeof opt.nightsShifts));
         const weeks = $.let(Record.bind(opt.nightsWeeks));
         const staff = $.let(Data.bind(opt.nightsWorkers));
         const times = $.let(Data.bind(opt.nightsShiftTimes));
         const teams = $.let(Data.bind(ex.minimalTeams));
-        const optimise = $.let(Func.bind(opt.rotaClearEdges));
+        const optimise = $.let(Func.bind((numbered ? removeFixed : opt.rotaClearEdges) as typeof opt.rotaClearEdges));
         return Roster({
-            id: "clearingRoster", week: { start: "monday" }, inspector: true, optimise,
+            id: numbered ? "numberedRoster" : "clearingRoster", week: { start: "monday" }, inspector: true, optimise,
             view: { layout: "people", period: "week", date: at("2028-03-06T00:00:00") },
             events: { duty: Schedule.events(rota, {
                 name: "Shift", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: "people" }, shift: "shift", group: "team",
@@ -185,5 +222,16 @@ describe("Optimise with the week's edges in the Roster (#1553)", () => {
         // The answer takes Mia's night away and changes Tom's, both of the week published meanwhile: the patch's first key names the refusal.
         expect(words(banner(c, "fail")!)).toEqual(["Couldn't optimise W10", "Elara's answer removes Mia Hart · Sun Mar 5 Night · Inbound, in a week not available to edit. Nothing changed."]);
         expect([calls.requests(RUN)[0]!.fixed.size, c.querySelectorAll("[data-op]").length]).toEqual([0, 0]);
+    });
+
+    test("ruling 11 — over shifts keyed by number, the run names the edge shifts of a published week fixed by their numbers, 7 and 13 in their numbers' order; an answer that takes them away, found by those numbers, is refused, naming the first, and records nothing", async () => {
+        await h.patch(opt.nightsWeeks, weekBeforeIssued());
+        const c = await mounted(clearingRoster(true));
+        await press(eye(c));
+        await said(c, "fail");
+        expect([...numbered.requests(REMOVE)[0]!.fixed]).toEqual([7n, 13n]);
+        // Tom's night is 7, Mia's 13: the patch's first number names the refusal.
+        expect(words(banner(c, "fail")!)).toEqual(["Couldn't optimise W10", "Elara's answer removes Tom Vale · Sun Mar 5 Night 21–05 · Dispatch, in a week not available to edit. Nothing changed."]);
+        expect([c.querySelectorAll("[data-op]").length, (history(c, editingMessages.apply()) as HTMLButtonElement).disabled]).toEqual([0, true]);
     });
 });

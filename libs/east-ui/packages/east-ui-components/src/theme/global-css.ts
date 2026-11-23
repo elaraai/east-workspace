@@ -245,9 +245,13 @@ export const globalCss = defineGlobalStyles({
      * drop would land — mono, on the paper in a `--rule-strong` ring — or,
      * red, why the cell under it refuses it. As wide as its words: the
      * overlay is the size of what was picked up, a row's grip as much as a
-     * card. */
+     * card. Up to 44 of its characters: longer words — a refusal that names
+     * the key another row holds (east-workspace#1709) — go on to the next
+     * line, never a frame's width across what lies beside the ghost; a key
+     * with no space in it breaks where the line ends. */
     "[data-drag-caption]": {
         width: "max-content",
+        maxWidth: "min(44ch, calc(100vw - 16px))",
         marginTop: "{spacing.1}",
         paddingInline: "{spacing.2}",
         paddingBlock: "{spacing.1}",
@@ -260,7 +264,8 @@ export const globalCss = defineGlobalStyles({
         borderStyle: "solid",
         borderColor: "border.strong",
         borderRadius: "{radii.sm}",
-        whiteSpace: "nowrap",
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
     },
     "[data-drag-caption][data-refused]": {
         color: "fg.danger",

@@ -2,6 +2,7 @@
   "reads": [
     "libs/east-ui/packages/east-ui-components/src/editing/model",
     "libs/east-ui/packages/east-ui-components/src/editing/draft.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/follow.ts",
     "libs/east-ui/packages/east-ui-components/src/editing/history.ts",
     "libs/east-ui/packages/east-ui-components/src/editing/keys.ts",
     "libs/east-ui/packages/east-ui-components/src/editing/landed.ts",

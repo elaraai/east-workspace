@@ -10,7 +10,7 @@
  * @packageDocumentation
  */
 
-import { blankIdOf, bodyIndexOfId, type SheetBodyItem } from "./model.js";
+import { blankIdOf, blankLineId, bodyIndexOfId, lineId, parseLineId, type SheetBodyItem } from "./model.js";
 import { isBlankRowId } from "./sheet-state.js";
 import { dropRowOf, printDropRow } from "./drop.js";
 
@@ -119,6 +119,28 @@ export function followRows(before: readonly (RowSlot | undefined)[], after: read
         if (slot === undefined) return undefined;
         return ("id" in slot ? byId.get(slot.id) : byBlank.get(slot.blank)) ?? null;
     };
+}
+
+/**
+ * A row space's places as they are named once a gesture has put rows under other keys (`rowKey`, east-workspace#1709):
+ * what {@link followRows} follows them by. A row and a group go by the key each stands under now, and a group's
+ * lines and its blank line with it — each is named after its group. A padding row's place is left out: where the ring
+ * stands on one is the gesture's own to set.
+ *
+ * @param slots - The places before the gesture
+ * @param moves - The rows it moved under other keys, each by the key it had
+ * @returns The places, each by the name it has after the gesture; `undefined` for one left to the gesture
+ */
+export function rekeyedSlots(slots: readonly (RowSlot | undefined)[], moves: ReadonlyMap<string, string>): (RowSlot | undefined)[] {
+    const blankLines = new Map([...moves].map(([from, to]) => [blankLineId(from), blankLineId(to)] as const));
+    return slots.map((slot) => {
+        if (slot === undefined || !("id" in slot)) return undefined;
+        const moved = moves.get(slot.id);
+        if (moved !== undefined) return { id: moved };
+        const line = parseLineId(slot.id);
+        const group = line === undefined ? undefined : moves.get(line.groupId);
+        return { id: line !== undefined && group !== undefined ? lineId(group, line.key) : blankLines.get(slot.id) ?? slot.id };
+    });
 }
 
 /** What is open in a body: each group unfolded, each line whose sub rows show. */

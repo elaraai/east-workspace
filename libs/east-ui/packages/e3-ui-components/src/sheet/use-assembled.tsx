@@ -26,6 +26,7 @@ import { liftDraft, normalizeDraft } from "./draft-values.js";
 import { landSheetOptimise, sheetOptimisePeriod, sheetOptimiseRequest, type SheetOptimiseRequest } from "./optimise.js";
 import type { EntryVersion } from "./transactions.js";
 import { noticeText } from "./words.js";
+import { noticeRefuses } from "./refusal.js";
 import { editUnchanged } from "./sheet-state.js";
 import { SheetInsertLayer, SheetInsertStrip } from "./Insertion.js";
 import { SheetHeader } from "./Header.js";
@@ -103,7 +104,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
         landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimiseWhole, optimised, paging, rows,
-        rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
+        rowsQuery, run, session, keepOptimised, clearOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
     const { ctx, emptyNarrowing } = sheetMachine;
@@ -146,6 +147,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     actedRef.current = optimiseParts.acted;
     const originalVersion = editingState.original;
     const recordVersions = editingState.recordVersions;
+    const standsUnder = editingState.under;
     const projectDraft = editingState.project;
     const landAfter = optimiseParts.landAfter;
     landRef.current = (result, _request, n, read) => {
@@ -177,10 +179,12 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
             },
             // A row as the sheet names it — its first text column's text, else its key — as its history's issues name it.
             nameOf: rowName,
-            record: recordVersions, before: optimised,
+            // An answer is an edit like any other (east-workspace#1709, ruling 14): a row it moves under the key its row
+            // builds takes the run's marks there, and one a row's key refuses is said in the footer's words for it.
+            record: recordVersions, under: standsUnder, words, before: optimised,
         });
         // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
-        return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter(n); });
+        return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter(n); });
     };
     // What a run left on the rows goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
     // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is
@@ -188,8 +192,8 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const sessionPending = session.pending;
     // `draftVersion` tracks the session's pending count and its redo stack, which the session object itself does not move with.
     useEffect(() => {
-        if (sessionPending === 0 && session.nextRedo?.origin !== "optimise") setOptimised(undefined);
-    }, [sessionPending, draftVersion, session, setOptimised]);
+        if (sessionPending === 0 && session.nextRedo?.origin !== "optimise") clearOptimised();
+    }, [sessionPending, draftVersion, session, clearOptimised]);
     const flash = optimised !== undefined && landing.lit;
 
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
@@ -248,7 +252,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const pagesRetry = paging.retry;
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
     const footer: SheetFooterProps = {
-        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), loading: line, noun: rowsNoun, onRetry: retrySource,
+        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), refused: noticeRefuses(ui.msg), loading: line, noun: rowsNoun, onRetry: retrySource,
         optimise: { line: optimiseParts.line, legend: optimiseParts.legend },
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };

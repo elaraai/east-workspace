@@ -36,16 +36,17 @@ import type { FuncCallBinding, FuncCallDraft } from "./use-func-call.js";
 import type { OptimiseRefused, OptimiseSessions } from "./use-optimise.js";
 
 const h = e3Harness({ "allocation/allocation": ex });
-const RequestType = Allocation.Types.FitRequest, ResultType = Allocation.Types.FitResult;
+/** The yard's fit's question and answer, its bins keyed by String. */
+const RequestType = Allocation.Types.FitRequest(), ResultType = Allocation.Types.FitResult(), AskType = Allocation.Types.FitAsk();
 const calls = fitCalls(h, { request: RequestType, result: ResultType });
 /** The yard's fit, by its `e3.function` name, and the record it lists in `drafts`: the yard's bins. */
 const NAME = ex.yardFit.name, BINS = ex.kilnBins.name;
 const BINDING: FuncCallBinding = { drafts: [BINS], reads: [BINS, ex.kilns.name, ex.arrivals.name] };
-type Ask = ValueTypeOf<typeof Allocation.Types.FitAsk>;
+type Ask = ValueTypeOf<typeof AskType>;
 type Result = ValueTypeOf<typeof ResultType>;
 type Fit = FitAnswers<Ask, object, Result>;
 const byString = compareFor(StringType);
-const askKey = printFor(Allocation.Types.FitAsk);
+const askKey = printFor(AskType);
 const DAY = new Date("2027-05-11T00:00:00Z");
 const place = (code: string, quantity: number): Ask => variant("place", { subject: variant("arrival", code), quantity });
 const LD_2231 = place("LD-2231", 21), LD_2236 = place("LD-2236", 11);

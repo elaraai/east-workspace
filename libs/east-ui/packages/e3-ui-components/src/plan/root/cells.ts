@@ -37,7 +37,9 @@
  * they are read again — after a Save, after another session's write — a draft
  * made meanwhile draws at once, and a gesture finds its event's row among them.
  * A kind narrowed through its source draws a draft only of an event those rows
- * hold, or of a new one (`isNew`, #1343), as its window's own read drew them.
+ * hold, or of a new one (`isNew`, #1343), as its window's own read drew them —
+ * an event its drafts moved under another key (east-workspace#1709) among the
+ * new: its record holds none under that key.
  * The canvas's range is a window panned over its rows, no period: what the last
  * range held stands while the next is read.
  *
@@ -58,6 +60,7 @@ import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources,
     type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
+import { draftAdds } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
 import { hides } from "../frame/hidden.js";
 import { timeInstant } from "../instant.js";
@@ -129,9 +132,10 @@ export interface PlanCellsArgs {
     /**
      * The editing's say of what confirmed Saves landed of the kinds read by their cells ({@link cellKinds}), and how it is
      * let go: drawn over a kind's cells read before the commit until they are read again — and the row each drafted
-     * event's session began from, which tells a new event from one the record holds; `undefined` for none.
+     * event's session began from, which tells a new event from one the record holds, with the events its drafts moved
+     * under another key, which its record holds none under; `undefined` for none.
      */
-    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying" | "movedFrom"> | undefined;
 }
 
 /**
@@ -232,6 +236,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const { kinds, landings, rows, parts, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
+    const movedFrom = editing?.movedFrom;
     const ends = useLinkEnds(links, kinds);
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
@@ -249,8 +254,10 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         hidden: hides(hidden, planHideId.events(kind.key)),
         wanted: ends.get(kind.key) ?? NO_LINK_ENDS,
         // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's among
-        // them — or of a new one (#1343): one its session began from no stored row.
-        isNew: held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // them — or of a new one (#1343): one its session began from no stored row, or one its drafts moved under the key
+        // its fields build (east-workspace#1709).
+        isNew: held !== undefined && movedFrom !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key))
+            ? draftAdds(held, movedFrom, kind.key) : undefined,
         // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
         // another planner's removal of a job drafted here never takes it off the canvas before the session has read it.
         carrying: carrying === undefined ? undefined : () => carrying(kind.key),
@@ -258,7 +265,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         // no source narrowing it — the revision its record reads at.
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, hidden, ends, held, carrying]);
+    })), [kinds, parts, hidden, ends, held, carrying, movedFrom]);
     // Over rows read whole: every landing row of the canvas, by its series.
     const whole = useMemo((): ScheduleCellResources[] => {
         if (rows.type !== "inline") return [];

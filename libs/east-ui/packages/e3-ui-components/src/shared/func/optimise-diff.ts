@@ -16,14 +16,20 @@
  * landing becomes the builder's changes — `{ kind, id, row, created }`,
  * `{ kind, id, row }`, `{ kind, id, remove }` — for one `record` call, and
  * the operations the landing draws and the provenance says (`data-op`,
- * `Was {previous} · Elara run #n`), kept until Apply.
+ * `Was {previous} · Elara run #n`), kept until Apply. An answer is an edit
+ * like any other (east-workspace#1709, ruling 14): where the app builds a
+ * row's key from its fields (`rowKey`), the step moves a row whose key the answer
+ * changed under the key it then builds, and what the run leaves on the row is
+ * kept under that key; a step a row's key refuses says why, in the words every
+ * refused key is said in.
  *
  * @packageDocumentation
  */
 
 import { East, PatchType, encodeBeast2For, equalFor, parseFor, printFor, type DictType, type EastType, type option } from "@elaraai/east";
 import { optimiseChangesFor } from "@elaraai/e3-ui/internal";
-import type { ScheduleChange } from "../schedule/editing.js";
+import type { ScheduleChange, ScheduleEditing } from "../schedule/editing.js";
+import { keyRefusedText } from "../schedule/words.js";
 import type { OptimiseCounts, OptimiseMissing, OptimiseRefused } from "./use-optimise.js";
 
 /**
@@ -64,6 +70,25 @@ export const NO_OPTIMISE_DIFF: OptimiseDiff<never> = { changes: [], ops: new Map
  */
 export function opKey(kind: string, id: string): string {
     return `${kind}\u0000${id}`;
+}
+
+/**
+ * An operation's key ({@link opKey}) once its run's step is recorded, or as the history has moved since: its row's
+ * kind, and the key the row stands under now ({@link OptimiseUnder}, {@link OptimiseFollow}) — another than the one it
+ * had where a step moved the row under the key its fields build.
+ *
+ * @param key - The operation's key, as it was kept
+ * @param under - Where each row stands now
+ * @returns The key it is kept under now; `undefined` for a row that stands under no key of its own
+ */
+export function opKeyUnder(key: string, under: OptimiseUnder): string;
+export function opKeyUnder(key: string, under: OptimiseFollow): string | undefined;
+export function opKeyUnder(key: string, under: OptimiseFollow): string | undefined {
+    const at = key.indexOf("\u0000");
+    if (at < 0) return key;
+    const kind = key.slice(0, at);
+    const id = under(kind, key.slice(at + 1));
+    return id === undefined ? undefined : opKey(kind, id);
 }
 
 /**
@@ -284,6 +309,33 @@ export function optimiseLandedCounts<O>(landed: OptimiseLanded<O> | OptimiseMiss
 }
 
 /**
+ * Where a row a run's answer touched stands once its step is recorded (east-workspace#1709, ruling 14), by its key's
+ * text as its session names it: another key than the one it had where the step moved it under the key its fields build,
+ * as an edit moves a row — a row the answer changed whose key it changed, one it added under a key its fields build
+ * another, or one that names such a row by its key and followed it — else the key it had.
+ *
+ * @param kind - The row's kind's slot, or its record's key
+ * @param id - The key's text it had: the one the answer named it by, or what an earlier run left on it is kept under
+ * @returns The key's text it stands under now
+ */
+export type OptimiseUnder = (kind: string, id: string) => string;
+
+/**
+ * Where a row the runs left marks on stands now (ruling 16 of east-workspace#1709), by its key's text as its session
+ * names it: the key it stands under — another than the one it had wherever a step since, a person's gesture, its Undo
+ * or its Redo among them, moved it under the key its fields build — or none of its own: another row has come to stand
+ * under its key, or the step that made it has been taken back. Every {@link OptimiseUnder} is one, each row under a key.
+ *
+ * @param kind - The row's kind's slot, or its record's key
+ * @param id - The key's text it had where the marks were kept
+ * @returns The key's text it stands under now; `undefined` for a row that stands under no key of its own
+ */
+export type OptimiseFollow = (kind: string, id: string) => string | undefined;
+
+/** A step that moved no row: each stands under the key it had. */
+const SAME_KEY: OptimiseUnder = (_kind, id) => id;
+
+/**
  * What records a run's changes as one step of a builder's history: its editing's `record`, or its session's.
  *
  * @typeParam C - A change, as the history records it
@@ -298,27 +350,62 @@ export interface OptimiseRecorder<C> {
      * @returns Whether the history took the step
      */
     record(changes: readonly C[], origin: "optimise", label: string): boolean;
+    /**
+     * Why the history took none of the step, where a row's key refused it (east-workspace#1709, ruling 14) — the key a
+     * row's fields build is another row's, it failed as it was built, or the rows that name the row cannot follow it —
+     * in the words every refused key is said in: asked once a step is refused. `undefined`, as for a recorder that gives
+     * none, for a step refused for any other reason.
+     */
+    readonly refusal?: (() => string | undefined) | undefined;
+    /** Where each row stands once the step is recorded ({@link OptimiseUnder}); each under the key it had, unless given. */
+    readonly under?: OptimiseUnder | undefined;
+}
+
+/**
+ * What records a run's step in a builder's shared Schedule editing (east-workspace#1709, ruling 14), as every board
+ * records one — the Calendar, the Plan, the Roster and the Allocation: its `record`; why a row's key refused the step,
+ * in the words every refused key is said in ({@link keyRefusedText}); and where each row stands once the step is
+ * recorded (`ScheduleEditing.under`).
+ *
+ * @param editing - The builder's shared Schedule editing
+ * @returns What records its runs' steps
+ */
+export function scheduleOptimiseRecorder(editing: Pick<ScheduleEditing, "record" | "keyRefusal" | "under">): OptimiseRecorder<ScheduleChange> {
+    return {
+        record: editing.record,
+        refusal: () => {
+            const refused = editing.keyRefusal();
+            return refused === undefined ? undefined : keyRefusedText(refused.name, refused.why);
+        },
+        under: editing.under,
+    };
 }
 
 /**
  * A run's changes recorded (R10, §12; east-workspace#1622, rule 10): a run that changes nothing records nothing and
  * leaves what earlier runs left as they are; one that changes something is recorded as one step of the builder's
- * history, origin `optimise`, and what the runs leave is made over it.
+ * history, origin `optimise`, and what the runs leave is made over it, by where each row stands once the step is
+ * recorded — an answer is an edit like any other, and a row whose key it changed moves under the key its fields build
+ * (east-workspace#1709, ruling 14). A step a row's key refuses lands nothing, and says why.
  *
  * @typeParam C - A change, as the history records it
  * @typeParam O - What the runs leave on the builder's rows
  * @param run - The run's changes, and what it counted
  * @param history - What records the changes as one step
  * @param label - The step's label — `Elara run #7`
- * @param left - What the runs leave, made once the step is recorded
- * @returns What the run counted, and what the runs leave — none from a run that changed nothing; `undefined` where the
- *   history would not take the step
+ * @param left - What the runs leave, made once the step is recorded, given where each row stands then
+ * @returns What the run counted, and what the runs leave — none from a run that changed nothing; the refusal, in the
+ *   recorder's words, where a row's key refused the step; `undefined` where the history would not take it for another
+ *   reason
  */
 export function recordOptimiseRun<C, O>(run: { readonly changes: readonly C[]; readonly counts: OptimiseCounts },
-    history: OptimiseRecorder<C>, label: string, left: () => O): OptimiseLanded<O> | undefined {
+    history: OptimiseRecorder<C>, label: string, left: (under: OptimiseUnder) => O): OptimiseLanded<O> | OptimiseRefused | undefined {
     if (run.changes.length === 0) return { counts: run.counts, optimised: undefined };
-    if (!history.record(run.changes, "optimise", label)) return undefined;
-    return { counts: run.counts, optimised: left() };
+    if (!history.record(run.changes, "optimise", label)) {
+        const refused = history.refusal?.();
+        return refused === undefined ? undefined : { refused };
+    }
+    return { counts: run.counts, optimised: left(history.under ?? SAME_KEY) };
 }
 
 /**

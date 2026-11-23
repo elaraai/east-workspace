@@ -9,7 +9,8 @@
  * own, compiled.
  */
 import { describe, expect, test } from "vitest";
-import { NullType, SortedMap, StringType, compareFor, none, some, toEastTypeValue, variant } from "@elaraai/east";
+import { IntegerType, NullType, SortedMap, StringType, compareFor, none, some, toEastTypeValue, variant } from "@elaraai/east";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
 import { arrivalCards, resourceCards, type LibraryWords } from "./library.js";
 import { DEFAULT_NOUNS } from "./nouns.js";
 import { allocationDomain, allocationWords, type ArrivalRow, type Bin, type Context, type Day, type ResourceRow } from "./model.js";
@@ -65,7 +66,7 @@ const PLAN = day([
 ]);
 
 describe("arrivalCards (A51)", () => {
-    const cards = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: WORDS });
+    const cards = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: WORDS, keys: STRING_KEYS });
     test("the groups in order: Overdue, Ready around now, Removed from plan, Allocated — draft bookings first, then by their first bin's time", () => {
         expect(cards.map(c => [c.group, c.key])).toEqual([
             ["Overdue", "arrival:E-1"],
@@ -101,8 +102,15 @@ describe("arrivalCards (A51)", () => {
     });
 
     test("the Table's words: an arrival drags onto a free row", () => {
-        const table = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: { ...WORDS, layout: "table" } });
+        const table = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: { ...WORDS, layout: "table" }, keys: STRING_KEYS });
         expect(table.find(c => c.key === "arrival:E-2")!.tip).toBe("Click to see where E-2 fits · drag it onto a free row");
+    });
+
+    test("#1696 — over bins keyed by number, an arrival's bins at one time go by their keys as numbers: 9 before 10, never by their text", () => {
+        const at = on(0, 9, 35);
+        const numbered = day([["9", bin("L-2", at, "E-7", 2, [])], ["10", bin("L-2", at, "E-7", 2, [["R-1", 2]])]]);
+        const keyed = arrivalCards({ context: CONTEXT, day: DAY, plan: numbered, held: undefined, words: WORDS, keys: kindKeys(toEastTypeValue(IntegerType)) });
+        expect(keyed.find(c => c.key === "arrival:E-7")!.bins).toEqual(["9", "10"]);
     });
 });
 

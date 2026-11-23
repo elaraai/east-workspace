@@ -99,7 +99,8 @@ import {
     type PlanAnchor, type PlanOwnWindow, type PlanPersisted,
 } from "../persisted.js";
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
-import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
+import { createSeekDriver, firstAtOrAfter, planRowKeys, type PlanSeekSnapshot } from "./seek.js";
+import { STRING_KEYS, type KindKeys } from "../../shared/schedule/kind-keys.js";
 import { currentScale, runPlanEffects } from "./effects.js";
 import { planPart, planSlices, planWindowParts, ROWS_SOURCE } from "../root/sources.js";
 import type { PlanWindowHold } from "../root/window.js";
@@ -323,9 +324,10 @@ export interface PlanController {
     placeOf(key: RowKey): PlanRowPlace | undefined;
     /** The key search, for the toolbar (its `find` / `jump` / `clear` are this
      *  controller's). Mount it only where the source declares `seek`; its
-     *  `requery` is the seek snapshot's `again` (#821, #1199), and its
-     *  `resetKey` the source's id. */
-    readonly search: Omit<PlanSearch, "resetKey" | "requery">;
+     *  `requery` is the seek snapshot's `again` (#821, #1199), its `resetKey`
+     *  the source's id, and its `keyType` the rows' ({@link planRowKeys},
+     *  east-workspace#1696). */
+    readonly search: Omit<PlanSearch, "resetKey" | "requery" | "keyType">;
     /**
      * Go to a row of the `rows` source Search Records found (#1513): its window opened as a key search's jump opens it,
      * once the source reads the narrowing the row was placed in, and the view brought to the row as it lands.
@@ -630,7 +632,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     const seek = createSeekDriver({
         clearJump: () => paging.clearJump(),
         onChange: () => batch(() => undefined),
+        keys: rowKeys,
     });
+
+    /** The keys the rows name their elements by, as the root names them now (east-workspace#1696): String's before it has. */
+    function rowKeys(): KindKeys {
+        return data === undefined ? STRING_KEYS : planRowKeys(data.rowsKeyType);
+    }
 
     // A bound state is the host's from the first frame (#824) — read before
     // the first snapshot, so the canvas never draws its own first.
@@ -698,7 +706,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (scroll.targetKey !== undefined) scroll = { ...scroll, targetKey: undefined };
         } else if (searchRequest !== undefined && !p.replacing && landedAt(p, searchRequest.row)) {
             const loaded = elementRowsOf(p);
-            const targetKey = loaded[firstAtOrAfter(loaded, searchRequest.key)]?.key;
+            const targetKey = loaded[firstAtOrAfter(loaded, searchRequest.key, rowKeys())]?.key;
             searchRequest = undefined;
             if (targetKey !== undefined) {
                 const target = loaded.find((row) => row.key === targetKey)!;
@@ -987,7 +995,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     paging.openAt(seen.w * PLAN_PAGE_SIZE, seen.block);
                     return;
                 }
-                // Never seen — sought by the key of the element it comes from.
+                // Never seen — sought by the key of the element it comes from: a String key by its literal, a key of any
+                // other type by its text, which is its literal (east-workspace#1696).
                 const element = req.id.type === "entry" ? req.id.value.path[0] : undefined;
                 if (element === undefined || value.rows.value.seek.type !== "some") {
                     focusRequest = undefined;
@@ -995,7 +1004,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 }
                 const waiting = { ...req, phase: "seeking" as const };
                 focusRequest = waiting;
-                seek.find({ key: printString(element) }).then(
+                seek.find({ key: rowKeys().text ? printString(element) : element }).then(
                     (range) => batch(() => {
                         if (focusRequest !== waiting) return;
                         // The request's search, not the toolbar's: it leaves
@@ -1038,8 +1047,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (sought !== null) searchRequest = { key: seek.keyAt(row) ?? sought.key, row };
     }
 
-    const search: Omit<PlanSearch, "resetKey" | "requery"> = {
-        keyType: CANVAS_KEY_TYPE,
+    const search: Omit<PlanSearch, "resetKey" | "requery" | "keyType"> = {
         find: (q, again) => {
             searchJump++;
             // The query standing, asked again at a new snapshot (#1199): its

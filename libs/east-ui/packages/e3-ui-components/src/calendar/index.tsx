@@ -95,7 +95,10 @@ import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
-import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import {
+    scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type SchedulePoint, type ScheduleRowRead,
+} from "../shared/schedule/editing.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -118,7 +121,7 @@ import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type Calen
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
 import { calendarMessages, type CalendarWords } from "./messages.js";
 import {
-    calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
+    calendarMarksUnder, calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
     type CalendarOptimiseRequest, type CalendarOptimiseResult, type CalendarOptimised,
 } from "./optimise.js";
 import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
@@ -361,11 +364,18 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         for (const kind of value.events) {
             if (!paged.has(kind.key) || kind.entries.type !== "some") continue;
             const entries = kind.entries.value;
-            out[kind.key] = (id) => {
-                const at = entries.revision();
-                if (at.type !== "some") return undefined;
-                const page = backlogNow.current?.servedRow(kind.key, id);
-                return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+            out[kind.key] = {
+                row: (id) => {
+                    const at = entries.revision();
+                    if (at.type !== "some") return undefined;
+                    const page = backlogNow.current?.servedRow(kind.key, id);
+                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
+                },
+                // The events the Backlog lists at the revision: keys a new event's is made past, which its rule is told.
+                ids: () => {
+                    const at = entries.revision();
+                    return at.type !== "some" ? [] : backlogNow.current?.servedIds(kind.key, at.value) ?? [];
+                },
             };
         }
         return out;
@@ -532,8 +542,9 @@ function CalendarFrame(props: HostProps) {
     // The paged kind's resources whose events are read, which alone a creation can find free: the cells reader's, where
     // it reads them; every one held, where the window's read reads the kind's events.
     const cellsDrawn = data.cells?.drawn;
-    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }),
-        [value, editing, select, items, shown, pagedRows, cellsDrawn]);
+    const commands = useMemo(() => editing === undefined ? undefined
+        : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }, setError),
+    [value, editing, select, items, shown, pagedRows, cellsDrawn]);
     // Held back only while what it shows is another view's (ruled 11 Nov 2026, `../shared/view-read.ts`): the last
     // choices' events standing in for new ones', a resource kind's narrowing resolving, a paged kind's last view standing
     // in for a new narrowing's (CL8) — no gesture until they land. A read again of the view shown — after a Save, or
@@ -546,7 +557,9 @@ function CalendarFrame(props: HostProps) {
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => calendarOptimiseTypes(value), [value]);
-    const [optimised, setOptimised] = useState<CalendarOptimised | undefined>(undefined);
+    // What the runs left on the events (R17), each mark under the key its event stands under now, whoever moved it there —
+    // a gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<CalendarOptimised, SchedulePoint>(editing, editing?.version ?? 0, calendarMarksUnder);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     const latest = useRef({ editing, optimised, periodName });
     latest.current = { editing, optimised, periodName };
@@ -571,7 +584,7 @@ function CalendarFrame(props: HostProps) {
             const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? read(kind, id), request, result,
                 optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only. It waits on nothing
@@ -587,8 +600,8 @@ function CalendarFrame(props: HostProps) {
     // kept while that step is the next to redo.
     const pending = editing?.history.pending ?? 0;
     useEffect(() => {
-        if (pending === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [pending, editing?.version, editing]);
+        if (pending === 0 && editing?.history.redoOrigin !== "optimise") clearOptimised();
+    }, [pending, editing?.version, editing, clearOptimised]);
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
     const unassigned = useMemo(() => unassignedRow(value.vocabulary.unassigned), [value.vocabulary.unassigned]);
@@ -715,8 +728,9 @@ function CalendarFrame(props: HostProps) {
         const now = picked.current;
         select(additive ? now.some(was => eventKey(was) === id) ? now.filter(was => eventKey(was) !== id) : [...now, ref] : [ref]);
     }, [select]);
-    // A new event whose made key another Save took goes on under the next its kind makes (#1583): what was selected of it
-    // stays selected, under its new key — the inspector open on it still, before the frame is drawn without it.
+    // An event that goes on under another key stays selected under it — the inspector open on it still, before the frame is
+    // drawn without it: a new event whose made key another Save took, under the next its kind makes (#1583); and one a
+    // gesture moved under the key its fields build (east-workspace#1709), a new event's from the key made for it.
     const renumbered = editing?.renumbered;
     useLayoutEffect(() => {
         if (renumbered === undefined || renumbered.size === 0) return;

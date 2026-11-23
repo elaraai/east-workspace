@@ -121,6 +121,7 @@ import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadines
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
 import { scheduleLastKey } from "../schedule/window.js";
+import { checkOneKeyRule, newKeyOf } from "../utils/record-kind.js";
 import type { RecordSaveTypeFor } from "../bind/record.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
@@ -252,7 +253,7 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
      * batch has drafted — one that is not. Without it a String key is a UUID, and an Integer one one past the largest
      * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves, once it is read.
      * Any other key needs it, and so does an Integer key read through an index's window or a narrowing, which can't say
-     * the record's largest.
+     * the record's largest — or, over a record, `rowKey`, which builds a row's key from the row. Never beside `rowKey`.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
@@ -408,6 +409,18 @@ export interface SheetInternalOptions {
     recordKinds?: boolean;
     /** The inspector's hints, when `<Sheet>` shows the pane — `fields` a row's, `groupFields` a group's: what its form lets a person set on a new entry (#1536). Left out, the sheet has no inspector. */
     inspector?: { fields?: Readonly<Record<string, unknown>> | undefined; groupFields?: Readonly<Record<string, unknown>> | undefined };
+    /**
+     * The field of a record's entries — its rows, a grouped sheet's groups — that holds each one's key, checked against
+     * the record (`<Sheet record keyField>`): the session keeps a new entry's key in it, so no person sets it and no
+     * constructor need give it.
+     */
+    keyField?: string | undefined;
+    /**
+     * A record's entry's key, built from the entry by the app (`<Sheet record rowKey>`): the sheet makes a new entry — a
+     * row, a grouped sheet's group — under the key its entry builds, and moves an entry to another as an edit changes
+     * what its key reads. One way a new entry's key is decided, the sheet's `newKey` the other: never both.
+     */
+    rowKey?: unknown;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -740,6 +753,8 @@ export interface SheetBuild {
     registers: readonly string[];
     /** A keyed source's key type — a record's own, a keyed paged source's String — whose rows' ids are its keys' text; `undefined` for an Array source, whose rows are keyed by their id field (#1409). */
     keyType: EastType | undefined;
+    /** The field of a record's entries that holds each one's key, where the sheet was told one ({@link SheetInternalOptions.keyField}). */
+    keyField: string | undefined;
 }
 
 /**
@@ -834,42 +849,35 @@ function buildSheet(
     // `newKey`; else a UUID the renderer mints for a String key, and one past the largest for an Integer one (#1182,
     // #1536, #1549). Any other key needs `newKey`.
     const entry = groupDecl === undefined ? "row" : "group";
-    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && opts.newKey === undefined
+    // A new entry's key is decided one way: built from the entry (`rowKey`, which a sheet over a record takes), or made
+    // from the keys taken (`newKey`).
+    checkOneKeyRule("Sheet", { rowKey: internal.rowKey, newKey: opts.newKey });
+    const decided = opts.newKey !== undefined || internal.rowKey !== undefined;
+    // How the app decides a new entry's key, as a refusal says it: a sheet over a record may build it from the entry.
+    const decide = `${internal.applyKeyed !== undefined ? `\`rowKey\`, building a new ${entry}'s key from the ${entry}, or ` : ""}\`newKey\`, an East function from the keys taken to a new one`;
+    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && !decided
         && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
             `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is made only for a String key or an Integer one — ` +
-            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
+            `pass ${decide}, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
-    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are — a String key's function as it is, any
-    // other key's read from its text and printed back, as `Record.onApply` reads an id.
-    const appKey = opts.newKey === undefined ? undefined : (() => {
-        const key = keyType ?? StringType;
-        const fn = East.value(opts.newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-        const type = Expr.type(fn as Expr<EastType>) as EastType;
-        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, SetType(key)) || !isTypeEqual(type.output, key)) {
-            throw new Error(`Sheet: \`newKey\` takes the keys taken and gives a new one — an East function from ${printType(SetType(key))} to ${printType(key)}`);
-        }
-        if (key.type === "String") return fn as ExprType<FunctionType<[SetType<StringType>], StringType>>;
-        return East.function([SetType(StringType)], StringType, ($, taken) => {
-            const mint = $.const(fn as ExprType<FunctionType<[SetType<EastType>], EastType>>);
-            return East.print(mint(taken.toSet((_$, id) => id.parse(key))));
-        });
-    })();
+    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are, as every builder's is.
+    const appKey = opts.newKey === undefined ? undefined : newKeyOf(keyType ?? StringType, "Sheet", opts.newKey);
     // With no `newKey`, an Integer key is one past the largest (#1549), as the Plan's is: of every key taken — the rows the
     // sheet has read, its drafts and what its gesture made — and, paging the record's own entries, of the last key they
     // hold: until that read lands no key is made, and the gesture is refused, saying so. With no key at all, the first is
     // 1. An index's window ends at the last of its own order, and a narrowing at the last it keeps: neither says the
     // record's largest key, so a sheet that adds rows over one takes the app's `newKey`.
     const unsaid = incoming.kind === "ordered" ? "an index's window" : incoming.kind === "paged" && incoming.query ? "a narrowing" : undefined;
-    if (keyType?.type === "Integer" && opts.newKey === undefined && unsaid !== undefined
+    if (keyType?.type === "Integer" && !decided && unsaid !== undefined
         && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
             `Sheet: the ${entry}s are keyed by Integer and read through ${unsaid}, which can't say the record's largest key — a new ${entry}'s is one past it — ` +
-            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
+            `pass ${decide}, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
-    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" || unsaid !== undefined ? undefined : (() => {
+    const integerKey = decided || keyType?.type !== "Integer" || unsaid !== undefined ? undefined : (() => {
         // The record's own entries, paged, end at its largest key.
         const lastKey = incoming.kind === "paged"
             ? scheduleLastKey(incoming.source as unknown as ExprType<EastType>, IntegerType)
@@ -941,6 +949,15 @@ function buildSheet(
     const metas = described.filter((m) => m.data === undefined);
     const dataMetas = described.filter((m) => m.data !== undefined);
     const metaByKey = new Map(metas.map((m) => [m.key, m]));
+    // A record's key field is its session's to keep: a column over it shows the key and takes no edit, and no column
+    // writes it another way. On a grouped sheet the field is the group's, and its band cells are held to this below.
+    const keyField = internal.keyField;
+    for (const m of keyField !== undefined && groupDecl === undefined ? described : []) {
+        if (m.otherField === keyField || (m.data !== undefined && m.field === keyField)) {
+            throw new Error(`Sheet: column "${m.key}" writes "${keyField}", the \`keyField\` — a row's key is kept in it by the sheet, and no column writes it`);
+        }
+        if (m.field === keyField) m.editable = false;
+    }
     for (const m of described) {
         if (m.otherField !== undefined && metaByKey.has(m.otherField)) {
             throw new Error(`Sheet: link column "${m.key}" names "${m.otherField}" as its other half, which is also a column — a half's field is written through the link column, never on its own`);
@@ -1017,17 +1034,23 @@ function buildSheet(
             }
             cellMetas.push(meta);
         }
+        for (const m of keyField !== undefined ? cellMetas : []) if (m.field === keyField) m.editable = false;
     }
 
     // The fields only the app gives a new entry (#1536), on a sheet that adds that kind of entry: a row's — a line's, a
     // loose row's — and a group's. The session sets an entry's id field itself (a flat row's, a loose row's, a line's
     // beside loose rows) and a group's lines. A sheet that applies nothing drafts what it likes.
     const hinted = internal.inspector;
-    const lineLeave = new Set(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []);
+    // And a record's key field, which it keeps the entry's key in: a row's, or on a grouped sheet a group's.
+    const lineLeave = new Set([
+        ...(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []),
+        ...(keyField !== undefined && groupDecl === undefined ? [keyField] : []),
+    ]);
     const unsettable = {
         row: adds("insertRows") ? unsettableFields(lineType, described, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
         group: groupDecl !== undefined && cellMetas !== undefined && adds("insertGroups")
-            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {}, new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : [])]))
+            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {},
+                new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : []), ...(keyField !== undefined ? [keyField] : [])]))
             : [],
     };
     const lineWord = groupDecl === undefined ? "row's" : loose ? "line's or loose row's" : "line's";
@@ -1228,7 +1251,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
-        unsettable,
+        unsettable, keyField, rowKey: internal.rowKey,
     }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
@@ -1303,5 +1326,5 @@ function buildSheet(
         narrow,
         ordered: ordered !== undefined,
     }, SheetRootType);
-    return { root, bridge, metas, data: dataMetas, registers: Object.keys(registers), keyType };
+    return { root, bridge, metas, data: dataMetas, registers: Object.keys(registers), keyType, keyField };
 }

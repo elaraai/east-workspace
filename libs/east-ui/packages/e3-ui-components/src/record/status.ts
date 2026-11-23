@@ -9,8 +9,8 @@
  *
  * - **the last gesture's words** — the Sheet's notice, worded again where the
  *   Record has words of its own: a row added, rows deleted, an Add the app
- *   gave nothing to draft from, the issues gone to; every other notice in the
- *   Sheet's words;
+ *   gave nothing to draft from, a row refused for its key, the issues gone
+ *   to; every other notice in the Sheet's words;
  * - **else what a step of the history did** — Undo, Redo, Discard and
  *   Apply, each told as it is taken ({@link stepOf}, {@link createRecordStatus}),
  *   an Apply once its batch is read back, as the history bar stops saying it
@@ -23,7 +23,10 @@
  *
  * Of the three, the line says whichever spoke last and still has words
  * ({@link useRecordStatusLine}): a notice the Sheet has cleared has none, nor a
- * step a gesture has come after, nor the ticks once none is ticked.
+ * step a gesture has come after, nor the ticks once none is ticked. Where the
+ * words are a notice's that a gesture was refused, the line says them in the
+ * danger tone (east-workspace#1709): a change that did not happen is never read
+ * as one that did.
  *
  * @packageDocumentation
  */
@@ -31,10 +34,12 @@
 import { useState, useSyncExternalStore } from "react";
 import { StringType, equalFor } from "@elaraai/east";
 import type { EditIssue, HistoryAction } from "@elaraai/east-ui-components";
-import { DRAFT_ISSUE_TEXT } from "@elaraai/east-ui-components/internal";
+import { DRAFT_ISSUE_TEXT, baselineOf, changeCount } from "@elaraai/east-ui-components/internal";
 import type { SheetNotice } from "../sheet/sheet-types.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { noticeText, type SheetWords } from "../sheet/words.js";
+import { noticeRefuses } from "../sheet/refusal.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 import { recordMessages as m, type RecordTally } from "./messages.js";
 import type { RecordTicks } from "./ticks.js";
 
@@ -94,7 +99,10 @@ export function createRecordStatus(): RecordStatus {
 /**
  * What the drafts send as an Apply (AD4): the fields they change on rows the
  * record holds and on how many, the rows they add, and those they delete — a
- * new row a draft dropped again none of them.
+ * new row a draft dropped again none of them. A row a gesture moved under
+ * another key (`rowKey`, east-workspace#1709) is the row it was, changed: counted
+ * once, by the fields it changes against the row it began as — never as one
+ * row added and one deleted.
  *
  * @param session - The editing session
  * @param fields - How many fields a draft changes against the one its entry began from
@@ -105,9 +113,14 @@ export function tallyDrafts(session: SheetTransactions, fields: (before: unknown
     let changed = 0;
     let added = 0;
     let deleted = 0;
+    // Each row that stands under another key than the record holds it under, by its key now, to the key it began under.
+    const moved = session.moved;
+    const left = new Set(moved.values());
     for (const [id, entry] of session.entries) {
-        const was = session.originals.get(id)?.draft;
         const now = entry.draft;
+        // The key a moved row left: its row is counted under the key it stands under.
+        if (now === undefined && left.has(id)) continue;
+        const was = baselineOf(session, id)?.draft;
         if (was === undefined) {
             if (now !== undefined) added += 1;
             continue;
@@ -146,8 +159,9 @@ export function stepOf(action: HistoryAction, session: SheetTransactions, fields
         case "discard": {
             if (!session.canDiscard || session.pending === 0) return undefined;
             const tally = tallyDrafts(session, fields);
-            // A change of a row's place alone is a change too.
-            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, session.pending) };
+            // A change of a row's place alone is a change too, and a row moved under another key one change, as the
+            // history bar counts it.
+            return { id: "discarded", n: Math.max(tally.changes + tally.added + tally.deleted, changeCount(session)) };
         }
         case "apply":
             return session.canApply ? { id: "applied", tally: tallyDrafts(session, fields) } : undefined;
@@ -193,6 +207,7 @@ export function recordNoticeText(notice: SheetNotice, words: SheetWords, noun: R
                 : m.deleted({ n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
         case "cantAdd": return notice.what === "row" ? m.cantAdd({ noun: noun.singular, label: notice.label }) : noticeText(notice, words);
         case "renumbered": return m.renumbered({ from: notice.from, to: notice.to, n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
+        case "keyRefused": return notice.what === "row" ? keyRefusedText(noun.singular, notice.why) : noticeText(notice, words);
         case "issue": {
             // The issues holding Apply: a new row's empty fields alone, or the app's refusals among them (AD3).
             if (issues.length === 0) return noticeText(notice, words);
@@ -237,14 +252,23 @@ export interface RecordStatusInput {
     noun: RecordNoun;
 }
 
+/** What the status line says: its words — empty while no voice has any — and whether they say a gesture was refused. */
+export interface RecordStatusLine {
+    readonly text: string;
+    readonly refused: boolean;
+}
+
+/** The line while no voice has words. */
+const SILENT: RecordStatusLine = { text: "", refused: false };
+
 /**
  * The status line's words (FR5): the notice, the step or the ticks — whichever
  * spoke last and still has words — see the module docs.
  *
  * @param input - The voices, and what their words are made of
- * @returns The words; empty while no voice has any
+ * @returns The words, and whether they say a gesture was refused
  */
-export function useRecordStatusLine(input: RecordStatusInput): string {
+export function useRecordStatusLine(input: RecordStatusInput): RecordStatusLine {
     const { status, notice, gestures, ticks, ticked, of, issues, words, noun } = input;
     const said = useSyncExternalStore(status.subscribe, status.said);
     const version = useSyncExternalStore(ticks.subscribe, ticks.version);
@@ -257,12 +281,14 @@ export function useRecordStatusLine(input: RecordStatusInput): string {
     if (said !== undefined && said.seq !== next.step.seq) next = { ...next, n: next.n + 1, step: { seq: said.seq, at: next.n + 1, gestures } };
     if (version !== next.ticks.version) next = { ...next, n: next.n + 1, ticks: { version, at: next.n + 1 } };
     if (next !== order) setOrder(next);
-    const voices: readonly { at: number; text: string | undefined }[] = [
-        { at: next.notice.at, text: notice === null ? undefined : recordNoticeText(notice, words, noun, issues) },
-        { at: next.step.at, text: said === undefined || gestures !== next.step.gestures ? undefined : stepText(said.step, words, noun) },
-        { at: next.ticks.at, text: ticked === 0 ? undefined : m.selected({ count: words.number(ticked), of: words.number(of) }) },
+    const voices: readonly { at: number; text: string | undefined; refused: boolean }[] = [
+        { at: next.notice.at, text: notice === null ? undefined : recordNoticeText(notice, words, noun, issues), refused: noticeRefuses(notice) },
+        { at: next.step.at, text: said === undefined || gestures !== next.step.gestures ? undefined : stepText(said.step, words, noun), refused: false },
+        { at: next.ticks.at, text: ticked === 0 ? undefined : m.selected({ count: words.number(ticked), of: words.number(of) }), refused: false },
     ];
-    let spoken: { at: number; text: string } | undefined;
-    for (const voice of voices) if (voice.text !== undefined && (spoken === undefined || voice.at > spoken.at)) spoken = { at: voice.at, text: voice.text };
-    return spoken?.text ?? "";
+    let spoken: { at: number; line: RecordStatusLine } | undefined;
+    for (const voice of voices) {
+        if (voice.text !== undefined && (spoken === undefined || voice.at > spoken.at)) spoken = { at: voice.at, line: { text: voice.text, refused: voice.refused } };
+    }
+    return spoken?.line ?? SILENT;
 }

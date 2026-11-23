@@ -26,6 +26,10 @@
  *   field's type's default (`defaultValue`) — its status the published case
  *   when it publishes, else the draft case, holding its payload's default, and
  *   its dismissals the set it dismisses, else none.
+ * - **Key field.** Where a period's row holds its start in a field too,
+ *   `keyField` names it: a row the builder creates holds its start there, and
+ *   is saved with it; a row the record holds already keeps what its field
+ *   holds.
  * - **Reads.** By key through `entries`, a paged read of the record's own
  *   entries — each span the builder reads (its period, the one before it, the
  *   open picker's) one key search and one page — or the record whole.
@@ -43,6 +47,7 @@ import {
     type EastType, type ExprType, type FunctionType, type IntegerType,
 } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
+import type { RecordKeyField } from "../bind/record.js";
 import type { ScheduleCaseOf, ScheduleRecordHandle, ScheduleSetStringField, ScheduleStatusField } from "./events.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { scheduleRecordSession } from "./session.js";
@@ -79,6 +84,12 @@ export interface SchedulePeriodsConfig<R extends StructType, SF extends string> 
      */
     values?: (period: ExprType<ScheduleNewPeriodType>) => ScheduleNewValues<R>;
     /**
+     * The DateTime field of the row that holds the period's start, its key, for a record whose rows carry their own. A
+     * row the builder creates holds its start there, whatever `values` gives the field, and is saved with it; a row the
+     * record holds already keeps what its field holds.
+     */
+    keyField?: RecordKeyField<DateTimeType, R>;
+    /**
      * A paged read of the record's own entries (`Data.bindPaged(record)`): the periods read by key — the period, the
      * one before it, the open picker's span — never the record whole. Omitted, the record is read whole.
      */
@@ -113,6 +124,7 @@ interface AnyPeriodsConfig {
     status?: { field: string; draft: string; published: string };
     dismissed?: string;
     values?: unknown;
+    keyField?: string;
     entries?: unknown;
 }
 
@@ -142,8 +154,9 @@ const StampType = StructType({ at: DateTimeType });
  *   are no structs; an `every` that is neither "week" nor "day"; a `status.field` the row lacks, or that is no variant
  *   or is an Option; a `status.draft` or `status.published` that is no case of it, or both naming one; a published case
  *   holding anything but Null or `{ at: DateTime }`; a `dismissed` that is no `Set<String>` field; a `values` giving
- *   other fields than the row's but its status and its dismissals, or one of another type, naming it; and `entries`
- *   that is not a paged read of the record's own entries naming its snapshot
+ *   other fields than the row's but its status and its dismissals, or one of another type, naming it; a `keyField` that
+ *   is no DateTime field of the row; and `entries` that is not a paged read of the record's own entries naming its
+ *   snapshot
  * @example
  * ```tsx
  * import { DateTimeType, DictType, NullType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
@@ -236,7 +249,7 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
     // The periods read by key, or whole; and their session, declared now, so a record bound without its patch door is
     // refused here.
     const entries = config.entries === undefined ? undefined : checkEntries(config.entries, DateTimeType, rowType, `${where}: \`entries\``);
-    const session = scheduleRecordSession(record, DateTimeType, rowType, entries);
+    const session = scheduleRecordSession(record, DateTimeType, rowType, entries, config.keyField === undefined ? undefined : { field: config.keyField, where });
 
     return {
         [SCHEDULE_DEF]: "periods",

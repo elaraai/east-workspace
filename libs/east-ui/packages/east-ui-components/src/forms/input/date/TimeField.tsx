@@ -27,17 +27,24 @@ interface TimeFieldProps extends AriaTimeFieldProps<Time> {
   isReadOnly?: boolean;
 }
 
+/**
+ * A time typed a segment at a time. Its hours run 0 to 23 unless its caller says otherwise: the app prints every time
+ * that way (the formatters' `hourCycle: "h23"`), and a field that asked for 7:00 AM beside a line that read 07:00 was
+ * two formats for one time.
+ */
 export function TimeField({ children, value, onChange, isReadOnly, ...props }: TimeFieldProps) {
   const { locale } = useLocale();
+  const hourCycle = props.hourCycle ?? 24;
   const state = useTimeFieldState({ 
     ...props, 
+    hourCycle,
     value: value ?? null,
     ...(onChange && { onChange }),
     locale, 
     isReadOnly: isReadOnly ?? false
   });
   const fieldRef = useRef<HTMLDivElement>(null);
-  const { fieldProps } = useTimeField({ ...props, isReadOnly: isReadOnly ?? false }, state, fieldRef);
+  const { fieldProps } = useTimeField({ ...props, hourCycle, isReadOnly: isReadOnly ?? false }, state, fieldRef);
 
   const contextValue = useMemo(() => ({
     state,

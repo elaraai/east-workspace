@@ -23,7 +23,6 @@
 
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ArrayType, East, IntegerType, NullType, StringType, decodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
 import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, State, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
@@ -32,7 +31,7 @@ import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
-import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
+import { act, searchRecords, settle, sheetHarness } from "./frame/harness.test-utils.js";
 import { setSheetRowRenderProbe } from "./Rows.js";
 import { LENS_BUDGET } from "./use-lens.js";
 
@@ -370,26 +369,6 @@ test("another narrowing: its matches alone, one after another at their numbers, 
 
 /** The orders scheduled: every third, from the second. */
 const SCHEDULED: Where = new Map([["status", variant("values", [printString("Scheduled")])]]);
-
-/** The toolbar's Search Records box, the text typed into it a key at a time, and the lines its list shows. */
-function searchRecords(container: HTMLElement) {
-    const box = () => container.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
-    const input = () => box().querySelector<HTMLInputElement>("input")!;
-    const type = async (text: string) => {
-        for (const key of text) {
-            const typed = input().value + key;
-            await userEvent.type(input(), key);
-            await waitFor(() => expect(input().value).toBe(typed));
-        }
-    };
-    const clear = async () => { await act(async () => { fireEvent.click(box().querySelector("button[aria-label='Clear search']")!); }); };
-    // The box's list: the listbox its input controls, its lines as they read.
-    const lines = () => {
-        const list = document.getElementById(input().getAttribute("aria-controls") ?? "");
-        return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
-    };
-    return { box, input, type, clear, lines };
-}
 
 test("a key search finds a row the narrowing hides and names the filter that hides it; a pick of it clears that filter and puts the ring on the row at its number — and another narrowing of the rows starts the search afresh", async () => {
     const ui = await setup();

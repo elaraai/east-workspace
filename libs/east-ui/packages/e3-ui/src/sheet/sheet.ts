@@ -72,6 +72,8 @@ import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
 import { railRecord, recordRows, type SheetRecordEntry } from "./record.js";
+import type { RecordKeyField } from "../bind/record.js";
+import type { KindKeyBuilder } from "../utils/record-kind.js";
 import { buildTemplates, isSheetTemplates, SheetTemplateWireType, type SheetTemplatesList, type SheetTemplatesProp } from "./templates.js";
 import { buildLibrary, librarySources, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
 import { buildForms, SheetFormsType } from "./fields.js";
@@ -409,6 +411,8 @@ type SheetAnyProps = {
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     newRow?: unknown;
     newGroup?: unknown;
+    keyField?: string;
+    rowKey?: unknown;
 } & Record<string, unknown>;
 
 /** How a templates refusal writes the declaration to make. */
@@ -430,12 +434,12 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
  * @returns An East expression of {@link SheetPayloadType}
- * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` on a sheet handed no record, or that is not `Func.bind` of a function from `OptimiseRequest()` (`OptimiseRequest({ entry: K })` over one entry's rows) to `OptimiseResult(D)` over the rows the Save reaches (#1409, east-workspace#1622); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, the rows of its `rows` source beside `data`, `entry` or `window`, `onApply` or `onUpdate` beside them, which `record` replaces, and a `record` whose entries the `rows` source does not page; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
+ * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; a `keyField` on a sheet handed no record, beside `entry`, that is no field of the record's entries of its key's type, or that a column writes; a `rowKey` on a sheet handed no record, beside `entry` or `newKey`, that builds no key of the record's key type, or that reads the field `keyField` names; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` on a sheet handed no record, or that is not `Func.bind` of a function from `OptimiseRequest()` (`OptimiseRequest({ entry: K })` over one entry's rows) to `OptimiseResult(D)` over the rows the Save reaches (#1409, east-workspace#1622); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, the rows of its `rows` source beside `data`, `entry` or `window`, `onApply` or `onUpdate` beside them, which `record` replaces, and a `record` whose entries the `rows` source does not page; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
     const recordKinds = internal.recordKinds === true ? { recordKinds: true } : {};
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, autosave, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, autosave, name, keyField, rowKey, ...sheet } = props as SheetAnyProps;
     const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -475,6 +479,15 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     if (record !== undefined && data !== undefined) {
         throw new Error("Sheet: takes its rows from `record` or from `data`, never both");
     }
+    if (keyField !== undefined && record === undefined) {
+        throw new Error("Sheet: `keyField` names the field of a record's rows that holds each one's key, which a sheet keeps for the rows it adds to the record it is handed — " +
+            `pass \`record\`${data !== undefined ? "; `data`'s rows are identified by `id`" : ""}`);
+    }
+    if (rowKey !== undefined && (record === undefined || entry !== undefined)) {
+        throw new Error("Sheet: `rowKey` builds a row's key from the row, for the rows a sheet adds to the record it is handed — " +
+            (record === undefined ? `pass \`record\`${data !== undefined ? "; `data`'s rows are identified by `id`" : ""}`
+                : "and with `entry` the rows are one entry's, identified by `entry.id`: leave it out"));
+    }
     if ("onViewsChange" in sheet) {
         throw new Error("Sheet: `views` is a bind handle — State.bind keeps them per viewer, Data.bind shares them — and the sheet writes every change to them through it; it takes no `onViewsChange`");
     }
@@ -511,7 +524,8 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             }
         }
         if ("id" in sheet) {
-            throw new Error("Sheet: `id` names the identity field of `data`'s rows — a record's rows are identified by their key, or by `entry.id`; to name the sheet, pass `name`");
+            throw new Error("Sheet: `id` names the identity field of `data`'s rows — a record's rows are identified by their key, or by `entry.id`; to name the sheet, pass `name`; " +
+                "and where a field of the record's rows holds their key too, name it with `keyField`");
         }
     } else if (entry !== undefined || window !== undefined) {
         throw new Error(`Sheet: \`${entry !== undefined ? "entry" : "window"}\` reads a record — pass \`record\` for it, or leave it out with \`data\``);
@@ -544,14 +558,14 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             // The record handed beside the rail is the one its `rows` source reads: its entries are the source's, checked
             // where the page is built, and its name the source's identity, held as the page is evaluated — a handle is a
             // variable while a page is built, and two records of one type are told apart by their names alone.
-            const saved = rowsRecord === undefined ? undefined : railRecord(rowsRecord, rows);
+            const saved = rowsRecord === undefined ? undefined : railRecord(rowsRecord, rows, keyField);
             if (saved !== undefined) {
                 $.if(East.notEqual(saved.saves.record, sourceId), ($) => {
                     $.error(East.str`Sheet: \`record\` is the record '${saved.saves.record}', and \`slice\`'s \`rows\` source reads '${sourceId}' — a sheet saves the rows it reads: hand it the record its \`rows\` source reads`);
                 });
             }
             const built = createSheetBuild(rows, columns, { ...sheet, ...viewOptions },
-                { sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms, ...(saved === undefined ? {} : { applyKeyed: saved.applyKeyed }) });
+                { sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms, ...(saved === undefined ? {} : { applyKeyed: saved.applyKeyed, keyField, rowKey }) });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined, saves: saved?.saves, own: undefined,
                 // The footer's last save and the inspector's record are the `record` form's alone, as before the record was
@@ -568,7 +582,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
                 missing: East.value(none, OptionType(StringType)),
             });
         }
-        const rows = recordRows(rowsRecord, { entry, window: rowsWindow });
+        const rows = recordRows(rowsRecord, { entry, window: rowsWindow, keyField });
         // Read only by the author's word, or while the record does not hold the entry. The author's `true` stays itself,
         // so the build knows the sheet adds no rows (#1536).
         const readOnly = rows.options.readOnly === undefined || sheet.readOnly === true ? sheet.readOnly
@@ -579,7 +593,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds, ...forms });
+        }, { ...rows.internal, rowKey, slice: sources.chrome, hold, ...recordKinds, ...forms });
         const history = (rowsRecord as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id, saves: rows.saves, own: undefined,
@@ -654,7 +668,7 @@ export function buildInspectorPane(
         }
         return East.value(none, OptionType(SheetInspectorPaneType));
     }
-    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers, built.data);
+    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers, built.data, built.keyField);
     const custom = inspector === true
         ? East.value(none, OptionType(SheetInspectorType))
         : East.value(some(buildInspector(inspector, built.bridge.lineType)), OptionType(SheetInspectorType));
@@ -736,6 +750,23 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
     props: {
         record: SheetRecordHandle<K, P>;
         window?: unknown;
+        /**
+         * The field of the record's groups that holds each one's key, for a record whose groups carry their own — a crew
+         * keyed by staff id, each member's `staff` their key. A group the sheet adds shows its key there at once, and is
+         * saved with it: where another Save takes the key first and the sheet gives the group another, the field follows.
+         * A column over the field shows it and takes no edit, and `newGroup` need not give it. A group the record
+         * holds already keeps what its field holds. The field is of the record's key type, and `rowKey` reads another: one
+         * keyed by a field a person types takes `rowKey` alone.
+         */
+        keyField?: RecordKeyField<K, P>;
+        /**
+         * A group's key, built from the group: `(order) => order.ref` keys each order by the reference a person types.
+         * A group the sheet adds goes under the key it builds at once, a field still empty read as empty, and a group
+         * moves under another key as an edit changes what its key reads — in the step of the edit, which Undo takes
+         * back with it. A key another group stands under refuses the edit, and the sheet says so. It builds a key of
+         * the record's key type, and never reads the field `keyField` names. Never beside `newKey`.
+         */
+        rowKey?: KindKeyBuilder<P, K>;
         group: SheetGroupValue<P, F>;
         columns: SheetColumnSpec<SheetLineOf<P, F>>;
     } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F, K>, SheetRecordOwned | "group">,
@@ -748,12 +779,32 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
  * record={jobs} columns={{ … }} />` — the rows are the source's, paged from it
  * in the record's order, the rail's narrowing drawn over them as the lens
  * (#1345, #1349), and Save commits through `record` by original primary key
- * (east-workspace#1622).
+ * (east-workspace#1622). Where the rows hold their own key in a field,
+ * `keyField` names it, and a row the sheet adds holds its key there. Where
+ * the app builds a row's key from the row, `rowKey` does, and a row stands under
+ * the key it builds.
  */
 export function SheetTag<K extends EastType, R extends StructType>(
     props: {
         record: SheetRecordHandle<K, R>;
         window?: unknown;
+        /**
+         * The field of the record's rows that holds each one's key, for a record whose rows carry their own — a crew
+         * keyed by staff id, each member's `staff` their key. A row the sheet adds shows its key there at once, and is
+         * saved with it: where another Save takes the key first and the sheet gives the row another, the field follows.
+         * A column over the field shows it and takes no edit, and `newRow` need not give it. A row the record
+         * holds already keeps what its field holds. The field is of the record's key type, and `rowKey` reads another: one
+         * keyed by a field a person types takes `rowKey` alone.
+         */
+        keyField?: RecordKeyField<K, R>;
+        /**
+         * A row's key, built from the row: `(rack) => rack.code` keys each rack by the code a person types. A row the
+         * sheet adds goes under the key it builds at once, a cell still empty read as empty, and a row moves under
+         * another key as an edit changes what its key reads — in the step of the edit, which Undo takes back with it.
+         * A key another row stands under refuses the edit, and the sheet says so. It builds a key of the record's key
+         * type, and never reads the field `keyField` names. Never beside `newKey`.
+         */
+        rowKey?: KindKeyBuilder<R, K>;
         columns: SheetColumnSpec<R>;
     } & SheetCommon<R> & Omit<SheetOptions<R, K>, SheetRecordOwned>,
 ): UIElement;

@@ -58,13 +58,41 @@ export const OptimisePeriodType = VariantType({ day: NullType, week: NullType, m
 export type OptimisePeriodType = typeof OptimisePeriodType;
 
 /**
+ * The key type a fit's or an optimiser's type is made over (east-workspace#1709, rulings 11 and 12): the key type of
+ * the record whose rows its question, its answer or what it reads names by key, its options' `key` — String where the
+ * app names none.
+ *
+ * @param options - The constructor's options, if it was given any
+ * @param where - The constructor, as its refusal names it (`Allocation.Types.FitRequest`)
+ * @param rows - The rows it names, as the refusal says them (`bins`)
+ * @param example - The constructor's options as the refusal suggests them (`{ key: IntegerType }`)
+ * @returns The key type
+ * @throws {Error} When the options are no object of options — a type given in their place among them — or `key` is no
+ *   East type, naming the constructor
+ * @internal
+ */
+export function optionKeyType(options: unknown, where: string, rows: string, example: string): EastType {
+    if (options === undefined) return StringType;
+    const typeLike = (given: unknown): given is EastType =>
+        typeof given === "object" && given !== null && typeof (given as { readonly type?: unknown }).type === "string";
+    if (typeof options !== "object" || options === null || typeLike(options)) {
+        throw new Error(`${where}: takes nothing, or ${example} — the ${rows}' key type, for ${rows} keyed by other than String`);
+    }
+    const key = (options as { readonly key?: unknown }).key;
+    if (key === undefined) return StringType;
+    if (!typeLike(key)) throw new Error(`${where}: \`key\` is the ${rows}' key type, an East type — ${example} for ${rows} keyed by number`);
+    return key;
+}
+
+/**
  * A `Func.bind` handle of the app's optimiser, as a tag takes it where its
  * edited records' types are its kinds' or its source's — the Calendar's, the
  * Plan's and the Sheet's `optimise` — which TypeScript cannot see from the tag
  * alone: the tag checks the handle at build against the builder's
  * `OptimiseRequest` and its `OptimiseResult` over its records, and refuses
  * another, naming both. Every `Func.bind` handle has this shape; nothing else
- * does that the check would take.
+ * does that the check would take. The Allocation takes its fit as one too, its
+ * types made over its bins' key type (east-workspace#1709).
  *
  * @property call - The function's call, which a run makes once
  * @property read - Its last result, which a run reads once the call lands

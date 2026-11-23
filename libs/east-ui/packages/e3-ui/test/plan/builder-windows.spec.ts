@@ -7,7 +7,8 @@
  * A Plan read a window at a time (#1199, `Plan Builder Spec.md` §9.11,
  * PB54–PB55) — what is checked of it without e3: the windows example runs,
  * its jobs read a cell at a time (#1039), as the halls example (#1344), its
- * presses a record the rail narrows, does;
+ * presses a record the rail narrows, does, and the typed keys' sibling of it,
+ * its jobs keyed by a variant (#1696);
  * the windows' types and their refusals at build — a window that is not an
  * index window of the kind's own record, a kind read by day whose backlog has
  * no window, a `window` without `entries`, `entries` without a `window` or
@@ -38,7 +39,7 @@ import * as ex from "./plan-windows.examples.js";
 import { PrintPress } from "./plan-events.examples.js";
 
 describeEast("Plan read a window at a time — the examples (#1199, #1039, #1344)", (test) => {
-    Assert.examples(test, { planWindows: ex.planWindows, planSeriesByHall: ex.planSeriesByHall });
+    Assert.examples(test, { planWindows: ex.planWindows, planSeriesByHall: ex.planSeriesByHall, planTypedKeysPaged: ex.planTypedKeysPaged });
 }, { platformFns: TestImpl });
 
 const at = (text: string): Date => new Date(text);
@@ -249,6 +250,15 @@ describe("the windows example's manifest: what a ui() task preloads and polls wh
         assert.deepEqual(manifest.records, [ex.planWindowJobs.name]);
         assert.ok(texts(manifest.pages).includes(presses), "the presses' record is read by window");
         assert.ok(texts(manifest.pages).includes(JOBS_PATH), "the jobs record is read by window");
+        assert.deepEqual(texts(manifest.paths), []);
+    });
+
+    test("#1696 — the typed keys' sibling reads its jobs, keyed by a variant, a window at a time beside the presses' record, as the halls example reads its own: neither preloaded nor polled whole", () => {
+        const manifest = deriveManifest(ex.planTypedKeysPaged.fn as never);
+        const texts = (paths: readonly unknown[]) => paths.map(pathText);
+        assert.deepEqual(manifest.records, [ex.planKeyedWindowJobs.name]);
+        assert.ok(texts(manifest.pages).includes(pathText(ex.planSeriesPresses.path)), "the presses' record is read by window");
+        assert.ok(texts(manifest.pages).includes(pathText(ex.planKeyedWindowJobs.path)), "the jobs record is read by window");
         assert.deepEqual(texts(manifest.paths), []);
     });
 

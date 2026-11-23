@@ -24,10 +24,12 @@ export const details = (c: HTMLElement) => pane(c).querySelector<HTMLElement>('[
 export const issuesTab = (c: HTMLElement) => pane(c).querySelector<HTMLElement>('[data-allocation-inspector="issues"]')!;
 export const tabs = (c: HTMLElement) => within(pane(c)).getAllByRole("tab");
 export const activeTab = (c: HTMLElement) => tabs(c).find(t => t.getAttribute("aria-selected") === "true")?.textContent;
-export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${id}"]`)!;
+/** A bin's card, by its key: a key East prints with quotes in it, a struct's or a variant's, quoted as CSS reads it. */
+export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-allocation-card=${JSON.stringify(id)}]`)!;
 export const connector = (c: HTMLElement, id: string) => card(c, id).querySelector<HTMLElement>("[data-allocation-connector]")!;
 export const row = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-resource="${key}"]`)!;
-export const tableRow = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-row="${key}"]`)!;
+/** A row of the Table, by its key — a bin's holding the bin's own, quoted as `card` quotes it. */
+export const tableRow = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-row=${JSON.stringify(key)}]`)!;
 export const libraryCard = (c: HTMLElement, key: string) => slot(c, "start").querySelector<HTMLElement>(`[data-library-item="${key}"]`)!;
 export const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 export const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.undo() });
@@ -67,7 +69,7 @@ export const button = (root: HTMLElement, name: string | RegExp) => within(root)
 /** A row of the Table, its pane scrolled until it is mounted. */
 export async function revealRow(c: HTMLElement, key: string) {
     const el = c.querySelector<HTMLElement>("[data-allocation-table] [data-virtual-rows]")!;
-    for (let top = 0; c.querySelector(`[data-allocation-row="${key}"]`) === null && top <= 120 * 36; top += 10 * 36) { await act(async () => { el.scrollTop = top; fireEvent.scroll(el); }); await settle(); }
+    for (let top = 0; c.querySelector(`[data-allocation-row=${JSON.stringify(key)}]`) === null && top <= 120 * 36; top += 10 * 36) { await act(async () => { el.scrollTop = top; fireEvent.scroll(el); }); await settle(); }
     return tableRow(c, key);
 }
 /** Scrolls the resource pane until a row far down it is mounted. */

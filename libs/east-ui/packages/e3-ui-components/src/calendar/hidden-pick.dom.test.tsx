@@ -131,9 +131,12 @@ test("Search Records names the choice that hides a job as the rail words it — 
     expect(asked).toHaveLength(new Set(asked).size);
     expect(TEN.filter(key => !asked.includes(key))).toEqual([]);
     const listed = h.requests("within", EVENTS).length;
-    // Listed again, one of the four alone: named at once, nothing asked of e3 again.
+    // Listed again, one of the four alone — put in at once, so its one listing is a job the first query listed: named at
+    // once, nothing asked of e3 again. Typed a key at a time, the box asks each prefix that outlives its 250ms wait: one
+    // the first query's typing never asked, `production-10` among them, lists jobs it never listed (`production-10010`
+    // on), which e3 is rightly asked of, as often as a runner is slow.
     await clearSearch(c);
-    await typeIntoSearch(c, "production-10003");
+    await pasteIntoSearch(c, "production-10003");
     await waitFor(() => expect(lines(c)).toEqual([`production-10003 · Production job 10003 · Job · Wed, Apr 22, 2026 09:00 · ${BY_STATUS}`]), { timeout: 10_000 });
     await settle();
     expect(h.requests("within", EVENTS).length).toBe(listed);
@@ -145,7 +148,7 @@ test("Search Records names the choice that hides a job as the rail words it — 
     await clearSearch(c);
     await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: "Next day" })); });
     await settle();
-    await typeIntoSearch(c, "production-10003");
+    await pasteIntoSearch(c, "production-10003");
     await waitFor(() => expect(lines(c)).toEqual([`production-10003 · Production job 10003 · Job · Wed, Apr 22, 2026 09:00 · ${BY_STATUS}`]), { timeout: 10_000 });
     await settle();
     expect(h.requests("within", EVENTS).length).toBe(listed);

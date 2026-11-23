@@ -46,7 +46,7 @@ import { bytes, decisionRow, holdingOf, laneRow, line, lines, optionBytes, rowsO
 
 const keyEqual = equalFor(StringType);
 
-/** A transition's key built from its ends — as a kind's `key` builds a struct key — printed through East. */
+/** A transition's key built from its ends — as a kind's `rowKey` builds a struct key — printed through East. */
 const moveKey = printFor(StructType({ from: StringType, to: StringType }));
 
 /** A DateTime key, printed through East: the key of a row keyed by DateTime. */
@@ -296,7 +296,7 @@ describe("a row under a placeholder, its key still to be typed (#1549)", () => {
 });
 
 describe("a key built from the row follows the row (#1549)", () => {
-    /** States keyed by their labels and transitions by their ends: each kind's `key` building it from the row. */
+    /** States keyed by their labels and transitions by their ends: each kind's `rowKey` building it from the row. */
     const BUILT = rowsOf({
         lanes: SORT.lanes,
         states: [stateRow("Inducting", "Inducting", { lane: "induct", order: 1 }), stateRow("Sorted", "Sorted", { lane: "sort", order: 1 })],
@@ -432,6 +432,11 @@ describe("a key built from the row follows the row (#1549)", () => {
         // b onto c's key, which c stays under: refused, naming it.
         const blocked = holdingOf(LINE, { moves: once([{ sort: "states", key: "a", to: "b" }, { sort: "states", key: "b", to: "c" }]) });
         expect(followBuiltKeys(blocked, { edits: [label("a", "b"), label("b", "c")] })).toEqual({ edits: [], refused: { refusal: "taken", sort: "states", key: "c" } });
+    });
+
+    test("east-workspace#1709 — a row its kind's `rowKey` fails on as the gesture leaves it refuses the gesture, as in every builder: no key can be made for it, and nothing is recorded", () => {
+        const holding = holdingOf(BUILT, { moves: () => ({ failed: { sort: "states", key: "Sorted" } }) });
+        expect(followBuiltKeys(holding, renameState(holding, "Sorted", "Done")!)).toEqual({ edits: [], refused: { refusal: "unkeyed", sort: "states" } });
     });
 
     test("a gesture refused is as it was", () => {

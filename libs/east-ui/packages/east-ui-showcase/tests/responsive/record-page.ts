@@ -34,12 +34,13 @@ export const RECORD_THEMES = ["light", "dark"] as const;
  * @param name - The example
  * @param theme - The theme
  * @param width - The viewport's width, in px
+ * @param file - The examples file the example is in, by its name; the Record's own unless given
  * @returns The example's entry
  */
-export async function openRecord(page: Page, name: string, theme: "light" | "dark", width: number): Promise<Locator> {
+export async function openRecord(page: Page, name: string, theme: "light" | "dark", width: number, file = "record"): Promise<Locator> {
     await page.clock.setFixedTime(new Date("2026-11-06T12:00:00Z"));
     await page.setViewportSize({ width, height: 1200 });
-    const entry = await visitBuilder(page, `e3/record/record/${name}`, RECORD_ROOT, theme);
+    const entry = await visitBuilder(page, `e3/record/${file}/${name}`, RECORD_ROOT, theme);
     await expect(entry.locator('[data-record] [data-slot="row"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(entry.locator(RECORD_ROOT).first(), "a desktop's frame").not.toHaveAttribute("data-phone", "");
     await settled(page);

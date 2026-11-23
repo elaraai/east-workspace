@@ -37,6 +37,7 @@ import { cellDetail } from "./detail.js";
 import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 import type { DraftPresentation } from "./draft-state.js";
+import type { RefusedTurn } from "./refusal.js";
 import type { SheetMembership } from "./membership.js";
 import type { SheetCellOp, SheetRowMarks } from "./optimise.js";
 import { SheetInsertPoint } from "./Insertion.js";
@@ -340,6 +341,8 @@ export interface SheetRowProps {
     onFillRow: () => void;
     /** Schema-derived state of the current unapplied row. */
     draft?: DraftPresentation | undefined;
+    /** The last gesture was refused on the row, for its key (east-workspace#1709): the refusal's turn, which its mark starts over by. */
+    refused?: RefusedTurn | undefined;
     /** Discard a never-applied row as an undoable gesture — the row's id, or a line's group and its key. */
     onDiscard?: ((id: string, child?: string) => void) | undefined;
     /** How many sub rows sit under this line (none: `undefined`), and whether they show. */
@@ -415,6 +418,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-draft={props.draft?.pending ? "" : undefined}
             data-conflict={props.draft?.conflicts?.whole === true ? "" : undefined}
             data-incomplete={props.draft?.incomplete ? "" : undefined}
+            data-refused={props.refused}
             data-owned={row?.owned ? "" : undefined}
             data-anchor={hasFills ? "" : undefined}
             data-first={first ? "" : undefined}
@@ -1007,6 +1011,8 @@ export interface SheetGroupRowProps {
     /** The chevron; `all` (⌥ held) applies the band's new state to every group. */
     onFold: (r: number, all?: boolean) => void;
     draft?: DraftPresentation | undefined;
+    /** The last gesture was refused on the group, for its key (east-workspace#1709): the refusal's turn, which its mark starts over by. */
+    refused?: RefusedTurn | undefined;
     /** Discard a never-applied group as an undoable gesture — the group's id. */
     onDiscard?: ((id: string) => void) | undefined;
     /** The sheet's drops (#1187): the band is a drop target — a builder's sheet; absent where the sheet takes none. */
@@ -1062,6 +1068,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             data-conflict={props.draft?.conflicts?.whole === true ? "" : undefined}
             data-invalid={props.draft?.invalid ? "" : undefined}
             data-incomplete={props.draft?.incomplete ? "" : undefined}
+            data-refused={props.refused}
             data-insert-preview={props.insertPreview}
             data-insert-side={props.insertPreview !== undefined ? props.insertSide : undefined}
             data-row={r}

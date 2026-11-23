@@ -24,7 +24,10 @@
  * sends restored drafts that waited for a person's (`autosave.ts`). So are the
  * keys the session made for the new entries among them (`EditSession.ownKeys`,
  * keys.ts): a new entry whose key another write takes while the page is away
- * is given another, as it would have been before the reload. And so is a
+ * is given another, as it would have been before the reload. So are the moves
+ * the drafts hold (`EditSession.moved`): an entry that stands under another id
+ * than the one its source holds it under is that entry, edited, after the
+ * reload as before it. And so is a
  * request whose outcome the session does not know — a Save on its way, or one
  * left with no answer — with what it changes and what it leaves
  * (`EditSession.keptRequest`): the page that loads puts the session back as it
@@ -80,6 +83,14 @@ type KeptEntryValue = ValueTypeOf<typeof KeptEntryType>;
  */
 const KeptOwnKeysType = DictType(StringType, OptionType(StringType));
 
+/**
+ * The moves a session's drafts hold, as the tab keeps them beside the drafts
+ * (`EditSession.moved`): each moved entry's id in its source, by the id it
+ * stands under. Under a key of their own, so the drafts' bytes stay as every
+ * version that kept them wrote them.
+ */
+const KeptMovesType = DictType(StringType, StringType);
+
 /** An entry's version as the tab keeps it beside a request: its draft and the collection's projection of it, each beast2 at its own type, and where it stands. */
 const KeptVersionType = StructType({ draft: OptionType(BlobType), wire: OptionType(BlobType), place: OptionType(EditingPlacementType) });
 
@@ -112,6 +123,8 @@ const decodeDrafts = decodeBeast2For(KeptDraftsType);
 const encodeOwnKeys = encodeBeast2For(KeptOwnKeysType);
 const decodeOwnKeys = decodeBeast2For(KeptOwnKeysType);
 const sameOwnKeys = equalFor(KeptOwnKeysType);
+const encodeMoves = encodeBeast2For(KeptMovesType);
+const decodeMoves = decodeBeast2For(KeptMovesType);
 const compareText = compareFor(StringType);
 const sameType = equalFor(EastTypeType);
 const sameText = equalFor(StringType);
@@ -238,6 +251,8 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
     const stepped = kept(`${key}:stepped`, keptFlag, { where: "tab" });
     // And the keys the session made for the new entries among them: its own to make again where another write takes one.
     const made = kept(`${key}:made`, keptBytes, { where: "tab" });
+    // And the moves they hold: an entry that stands under another id than its source holds it under is that entry still.
+    const moves = kept(`${key}:moved`, keptBytes, { where: "tab" });
     // And a request whose outcome the session does not know: the page that loads asks the source again.
     const asking = kept(`${key}:request`, keptBytes, { where: "tab" });
     const ownKeysOf = (keys: ReadonlyMap<string, string | undefined>): ValueTypeOf<typeof KeptOwnKeysType> =>
@@ -310,6 +325,14 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
                 } catch {
                     made.remove();
                 }
+                // The moves they held, where the tab kept any: bytes that do not read leave the drafts restored, each
+                // moved entry as one removed and one added — what a tab that kept none restores.
+                const held = moves.read();
+                try {
+                    if (held !== undefined) session.restoreMoved(new Map(decodeMoves(held)));
+                } catch {
+                    moves.remove();
+                }
             }
         } catch {
             lost = "unreadable";
@@ -319,6 +342,7 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
             waiting.remove();
             stepped.remove();
             made.remove();
+            moves.remove();
             asking.remove();
             request = undefined;
             setKeeping(session, { state: "lost", reason: lost });
@@ -327,6 +351,7 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         waiting.remove();
         stepped.remove();
         made.remove();
+        moves.remove();
     }
     // With the drafts kept beside it, or with none: every draft made since may have been taken back.
     if (request !== undefined) session.restoreRequest(request);
@@ -334,6 +359,7 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
     // Written as each change is made: the same versions as last written write nothing.
     let last: readonly KeptEntry<W>[] | undefined;
     let lastOwn: ValueTypeOf<typeof KeptOwnKeysType> | undefined;
+    let lastMoved: ReadonlyMap<string, string> | undefined;
     let lastRequest: KeptRequest<W> | undefined;
     // Whether the tab holds a request: the one it kept as the page loaded, until the session has resolved it, or one written since.
     let asks = request !== undefined;
@@ -362,6 +388,15 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         } else if (lastOwn === undefined || !sameOwnKeys(lastOwn, own)) {
             made.write(encodeOwnKeys(own));
             lastOwn = own;
+        }
+        // Kept with the drafts, and gone with them: the moves they hold, the same object while they hold.
+        const moved = entries.length === 0 ? undefined : session.moved;
+        if (moved === undefined || moved.size === 0) {
+            moves.remove();
+            lastMoved = undefined;
+        } else if (!Object.is(moved, lastMoved)) {
+            moves.write(encodeMoves(new SortedMap([...moved], compareText)));
+            lastMoved = moved;
         }
         // Kept with the drafts, and gone with them: a person's Save, or an Undo of the result, ends the wait with no draft moving.
         if (entries.length > 0 && session.autosaveHeld) waiting.write(true);

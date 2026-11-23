@@ -32,6 +32,7 @@ import {
     EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryGroupMark, type LibraryItemValue, type LibraryNarrowing,
 } from "@elaraai/east-ui-components";
 import { SliceFieldChip, formatDatePattern, narrowedCount } from "@elaraai/east-ui-components/internal";
+import { STRING_KEYS, kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown } from "../shared/schedule/source-tab.js";
 import type { AllocationCommands } from "./actions.js";
@@ -121,13 +122,15 @@ const subOf = (meta: AllocationValue["arrivals"][number]["meta"] | undefined, ho
  * its ready line; the day's committed bins the drafts removed (Removed from
  * plan, `was B-1 06:15 on K-203`); and the arrivals the day books (Allocated,
  * `in B-1 06:15 on K-203` or `2 bins · …`), the draft bookings first, then by
- * their first bin's time.
+ * their first bin's time. An arrival's bins go by their times, and those at one
+ * time by their keys, in the order of the bins' key type: bins keyed by number
+ * put 9 before 10.
  *
- * @param args - The day as drafted and as the record holds it, and the words
+ * @param args - The day as drafted and as the record holds it, the words, and the bins' keys
  * @returns The cards, in order
  */
-export function arrivalCards(args: { context: Context; day: Date; plan: Day; held: Day | undefined; words: LibraryWords }): ArrivalCard[] {
-    const { context, day, plan, held, words } = args;
+export function arrivalCards(args: { context: Context; day: Date; plan: Day; held: Day | undefined; words: LibraryWords; keys: KindKeys }): ArrivalCard[] {
+    const { context, day, plan, held, words, keys } = args;
     const { lane, resource } = words.nouns;
     const onto = words.layout === "table" ? "a free row" : `${a(lane)} hour or ${a(resource)}`;
     const booked = new Map<string, string[]>();
@@ -167,7 +170,8 @@ export function arrivalCards(args: { context: Context; day: Date; plan: Day; hel
             tip: `Click to see where it fits · drag ${label} back onto ${a(lane)} hour or ${a(resource)}`, search: `${label} ${arrival?.meta.type === "some" ? arrival.meta.value : ""}` });
     }
     const allocated = [...booked].map(([key, ids]) => {
-        const bins = ids.map(id => ({ id, bin: plan.bins.get(id)! })).sort((x, y) => compareDate(x.bin.at, y.bin.at) || compareString(x.id, y.id));
+        const rank = keys.ranks(ids);
+        const bins = ids.map(id => ({ id, bin: plan.bins.get(id)! })).sort((x, y) => compareDate(x.bin.at, y.bin.at) || rank.get(x.id)! - rank.get(y.id)!);
         return { key, bins, draft: bins.every(b => held?.bins.has(b.id) !== true) };
     }).sort((x, y) => Number(y.draft) - Number(x.draft) || (x.draft ? 0 : compareDate(x.bins[0]!.bin.at, y.bins[0]!.bin.at)) || compareString(x.key, y.key));
     for (const { key, bins, draft } of allocated) {
@@ -328,7 +332,9 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const words = useMemo((): LibraryWords => ({
         nouns, layout, lane: key => value.lanes.find(l => l.key === key)?.label ?? key, quantity: v => board.quantity(v, unit), number: v => board.quantity(v, ""),
     }), [nouns, layout, value.lanes, board, unit]);
-    const arrivals = useMemo(() => arrivalCards({ context, day, plan, held, words }), [context, day, plan, held, words]);
+    const binKeyType = value.bin.kind.editing.keyType;
+    const binKeys = useMemo(() => (binKeyType.type === "some" ? kindKeys(binKeyType.value) : STRING_KEYS), [binKeyType]);
+    const arrivals = useMemo(() => arrivalCards({ context, day, plan, held, words, keys: binKeys }), [context, day, plan, held, words, binKeys]);
     const resources = useMemo(() => resourceCards({ resources: value.resources, plan, loads, lines, words }), [value.resources, plan, loads, lines, words]);
     // What each tab's source shows (A98, A99): an arrival's cards in every group while its source shows it, a resource's while its source does;
     // each tab's count, what it says when its source empties it, with that source's Clear filters, and its busy pane.

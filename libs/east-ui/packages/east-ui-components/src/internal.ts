@@ -70,6 +70,12 @@ export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./for
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 // The editing session's parts: its bar, a draft's presentation and checks, its words, and the data set it belongs to.
 export { HistoryBar } from "./editing/HistoryBar.js";
+// How many changes a session holds as a person counts them, a row moved under another key one (east-workspace#1709): what
+// the bar's count says, and a builder's own count of its changes.
+export { changeCount } from "./editing/change-count.js";
+// What a host compares an entry's draft with, a row moved under another key compared with the row it was (east-workspace#1709):
+// never a new row, which a discard would drop while its removal under the key it left stood.
+export { baselineOf } from "./editing/baseline.js";
 export { EditingScope } from "./editing/scope.js";
 export {
     CLEAN_DRAFT, boundedReadiness, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks,

@@ -21,7 +21,7 @@
  *   the rail reads them.
  * - **A new row's key** is as its kind's key type makes it, each Saved under
  *   it: by number, one past the largest — a card's ⏎, Connect and a Shift-drag;
- *   built by the kind's `key` — a spot under its row and column, a pipe under
+ *   built by the kind's `rowKey` — a spot under its row and column, a pipe under
  *   its ends, a line under the mixers it feeds, a row moving as an edit
  *   changes what its key reads, its links with it — a Shift session growing
  *   its line where it moved (#1584) — and a key another row holds refusing
@@ -52,8 +52,10 @@ import { describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    BlobType, DateTimeType, DictType, East, IntegerType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
+    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, SortedMap, SortedSet, StringType, StructType, compareFor, equalFor, parseFor, printFor,
+    some, variant,
 } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { stubScrollIntoView } from "@elaraai/east-ui-components/testing";
@@ -65,7 +67,23 @@ import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } fro
 import { schematicMessages } from "./messages.js";
 import "./index.js";
 
-const h = e3Harness({ "schematic/schematic-keys.fixtures": fx }, { main: "data-schematic-canvas" });
+/** A bench: its code, which its key is held in too (`keyField`), its name, and where its centre stands. */
+const Bench = StructType({ code: StringType, name: StringType, x: FloatType, y: FloatType });
+/** The floor's benches: one, which a new bench stands beside. */
+const benches = e3.record("schematic_coded_benches", DictType(StringType, Bench), {
+    initial: new SortedMap([["B-1", { code: "B-1", name: "Bench 1", x: 4.0, y: 4.0 }]], compareFor(StringType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A bench's card: its name, and a value for every field of a bench but where it stands. */
+const BenchCard = StructType({ name: StringType, values: StructType({ code: StringType, name: StringType }) });
+/** The benches' one card, and the index the rail reads it through, by name: Spare. */
+const benchCards = e3.record("schematic_bench_cards", DictType(StringType, BenchCard), {
+    initial: new SortedMap([["spare", { name: "Spare", values: { code: "", name: "Spare" } }]], compareFor(StringType)),
+    indexes: (index) => ({ schematic_bench_cards_by_name: index.on(["name"]) }),
+});
+
+const h = e3Harness({ "schematic/schematic-keys.fixtures": fx, "schematic/key-field": { benches, benchCards } }, { main: "data-schematic-canvas" });
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
@@ -387,7 +405,150 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.keyedFeeds.type)(withRows(feeds, compareNumber, [[11n, { supply: new SortedSet([11n, 101n], compareNumber), fed: ["10B"], name: "" }]])));
     });
 
-    test("keyed by row and column, as the spots' `key` builds them: a card building a key a spot holds is refused, naming it; one building a new key adds the spot under it; a column edited moves a spot under its new key, still selected, its rope with it; one building a key a spot holds is refused, naming it, the form showing the row again; and Save writes each under its key", async () => {
+    test("ruling 1 — told the app's rule (east-workspace#1709), a card's ⏎ adds oven 200 by the ovens' `newKey` — a hundred past the largest, never the next number — Connect a hose 110 by the hoses', and a Shift-drag a line L-1 by the lines', never a key made up; and Save writes each under its key", async () => {
+        const ovens = await h.read(fx.keyedOvens), hoses = await h.read(fx.keyedHoses);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.ruled", {
+                floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+            }));
+            const ovensBound = $.let(Record.bind(fx.keyedOvens));
+            const mixers = $.let(Data.bind(fx.keyedMixers));
+            const hosesBound = $.let(Record.bind(fx.keyedHoses));
+            const linesBound = $.let(Record.bind(fx.sidedLines));
+            const cards = $.let(Data.bind(fx.floorCards));
+            // The bakehouse's own schemes: its ovens and its hoses numbered in hundreds, its lines L-1, L-2, …
+            const inHundreds = $.const(East.function([SetType(IntegerType)], IntegerType, (_$2, taken) =>
+                taken.reduce((_$3, most, key) => East.max(most, key), 0n).add(100n)));
+            const nextLine = $.const(East.function([SetType(StringType)], StringType, (_$2, taken) => East.str`L-${taken.size().add(1n)}`));
+            return Schematic({
+                id: "keyedRuled",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    ovens: Schematic.items(ovensBound, {
+                        name: "Oven", icon: "server", x: "x", y: "y", label: "name", newKey: inHundreds,
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+                    }),
+                    mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }),
+                },
+                links: {
+                    hoses: Schematic.links(hosesBound, {
+                        name: "Hose", icon: "link", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: { oven: "ovens", mixer: "mixers" } },
+                        newKey: inHundreds,
+                    }),
+                },
+                nets: {
+                    lines: Schematic.nets(linesBound, {
+                        name: "Line", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "mixers" }, newKey: nextLine,
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) });
+        // The card's ⏎: an oven at the view's centre, under a hundred past 100.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "ovens", key: "spare" })));
+        await waitFor(() => expect(isSelected(c, "ovens", "200")).toBe(true));
+        // Oven 11 to M1: hose 110, a hundred past the hoses' 10. Oven 200 to 10B: hose 210 — and Shift-dragged on from
+        // oven 11 to 10B, the session grows into line L-1, absorbing hose 210.
+        const canvas = canvasOf(c);
+        hits(c, [["ovens", "11", 4, 4], ["ovens", "200", 14, 7], ["mixers", "10B", 8, 10], ["mixers", "M1", 10, 3]]);
+        await tool(c, "Connect");
+        await drag(canvas, [4, 4], [10, 3]);
+        await drag(canvas, [14, 7], [8, 10]);
+        await drag(canvas, [4, 4], [8, 10], true);
+        expect(await save(c)).toEqual([fx.keyedHoses.name, fx.keyedOvens.name, fx.sidedLines.name].sort(compareText));
+        expect(printFor(fx.keyedOvens.type)(await h.read(fx.keyedOvens)))
+            .toBe(printFor(fx.keyedOvens.type)(withRows(ovens, compareNumber, [[200n, { name: "Spare", x: some(14.0), y: some(7.0) }]])));
+        expect(printFor(fx.keyedHoses.type)(await h.read(fx.keyedHoses)))
+            .toBe(printFor(fx.keyedHoses.type)(withRows(hoses, compareNumber, [[110n, { from: variant("oven", 11n), to: variant("mixer", "M1"), bore: 0.0 }]])));
+        expect(printFor(fx.sidedLines.type)(await h.read(fx.sidedLines)))
+            .toBe(printFor(fx.sidedLines.type)(new SortedMap([["L-1", { supply: new SortedSet([11n, 200n], compareNumber), fed: ["10B"], name: "" }]], compareText)));
+    });
+
+    test("ruling 1 — where the app's rule gives a key a row holds, or fails, no row is added and the footer says why: a card's ⏎ an oven whose key Deck 11 holds, Connect a hose no key could be made for", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.unkeyed", {
+                floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+            }));
+            const ovensBound = $.let(Record.bind(fx.keyedOvens));
+            const mixers = $.let(Data.bind(fx.keyedMixers));
+            const hosesBound = $.let(Record.bind(fx.keyedHoses));
+            const cards = $.let(Data.bind(fx.floorCards));
+            // The ovens' rule gives Deck 11's own key; the hoses' fails.
+            const eleven = $.const(East.function([SetType(IntegerType)], IntegerType, (_$2, _taken) => 11n));
+            const noHose = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+                $2.if(taken.has(2n), ($3) => { $3.error("no hose numbers left"); });
+                return 0n;
+            }));
+            return Schematic({
+                id: "keyedUnkeyed",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    ovens: Schematic.items(ovensBound, {
+                        name: "Oven", icon: "server", x: "x", y: "y", label: "name", newKey: eleven,
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+                    }),
+                    mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }),
+                },
+                links: {
+                    hoses: Schematic.links(hosesBound, {
+                        name: "Hose", icon: "link", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: { oven: "ovens", mixer: "mixers" } },
+                        newKey: noHose,
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) });
+        // The card's ⏎: the rule gives 11, which Deck 11 holds — refused, naming it, and nothing recorded.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "ovens", key: "spare" })));
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "taken", kind: "oven", name: "Deck 11" }));
+        expect(refused(c)).toBe("An oven Deck 11 is there already");
+        expect(unsaved(c)).toBe(false);
+        // Oven 11 to M1: the hoses' rule fails — refused, saying no key can be made, and nothing recorded.
+        const canvas = canvasOf(c);
+        hits(c, [["ovens", "11", 4, 4], ["mixers", "M1", 10, 3]]);
+        await tool(c, "Connect");
+        await drag(canvas, [4, 4], [10, 3]);
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "unkeyed", kind: "hose" }));
+        expect(refused(c)).toBe("No key can be made for this hose");
+        expect(unsaved(c)).toBe(false);
+        expect(h.requests("mutate")).toEqual([]);
+    });
+
+    test("ruling 1 — holding its key in a field (`keyField`), a bench a card's ⏎ adds holds its own key in its code from the first, and Save writes it so", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.field", {
+                benchCards: { source: Data.bindPaged(benchCards, { indexes: ["schematic_bench_cards_by_name"] }) },
+            }));
+            const benchesBound = $.let(Record.bind(benches));
+            const cards = $.let(Data.bind(benchCards));
+            return Schematic({
+                id: "keyedField",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    benches: Schematic.items(benchesBound, {
+                        name: "Bench", icon: "server", x: "x", y: "y", label: "name", keyField: "code",
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "benchCards" }),
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) }, "benches", "B-1");
+        // The card's ⏎: a bench at the view's centre, under a key made for it, which its code holds.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "benches", key: "spare" })));
+        const made = await selectedItem(c);
+        expect(await save(c)).toEqual([benches.name]);
+        expect(printFor(benches.type)(await h.read(benches))).toBe(printFor(benches.type)(new SortedMap([
+            ["B-1", { code: "B-1", name: "Bench 1", x: 4.0, y: 4.0 }], [made.key, { code: made.key, name: "Spare", x: 14.0, y: 7.0 }],
+        ], compareText)));
+    });
+
+    test("keyed by row and column, as the spots' `rowKey` builds them: a card building a key a spot holds is refused, naming it; one building a new key adds the spot under it; a column edited moves a spot under its new key, still selected, its rope with it; one building a key a spot holds is refused, naming it, the form showing the row again; and Save writes each under its key", async () => {
         const spots = await h.read(fx.placedSpots), ropes = await h.read(fx.keyedRopes);
         const spot = printFor(fx.SpotKey);
         const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -404,7 +565,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                 slice: { slice },
                 items: {
                     spots: Schematic.items(spotsBound, {
-                        name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }),
+                        name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }),
                         templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "spotCards" }),
                     }),
                 },
@@ -469,7 +630,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                 inspector: true,
                 extent: fx.KEYED_FLOOR,
                 slice: { slice },
-                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }) }) },
                 links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" }, entries: ropeEntries }) },
             });
         }))) }, "spots", spot({ row: 1n, col: 1n }));
@@ -523,7 +684,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                     extent: fx.KEYED_FLOOR,
                     slice: { slice },
                     narrowed: { show },
-                    items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                    items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }) }) },
                     links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" }, entries: ropeEntries }) },
                 });
             }))) });
@@ -554,7 +715,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                 id: "keyedBusyRopes",
                 inspector: true,
                 extent: fx.KEYED_FLOOR,
-                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }) }) },
                 links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" } }) },
             });
         }))) }, "spots", spot({ row: 1n, col: 1n }));
@@ -594,7 +755,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         ])));
     });
 
-    test("keyed by their ends, as the pipes' `key` builds them: Connect keys a pipe by its ends, one between mixers a pipe joins already refused, naming it; an end changed moves the pipe under its new ends, still selected; one building a key a pipe holds is refused, naming it; and Save writes each under its key", async () => {
+    test("keyed by their ends, as the pipes' `rowKey` builds them: Connect keys a pipe by its ends, one between mixers a pipe joins already refused, naming it; an end changed moves the pipe under its new ends, still selected; one building a key a pipe holds is refused, naming it; and Save writes each under its key", async () => {
         const pipes = await h.read(fx.joinedPipes);
         const ends = printFor(fx.PipeEnds);
         const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -607,7 +768,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                 items: { mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }) },
                 links: {
                     pipes: Schematic.links(pipesBound, {
-                        name: "Pipe", icon: "link", from: { field: "from", of: "mixers" }, to: { field: "to", of: "mixers" }, key: (row) => ({ from: row.from, to: row.to }),
+                        name: "Pipe", icon: "link", from: { field: "from", of: "mixers" }, to: { field: "to", of: "mixers" }, rowKey: (row) => ({ from: row.from, to: row.to }),
                     }),
                 },
             });
@@ -645,7 +806,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.joinedPipes.type)(withRows(pipes, compareFor(fx.PipeEnds), [[{ from: "M2", to: "10B" }, { from: "M2", to: "10B", note: "" }]])));
     });
 
-    test("keyed by the mixers it feeds, as the lines' `key` builds it: a Shift session's line moves under its new key as a Shift-drag adds a mixer, and the next Shift-drag adds an oven to the line there, never a hose of its own; and Save writes the one line (#1584)", async () => {
+    test("keyed by the mixers it feeds, as the lines' `rowKey` builds it: a Shift session's line moves under its new key as a Shift-drag adds a mixer, and the next Shift-drag adds an oven to the line there, never a hose of its own; and Save writes the one line (#1584)", async () => {
         const lines = await h.read(fx.sidedLines);
         const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const slice = $.let(Slice.bindRecords("schematic.keyed.lines", {
@@ -674,7 +835,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
                 },
                 nets: {
                     lines: Schematic.nets(linesBound, {
-                        name: "Line", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "mixers" }, key: (row) => row.fed.stringJoin("+"),
+                        name: "Line", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "mixers" }, rowKey: (row) => row.fed.stringJoin("+"),
                     }),
                 },
                 library: [Schematic.library.templates()],
@@ -847,7 +1008,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             });
         }))) }, "crates", printFor(BlobType)(fx.CRATE_7));
         const why = m.keysUntyped({ name: "crate", type: "Blob" });
-        expect(why).toBe("Crates are keyed by Blob, which can't be typed — give the kind `key` to add them");
+        expect(why).toBe("Crates are keyed by Blob, which can't be typed — give the kind `rowKey` to add them");
         await openTab(c, "start", "Templates");
         const cardEl = libraryCard(c, entityId({ kind: "crates", key: "spare" }));
         expect([cardEl.hasAttribute("data-draggable"), cardEl.textContent?.includes(why)]).toEqual([false, true]);
@@ -936,7 +1097,7 @@ describe("a key of several parts, a deleted row's key, a shift and a key stored 
             return Schematic({
                 id: "keyedTiles",
                 extent: fx.KEYED_FLOOR,
-                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
+                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
             });
         }))) }, "tiles", "2");
         // West, then East with Shift: both selected.
@@ -967,7 +1128,7 @@ describe("a key of several parts, a deleted row's key, a shift and a key stored 
                 id: "keyedStored",
                 inspector: true,
                 extent: fx.KEYED_FLOOR,
-                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }) }) },
             });
         }))) }, "spots", spot({ row: 3n, col: 1n }));
         hits(c, [["spots", spot({ row: 3n, col: 1n }), 6, 10]]);
@@ -996,7 +1157,7 @@ describe("an edit in Details a key refuses goes back to what the row holds, sayi
                 id: "keyedTilesInspected",
                 inspector: true,
                 extent: fx.KEYED_FLOOR,
-                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
+                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
             });
         }))) }, "tiles", "2");
         hits(c, [["tiles", "2", 10, 3], ["tiles", "3", 14, 3]]);
@@ -1017,7 +1178,7 @@ describe("an edit in Details a key refuses goes back to what the row holds, sayi
                 id: "keyedSpotsInspected",
                 inspector: true,
                 extent: fx.KEYED_FLOOR,
-                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", rowKey: (row) => ({ row: row.row, col: row.col }) }) },
             });
         }))) }, "spots", spot({ row: 2n, col: 1n }));
         hits(c, [["spots", spot({ row: 2n, col: 1n }), 18, 10]]);

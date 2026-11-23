@@ -10,7 +10,8 @@
  * records hold, and returns through the `Plan` carrier; every refusal at
  * build names itself; and its narrowing is one `Slice.bindRecords`, each
  * kind's templates a record of its own naming its source (#1344), refused in
- * every other form with the change to make. A payload reads the print works'
+ * every other form with the change to make, each source over a record keyed by
+ * any type (#1696). A payload reads the print works'
  * records as it is built, so the payload itself — the canvas's rows and the
  * event kinds landing on them, its templates, links, rows over a dataset, drop
  * veto and inspector (#1197), and the refusals a Plan makes as it is evaluated
@@ -24,9 +25,10 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType,
-    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant, walkIR,
+    StringType, StructType, VariantType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant, walkIR,
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { DragEventType, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Editing, Text } from "@elaraai/east-ui/internal";
@@ -339,6 +341,47 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
             });
             assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         }), "");
+    });
+
+    test("#1696 — an event kind's source over a record keyed by a struct, or by a variant — a composite's key — builds as one keyed by String does; and so does the `rows` source over a record keyed by a variant", () => {
+        const placed = e3.record("plan_events_placed_jobs", DictType(StructType({ press: StringType, seq: IntegerType }), ex.PrintJob), {
+            initial: new Map(),
+            indexes: (index) => ({ plan_events_placed_jobs_by_time: index.interval({ from: "start", to: "end" }) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        const sourced = e3.record("plan_events_sourced_jobs", DictType(VariantType({ erp: StringType, own: StringType }), ex.PrintJob), {
+            initial: new Map(),
+            indexes: (index) => ({ plan_events_sourced_jobs_by_time: index.interval({ from: "start", to: "end" }) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        assert.equal(refusal(($) => {
+            const jobs = $.let(Record.bind(placed));
+            const entries = $.let(Data.bindPaged(placed));
+            return Plan.Payload({
+                axis, data: pressRows($), series: [PRESSES],
+                slice: { slice: Slice.bindRecords("spec.placed", {
+                    job: { source: Data.bindPaged(placed, { indexes: ["plan_events_placed_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
+                }) },
+                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, entries }) },
+            });
+        }), "");
+        assert.equal(refusal(($) => {
+            const jobs = $.let(Record.bind(sourced));
+            const entries = $.let(Data.bindPaged(sourced));
+            return Plan.Payload({
+                axis, data: pressRows($), series: [PRESSES],
+                slice: { slice: Slice.bindRecords("spec.sourced", {
+                    job: { source: Data.bindPaged(sourced, { indexes: ["plan_events_sourced_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
+                }) },
+                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, entries }) },
+            });
+        }), "");
+        // The canvas's rows keyed by a variant, paged from the `rows` source and laid out by a series over their entries.
+        const series = [Plan.series.span(ex.PrintJob, { key: "jobs", title: "Jobs", label: (j) => j.title,
+            runs: (j) => [Plan.run({ key: j.title, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })] })];
+        assert.equal(refusal(() => Plan.Payload({ axis, series, slice: { slice: Slice.bindRecords("spec.sourced.rows", {
+            rows: { source: Data.bindPaged(sourced, { indexes: ["plan_events_sourced_jobs_by_time"] }), fields: { start: { label: "Dates" } } },
+        }) } })), "");
     });
 
     test("the `rows` source is the canvas's data, paged from it, laid out by `series`: `data` beside it is refused, naming the change", () => {

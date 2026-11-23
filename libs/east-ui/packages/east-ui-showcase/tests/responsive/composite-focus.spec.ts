@@ -120,7 +120,9 @@ for (const theme of LAYOUT_THEMES) {
                     await entry.locator("[data-scope=select][data-part=trigger]").first().click();
                     await page.getByRole("option", { name: kind, exact: true }).click();
                     const fields = entry.getByRole("spinbutton");
-                    await expect(fields).toHaveCount(kind === "datetime" ? 6 : 1);
+                    // A date's day, month and year, and a time's hour and minute: a form's time is on hours 0 to 23,
+                    // with no AM/PM field.
+                    await expect(fields).toHaveCount(kind === "datetime" ? 5 : 1);
                     for (const field of await fields.all()) {
                         await focusField(page, field, mode);
                         // Both date and time groups sit inside the same shell.
@@ -163,7 +165,9 @@ for (const theme of LAYOUT_THEMES) {
                 test(`${kind} range: each endpoint owns one ring`, async ({ page }) => {
                     const entry = await openExample(page, theme, `forms/${kind}-range-input/${kind}RangeInputBasic`);
                     const fields = entry.getByRole("spinbutton");
-                    await expect(fields).toHaveCount(6);
+                    // Each end of a date range its day, month and year; of a time range its hour and minute, on hours
+                    // 0 to 23.
+                    await expect(fields).toHaveCount(kind === "date" ? 6 : 4);
                     for (const field of await fields.all()) {
                         await focusField(page, field, mode);
                         await expectOneRing(field, field.locator("../../.."));
