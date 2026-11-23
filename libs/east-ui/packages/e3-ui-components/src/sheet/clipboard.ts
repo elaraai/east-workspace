@@ -6,8 +6,10 @@
 /**
  * The clipboard matrix (B§10): copy is tab-separated — dates `d/m/yyyy`,
  * numbers bare with the viewer's decimal separator (`1234,5` in German, what
- * a spreadsheet in that language reads, #852), a link cell as TWO columns
- * (From, To) printed through the grammar; paste lands at the selection, each
+ * a spreadsheet in that language reads, #852), a series its numbers so, between
+ * separators that are never the decimal one (`12, 14.5`, `12; 14,5` in German —
+ * a Record's trace and sparkline cells, east-workspace#1726), a link cell as TWO
+ * columns (From, To) printed through the grammar; paste lands at the selection, each
  * cell parsed by its kind — a stamped or read-only column's left as it was,
  * and said so — a link column consuming two clipboard cells.
  *
@@ -18,7 +20,7 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import { formatDateClipboard } from "./parse/date.js";
 import { formatNumberBare } from "./parse/quantity.js";
 import { linkHalvesText } from "./parse/index.js";
-import type { SheetColumnMeta } from "./model.js";
+import { seriesText, type SheetColumnMeta } from "./model.js";
 import type { SheetCellValue } from "./values.js";
 
 /**
@@ -44,6 +46,7 @@ export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMe
         case "String": return [cell.value];
         case "Boolean": return [String(cell.value)];
         case "Link": return [linkHalvesText(cell.value).join(" > ")];
+        case "Series": return [seriesText(cell.value, words)];
     }
     return [""];
 }

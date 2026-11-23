@@ -6,10 +6,11 @@
 /**
  * A Record's meter cells (east-workspace#1730), measured in the page: the
  * machines' example (`recordMeter`) at each of its three densities, stepped
- * through its own control, in both themes, and in a phone's frame at 390 and
- * in a 294px parent. Each meter's fill takes the Meter recipe's colour for the
- * row's tone — danger, warning, neutral's muted ink, or the brand's where the
- * column gives no tone — in both themes (M4); its bar is the value's share of
+ * through its own control, and in a phone's frame at 390 and in a 294px
+ * parent — in the light theme: each fill is measured against its theme token,
+ * which the token guard holds in both. Each meter's fill takes the Meter
+ * recipe's colour for the row's tone — danger, warning, neutral's muted ink,
+ * or the brand's where the column gives no tone (M4); its bar is the value's share of
  * the row's max, held to its track (M2, M3); and the bar and its percent sit
  * inside the cell between its paddings, a whole number of pixels under the
  * row's edge, inside the row's rule — the percent beside the bar wherever the
@@ -23,6 +24,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 import { token } from "./tokens";
 
 const ROUTE = "e3/record/record-display/recordMeter";
@@ -157,7 +159,7 @@ async function draws(page: Page, meters: MeterBox[], where: string): Promise<voi
     }
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`each meter at each density: its fill in its tone's colour, its bar its share, and the bar and its percent inside the cell on whole pixels (${theme}) @desktop`, async ({ page }) => {
         // Wide enough for the example's frame to draw the grid whole, every column at its own width.
         await page.setViewportSize({ width: 2160, height: 1200 });

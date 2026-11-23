@@ -333,6 +333,15 @@ describe("Trace's domain: one scale for every track (east-workspace#1728)", () =
         cleanup();
         expect(levelsOf(drawn(some({ min: 5, max: 5 })))).toEqual(own);
     });
+
+    test("nor does one whose bounds are no finite numbers — NaN at either end, or an infinity: each track runs over its own range", () => {
+        const own = levelsOf(drawn(none));
+        cleanup();
+        for (const [said, domain] of [["[0, NaN]", { min: 0, max: NaN }], ["[NaN, 40]", { min: NaN, max: 40 }], ["[-∞, 40]", { min: -Infinity, max: 40 }], ["[0, ∞]", { min: 0, max: Infinity }]] as const) {
+            expect(levelsOf(drawn(some(domain))), said).toEqual(own);
+            cleanup();
+        }
+    });
 });
 
 describe("Trace's values, where a step has no room for them (east-workspace#1728)", () => {

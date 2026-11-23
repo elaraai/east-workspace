@@ -4,14 +4,15 @@
  */
 
 /**
- * A numeric `[min, max]` as an author writes it, and as the wire holds it
- * (east-workspace#1726): one scale for every track of a Trace, or every line
- * a Sparkline draws, and a Record's display columns' own.
+ * A numeric `[min, max]` as an author writes it, as the wire holds it, and
+ * whether it can be drawn (east-workspace#1726): one scale for every track of
+ * a Trace, or every line a Sparkline draws, and a Record's display columns'
+ * own.
  *
  * @packageDocumentation
  */
 
-import { East, OptionType, none, some, type ExprType, type FloatType, type SubtypeExprOrValue } from "@elaraai/east";
+import { East, FloatType, OptionType, lessFor, none, some, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
 import { NumberDomainType } from "./types.js";
 
 /**
@@ -30,4 +31,21 @@ export function numberDomainOf(domain: NumberDomainInput | undefined): ExprType<
     return domain === undefined
         ? East.value(none, OptionType(NumberDomainType))
         : East.value(some({ min: domain[0], max: domain[1] }), OptionType(NumberDomainType));
+}
+
+const floatLess = lessFor(FloatType);
+
+/**
+ * Whether a domain's bounds draw one scale: both finite numbers, the max past the min — in East's order, which stands
+ * NaN past every number, so the bounds are asked to be finite first. A domain they don't draw places nothing: each
+ * track, or line, runs over its own min and max. The renderers read a domain so, and a factory refuses literal bounds
+ * that don't draw.
+ *
+ * @param min - The domain's min
+ * @param max - The domain's max
+ * @returns Whether the domain draws
+ * @internal
+ */
+export function drawsDomain(min: number, max: number): boolean {
+    return Number.isFinite(min) && Number.isFinite(max) && floatLess(min, max);
 }

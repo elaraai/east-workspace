@@ -132,7 +132,7 @@ export type SheetActionCellType = typeof SheetActionCellType;
  * @property DateTime - A UTC-midnight date (a `date` column's cell); the moment an `age` counts from, or an `audit`'s change was made
  * @property Link - A typed link (a `set` / `link` column's cell)
  * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
- * @property Series - A series of numbers, read only (east-workspace#1728): a Record's trace column's cell
+ * @property Series - A series of numbers, read only (east-workspace#1728): a Record's trace and sparkline columns' cell
  */
 export const SheetCellType = VariantType({
     Invalid:  StringType,
@@ -231,7 +231,7 @@ export const SHEET_TITLE_CELL = "$title";
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
  *
- * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`; a mark's `"mark"`, its words, and `"lock"`, whether it locks; a meter column's `"max"`, the row's max, and `"tone"`, its tone's case)
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`; a mark's `"mark"`, its words, and `"lock"`, whether it locks; a meter column's `"max"`, the row's max — or why the app's max or tone could not be read over it — and `"tone"`, its tone's case)
  * @param column - The column key
  * @returns The cell key (`"$level:start"`)
  */
@@ -945,7 +945,7 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
  * @property trace - A row's series as one track of value-coloured steps (east-workspace#1728), drawn with east-ui's Trace: its `now`, its steps' labels (`axis`), its `scale` and its `future`, Trace's own, `domain` one scale for every row, and the words for a row with no series (`absent`); read only, a Record's
  * @property sparkline - A row's series as a line or an area across the cell (east-workspace#1729), drawn with east-ui's Sparkline: its `type`, Sparkline's own, `domain` one vertical scale for every row, and the words for a row with no series (`absent`); read only, a Record's
- * @property meter - A row's value against its max as a filled bar and its percent (east-workspace#1730), drawn with east-ui's Meter: `max` the cell holding the row's max, `tone` the one holding its tone's case (`none` without a tone, the bar the brand's) — each read at the day over the row's entry or its draft (`cellsAt`), so they follow the draft — and the words for a row with no value (`absent`); read only, a Record's
+ * @property meter - A row's value against its max as a filled bar and its percent (east-workspace#1730), drawn with east-ui's Meter: `max` the cell holding the row's max, a Float — or, where the app's max or tone threw over the row, the error's message, a String — `tone` the one holding its tone's case (`none` without a tone, the bar the brand's) — each read at the day over the row's entry or its draft (`cellsAt`), so they follow the draft — and the words for a row with no value (`absent`); read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,

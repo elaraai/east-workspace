@@ -207,7 +207,8 @@ export interface SheetColumnMeta {
 
 /**
  * A meter column's max and tone (east-workspace#1730), compiled over the row: read at the day with the row's marks, over
- * its entry or its whole draft, so they follow the draft — an edit of the field a max reads redraws its bar.
+ * its entry or its whole draft, so they follow the draft — an edit of the field a max reads redraws its bar. Each meter
+ * is read apart: one whose max or tone throws over a row holds why under its max ({@link buildCellsAt}).
  *
  * @internal
  */
@@ -1575,7 +1576,9 @@ function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cel
  * each meter's max and tone (east-workspace#1730), read over the row's draft,
  * or over its entry before it has one. A field not yet set shows nothing, nor
  * one holding text no column could read; a mark, a max and a tone over the
- * row read it once its draft is whole.
+ * row read it once its draft is whole. Each meter is read apart: one whose
+ * max or tone throws over the row holds the error's message under its max, a
+ * String, and the row's marks and its other meters are read all the same.
  *
  * @param rowType - The row type
  * @param metas - The declared columns, for their marks and meters
@@ -1604,13 +1607,22 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
                         const mark = $2.const(m.mark!);
                         insertMark($2 as unknown as SheetAnyBlock, cells, East.value(m.key, StringType), mark(row, day));
                     }
-                    // A meter's max and its tone's name, beside its value's cell.
+                    // A meter's max and its tone's name, beside its value's cell — each meter read apart: one whose max or
+                    // tone throws over the row holds the error's message under its max instead.
                     for (const m of metered) {
-                        const max = $2.const(m.meter!.max);
-                        $2(cells.insert(sheetRuleCell("max", m.key), cellOfPayload("Float", max(row) as ExprType<EastType>)));
-                        if (m.meter!.tone === undefined) continue;
-                        const tone = $2.const(m.meter!.tone);
-                        $2(cells.insert(sheetRuleCell("tone", m.key), cellOfPayload("String", tone(row) as ExprType<EastType>)));
+                        const meter = m.meter!;
+                        const max = $2.const(meter.max);
+                        const tone = meter.tone !== undefined ? $2.const(meter.tone) : undefined;
+                        const maxKey = sheetRuleCell("max", m.key);
+                        $2.try(($3) => {
+                            // Both read before either is written: a tone that throws leaves no max behind it.
+                            const read = $3.const(max(row));
+                            const named = tone !== undefined ? $3.const(tone(row)) : undefined;
+                            $3(cells.insert(maxKey, cellOfPayload("Float", read as ExprType<EastType>)));
+                            if (named !== undefined) $3(cells.insert(sheetRuleCell("tone", m.key), cellOfPayload("String", named as ExprType<EastType>)));
+                        }).catch(($3, message) => {
+                            $3(cells.insertOrUpdate(maxKey, cellOfPayload("String", message as ExprType<EastType>)));
+                        });
                     }
                 },
             });

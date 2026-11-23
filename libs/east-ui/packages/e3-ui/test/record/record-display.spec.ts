@@ -13,14 +13,15 @@
  * column — the Sheet's among them, which draws no trace. A sparkline column
  * (east-workspace#1729) the same: its kind, its cells, Details, its refusals.
  * A meter column (east-workspace#1730): its kind naming the cells its max and
- * tone are read into, those read at the day over a row's entry and its draft,
- * its cells, Details, and its refusals.
+ * tone are read into, those read at the day over a row's entry and its draft —
+ * each meter apart, one whose max or tone throws holding why — its cells,
+ * Details, and its refusals.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType,
     decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
@@ -237,10 +238,14 @@ describe("refusals, each naming the column", () => {
         assert.match(refusal({ load: Record.column.trace(Unit, { scale: variant("categorical", null) }) }), refused);
     });
 
-    test("a domain whose max is not past its min", () => {
+    test("a domain that draws no scale: its max not past its min, or a bound that is no finite number", () => {
         assert.match(refusal({ load: Record.column.trace(Unit, { domain: [40, 0] }) }),
-            /^Sheet: column "load" has the domain \[40, 0\] — one scale for every row runs from its min to a max past it$/);
+            /^Sheet: column "load" has the domain \[40, 0\] — one scale for every row runs from its min to a max past it, both finite numbers$/);
         assert.match(refusal({ load: Record.column.trace(Unit, { domain: [10, 10] }) }), /has the domain \[10, 10\]/);
+        // A bound no finite number draws no scale: NaN, which East's order stands past every number, and an infinity.
+        assert.match(refusal({ load: Record.column.trace(Unit, { domain: [0, NaN] }) }), /^Sheet: column "load" has the domain \[0, NaN\] — .*, both finite numbers$/);
+        assert.match(refusal({ load: Record.column.trace(Unit, { domain: [-Infinity, 40] }) }), /has the domain \[-Infinity, 40\]/);
+        assert.match(refusal({ load: Record.column.trace(Unit, { domain: [0, Infinity] }) }), /has the domain \[0, Infinity\]/);
     });
 
     test("a field that holds no series, and a `value` that derives none", () => {
@@ -271,7 +276,7 @@ describe("refusals, each naming the column", () => {
         assert.throws(() => East.function([], RecordPayloadType, () => Record.Payload({
             record: Record.bind(ex.recordDisplayMachines), window: Data.bindPaged(ex.recordDisplayMachines), edits: { insertRows: false },
             columns: { name: Record.column.title(ex.Machine), load: Record.column.trace(ex.Machine, { domain: [5, 1] }) },
-        })), /^Error: Record: column "load" has the domain \[5, 1\] — one scale for every row runs from its min to a max past it$/);
+        })), /^Error: Record: column "load" has the domain \[5, 1\] — one scale for every row runs from its min to a max past it, both finite numbers$/);
     });
 
     test("a domain's bounds an expression gives are the renderer's to read: a max not past its min places nothing, each row over its own", () => {
@@ -342,7 +347,8 @@ describe("a sparkline column on the wire (east-workspace#1729)", () => {
         assert.match(refusal({ load: Record.column.sparkline(Unit, { each: { mon: "Mon" } } as never) }),
             /^Sheet: column "load" is a sparkline column, which draws one row's series — it makes no columns from data, so give it no `each`$/);
         assert.match(refusal({ load: Record.column.sparkline(Unit, { domain: [5, 5] }) }),
-            /^Sheet: column "load" has the domain \[5, 5\] — one scale for every row runs from its min to a max past it$/);
+            /^Sheet: column "load" has the domain \[5, 5\] — one scale for every row runs from its min to a max past it, both finite numbers$/);
+        assert.match(refusal({ load: Record.column.sparkline(Unit, { domain: [NaN, 50] }) }), /has the domain \[NaN, 50\]/);
         assert.match(refusal({ name: Record.column.sparkline(Unit) as never }),
             /^Sheet: sparkline column "name" must sit on an Array<Float> or Option<Array<Float>> field, or read one through `value` — got String$/);
         assert.throws(() => East.function([], Sheet.Types.Root, ($) => {
@@ -454,6 +460,43 @@ describe("a meter column on the wire (east-workspace#1730)", () => {
         assert.ok(sameCell(drafted.get("$tone:booked")!, variant("String", "danger")), printFor(Cells)(drafted));
         const partial = cellsAtDay(variant("draft", bayDraft(BAYS[0]!, "missing")));
         assert.deepEqual([...partial.keys()], []);
+    });
+
+    test("each meter is read apart: one whose max or tone throws over a row holds the error's message under its max — the row's marks and its other meters read all the same", () => {
+        // Each bay's limit and its yield's tone, by its id: Bay 3 has neither, and its reads of them throw.
+        const LIMITS = new Map([["B-1", 40], ["B-2", 50]]);
+        const TONES = new Map([["B-1", variant("info", null)], ["B-2", variant("info", null)]]);
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            return createSheetRootWith(rows, {
+                name: Record.column.text(Bay, {
+                    header: "Bay", mark: East.function([Bay, DateTimeType], OptionType(Record.Types.Mark), ($2) => $2.const(some(variant("note", "checked")), OptionType(Record.Types.Mark))),
+                }),
+                booked: METERS.booked,
+                used: Record.column.meter(Bay, { header: "Used", max: (b) => East.value(LIMITS, DictType(StringType, FloatType)).get(b.id) }),
+                good: Record.column.meter(Bay, {
+                    header: "Yield", value: (b) => b.good.divide(b.made), max: 1, tone: (b) => East.value(TONES, DictType(StringType, StatusValueType)).get(b.id),
+                }),
+            }, { id: "id" }, { recordKinds: true });
+        }), [])();
+        if (root.cellsAt.type !== "some") assert.fail("the root reads no cells at the day");
+        const read = (bay: BayValue) => root.cellsAt.type === "some" ? root.cellsAt.value(variant("entry", encodeBeast2For(Bay)(bay)), DAY) : assert.fail("no cellsAt");
+        // Bay 3: its used's max throws, and its yield's tone — each holds why under its max, and no tone; its mark and
+        // its booked meter read as they do anywhere.
+        const third = read(BAYS[2]!);
+        const missing = variant("String", 'Dict does not contain key "B-3"');
+        assert.ok(equalFor(Cells)(third, new Map<string, Cell>([
+            ["$mark:name", variant("String", "checked")], ["$lock:name", variant("Boolean", false)],
+            ["$max:booked", variant("Float", 0)], ["$tone:booked", variant("String", "danger")],
+            ["$max:used", missing], ["$max:good", missing],
+        ])), printFor(Cells)(third));
+        // Bay 1 has both: every meter read.
+        const first = read(BAYS[0]!);
+        assert.ok(equalFor(Cells)(first, new Map<string, Cell>([
+            ["$mark:name", variant("String", "checked")], ["$lock:name", variant("Boolean", false)],
+            ["$max:booked", variant("Float", 40)], ["$tone:booked", variant("String", "neutral")],
+            ["$max:used", variant("Float", 40)], ["$max:good", variant("Float", 1)], ["$tone:good", variant("String", "info")],
+        ])), printFor(Cells)(first));
     });
 
     test("Details shows its field read only, through its column", () => {

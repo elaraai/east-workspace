@@ -19,7 +19,7 @@
 import { memo, Fragment, useEffect, useMemo } from "react";
 import { Box as ChakraBox, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Trace } from "@elaraai/east-ui/internal";
+import { Trace, drawsDomain } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { resolveColor } from "../../collections/shared/helpers.js";
 import { useDensity, type Density } from "../../contracts/density";
@@ -79,11 +79,11 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const leftCol = gLeft ?? labelWidth ?? "var(--t-stub-w)";
     const rightCol = gRight ?? "0px";
 
-    // One scale for every track (east-workspace#1728): the domain's. One whose max is not past its min places nothing
-    // on it, and each track runs over its own range, as with none.
+    // One scale for every track (east-workspace#1728): the domain's. One whose bounds are no finite numbers, or whose max
+    // is not past its min, places nothing on it, and each track runs over its own range, as with none.
     const domain = useMemo(() => {
         const given = getSomeorUndefined(value.domain);
-        return given !== undefined && given.max > given.min ? given : undefined;
+        return given !== undefined && drawsDomain(given.min, given.max) ? given : undefined;
     }, [value.domain]);
 
     const nowRaw = useMemo(() => getSomeorUndefined(value.now), [value.now]);

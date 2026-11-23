@@ -26,7 +26,6 @@ import {
     BooleanType,
     DateTimeType,
     DictType,
-    FloatType,
     FunctionType,
     IntegerType,
     NullType,
@@ -36,7 +35,6 @@ import {
     StructType,
     isTypeEqual,
     isVariant,
-    lessFor,
     printType,
     toEastTypeValue,
     variant,
@@ -48,6 +46,7 @@ import { DensityType, Sparkline, StatusValueType, Trace, type DensityLiteral, ty
 import {
     CarriedEntryType,
     NumberDomainType,
+    drawsDomain,
     numberDomainOf,
     type NumberDomainInput,
     RecordSlicesChromeType,
@@ -663,21 +662,18 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
     }
 }
 
-/** Two Floats in East's order: a domain's min below its max. */
-const floatLess = lessFor(FloatType);
-
 /**
  * A display column's one scale for every row, `[min, max]` (east-workspace#1728), as the wire holds it: `none` without one.
  *
  * @param key - The column, as a refusal names it
  * @param domain - The column's `domain`, each bound a Float or an expression of one
  * @returns The domain, or `none`
- * @throws {Error} When both bounds are written and the min is not below the max
+ * @throws {Error} When both bounds are written and draw no scale: one is no finite number, or the min is not below the max
  */
 function domainOf(key: string, domain: NumberDomainInput | undefined): ExprType<OptionType<typeof NumberDomainType>> {
     const [min, max] = domain ?? [];
-    if (typeof min === "number" && typeof max === "number" && !floatLess(min, max)) {
-        throw new Error(`Sheet: column "${key}" has the domain [${min}, ${max}] — one scale for every row runs from its min to a max past it`);
+    if (typeof min === "number" && typeof max === "number" && !drawsDomain(min, max)) {
+        throw new Error(`Sheet: column "${key}" has the domain [${min}, ${max}] — one scale for every row runs from its min to a max past it, both finite numbers`);
     }
     return numberDomainOf(domain);
 }

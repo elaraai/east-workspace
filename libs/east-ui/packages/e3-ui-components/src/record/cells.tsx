@@ -27,8 +27,10 @@
  *   recipe's colour, its hover its last value and its range;
  * - **meter** (east-workspace#1730) — the row's value against its max as
  *   east-ui's Meter, its bar and percent at the Record's density, in the tone
- *   the row's tone cell names; a max of 0 or below, or none read, an empty bar,
- *   its hover saying why — else the value, the max and the share;
+ *   the row's tone cell names; a max not read, or one the app's max or tone
+ *   threw over, a max of 0 or below, and a max or a value that is no finite
+ *   number, an empty bar, its hover saying why — else the value, the max and
+ *   the share;
  * - **an absent value** (C10) — in the column's words, else a dash.
  *
  * A row the record does not hold yet has no age and no audit to show. Every
@@ -52,7 +54,7 @@ import { resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetR
 import type { SheetCellValue, SheetColumnKindValue, SheetRowValue } from "../sheet/values.js";
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf } from "./clock.js";
-import { recordMessages as m } from "./messages.js";
+import { recordMessages as m, type RecordMeterNoShare } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
 const integerEqual = equalFor(IntegerType);
@@ -100,6 +102,8 @@ interface RecordMeterRead {
     value: number;
     max: number | undefined;
     tone: MeterTone["type"] | undefined;
+    /** Whether the app's max or tone threw over the row: its max cell holds the error's message (`cellsAt`). */
+    failed: boolean;
 }
 
 /**
@@ -115,11 +119,31 @@ function meterRead(kind: RecordMeterKind, cell: SheetCellValue | undefined, cell
     const max = cells.get(kind.max);
     const toneKey = getSomeorUndefined(kind.tone);
     const tone = toneKey === undefined ? undefined : cells.get(toneKey);
-    return { value: cell.value, max: max?.type === "Float" ? max.value : undefined, tone: tone?.type === "String" && isTone(tone.value) ? tone.value : undefined };
+    return {
+        value: cell.value,
+        max: max?.type === "Float" ? max.value : undefined,
+        tone: tone?.type === "String" && isTone(tone.value) ? tone.value : undefined,
+        failed: max?.type === "String",
+    };
 }
 
-/** Whether a meter draws a share: its max read, and above 0 — never a division by it otherwise. */
-const shares = (read: RecordMeterRead): read is RecordMeterRead & { max: number } => read.max !== undefined && floatLess(0, read.max);
+/**
+ * Why a meter draws no share (east-workspace#1730): never a division by a max that is not above 0, nor a share of a max
+ * or a value that is no finite number — East's order puts NaN above every number, so `0 < NaN` holds there.
+ *
+ * @param read - The row's value, max and tone
+ * @returns Why — its max not read, or not readable; its max no finite number, or 0 or below; its value no finite number — or `undefined` where it draws a share
+ */
+function noShareOf(read: RecordMeterRead): RecordMeterNoShare | undefined {
+    if (read.failed) return "failed";
+    if (read.max === undefined) return "unread";
+    if (!Number.isFinite(read.max)) return "max";
+    if (!floatLess(0, read.max)) return "low";
+    return Number.isFinite(read.value) ? undefined : "value";
+}
+
+/** Whether a meter draws a share: {@link noShareOf} finds no reason it can't. */
+const shares = (read: RecordMeterRead): read is RecordMeterRead & { max: number } => noShareOf(read) === undefined;
 
 /**
  * The Meter a meter column draws a row's value with (east-workspace#1730): its share of the row's max, in the row's tone, at
@@ -150,8 +174,10 @@ function meterOf(read: RecordMeterRead, density: DensityLiteral): MeterValue {
  */
 function meterSays(read: RecordMeterRead, words: SheetWords): string {
     const value = words.number(read.value);
-    if (!shares(read)) return m.meterNoShare({ value, max: read.max === undefined ? undefined : words.number(read.max) });
-    return m.meterTitle({ value, max: words.number(read.max), percent: words.percent(read.value / read.max) });
+    if (shares(read)) return m.meterTitle({ value, max: words.number(read.max), percent: words.percent(read.value / read.max) });
+    // The max said where it is a number: a NaN's words or an infinity's say nothing a person reads.
+    const max = read.max !== undefined && Number.isFinite(read.max) ? words.number(read.max) : undefined;
+    return m.meterNoShare({ value, max, why: noShareOf(read)! });
 }
 
 /** What a cell of a Record's own kind draws, and what it says on hover. */
