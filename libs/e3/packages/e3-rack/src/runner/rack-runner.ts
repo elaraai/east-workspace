@@ -29,14 +29,17 @@ export interface OpenRackRunnerOptions {
   label: string;
   /** Policy snapshot, otherwise loaded from the repository. */
   policy?: RackPolicy;
-  /** Keeps eligible work queued when capacity is busy. */
+  /** Keeps eligible work queued when capacity is busy. Work the policy keeps
+   *  here — a split task's merges under `merges` `local` among it — is not
+   *  eligible, and runs here still. */
   rackOnly?: boolean;
   /**
    * Whether all the runner's work is a rack's, whatever the policy's rules
    * select: a command's `--rack`, which names its one piece of work — a task
    * run ad hoc, or a function call. A rule that matches the work's name still
-   * gives its size, its timeout, its memory limit, its GPU and its
-   * host-coupling override. A session is opened under any policy.
+   * gives its size, its timeout, its memory limit, its GPU, its
+   * host-coupling override and where its merges run. A session is opened
+   * under any policy.
    */
   selected?: boolean;
   /** How long work waits, under `rackOnly`, for a rack that runs its tier to

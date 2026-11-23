@@ -9,7 +9,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ArrayType, East, IntegerType, StringType, some } from '@elaraai/east';
+import { ArrayType, East, IntegerType, StringType, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { Budget, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash, packageImport, packageRead, repoInit } from '@elaraai/e3-core';
 import { stockRuntimesOnPath } from '@elaraai/e3-core/test';
@@ -18,14 +18,14 @@ import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { connectHub } from '../client/connect.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
-import { DEFAULT_RACK_POLICY, setMode } from '../routing/policy.js';
+import { DEFAULT_RACK_POLICY, setMode, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner } from './rack-runner.js';
 import type { RackPlacementEvent } from '../protocol/placement.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(background = false) {
+async function fixture(background = false, policy: RackPolicy = setMode(DEFAULT_RACK_POLICY, 'auto')) {
   const home = await mkdtemp(join(tmpdir(), 'e3s-'));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   await saveHubConfig({ ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 0n }) }, home);
@@ -46,16 +46,21 @@ async function fixture(background = false) {
   const budget = new Budget({ cores: 2, memory: 1024 ** 3 }, { sampler: null });
   const placements: RackPlacementEvent[] = [];
   const rack = await openRackRunner({ repoPath: repo, workspace: 'dev', storage, label: 'split test', home, budget,
-    policy: setMode(DEFAULT_RACK_POLICY, 'auto'), rackOnly: true, waitForRackMs: 0, onPlacement: (event) => { placements.push(event); } });
+    policy, rackOnly: true, waitForRackMs: 0, onPlacement: (event) => { placements.push(event); } });
   cleanup.push(() => rack.close());
   return { home, client, agent, repo, storage, rack, budget, placements };
 }
 
-for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates split ${kind} pieces and merges, keeping planning and the logical record local`, async () => {
+/** Cuts pieces of 64 bytes, so a task of 8000 rows has many, for the test. */
+function smallPieces(): void {
   const original = process.env.E3_TEST_PIECE_BYTES;
   process.env.E3_TEST_PIECE_BYTES = '64';
   cleanup.push(() => { if (original === undefined) delete process.env.E3_TEST_PIECE_BYTES; else process.env.E3_TEST_PIECE_BYTES = original; return Promise.resolve(); });
-  const f = await fixture();
+}
+
+/** Imports a task named `split`, split over its 8000 rows, of the output kind:
+ *  a dict's rows share one key, so its pieces' outputs merge. */
+async function splitTask(f: Awaited<ReturnType<typeof fixture>>, kind: 'array' | 'set' | 'dict' | 'fold'): Promise<{ hash: string; inputs: string[] }> {
   const type = ArrayType(IntegerType);
   const input = e3.input('rows', type);
   const task = kind === 'array'
@@ -70,6 +75,13 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
   await packageImport(f.storage, f.repo, zip);
   const hash = (await packageRead(f.storage, f.repo, 'split', '1.0.0')).tasks.get('split')!;
   const inputs = [await datasetWrite(f.storage, f.repo, Array.from({ length: 8000 }, (_, i) => BigInt(i)), type)];
+  return { hash, inputs };
+}
+
+for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates split ${kind} pieces and merges, keeping planning and the logical record local`, async () => {
+  smallPieces();
+  const f = await fixture();
+  const { hash, inputs } = await splitTask(f, kind);
   const events: RackLeaseEvent[] = [];
   let ended = false;
   const pump = async () => {
@@ -112,6 +124,42 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
   const local = await new LocalTaskRunner(f.repo, f.budget).execute(f.storage, hash, inputs, { force: true });
   assert.equal(local.state, 'success', local.error); assert.equal(local.outputHash, remote.outputHash);
   assert(f.placements.every((placement) => placement.where === 'rack' && placement.role === 'unit'));
+});
+
+for (const kind of ['dict', 'fold'] as const) it(`runs split ${kind} merges here when its merges are local, its pieces on a rack, under rack-only too`, async () => {
+  smallPieces();
+  // The run keeps its work for a rack (rack-only), and its policy keeps merges here
+  const f = await fixture(false, { ...setMode(DEFAULT_RACK_POLICY, 'auto'), defaultMerges: variant('local', null) });
+  const { hash, inputs } = await splitTask(f, kind);
+  const events: RackLeaseEvent[] = [];
+  let ended = false;
+  const pump = async () => {
+    while (!ended) {
+      if (Number((await f.client.status()).capacity.queued) === 0) { await delay(10); continue; }
+      const grant = await f.agent.claim(); assert(grant);
+      events.push(JSON.parse(grant.eventJson) as RackLeaseEvent);
+      const result = await f.agent.execute(grant); assert.equal(result.status, 'success', result.error);
+    }
+  };
+  const [remote] = await Promise.all([
+    f.rack.runner.execute(f.storage, hash, inputs, { taskName: 'split' }).finally(() => { ended = true; }),
+    pump(),
+  ]);
+  assert.equal(remote.state, 'success', remote.error);
+  // Every piece leased, and no merge: each merge ran here, under the run's budget
+  assert(events.length > 1);
+  assert(events.every((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge === null), 'no merge is leased');
+  assert(f.budget.peak > 0, 'the merges took the local budget');
+  const here = f.placements.filter((placement) => placement.where === 'local');
+  assert(here.length > 0 && here.every((placement) => placement.kind === 'placed' && placement.where === 'local' && placement.role === 'unit' && placement.reason === 'merges-local'),
+    JSON.stringify(here));
+  assert.equal(f.placements.filter((placement) => placement.where === 'rack').length, events.length);
+  // A merge its policy keeps here was never a rack's: the run ran none of a rack's work here
+  assert.equal(f.rack.takeSummary().ranLocally, 0);
+  const record = await f.storage.refs.executionGet(f.repo, hash, inputsHash(inputs), remote.executionId);
+  assert(record?.type === 'success' && !record.value.unit);
+  const local = await new LocalTaskRunner(f.repo, f.budget).execute(f.storage, hash, inputs, { force: true });
+  assert.equal(local.state, 'success', local.error); assert.equal(local.outputHash, remote.outputHash, 'placement changes no byte of the output');
 });
 
 it('executes an east-py task through the same rack wire', { skip: stockRuntimesOnPath().includes('east-py') ? false : 'east-py CLI not on PATH' }, async () => {

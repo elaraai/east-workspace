@@ -214,7 +214,27 @@ is a ceiling, in bytes, on what one piece of its work may be capped at, never a
 request, and its `gpu` asks for a rack's GPU. Both came with the local
 repository's first upgrade step of its own (`rack-policy-limits`, in e3-core,
 with both forms frozen there), which carries a policy an earlier release stored
-into this form when the repository is opened.
+into the form with them when the repository is opened.
+
+A rule's `merges`, else the policy's `defaultMerges`, says where the merge
+units of a split task it sends to a rack run: `rack`, the default, as its
+pieces do, or `local`. A merge unit is a set's or a dict's merge over a key
+range, or a step of a fold's combine; an array's concatenation and every
+output's final assembly are no unit, and run here always. A merge kept local
+is judged before the task's verdict, which its pieces share
+(`merges-local`), and runs through the ordinary local body under the run's
+budget and guard. It fetches nothing: every piece's output is verified into
+this store as its lease ends. It is not the default, since a merge on a rack
+uses the rack's cores and memory, which a wide fan-in or a large range may
+need, and the upgrade keeps every repository placing as it did. A merge kept
+local is no rack's work: rack-only, which keeps a rack's work for a rack,
+leaves it here, and `selected` (a command's `--rack`) takes it from the
+rule as it takes the rule's size. A merge kept local is never weighed for
+what it would fetch (the policy's `weighFetch`), since it is judged here
+first; a merge on a rack is weighed as any unit is. Both came with the local
+repository's third step (`rack-policy-merges`), which carries the form the
+second (`rack-policy-weigh-fetch`) writes into this one, every merge on a
+rack.
 
 Eligibility checks task name/selection, the environment's kind, the
 runtime/platform configuration, East body and every executable program
@@ -396,7 +416,9 @@ Only a unit that expects nothing books its rule's limit, else its size's
 memory. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
 ever hold is not queued, and runs locally. Split-task
-planning and final assembly stay local; both pieces and merge bodies delegate.
+planning and final assembly stay local; both pieces and merge bodies delegate,
+unless the rule's `merges`, else the policy's `defaultMerges`, keeps merges
+local.
 
 | Outcome | Record and action |
 | --- | --- |

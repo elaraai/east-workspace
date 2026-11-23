@@ -11,12 +11,22 @@ import { atomicWriteFile } from '@elaraai/e3-core';
 /** The sizes a rule names: shorthands for cores and memory ({@link RACK_SIZES}). */
 export const RackComputeSizeType = VariantType({ serverless: NullType, small: NullType, medium: NullType, large: NullType, xlarge: NullType });
 /**
+ * Where the merge units of a split task its rule sends to a rack run: on a
+ * rack, as its pieces do, or here, beside its planning. A merge unit is a
+ * merge of a set's or a dict's pieces over a key range, or a step of a fold's
+ * combine; an array's concatenation, and the final assembly of any output,
+ * is no unit and runs here always.
+ */
+export const RackMergesType = VariantType({ rack: NullType, local: NullType });
+/**
  * A whole-task-name glob and its execution policy; first match wins.
  *
  * `memoryLimit` is a ceiling, in bytes, on what one piece of the rule's work
  * may be capped at on a rack: a task's cap, and the most a split task's piece
  * is given when it runs again after outgrowing its cap. It is no request: e3
- * measures what a piece needs. `gpu` asks for a rack's GPU.
+ * measures what a piece needs. `gpu` asks for a rack's GPU. `merges` says
+ * where the merge units of a split task the rule sends to a rack run, or
+ * none for the policy's `defaultMerges`.
  */
 export const RackRuleType = StructType({
   tasks: StringType,
@@ -26,6 +36,7 @@ export const RackRuleType = StructType({
   allowHostCoupled: BooleanType,
   memoryLimit: OptionType(IntegerType),
   gpu: BooleanType,
+  merges: OptionType(RackMergesType),
 });
 /**
  * Stores this repository's rack opt-in. Runtime policy never affects hashes.
@@ -34,12 +45,20 @@ export const RackRuleType = StructType({
  * `memoryLimit` and `gpu` came with one: e3-core's local-repository step
  * `rack-policy-limits` carries a policy an earlier release stored into the
  * form with them when the repository is opened. `weighFetch` came with the
- * next, `rack-policy-weigh-fetch`, which carries that form into this one, on
- * by default; its frozen form is this type's.
+ * next, `rack-policy-weigh-fetch`, on by default; `defaultMerges`, and a
+ * rule's `merges`, with the one after it, `rack-policy-merges`, which carries
+ * the weigh-fetch step's form into this one, every merge on a rack as before;
+ * its frozen form is this type's.
  *
  * `weighFetch` weighs what a task or a unit would fetch against how long it
  * last ran: one that would spend longer fetching its inputs over the link to
  * the rack than it took to run runs here instead (`fetch-bound`).
+ *
+ * `defaultMerges` says where the merge units of a split task run when its
+ * rule names no `merges`: `rack`, as its pieces do, unless set otherwise.
+ * Merges run `local` take no transfer, since a piece's output comes back
+ * here whichever rack ran it, and run under the run's local budget; they are
+ * never weighed for what they would fetch.
  */
 export const RackPolicyType = StructType({
   enabled: BooleanType,
@@ -51,6 +70,7 @@ export const RackPolicyType = StructType({
   claimTimeoutSeconds: IntegerType,
   retryTaskFailuresLocally: BooleanType,
   weighFetch: BooleanType,
+  defaultMerges: RackMergesType,
 });
 /** A repository's rack policy. */
 export type RackPolicy = ValueTypeOf<typeof RackPolicyType>;
@@ -58,6 +78,8 @@ export type RackPolicy = ValueTypeOf<typeof RackPolicyType>;
 export type RackRule = ValueTypeOf<typeof RackRuleType>;
 /** A size's name. */
 export type RackComputeSize = ValueTypeOf<typeof RackComputeSizeType>['type'];
+/** Where a split task's merge units run. */
+export type RackMerges = ValueTypeOf<typeof RackMergesType>['type'];
 
 /**
  * What each size stands for: the cores a task of that size is given on a
@@ -81,10 +103,12 @@ export const RACK_SIZES: Readonly<Record<RackComputeSize, { readonly cores: numb
 };
 
 /** Conservative defaults: disabled, with explicit task selection required;
- *  a fetch-bound unit runs here. */
+ *  a fetch-bound unit runs here; a split task's merges run where its pieces
+ *  do. */
 export const DEFAULT_RACK_POLICY: RackPolicy = {
   enabled: false, mode: variant('optIn', null), rules: [], defaultSize: variant('large', null),
   defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false, weighFetch: true,
+  defaultMerges: variant('rack', null),
 };
 const encode = encodeBeast2For(RackPolicyType);
 const decode = decodeBeast2For(RackPolicyType);
@@ -190,6 +214,9 @@ export interface TaskSelection {
   memoryLimit: number | null;
   /** Whether the task asks for a rack's GPU. */
   gpu: boolean;
+  /** Where its merge units run when the task is a rack's: its rule's
+   *  `merges`, else the policy's `defaultMerges`. */
+  merges: RackMerges;
   /** First matching rule, or null for policy defaults. */
   ruleIndex: number | null;
 }
@@ -213,6 +240,7 @@ export function selectTask(policy: RackPolicy, taskName: string): TaskSelection 
     allowHostCoupled: rule?.allowHostCoupled ?? false,
     memoryLimit: rule?.memoryLimit.type === 'some' ? Number(rule.memoryLimit.value) : null,
     gpu: rule?.gpu ?? false,
+    merges: rule?.merges.type === 'some' ? rule.merges.value.type : policy.defaultMerges.type,
     ruleIndex: index < 0 ? null : index,
   };
 }
@@ -230,6 +258,9 @@ export interface RuleSettings {
   memoryLimit?: number;
   /** Asks for a rack's GPU. */
   gpu?: boolean;
+  /** Where the merge units of a split task the rule sends to a rack run;
+   *  the policy's `defaultMerges` unless given. */
+  merges?: RackMerges;
 }
 
 /**
@@ -252,7 +283,8 @@ export function setRule(policy: RackPolicy, tasks: string, target: 'rack' | 'loc
   }
   const rule: RackRule = { tasks, target: variant(target, null), size: settings.size === undefined ? none : some(variant(settings.size, null)),
     timeoutMinutes: settings.timeoutMinutes === undefined ? none : some(BigInt(settings.timeoutMinutes)), allowHostCoupled: settings.allowHostCoupled ?? false,
-    memoryLimit: settings.memoryLimit === undefined ? none : some(BigInt(settings.memoryLimit)), gpu: settings.gpu ?? false };
+    memoryLimit: settings.memoryLimit === undefined ? none : some(BigInt(settings.memoryLimit)), gpu: settings.gpu ?? false,
+    merges: settings.merges === undefined ? none : some(variant(settings.merges, null)) };
   const index = next.rules.findIndex((r) => r.tasks === tasks);
   if (index < 0) next.rules.push(rule); else next.rules[index] = rule;
   validate(next);

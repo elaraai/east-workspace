@@ -1499,7 +1499,7 @@ Each wire changed under this rule, with the kind it is.
   file in no form the steps know is left as it is, and a read refuses it as
   before, naming its reset. The step's written form is frozen in e3-core and
   held to `RackPolicyType` by the rack package's own test, over the policy
-  release 1.0.107 stored, carried through both steps. An earlier release
+  release 1.0.107 stored, carried through every step. An earlier release
   refuses a repository that has had the step, naming this release.
 - **e3-rack's hub control protocol 6 answers what work would fetch (#1722)**
   — neither package-borne nor stored: what a hub and the e3 processes of its
@@ -1512,3 +1512,27 @@ Each wire changed under this rule, with the kind it is.
   time, as for any older number.
   The hub keeps what it measures in memory; no form is stored, so no
   repository upgrade step ships.
+- **e3-rack's `RackPolicyType` gains `defaultMerges`, and `RackRuleType`
+  `merges`** — stored state, of a local repository's own layout: its rack
+  policy, `rack/policy.beast2`. The policy gains `defaultMerges`, a variant
+  `rack | local` after `weighFetch`, and a rule `merges`, an `Option` of it
+  after `gpu`: where the merge and combine units of a split task the rule
+  sends to a rack run, the rule's own else the policy's. The policy's header
+  names the whole policy type, so one an earlier release stored does not
+  decode under the new type, and the release ships the local backend's third
+  step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+  `storage/local/rack-policy-merges.ts`): `rack-policy-merges` rewrites the
+  file in the form `rack-policy-weigh-fetch` writes, which runs before it
+  (after `rack-policy-limits`), into the new one, everything as it was,
+  `weighFetch` among it, no rule naming merges of its own, and
+  `defaultMerges` `rack`: every merge runs where it ran before. Both fields
+  ship in the one release, so a repository an earlier release wrote takes
+  the three steps in order on its next open. A repository with no policy
+  file is left without one; a file in no form the steps know is left as it
+  is, and a read refuses it as before, naming its reset. The step's written
+  form is frozen in e3-core and held to `RackPolicyType` by the rack
+  package's own test, over the policy release 1.0.107 stored, carried
+  through every step. An earlier release refuses a repository that has had
+  the step, naming this release. No wire between e3, a hub and a rack
+  changes: a merge its policy keeps here is never leased, nor weighed for
+  what it would fetch.

@@ -7,7 +7,7 @@ import { unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Command } from 'commander';
 import { DateTimeType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, variant } from '@elaraai/east';
-import type { HubClient, HubConfig, RackComputeSize, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
+import type { HubClient, HubConfig, RackComputeSize, RackMerges, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
 import { parseMemory } from '@elaraai/e3-core';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
@@ -20,13 +20,19 @@ const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
 interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
-interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean }
+interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
+  merges?: string }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
 function sizeOf(text: string): RackComputeSize {
   if (!sizes.some((size) => size === text)) throw new Error(`Unknown compute size '${text}'; choose ${sizes.join(', ')}`);
   return text as RackComputeSize;
+}
+/** Where `--merges` sends a split task's merge units: `rack` or `local`. */
+function mergesOf(text: string): RackMerges {
+  if (text !== 'rack' && text !== 'local') throw new Error(`--merges must be rack or local, not '${text}'`);
+  return text;
 }
 function integer(text: string, name: string, min = 1, max = Number.MAX_SAFE_INTEGER): number {
   const value = Number(text);
@@ -116,9 +122,10 @@ function printFleet(lib: RackLib, status: Status): void {
 
 function printPolicy(policy: RackPolicy): void {
   console.log(`Enabled: ${policy.enabled}\nMode: ${policy.mode.type === 'optIn' ? 'opt-in' : 'auto'}`);
-  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}`);
+  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}, merges=${policy.defaultMerges.type}`);
   policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}` +
-    `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}`));
+    `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}` +
+    `${rule.merges.type === 'some' ? `, merges=${rule.merges.value.type}` : ''}`));
 }
 
 /** Creates the rack management and repository policy command group. */
@@ -252,7 +259,12 @@ export function createRackCommand(): Command {
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
     .option('--weigh-fetch', 'Run here a task or unit whose inputs would take longer to fetch over the rack\'s link than it last ran (the default)')
     .option('--no-weigh-fetch', 'Place by the rules alone, however long a unit\'s inputs take to fetch')
-    .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . show')
+    .option('--merges <where>', 'Where a split task\'s merge and combine units run when its pieces run on a rack: rack (the default) or local, ' +
+      'which fetches no piece back to a rack and runs them under this machine\'s -j/--memory budget. ' +
+      'With set, for the rule\'s tasks; with defaults, for every rule that names none')
+    .addHelpText('after', '\nA merge kept local stays local under --rack-only and run --rack too: those keep for a rack only the work the policy sends to one.' +
+      '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . set "rollup_*" rack --merges local' +
+      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
@@ -270,7 +282,8 @@ export function createRackCommand(): Command {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
         policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
           timeoutMinutes: flags.timeout === undefined ? undefined : integer(flags.timeout, '--timeout'), allowHostCoupled: flags.allowHostAccess,
-          memoryLimit: flags.memoryLimit === undefined ? undefined : memory(flags.memoryLimit, '--memory-limit'), gpu: flags.gpu });
+          memoryLimit: flags.memoryLimit === undefined ? undefined : memory(flags.memoryLimit, '--memory-limit'), gpu: flags.gpu,
+          merges: flags.merges === undefined ? undefined : mergesOf(flags.merges) });
       } else if (action === 'unset') policy = lib.removeRule(policy, words[0]!);
       else if (action === 'enable' || action === 'disable') policy = lib.setEnabled(policy, action === 'enable');
       else if (action === 'mode') {
@@ -284,6 +297,7 @@ export function createRackCommand(): Command {
           ...(flags.spill === undefined ? {} : { spill: flags.spill }),
           ...(flags.retryTaskFailuresLocally === undefined ? {} : { retryTaskFailuresLocally: flags.retryTaskFailuresLocally }),
           ...(flags.weighFetch === undefined ? {} : { weighFetch: flags.weighFetch }),
+          ...(flags.merges === undefined ? {} : { defaultMerges: variant(mergesOf(flags.merges), null) }),
         };
       }
       if (action !== 'show') await lib.savePolicy(repo, policy);
