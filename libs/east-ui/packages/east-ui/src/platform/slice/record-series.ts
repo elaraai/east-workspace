@@ -491,6 +491,24 @@ export function inTimeCellQueries(index: Index, where: ReadonlyMap<string, Choic
 export type RecordUnder = (field: string) => string | undefined;
 
 /**
+ * Where a block's keys stand in a series index in time order (#1710): its last
+ * leading fields, as many as the rows the block stands under, outermost first —
+ * what a reader fills from those rows to read the block's cells, and a drop
+ * writes into the event it lands under them. None for an index in key order,
+ * for a block under no row, and for an index led by fewer fields than the rows
+ * it stands under.
+ *
+ * @param index - The series index
+ * @param depth - How many rows the block stands under
+ * @returns The fields; `undefined` where none of the index's fields stands for them
+ */
+export function standingFields(index: Index, depth: number): readonly string[] | undefined {
+    if (depth === 0 || depth > index.fields.length) return undefined;
+    if (index.series.type !== "some" || index.series.value.order.type !== "time") return undefined;
+    return index.fields.slice(index.fields.length - depth);
+}
+
+/**
  * A narrowing with a series index in time order's leading fields filled from
  * where a block's keys stand (#1710). The index's last leading fields are
  * where its keys stand, outermost first — as many as the block stands under —
@@ -501,10 +519,8 @@ export type RecordUnder = (field: string) => string | undefined;
  * filled nothing.
  */
 function underFilled(index: Index, where: ReadonlyMap<string, Choice>, under: readonly RecordUnder[]): ReadonlyMap<string, Choice> {
-    if (under.length === 0 || under.length > index.fields.length) return where;
-    if (index.series.type !== "some" || index.series.value.order.type !== "time") return where;
-    const standing = index.fields.slice(index.fields.length - under.length);
-    if (standing.every(field => where.has(field))) return where;
+    const standing = standingFields(index, under.length);
+    if (standing === undefined || standing.every(field => where.has(field))) return where;
     // A narrowing is a Dict of its fields' choices: in its fields' order, as one decoded is.
     const filled = new SortedMap<string, Choice>([...where], compareField);
     for (const [i, field] of standing.entries()) {

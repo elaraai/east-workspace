@@ -40,7 +40,7 @@ import {
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import {
-    inTimeCellQueries, levelCellQueries,
+    inTimeCellQueries, levelCellQueries, standingFields,
     type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceIndexType, type RecordUnder, type TileRun,
 } from "@elaraai/east-ui/internal";
 
@@ -159,11 +159,10 @@ export function underOf(cellsType: EastTypeValue, text: string): RecordUnder {
  * @returns The writes
  */
 export function underWrites<W>(indexes: readonly Index[], under: readonly string[], write: (field: string, text: string) => W | undefined): W[] {
-    if (under.length === 0) return [];
     const written = new Map<string, W>();
     for (const index of indexes) {
-        if (index.series.type !== "some" || index.series.value.order.type !== "time" || under.length > index.fields.length) continue;
-        const standing = index.fields.slice(index.fields.length - under.length);
+        const standing = standingFields(index, under.length);
+        if (standing === undefined) continue;
         const own = standing.map((field, i) => write(field, under[i]!));
         if (own.some((one) => one === undefined)) continue;
         standing.forEach((field, i) => { if (!written.has(field)) written.set(field, own[i]!); });
