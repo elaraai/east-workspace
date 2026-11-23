@@ -737,8 +737,9 @@ export class SplitTask {
   /**
    * Reports a unit of the stage settled: its peak, toward {@link stagePeak};
    * its line in the task's log, naming its execution and its peak memory when
-   * it has one, and, after a dash, where its time went when the host that ran
-   * it says so (`ExecutionResult.timing`); and its progress when it succeeded.
+   * it has one, its peak last, and, on a line of its own after it, where its
+   * time went when the host that ran it says so (`ExecutionResult.timing`):
+   * `rack execution=<id> <timing>`; and its progress when it succeeded.
    *
    * @param index - The unit's index in the stage
    * @param result - The unit's result
@@ -755,8 +756,10 @@ export class SplitTask {
       const label = merge === null ? `piece ${index + 1}/${total}` : `${this.phase} level ${merge.level}/${merge.levels} unit ${index + 1}/${total}`;
       const state = result.cancelled ? 'cancelled' : result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
       const peak = result.peakBytes === undefined ? '' : ` peak=${result.peakBytes}`;
-      const timing = result.timing === undefined ? '' : ` — ${result.timing}`;
-      this.log(`${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}${timing}\n`);
+      // Where its time went is a line of its own, after the unit's, so the
+      // unit's line ends with its peak, as its grammar has it
+      const timing = result.timing === undefined ? '' : `rack execution=${result.executionId} ${result.timing}\n`;
+      this.log(`${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}\n${timing}`);
     }
     if (result.state === 'success') {
       this.done++;

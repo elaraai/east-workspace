@@ -151,11 +151,17 @@ it('prints each rack unit\'s phases on its line, and in its split task\'s log be
   const done = progress.filter((unit) => unit.state === 'completed');
   assert.equal(done.length, units);
   for (const unit of done) assert.match(unit.timing ?? '', SAID);
-  // The split task's log names each unit's execution, and says where its time went after it
-  const log = (await storage.logs.read(repo, hash, inputsHash(inputs), remote.executionId, 'stdout')).data;
-  const lines = log.split('\n').filter((line) => / completed task=/.test(line));
-  assert.equal(lines.length, units, log);
-  for (const line of lines) assert.match(line.split(' — ')[1] ?? '', SAID, line);
+  // The split task's log names each unit's execution, its peak last, and says on the line after it where its time went
+  const log = (await storage.logs.read(repo, hash, inputsHash(inputs), remote.executionId, 'stdout')).data.split('\n');
+  const lines = log.filter((line) => / completed task=/.test(line));
+  assert.equal(lines.length, units, log.join('\n'));
+  for (const line of lines) {
+    assert.match(line, / duration=\d+( peak=\d+)?$/, line);
+    const execution = / execution=(\S+) /.exec(line)![1]!;
+    const after = log[log.indexOf(line) + 1] ?? '';
+    assert.ok(after.startsWith(`rack execution=${execution} `), after);
+    assert.match(after.slice(`rack execution=${execution} `.length), SAID, after);
+  }
 });
 
 it('prints nothing more of a task whose rack says no phases, as one of an older release does', async () => {
