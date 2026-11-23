@@ -20,6 +20,7 @@ import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanController, PlanNavAlign, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
 import type { PlanPagedBlock, PlanRowOrigin } from "../controller/paging.js";
+import type { PlanViewportAt } from "../use-plan-paging.js";
 
 /** The body items, and what the frame measures and keys them by. */
 export interface PlanBody {
@@ -279,31 +280,71 @@ export function usePlanScrollTarget(
 }
 
 /**
+ * Where the view stands in each block it shows beside the one under its
+ * center (#1710): rows beside a group at the Plan's top are two blocks over
+ * the same windows, both on screen, and each block's demand follows its own
+ * rows in view. For each, its item in the mounted range nearest the center: a
+ * row, a failed window, or a band by its edge nearest the center — its bottom
+ * above the center, its top below. A links focus's band and a lane band name
+ * no block.
+ *
+ * @param items - The body items
+ * @param range - The mounted range: its first and last item
+ * @param center - The index of the item under the view's center
+ * @returns Each other block's place, in the blocks' order
+ */
+export function besideAnchors(items: readonly PlanBodyItem[], range: { readonly startIndex: number; readonly endIndex: number }, center: number): PlanViewportAt[] {
+    const blockOf = (it: PlanBodyItem | undefined): number | undefined =>
+        it?.kind === "row" ? it.row.row.block : it?.kind === "band" ? it.band.block : it?.kind === "failed" ? it.failure.block : undefined;
+    const own = blockOf(items[center]);
+    const nearest = new Map<number, number>();
+    for (let i = range.startIndex; i <= range.endIndex; i++) {
+        const b = blockOf(items[i]);
+        if (b === undefined || b === own) continue;
+        const held = nearest.get(b);
+        if (held === undefined || Math.abs(i - center) < Math.abs(held - center)) nearest.set(b, i);
+    }
+    return [...nearest.entries()].sort(([a], [b]) => a - b).map(([, i]): PlanViewportAt => {
+        const it = items[i]!;
+        if (it.kind === "row") return { kind: "row", key: it.row.row.key };
+        if (it.kind === "failed") return { kind: "window", block: it.failure.block, w: it.failure.w };
+        const band = (it as Extract<PlanBodyItem, { kind: "band" }>).band;
+        return { kind: "band", block: band.block, at: band.at, px: i < center ? Math.max(0, band.px - 1) : 0 };
+    });
+}
+
+/**
  * The frame's range signal, in the paging driver's terms: which ROW (or which
  * band) the viewport sits on. The item under the viewport CENTER when the
  * frame can resolve one (the live scroll offset — inside one huge band item
  * only the center pixel can say where the thumb is, #612), else the middle of
  * the mounted range — with the windows the mounted range shows (#1398): each
  * row's, a run's nearest its rows and a failed window's, which the footer's
- * loading line and the frame's busy follow. No body-layout knowledge crosses
- * into the driver.
+ * loading line and the frame's busy follow; and where the view stands in each
+ * other block it shows ({@link besideAnchors}, #1710), and how tall the mounted
+ * items are, which each block's demand reaches. No body-layout knowledge
+ * crosses into the driver.
  *
  * @param items - The body items
+ * @param heights - Each item's height, as the frame draws it
  * @param controller - Where the viewport is reported
  * @param origin - Which block and window each paged row came from
  * @param windowEntries - How many of the source's entries each of those windows holds, the paging snapshot's (#1714)
  * @returns The frame's `onRangeChange`
  */
 export function usePlanRangeReport(
-    items: readonly PlanBodyItem[], controller: PlanController, origin: ReadonlyMap<string, PlanRowOrigin>, windowEntries: number,
+    items: readonly PlanBodyItem[], heights: readonly number[], controller: PlanController, origin: ReadonlyMap<string, PlanRowOrigin>,
+    windowEntries: number,
 ) {
     return useCallback((
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => {
         const mid = Math.floor((range.startIndex + range.endIndex) / 2);
-        const item = items[center?.index ?? mid] ?? items[range.startIndex];
+        const at = items[center?.index ?? mid] !== undefined ? center?.index ?? mid : range.startIndex;
+        const item = items[at];
         if (item === undefined) return;
         const shows: number[] = [];
         for (let i = range.startIndex; i <= range.endIndex; i++) {
@@ -313,17 +354,24 @@ export function usePlanRangeReport(
                     : it?.kind === "failed" ? it.failure.w : undefined;
             if (w !== undefined && !shows.includes(w)) shows.push(w);
         }
+        // What is on screen: the frame's say where it mounts every row (#812), else the range it mounts. How tall its
+        // rows are — a band stands for rows not read, a place in it, never part of the view's height — and the other
+        // blocks it shows: never the rows mounted off screen, which would read on as each landing mounts more.
+        const screen = shown ?? range;
+        let viewPx = 0;
+        for (let i = screen.startIndex; i <= screen.endIndex; i++) if (items[i]?.kind === "row") viewPx += heights[i] ?? 0;
+        const beside = besideAnchors(items, screen, at);
         if (item.kind === "band") {
             // `withinPx` is measured from the band's own top — the one origin
             // its block's ledger can place exactly, whatever the resident rows
             // above it rendered at.
-            controller.reportViewport({ kind: "band", block: item.band.block, at: item.band.at, px: center?.withinPx, shows }, isScrolling);
+            controller.reportViewport({ kind: "band", block: item.band.block, at: item.band.at, px: center?.withinPx, shows, beside, viewPx }, isScrolling);
         } else if (item.kind === "row") {
-            controller.reportViewport({ kind: "row", key: item.row.row.key, shows }, isScrolling);
+            controller.reportViewport({ kind: "row", key: item.row.row.key, shows, beside, viewPx }, isScrolling);
         } else if (item.kind === "failed") {
             // A failed window's band names its own block and window (#811).
-            controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w, shows }, isScrolling);
+            controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w, shows, beside, viewPx }, isScrolling);
         }
         // A links focus's band names no window — the demand stays where it is.
-    }, [items, controller, origin, windowEntries]);
+    }, [items, heights, controller, origin, windowEntries]);
 }

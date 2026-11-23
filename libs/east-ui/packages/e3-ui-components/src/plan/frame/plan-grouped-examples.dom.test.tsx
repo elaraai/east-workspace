@@ -22,7 +22,7 @@ import { StringType, printFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-grouped";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { planHarness, settle, slot } from "./harness.test-utils.js";
+import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-grouped": ex });
 
@@ -61,6 +61,15 @@ describe("the grouped example on e3 (#1710)", () => {
         await waitFor(() => {
             for (const drawn of ["[data-run]", "[data-chip]", "[data-event]", "[data-mark]"]) {
                 expect(main.querySelectorAll(`[data-plan-row] ${drawn}`).length, drawn).toBeGreaterThan(0);
+            }
+        });
+        // Every hall row at the top is read and draws its own events (#1710): the halls as rows are a block of a row a
+        // window beside the halls as groups over the same windows, and both are on screen — each block's demand follows
+        // its own rows, and a screen of one-row windows is all demanded. The first four halls' first inspections fall
+        // in the opening weeks.
+        await waitFor(() => {
+            for (const hall of ["H-101", "H-102", "H-103", "H-104"]) {
+                expect(main.querySelector(`${rowAt(entry("halls", hall))} ${el("data-chip", "inspection", `${hall}-I1`)}`), hall).not.toBeNull();
             }
         });
         // The halls a window each.

@@ -1276,12 +1276,12 @@ export function usePlanCanvas({
     const pagingNarrowing = paging.narrowing;
     // How many entries each of those windows holds (#1714): the root's, as the driver pages by it.
     const pagingWindowEntries = paging.windowEntries;
-    const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin, pagingWindowEntries);
+    const reportRange = usePlanRangeReport(body.items, body.heights, controller, pagingOrigin, pagingWindowEntries);
     const onRangeChange = useCallback((
         range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
         shown?: { startIndex: number; endIndex: number },
     ) => {
-        reportRange(range, isScrolling, center);
+        reportRange(range, isScrolling, center, shown);
         if (isScrolling) return;
         const inView: { key: string; path: readonly string[] }[] = [];
         const rows: PlanRowValue[] = [];

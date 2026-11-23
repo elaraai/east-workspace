@@ -203,6 +203,45 @@ describe("residency — prefetch follows the direction of travel (#1398, CL6)", 
     });
 });
 
+describe("residency — demand reaches a screen of pixels, where a policy gives one (#1710)", () => {
+    /** Windows of one row each, 32 px: a series drawing an entry a row, paged an entry a window. */
+    function rowEach(windows: number): WindowLedger {
+        let l = createLedger(windows, 1);
+        for (let w = 0; w < windows; w++) l = observeWindow(l, w, { px: 32, rows: 1 });
+        return l;
+    }
+    const reach: ResidencyOptions = { ...DEFAULT_RESIDENCY, reachPx: 320 };
+
+    test("past `behind` and `ahead`, windows until their heights reach it each way — a screen of one-row windows is all demanded", () => {
+        const l = rowEach(40);
+        // Ten rows of 32 px each way from window 20, whichever way it travels.
+        expect(demandRange(l, 20, reach, 1)).toEqual({ from: 10, to: 30 });
+        expect(demandRange(l, 20, reach, -1)).toEqual({ from: 10, to: 30 });
+        // Clamped to the source.
+        expect(demandRange(l, 3, reach)).toEqual({ from: 0, to: 13 });
+        // Windows taller than the reach: `behind` and `ahead` alone, as with no reach.
+        expect(demandRange(measured(50), 20, reach)).toEqual(demandRange(measured(50), 20, DEFAULT_RESIDENCY));
+        // The shipped policy reaches none: windows alone.
+        expect(DEFAULT_RESIDENCY.reachPx ?? 0).toBe(0);
+    });
+
+    test("windows that draw nothing count at the ledger's estimate: the reach never runs on to the source's end", () => {
+        // The first window draws thirty rows over its two hundred elements; every one after it draws none.
+        let l = createLedger(50 * PAGE, PAGE);
+        l = observeWindow(l, 0, { px: 600, rows: 30 });
+        for (let w = 1; w < 50; w++) l = observeWindow(l, w, { px: 0, rows: 0 });
+        // Each empty window counts as the first did, 600 px: half a 600 px view is reached by `ahead` alone.
+        expect(demandRange(l, 0, { ...DEFAULT_RESIDENCY, reachPx: 300 })).toEqual({ from: 0, to: 2 });
+    });
+
+    test("settled, the run holds every window the reach demands, and eviction keeps them", () => {
+        const l = rowEach(40);
+        const r = settle(l, 7, reach);
+        expect([r.lo, r.hi]).toEqual([0, 17]);
+        expect(trim(r, l, 7, { ...reach, maxRows: 4, evictTo: 0.5 })).toBe(r);
+    });
+});
+
 describe("residency — settles", () => {
     test("a stationary viewport reaches a fixed point and stays there", () => {
         const l = measured(250);

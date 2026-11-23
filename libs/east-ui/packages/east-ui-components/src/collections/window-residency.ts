@@ -48,7 +48,7 @@
  * @packageDocumentation
  */
 
-import { rowsIn, type WindowLedger } from "./window-ledger.js";
+import { elementsIn, rowsIn, slotHeight, type WindowLedger } from "./window-ledger.js";
 
 /** The resident interval. `hi < lo` means nothing is resident. */
 export interface Residency {
@@ -81,6 +81,17 @@ export interface ResidencyOptions {
     behind: number;
     /** Windows prefetched ahead of the viewport. */
     ahead: number;
+    /**
+     * The least the demand reaches each way from the viewport's window, in
+     * pixels (#1710): past `behind` and `ahead`, windows are demanded until
+     * their heights reach it, so a screen of windows too small to fill one —
+     * a series that draws an entry a row, paged an entry a window — is all
+     * demanded. A window counts at least the ledger's estimate of it, so
+     * windows that draw nothing never carry the demand to the source's end.
+     * Left out, or `0` (the shipped policy), the demand is `behind` and
+     * `ahead` windows alone.
+     */
+    reachPx?: number;
     /** A demand this far outside the run REBASES instead of walking to it —
      *  a scrollbar drag must not fetch every window in between. */
     rebaseGap: number;
@@ -119,9 +130,11 @@ export function travelOf(from: number, to: number, last: Travel): Travel {
 
 /**
  * The window range the viewport wants resident, clamped to the source: `ahead`
- * windows the way it travels and `behind` the other (CL6).
+ * windows the way it travels and `behind` the other (CL6) — and, given a
+ * policy's `reachPx`, as many more each way as reach that many pixels from the
+ * viewport's window, each window's height the ledger's (#1710).
  *
- * @param ledger - The window ledger (for the window count)
+ * @param ledger - The window ledger (for the window count, and each window's height)
  * @param viewportWindow - The window the viewport is looking at
  * @param opts - Policy
  * @param travel - Which way it travels; toward the end unless given
@@ -135,10 +148,22 @@ export function demandRange(
 ): { from: number; to: number } {
     const last = Math.max(0, ledger.windows - 1);
     const at = Math.min(last, Math.max(0, viewportWindow));
-    return {
-        from: Math.max(0, at - (travel === 1 ? opts.behind : opts.ahead)),
-        to: Math.min(last, at + (travel === 1 ? opts.ahead : opts.behind)),
-    };
+    let from = Math.max(0, at - (travel === 1 ? opts.behind : opts.ahead));
+    let to = Math.min(last, at + (travel === 1 ? opts.ahead : opts.behind));
+    const reach = opts.reachPx ?? 0;
+    if (reach > 0 && ledger.windows > 0 && ledger.slotPx > 0) {
+        // A window counts at least the ledger's estimate of it: windows that draw nothing never carry the reach on to
+        // the source's end.
+        const heightOf = (w: number) => Math.max(slotHeight(ledger, w), ledger.slotPx * elementsIn(ledger, w));
+        // The pixels each side reaches already, then a window more while they fall short.
+        let before = 0;
+        for (let w = from; w < at; w++) before += heightOf(w);
+        while (from > 0 && before < reach) before += heightOf(--from);
+        let after = 0;
+        for (let w = at + 1; w <= to; w++) after += heightOf(w);
+        while (to < last && after < reach) after += heightOf(++to);
+    }
+    return { from, to };
 }
 
 /**

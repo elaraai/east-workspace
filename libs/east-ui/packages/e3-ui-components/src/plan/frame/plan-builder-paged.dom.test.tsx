@@ -1302,9 +1302,11 @@ describe("a window of the rows as the Plan's paging says (#1714)", () => {
             await waitFor(() => expect(search().textContent).toMatch(/\b1 match\b/), { timeout: 5_000 });
             fireEvent.keyDown(input, { key: "Enter" });
             await waitFor(() => expect(container.querySelector(rowAt(entry("jobs", "m371")))).not.toBeNull(), { timeout: 10_000 });
-            // The window holding it, and those the driver keeps beside it; none between them and the first.
+            // The window holding it, and those the driver keeps beside it — its read-ahead, and the windows the view shows
+            // half a view either side of its row (#1710), a screen of two-press windows; none between them and the first,
+            // where a walk would read every window from the twenty-first on.
             expect(pages()).toContain("page 370+2");
-            expect(pages().map(offsetOf).filter((offset) => offset >= 40 && offset < 360)).toEqual([]);
+            expect(pages().map(offsetOf).filter((offset) => offset >= 40 && offset < 340)).toEqual([]);
             // The search reads its match alone, a page of one, to name it; every window the canvas reads is two presses.
             expect(pages().filter((asked) => !asked.endsWith("+2"))).toEqual(["page 370+1"]);
         } finally {

@@ -194,7 +194,7 @@ import { planWindowReader, type BlockShape, type WindowRead, type WindowRows } f
 import { appendAll, maxOf, minOf } from "../reductions.js";
 import {
     PLAN_PAGE_SIZE, FAILED_BAND_MIN_PX,
-    type PlanPagedSourceValue, type PlanViewport,
+    type PlanPagedSourceValue, type PlanViewport, type PlanViewportAt,
 } from "../use-plan-paging.js";
 
 /** Whether two paged sources derive the same rows: the same id AND equivalent
@@ -506,6 +506,9 @@ interface Lane {
     /** Which way the viewport travels through this block's windows, and the window it was in when the demand last
      *  moved (#1398, CL6): the demand reads ahead that way. */
     travel: WindowTravel;
+    /** How far this block's demand reaches each way, in pixels (#1710): half the view's rows' height as the view last
+     *  stood in it, so a screen of windows a row or a few each is all read. `0` where no report said: windows alone. */
+    reachPx: number;
     /** The run the last settle drew (#876) — where its bands start and end. */
     run: WindowRun;
     /** Every window this block has seen: which read its skeleton was taken
@@ -688,6 +691,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             viewportWindow: from?.viewportWindow ?? 0,
             viewportAt: from?.viewportAt ?? 0,
             travel: from?.travel ?? { at: 0, way: 1 },
+            reachPx: from?.reachPx ?? 0,
             run: from?.run ?? NO_RUN,
             skeletons: new Map(),
         };
@@ -972,7 +976,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             let next = lane.residency;
             if (lane.ledger.windows === 0) next = firstWindow(lane.residency);
             else if (!isScrolling) {
-                const step = advanceAtRest(lane.residency, lane.ledger, lane.viewportWindow, policy, lane.travel);
+                // The demand reaches as far as the view is tall where a report said so (#1710), and the policy's own reach else.
+                const reaching = lane.reachPx > (policy.reachPx ?? 0) ? { ...policy, reachPx: lane.reachPx } : policy;
+                const step = advanceAtRest(lane.residency, lane.ledger, lane.viewportWindow, reaching, lane.travel);
                 lane.travel = step.travel;
                 next = step.residency;
             }
@@ -1024,6 +1030,44 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
         }
         assembled = { pieces, rows, origin };
+    }
+
+    /**
+     * Moves the demand of the block a viewport report names to where the view
+     * stands in it: a row's window, a failed window, or the place in a band
+     * its pixels map to through the ledger the band was sized from
+     * (`elementInBand`, #612) — whatever the resident rows in between rendered
+     * at, a far drag rebases; without pixels, the element just outside the run
+     * on that side. A fixed block's row names no window: its demand stays.
+     * Where the report says how tall the view's rows are, the block's demand
+     * reaches half that each way (#1710): the view's center stands half a view
+     * from either end of it, and a block beside the center's, from its edge
+     * nearest the center, less than half a view, or the center would be in it.
+     *
+     * @param at - Where the view stands in the block
+     * @param viewPx - How tall the view's rows are, in pixels; `undefined` keeps the block's reach
+     * @returns The block whose demand moved; `undefined` for none
+     */
+    function aim(at: PlanViewportAt, viewPx: number | undefined): number | undefined {
+        let lane: Lane | undefined;
+        let block: number;
+        if (at.kind === "row") {
+            const o = snapshot.origin.get(at.key);
+            lane = o !== undefined ? lanes.get(o.block) : undefined;
+            if (o === undefined || lane === undefined) return undefined;
+            lane.viewportWindow = o.w;
+            lane.viewportAt = o.w * windowEntries;
+            block = o.block;
+        } else {
+            lane = lanes.get(at.block);
+            if (lane === undefined) return undefined;
+            const element = at.kind === "window" ? at.w * windowEntries : elementInBand(lane.ledger, lane.run, at.at, at.px, windowEntries);
+            lane.viewportAt = element;
+            lane.viewportWindow = Math.floor(element / windowEntries);
+            block = at.block;
+        }
+        if (viewPx !== undefined) lane.reachPx = viewPx / 2;
+        return block;
     }
 
     /** Which elements of a block's windows `fromW` to `toW` are loading
@@ -1373,29 +1417,11 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // until then is taken from where the canvas still IS — and demanding
             // that window would rebase a run back and undo the jump.
             if (pinnedWindows().length > 0) return;
-            if (at.kind === "row") {
-                // A fixed block's row names no window: the demand stays.
-                const o = snapshot.origin.get(at.key);
-                const lane = o !== undefined ? lanes.get(o.block) : undefined;
-                if (o !== undefined && lane !== undefined) {
-                    lane.viewportWindow = o.w;
-                    lane.viewportAt = o.w * windowEntries;
-                    focusBlock = o.block;
-                }
-            } else {
-                const lane = lanes.get(at.block);
-                if (lane !== undefined) {
-                    focusBlock = at.block;
-                    // A band's pixels map through the ledger the band was sized from (`elementInBand`, #612): whatever
-                    // the resident rows in between rendered at, a far drag rebases. Without them, the element just
-                    // outside the run on that side.
-                    const element = at.kind === "window"
-                        ? at.w * windowEntries
-                        : elementInBand(lane.ledger, lane.run, at.at, at.px, windowEntries);
-                    lane.viewportAt = element;
-                    lane.viewportWindow = Math.floor(element / windowEntries);
-                }
-            }
+            // Each other block the view shows first (#1710), so the block under the center is the focus: every block's
+            // demand follows its own rows in view, and the windows they share are read once.
+            for (const other of at.beside ?? []) aim(other, at.viewPx);
+            const block = aim(at, at.viewPx);
+            if (block !== undefined) focusBlock = block;
             settle();
         },
         jumpToElement(element) {

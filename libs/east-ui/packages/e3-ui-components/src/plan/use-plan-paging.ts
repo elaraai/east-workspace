@@ -86,9 +86,26 @@ export type { PlanBand, PlanWindowFailure } from "./model.js";
  * its own, so demand follows the block the viewport is in). No layout
  * knowledge crosses the boundary. With it, where the caller can say, the
  * windows the view shows (`shows`): what the footer's loading line and the
- * frame's busy follow (#1398), never a window read ahead of the view.
+ * frame's busy follow (#1398), never a window read ahead of the view. And where
+ * the view shows more than one block — rows beside a group at the Plan's top,
+ * two blocks over the same windows (#1710) — where it stands in each of the
+ * others (`beside`), whose demand follows it too.
  */
-export type PlanViewport = (
+export type PlanViewport = PlanViewportAt & {
+    /** The windows the view shows — each row's, a run's nearest its rows; absent, the driver takes any window in flight as the view's. */
+    shows?: readonly number[] | undefined;
+    /** Where the view stands in each other block it shows (#1710): the block the report itself names, under its center, is the focus. */
+    beside?: readonly PlanViewportAt[] | undefined;
+    /**
+     * How tall the rows the view mounts are, in pixels (#1710): each block's demand reaches half that each way from
+     * where the view stands in it, so a screen of windows a row or a few each — a series drawing an entry a row, paged
+     * an entry a window — is all read. Absent, a block's demand keeps the reach it had: `behind` and `ahead` windows alone.
+     */
+    viewPx?: number | undefined;
+};
+
+/** Where the view stands in one block: a row, a place in one of its bands, or a failed window. */
+export type PlanViewportAt =
     | { kind: "row"; key: string }
     | {
         kind: "band";
@@ -96,17 +113,14 @@ export type PlanViewport = (
         block: number;
         at: "head" | "tail";
         /** Pixels from the band's own top to the viewport center, when the
-         *  caller knows them (`VirtualRows`' center report). Without them the
-         *  driver can only name the window adjacent to the run — a far
+         *  caller knows them (`VirtualRows`' center report) — or, in a block
+         *  beside the center's, to the band's edge nearest the center. Without
+         *  them the driver can only name the window adjacent to the run — a far
          *  scrollbar drag then walks the gap instead of rebasing (#612). */
         px?: number | undefined;
     }
     /** A failed window's band — it names its own block and window (#811). */
-    | { kind: "window"; block: number; w: number }
-) & {
-    /** The windows the view shows — each row's, a run's nearest its rows; absent, the driver takes any window in flight as the view's. */
-    shows?: readonly number[] | undefined;
-};
+    | { kind: "window"; block: number; w: number };
 
 /** Elements the band covers, for its caption. */
 export function bandElements(band: PlanBand): number {
