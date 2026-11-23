@@ -928,11 +928,18 @@ it('leaves the lease of a call its caller aborts, which ends as an aborted local
   assert.equal(f.budget.peak, 0);
 });
 
-it('runs here a task whose fetch over its rack\'s measured link would take longer than it last ran, saying so, unless the policy or --rack-only says otherwise', async () => {
+it('runs here a task whose fetch over its rack\'s measured link would take longer than it last ran, saying so, once the policy weighs it and unless --rack-only says otherwise', async () => {
   // The hub's link meter on a clock the test sets, so a link can be measured slow
   let now = 0;
   const meter = new RackLinkMeter(() => now);
-  const f = await fixture({ linkMeter: meter }); const agent = await f.agent(); const rack = await f.open();
+  // Every fetch cost a session asks of the hub, counted
+  let asked = 0;
+  const fetchCosts = HubClient.prototype.fetchCosts;
+  HubClient.prototype.fetchCosts = function (this: HubClient, ...args) { asked++; return fetchCosts.apply(this, args); };
+  cleanup.push(() => { HubClient.prototype.fetchCosts = fetchCosts; return Promise.resolve(); });
+  const f = await fixture({ linkMeter: meter }); const agent = await f.agent();
+  const weighing = { ...f.policy, weighFetch: true };
+  const rack = await f.open({ policy: weighing });
   const onRack = async (running: Promise<{ state: string; error?: string }>) => {
     const grant = await agent.claim(); assert(grant, 'leased to the rack');
     assert.equal((await agent.execute(grant)).status, 'success');
@@ -961,15 +968,19 @@ it('runs here a task whose fetch over its rack\'s measured link would take longe
   assert.equal(f.budget.peak, 1, 'it ran here');
 
   // --rack-only keeps it for the rack, as it keeps it from spilling
-  const kept = await f.open({ rackOnly: true });
+  const kept = await f.open({ policy: weighing, rackOnly: true });
   const served = await datasetWrite(f.storage, f.repo, randomBytes(50_000).toString('hex'), StringType);
   await onRack(kept.runner.execute(f.storage, f.hash, [served], { taskName: 'length' }));
   // Served through its data URL to its last byte, the input is the rack's now, and the link counted it
   const alias = (await f.client.status()).sessions[0]!.repoAlias;
   assert.equal(meter.link(agent.rackId).holds(alias, served), true);
   assert.equal(meter.link(agent.rackId).holds('r-another', served), false);
-  // And a policy that does not weigh fetches places it by its rules alone
-  const unweighed = await f.open({ policy: { ...f.policy, weighFetch: false } });
+  // And a policy that does not weigh fetches, as none does unless it says so, places it by its rules alone, asking the hub no fetch cost
+  const before = asked;
+  assert.ok(before > 0, 'a policy that weighs asks the hub what work would fetch');
+  const unweighed = await f.open({ policy: f.policy });
+  assert.equal(f.policy.weighFetch, false);
   await onRack(unweighed.runner.execute(f.storage, f.hash, [await datasetWrite(f.storage, f.repo, randomBytes(50_000).toString('hex'), StringType)], { taskName: 'length' }));
   assert.equal(fetchBound().length, 1, 'neither was weighed');
+  assert.equal(asked, before, 'and the hub was asked no fetch cost of it');
 });

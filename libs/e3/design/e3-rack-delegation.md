@@ -234,7 +234,9 @@ need, and the upgrade keeps every repository placing as it did. A merge kept
 local is no rack's work: rack-only, which keeps a rack's work for a rack,
 leaves it here, and `selected` (a command's `--rack`) takes it from the
 rule as it takes the rule's size. A merge kept local is never weighed for
-what it would fetch (the policy's `weighFetch`), since it is judged here
+what it would fetch (the policy's `weighFetch`, off unless the policy turns
+it on: off, no fetch cost is asked and work is placed by the rules alone,
+as before #1722), since it is judged here
 first; a merge on a rack is weighed by its task's earlier merges, never its
 pieces, and follows its policy before one has run. Both came with the local
 repository's third step (`rack-policy-merges`), which carries the form the

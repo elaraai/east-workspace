@@ -64,22 +64,22 @@ describe('rack-policy-weigh-fetch', () => {
   });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it('carries a policy in the form with limits into this form, everything as it was, weighing what work would fetch', async () => {
+  it('carries a policy in the form with limits into this form, everything as it was, weighing nothing of what work would fetch', async () => {
     write(encodeBeast2For(RackPolicyWithLimitsType)(limited));
     assert.throws(() => decodeBeast2For(RackPolicyWithWeighFetchType)(readFileSync(rackPolicyFile(repo))), 'this release\'s form does not read it');
     assert.equal(await apply(), null, 'the step is done in one part');
-    assert.ok(equalFor(RackPolicyWithWeighFetchType)(stored(), { ...limited, weighFetch: true }), printFor(RackPolicyWithWeighFetchType)(stored()));
+    assert.ok(equalFor(RackPolicyWithWeighFetchType)(stored(), { ...limited, weighFetch: false }), printFor(RackPolicyWithWeighFetchType)(stored()));
     // Applied again, as a crash before its record was written has it: nothing changes.
     const once = readFileSync(rackPolicyFile(repo));
     assert.equal(await apply(), null);
     assert.deepEqual(readFileSync(rackPolicyFile(repo)), once);
   });
 
-  it('leaves a policy already in this form as it is, its weighing turned off among it', async () => {
-    const off = { ...limited, weighFetch: false };
-    write(encodeBeast2For(RackPolicyWithWeighFetchType)(off));
+  it('leaves a policy already in this form as it is, its weighing turned on among it', async () => {
+    const on = { ...limited, weighFetch: true };
+    write(encodeBeast2For(RackPolicyWithWeighFetchType)(on));
     assert.equal(await apply(), null);
-    assert.ok(equalFor(RackPolicyWithWeighFetchType)(stored(), off));
+    assert.ok(equalFor(RackPolicyWithWeighFetchType)(stored(), on));
   });
 
   it('leaves a repository with no policy without one, and a file in no form it knows as it is', async () => {
@@ -107,7 +107,7 @@ describe('rack-policy-weigh-fetch', () => {
     assert.deepEqual(opened.upgrades.find(({ name }) => name === RACK_POLICY_WEIGH_FETCH), { name: RACK_POLICY_WEIGH_FETCH, release: E3_RELEASE });
     // What the step wrote, as the merges and keep steps after it carry it on
     const after = decodeBeast2For(RackPolicyWithKeepType)(readFileSync(rackPolicyFile(repo)));
-    const expected = { ...limited, weighFetch: true, defaultMerges: variant('rack', null), keep: variant('split', null),
+    const expected = { ...limited, weighFetch: false, defaultMerges: variant('rack', null), keep: variant('split', null),
       rules: limited.rules.map((rule) => ({ ...rule, memoryLimit: none, gpu: false, merges: none })) };
     assert.ok(equalFor(RackPolicyWithKeepType)(after, expected), printFor(RackPolicyWithKeepType)(after));
     assert.deepEqual(await repositoryOpen(storage, repo), opened, 'a second open finds every step applied');

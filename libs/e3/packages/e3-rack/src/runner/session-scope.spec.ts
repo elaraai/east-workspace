@@ -203,7 +203,7 @@ it('sends a later task to the rack that made its input under keep session, which
 it('weighs a task under keep session as fetching nothing of what its scope wrote on a rack, where the same task of no scope is fetch-bound', async () => {
   // The hub's link meter on a clock the test sets, so the link can be measured slow
   let now = 0;
-  const f = await fixture(SESSION, [{ label: 'made' }], { rackOnly: false, meter: new RackLinkMeter(() => now) });
+  const f = await fixture({ ...SESSION, weighFetch: true }, [{ label: 'made' }], { rackOnly: false, meter: new RackLinkMeter(() => now) });
   const [made] = f.agents; assert(made);
   const fetchBound = () => f.placements.filter((event) => event.kind === 'placed' && event.where === 'local' && event.reason === 'fetch-bound');
   // A first run of the length, on the rack, records how long it runs
@@ -219,8 +219,8 @@ it('weighs a task under keep session as fetching nothing of what its scope wrote
   assert.equal(kept.event.scope?.feeds, true);
   assert.deepEqual(fetchBound(), [], 'the rack holds what it made: nothing to fetch');
 
-  // The same run again under the default: its lease would name no scope, and the rack is not known to hold the input
-  const split = await f.open({ ...SESSION, keep: variant('split', null) });
+  // The same run again under the default keep: its lease would name no scope, and the rack is not known to hold the input
+  const split = await f.open({ ...SESSION, weighFetch: true, keep: variant('split', null) });
   const here = await split.runner.execute(f.storage, f.length, [shouted], { taskName: 'length', force: true });
   assert.equal(here.state, 'success', here.error);
   const [event] = fetchBound();

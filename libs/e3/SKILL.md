@@ -90,6 +90,7 @@ What do you need?
 │   ├─ A split task's pieces fill the rack → booked by what each reserves, capped half as much again; --memory-limit bounds the cap, --gpu asks for the GPU
 │   ├─ Its merges fetch every piece back up a slow link → policy set <glob> rack --merges local (or defaults --merges local): merges run here, no transfer
 │   ├─ A later task fetches back up the link what an earlier one made on the rack → policy defaults --keep session: the rack keeps every lease's output for the run (or watch) and later tasks go to it
+│   ├─ Work spends longer fetching its inputs over the link than it runs → policy defaults --weigh-fetch (off unless you turn it on): such work runs here
 │   └─ A task with its own python/node environment → nothing new in the package: its layers are built for the rack's platform
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client (reference/from-code.md)

@@ -250,7 +250,7 @@ e3 rack policy . set 'score_*' rack --memory-limit 8G
 e3 rack policy . set 'embed_*' rack --size xlarge --gpu
 e3 rack policy . set 'rollup_*' rack --merges local   # pieces on a rack, merges here
 e3 rack policy . defaults --no-spill --claim-timeout 30
-e3 rack policy . defaults --no-weigh-fetch # place by the rules alone
+e3 rack policy . defaults --weigh-fetch   # run here work that would fetch longer than it runs
 e3 rack policy . defaults --keep session  # a rack keeps a run's outputs for its later tasks
 e3 dataflow run . dev --no-rack           # override the saved opt-in
 e3 dataflow run . dev --rack-only         # wait when compatible racks are busy
@@ -260,7 +260,8 @@ e3 rack policy . reset
 
 Defaults are disabled, opt-in selection, `large`, a 1440-minute timeout,
 capacity spill enabled, a 30-second claim recheck, no local retry of task
-failures, fetch-bound work run here ([below](#work-that-would-fetch-longer-than-it-runs)),
+failures, no weighing of what work would fetch (off unless you turn it on:
+[below](#work-that-would-fetch-longer-than-it-runs)),
 a split task's merges on a rack with its pieces, and a rack keeping what it
 wrote for a split task's later units alone (`--keep split`). `--rack-only` disables
 capacity spill and the weighing of fetches; infrastructure failures can still
@@ -286,10 +287,12 @@ device, host files or injected environment, so such a task fails there.
 ### Work that would fetch longer than it runs
 
 A rack reads every object of a unit's closure it does not hold across the
-link to it. Before a task or a unit of a split task is leased, the launching
-machine weighs that: the bytes of its closure the rack is not known to hold,
-at the link's rate, against how long the work ran when e3 last recorded it.
-Work that would spend longer fetching than it ran runs here, and says so:
+link to it. A policy may weigh that — off unless you turn it on, with `e3 rack
+policy . defaults --weigh-fetch` — and then, before a task or a unit of a split
+task is leased, the launching machine weighs the bytes of its closure the rack
+is not known to hold, at the link's rate, against how long the work ran when
+e3 last recorded it. Work that would spend longer fetching than it ran runs
+here, and says so:
 
 ```text
   [LOCAL] scan_rows (fetch-bound: 903 MB ≈ 90 s to fetch, ran 19 s)
@@ -337,9 +340,10 @@ Work that would spend longer fetching than it ran runs here, and says so:
   is weighed as fetching.
 
 `--rack-only` keeps its work for the rack whatever it would fetch, as it does
-whatever the local machine has free. `e3 rack policy . defaults
---no-weigh-fetch` places by the rules alone. A watch's runs share the hub,
-and so what it measured and what its racks hold. The weighing reads records
+whatever the local machine has free. Off — the default, or `e3 rack policy .
+defaults --no-weigh-fetch` — nothing is weighed and no fetch cost is asked of
+the hub: work is placed by the rules alone, as before the weighing existed. A
+watch's runs share the hub, and so what it measured and what its racks hold. The weighing reads records
 and writes none: placement never changes a task's hash or its cache. A
 function call is not weighed: e3 records no run time of one. Nor is a merge
 its policy keeps here (`--merges local`): it runs here before any weighing,
@@ -738,8 +742,9 @@ piece of a task whose merges its policy keeps here. So a task's output a rack
 made is read there by the session's later tasks, which go first, for five
 seconds, to the rack that wrote some of their inputs, input by input: a
 session's work is not piled onto one rack, and a task that reads nothing
-the session wrote on a rack waits for none. Such a task is weighed as
-fetching none of what its rack wrote. A split task's units name the session's
+the session wrote on a rack waits for none. Under a policy that weighs
+fetches (`--weigh-fetch`), such a task is weighed as fetching none of what its
+rack wrote. A split task's units name the session's
 scope too, which is all its own would have been; its end does not end the
 session's. The session's scope ends as the session does: closed at the run's
 end, however it ends — a Ctrl-C among them — or when the watch stops, or when

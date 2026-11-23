@@ -223,10 +223,11 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   assert.equal((await f.client.status()).capacity.queued, 0n);
   ok(await f.cli('rack', 'policy', '.', 'unset', 'train_*'));
   assert(!ok(await f.cli('rack', 'policy', '.', 'show')).includes('1. train_'));
-  // A policy weighs what work would fetch unless told not to
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=true, merges=rack, keep=split$/m);
+  // A policy weighs nothing of what work would fetch unless told to, and is told not to again
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=false, merges=rack, keep=split$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--weigh-fetch')), /^Defaults: .*, weigh-fetch=true, merges=rack, keep=split$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=true, merges=rack, keep=split$/m);
   assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false, merges=rack, keep=split$/m);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=false, merges=rack, keep=split$/m);
   ok(await f.cli('rack', 'stop'));
   assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
 });

@@ -933,7 +933,9 @@ tasks: a session is one `e3 dataflow run`, or one `e3 watch --start --rack`
 across its re-runs. A task whose input a rack made earlier in the session is
 offered first to that rack (for up to 5 s) when that rack could run it — its
 tier, and enough cores, memory and GPU — reads its input there rather than
-over the link, and is weighed as fetching none of it. The default is `split`.
+over the link, and, under a policy that weighs fetches (`defaults
+--weigh-fetch`, off unless you turn it on), is weighed as fetching none of it.
+The default is `split`.
 `session` keeps task data on a rack longer: until the run or the watch ends,
 or no lease has used it for an hour (a watch idle that long between edits
 loses the copies, and later work fetches as it would), within the rack's own

@@ -13,7 +13,8 @@
  * which the rack package reads and writes. Its beast2 header names the whole
  * policy type, and a decode refuses a header whose type differs, so a policy
  * an earlier release stored is rewritten: everything it holds is kept as it
- * is, and it weighs what work would fetch, as a new policy does.
+ * is, and it does not weigh what work would fetch, as a new policy does not:
+ * it places work as it did, until the policy turns the weighing on.
  *
  * The form it reads is the one `rack-policy-limits` writes, which runs before
  * it; both forms are frozen copies, which nothing but the upgrades read.
@@ -96,16 +97,16 @@ function withLimits(bytes: Uint8Array): PolicyWithLimits | null {
 }
 
 /** A policy of the form before this upgrade, in the form it writes: as it
- *  was, weighing what work would fetch. */
+ *  was, weighing nothing of what work would fetch. */
 function withWeighFetch(policy: PolicyWithLimits): PolicyWithWeighFetch {
-  return { ...policy, weighFetch: true };
+  return { ...policy, weighFetch: false };
 }
 
 /**
  * Rewrites a local repository's rack policy in the form that says whether
  * work that would fetch for longer than it runs runs here: everything an
- * earlier release stored is kept, and the policy weighs it, as a new one
- * does.
+ * earlier release stored is kept, and the policy does not weigh it, as a new
+ * one does not, so the repository places its work as it did.
  *
  * @remarks
  * A repository with no policy file has the defaults, and is left without one.

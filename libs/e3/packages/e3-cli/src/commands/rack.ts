@@ -262,8 +262,8 @@ export function createRackCommand(): Command {
     .option('--spill', 'Run locally when rack capacity is full').option('--no-spill', 'Wait for rack capacity')
     .option('--claim-timeout <sec>', 'Recheck an unclaimed lease after this many seconds')
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
-    .option('--weigh-fetch', 'Run here a task or unit whose inputs would take longer to fetch over the rack\'s link than it last ran (the default)')
-    .option('--no-weigh-fetch', 'Place by the rules alone, however long a unit\'s inputs take to fetch')
+    .option('--weigh-fetch', 'Run here a task or unit whose inputs would take longer to fetch over the rack\'s link than it last ran (off unless you turn it on)')
+    .option('--no-weigh-fetch', 'Place by the rules alone, however long a unit\'s inputs take to fetch (the default)')
     .option('--merges <where>', 'Where a split task\'s merge and combine units run when its pieces run on a rack: rack (the default) or local, ' +
       'which fetches no piece back to a rack and runs them under this machine\'s -j/--memory budget. ' +
       'With set, for the rule\'s tasks; with defaults, for every rule that names none')
@@ -272,8 +272,9 @@ export function createRackCommand(): Command {
       'or of an e3 watch --start --rack across its re-runs')
     .addHelpText('after', '\nA merge kept local stays local under --rack-only and run --rack too: those keep for a rack only the work the policy sends to one.' +
       '\n\n--keep session keeps task data on a rack longer: until the run or watch ends, or an hour unused, within the rack\'s own bound on what it keeps.' +
+      '\n\nWeighing what work would fetch is off unless you turn it on (defaults --weigh-fetch): off, work is placed by the rules alone, and the hub is asked no fetch cost.' +
       '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . set "rollup_*" rack --merges local' +
-      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . defaults --keep session\n  e3 rack policy . show')
+      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . defaults --keep session\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];

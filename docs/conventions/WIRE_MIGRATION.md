@@ -1488,14 +1488,17 @@ Each wire changed under this rule, with the kind it is.
   a local repository's own layout: its rack policy, `rack/policy.beast2`. The
   policy gains `weighFetch`, a Boolean after `retryTaskFailuresLocally`:
   whether a task or a unit whose closure the racks do not hold would take
-  longer to fetch over their link than it last ran runs locally. The
+  longer to fetch over their link than it last ran runs locally. It is off
+  unless the policy turns it on (`e3 rack policy . defaults --weigh-fetch`),
+  for a new policy (`DEFAULT_RACK_POLICY`) as for one carried over: off, no
+  fetch cost is asked of the hub and work is placed as before it. The
   policy's header names the whole policy type, so one an earlier release
   stored does not decode under the new type, and the release ships the local
   backend's second step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
   `storage/local/rack-policy-weigh-fetch.ts`): `rack-policy-weigh-fetch`
   rewrites the file in the form `rack-policy-limits` writes, which runs before
-  it, into the new one, everything as it was and `weighFetch` on, as a new
-  policy has it. A repository with no policy file is left without one; a
+  it, into the new one, everything as it was and `weighFetch` off, as a new
+  policy has it: an upgraded repository places its work as it did. A repository with no policy file is left without one; a
   file in no form the steps know is left as it is, and a read refuses it as
   before, naming its reset. The step's written form is frozen in e3-core and
   held to `RackPolicyType` by the rack package's own test, over the policy

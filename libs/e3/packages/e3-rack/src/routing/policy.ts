@@ -60,7 +60,8 @@ export const RackRuleType = StructType({
  * `memoryLimit` and `gpu` came with one: e3-core's local-repository step
  * `rack-policy-limits` carries a policy an earlier release stored into the
  * form with them when the repository is opened. `weighFetch` came with the
- * next, `rack-policy-weigh-fetch`, on by default; `defaultMerges`, and a
+ * next, `rack-policy-weigh-fetch`, off for the policy it carries over as for
+ * a new one; `defaultMerges`, and a
  * rule's `merges`, with the one after it, `rack-policy-merges`, every merge
  * on a rack as before; and `keep` with the fourth, `rack-policy-keep`, which
  * carries the merges step's form into this one, kept for a split task alone
@@ -68,7 +69,10 @@ export const RackRuleType = StructType({
  *
  * `weighFetch` weighs what a task or a unit would fetch against how long it
  * last ran: one that would spend longer fetching its inputs over the link to
- * the rack than it took to run runs here instead (`fetch-bound`).
+ * the rack than it took to run runs here instead (`fetch-bound`). It is off
+ * unless the policy turns it on (`e3 rack policy . defaults --weigh-fetch`):
+ * off, no fetch cost is asked of the hub, and work is placed by the rules
+ * alone.
  *
  * `defaultMerges` says where the merge units of a split task run when its
  * rule names no `merges`: `rack`, as its pieces do, unless set otherwise.
@@ -127,11 +131,12 @@ export const RACK_SIZES: Readonly<Record<RackComputeSize, { readonly cores: numb
 };
 
 /** Conservative defaults: disabled, with explicit task selection required;
- *  a fetch-bound unit runs here; a split task's merges run where its pieces
- *  do; a rack keeps what work wrote for a split task's later units alone. */
+ *  no weighing of what work would fetch, which a policy turns on; a split
+ *  task's merges run where its pieces do; a rack keeps what work wrote for a
+ *  split task's later units alone. */
 export const DEFAULT_RACK_POLICY: RackPolicy = {
   enabled: false, mode: variant('optIn', null), rules: [], defaultSize: variant('large', null),
-  defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false, weighFetch: true,
+  defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false, weighFetch: false,
   defaultMerges: variant('rack', null), keep: variant('split', null),
 };
 const encode = encodeBeast2For(RackPolicyType);

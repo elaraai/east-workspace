@@ -45,9 +45,9 @@ const POLICY_1_0_107 = Buffer.from(
 type PolicyWithMerges = ValueTypeOf<typeof RackPolicyWithMergesType>;
 
 /** A policy in the form `rack-policy-merges` writes: a limit, a GPU, its
- *  weighing turned off and its merges here among it. */
+ *  weighing turned on and its merges here among it. */
 const merged: PolicyWithMerges = { enabled: true, mode: variant('auto', null), defaultSize: variant('xlarge', null),
-  defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: false,
+  defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: true,
   defaultMerges: variant('local', null), rules: [
     { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true,
       memoryLimit: some(8n * 1024n ** 3n), gpu: true, merges: some(variant('rack', null)) },
@@ -120,7 +120,7 @@ describe('rack-policy-keep', () => {
     const names = opened.upgrades.map(({ name }) => name);
     assert.deepEqual(names.filter((name) => steps.includes(name)), steps, 'the limits, the weighing, the merges, then the keep');
     assert.deepEqual(opened.upgrades.find(({ name }) => name === RACK_POLICY_KEEP), { name: RACK_POLICY_KEEP, release: E3_RELEASE });
-    const expected = carried({ ...merged, weighFetch: true, defaultMerges: variant('rack', null),
+    const expected = carried({ ...merged, weighFetch: false, defaultMerges: variant('rack', null),
       rules: merged.rules.map((rule) => ({ ...rule, memoryLimit: none, gpu: false, merges: none })) });
     assert.ok(equalFor(RackPolicyWithKeepType)(stored(), expected), printFor(RackPolicyWithKeepType)(stored()));
     assert.deepEqual(await repositoryOpen(storage, repo), opened, 'a second open finds all four applied');

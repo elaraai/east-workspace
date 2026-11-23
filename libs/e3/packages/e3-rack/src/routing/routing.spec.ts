@@ -443,17 +443,17 @@ it('reads a policy an earlier release stored once the repository\'s upgrade has 
   await applyAll();
 
   const expected = { ...DEFAULT_RACK_POLICY, enabled: true, mode: variant('auto', null), defaultSize: variant('xlarge', null),
-    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: true, defaultMerges: variant('rack', null), keep: variant('split', null), rules: [
+    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: false, defaultMerges: variant('rack', null), keep: variant('split', null), rules: [
       { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true, memoryLimit: none, gpu: false, merges: none },
       { tasks: 'ingest_*', target: variant('local', null), size: none, timeoutMinutes: none, allowHostCoupled: false, memoryLimit: none, gpu: false, merges: none },
     ] };
   const policy = await loadPolicy(repo);
   assert.ok(equalFor(RackPolicyType)(policy, expected),
-    'every rule is kept as it was, with no memory limit, no GPU and no merges of its own; fetches are weighed, merges run on a rack, and a rack keeps what work wrote for a split task alone');
+    'every rule is kept as it was, with no memory limit, no GPU and no merges of its own; no fetch is weighed, merges run on a rack, and a rack keeps what work wrote for a split task alone');
   assert.equal(selectTask(policy, 'train_model').merges, 'rack', 'a split task\'s merges run where they ran before the upgrade');
   assert.equal(readDelegation({ policy }).keepsSession, false, 'and a rack keeps what it kept before the upgrade');
   // What this release writes is what the last step wrote: its frozen form is this release's type.
-  const written = { ...policy, weighFetch: false, defaultMerges: variant('local', null), keep: variant('session', null),
+  const written = { ...policy, weighFetch: true, defaultMerges: variant('local', null), keep: variant('session', null),
     rules: [{ ...policy.rules[0]!, merges: some(variant('rack', null)) }, policy.rules[1]!] };
   await savePolicy(repo, written);
   await applyAll();

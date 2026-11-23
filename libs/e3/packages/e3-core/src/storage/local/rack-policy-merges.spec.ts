@@ -44,9 +44,9 @@ const POLICY_1_0_107 = Buffer.from(
 type PolicyWithWeighFetch = ValueTypeOf<typeof RackPolicyWithWeighFetchType>;
 
 /** A policy in the form `rack-policy-weigh-fetch` writes, a limit, a GPU and
- *  its weighing turned off among it. */
+ *  its weighing turned on among it. */
 const weighed: PolicyWithWeighFetch = { enabled: true, mode: variant('auto', null), defaultSize: variant('xlarge', null),
-  defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: false, rules: [
+  defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: true, rules: [
     { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true, memoryLimit: some(8n * 1024n ** 3n), gpu: true },
     { tasks: 'ingest_*', target: variant('local', null), size: none, timeoutMinutes: none, allowHostCoupled: false, memoryLimit: none, gpu: false },
   ] };
@@ -115,7 +115,7 @@ describe('rack-policy-merges', () => {
     assert.deepEqual(names.filter((name) => steps.includes(name)), steps, 'the limits, then the weighing, then the merges, then the keep');
     assert.deepEqual(opened.upgrades.find(({ name }) => name === RACK_POLICY_MERGES), { name: RACK_POLICY_MERGES, release: E3_RELEASE });
     // What the step wrote, as the keep step after it carries it on
-    const expected = { ...carried({ ...weighed, weighFetch: true, rules: weighed.rules.map((rule) => ({ ...rule, memoryLimit: none, gpu: false })) }), keep: variant('split', null) };
+    const expected = { ...carried({ ...weighed, weighFetch: false, rules: weighed.rules.map((rule) => ({ ...rule, memoryLimit: none, gpu: false })) }), keep: variant('split', null) };
     const after = decodeBeast2For(RackPolicyWithKeepType)(readFileSync(rackPolicyFile(repo)));
     assert.ok(equalFor(RackPolicyWithKeepType)(after, expected), printFor(RackPolicyWithKeepType)(after));
     assert.deepEqual(await repositoryOpen(storage, repo), opened, 'a second open finds every step applied');
