@@ -20,7 +20,7 @@ const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
 interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
-interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean }
+interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -116,7 +116,7 @@ function printFleet(lib: RackLib, status: Status): void {
 
 function printPolicy(policy: RackPolicy): void {
   console.log(`Enabled: ${policy.enabled}\nMode: ${policy.mode.type === 'optIn' ? 'opt-in' : 'auto'}`);
-  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}`);
+  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}`);
   policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}` +
     `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}`));
 }
@@ -250,7 +250,9 @@ export function createRackCommand(): Command {
     .option('--spill', 'Run locally when rack capacity is full').option('--no-spill', 'Wait for rack capacity')
     .option('--claim-timeout <sec>', 'Recheck an unclaimed lease after this many seconds')
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
-    .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
+    .option('--weigh-fetch', 'Run here a task or unit whose inputs would take longer to fetch over the rack\'s link than it last ran (the default)')
+    .option('--no-weigh-fetch', 'Place by the rules alone, however long a unit\'s inputs take to fetch')
+    .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
@@ -281,6 +283,7 @@ export function createRackCommand(): Command {
           ...(flags.claimTimeout === undefined ? {} : { claimTimeoutSeconds: BigInt(integer(flags.claimTimeout, '--claim-timeout')) }),
           ...(flags.spill === undefined ? {} : { spill: flags.spill }),
           ...(flags.retryTaskFailuresLocally === undefined ? {} : { retryTaskFailuresLocally: flags.retryTaskFailuresLocally }),
+          ...(flags.weighFetch === undefined ? {} : { weighFetch: flags.weighFetch }),
         };
       }
       if (action !== 'show') await lib.savePolicy(repo, policy);

@@ -30,6 +30,10 @@ it('reads a run\'s delegation options once: its defaults, the layer builds it is
   assert.equal(kept.unreachableWaitMs, 5);
   assert.equal(kept.spills(undefined), false, 'work kept for a rack never spills');
   assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, spill: false } }).spills(undefined), false);
+  // Fetch-bound work runs here by default; work kept for a rack, or a policy that does not weigh it, is placed by its rules
+  assert.equal(defaults.weighsFetch, true);
+  assert.equal(kept.weighsFetch, false, 'work kept for a rack is not weighed');
+  assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, weighFetch: false } }).weighsFetch, false);
 
   // A budget with no core free does not take the work
   const budget = new Budget({ cores: 1, memory: GiB }, { sampler: null });

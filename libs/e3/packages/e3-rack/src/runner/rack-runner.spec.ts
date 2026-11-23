@@ -17,6 +17,7 @@ import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskR
   packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type DetachedArg, type DetachedResult, type DetachedSpec,
   type UnitRequeue } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
+import { RackLinkMeter } from '../hub/link-meter.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { RackHubError } from '../client/local-http.js';
@@ -925,4 +926,50 @@ it('leaves the lease of a call its caller aborts, which ends as an aborted local
   assert.deepEqual(await running, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
   assert.ok(sameLeaseRefs((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
   assert.equal(f.budget.peak, 0);
+});
+
+it('runs here a task whose fetch over its rack\'s measured link would take longer than it last ran, saying so, unless the policy or --rack-only says otherwise', async () => {
+  // The hub's link meter on a clock the test sets, so a link can be measured slow
+  let now = 0;
+  const meter = new RackLinkMeter(() => now);
+  const f = await fixture({ linkMeter: meter }); const agent = await f.agent(); const rack = await f.open();
+  const onRack = async (running: Promise<{ state: string; error?: string }>) => {
+    const grant = await agent.claim(); assert(grant, 'leased to the rack');
+    assert.equal((await agent.execute(grant)).status, 'success');
+    assert.equal((await running).state, 'success', (await running).error);
+  };
+  const fetchBound = () => f.placements.filter((event) => event.kind === 'placed' && event.where === 'local' && event.reason === 'fetch-bound');
+
+  // A first run has no run time recorded: it follows its policy, onto the rack, which is then served all it reads
+  await onRack(rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' }));
+  // The link measures slow: 1 MiB over 1000 s, about 1 KB/s
+  const transfer = meter.begin(agent.rackId); now += 1_000_000; transfer.add(1024 * 1024); transfer.end();
+  assert.ok(meter.link(agent.rackId).bytesPerSecond! < 1100);
+  // What the rack holds costs nothing to fetch: run again, the task stays on it
+  await onRack(rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length', force: true }));
+  assert.deepEqual(fetchBound(), []);
+
+  // New inputs of about 80 KB the rack does not hold: over a minute to fetch, against the moment the task last ran
+  const big = [await datasetWrite(f.storage, f.repo, randomBytes(50_000).toString('hex'), StringType)];
+  const here = await rack.runner.execute(f.storage, f.hash, big, { taskName: 'length' });
+  assert.equal(here.state, 'success', here.error);
+  const [event] = fetchBound();
+  assert(event?.kind === 'placed' && event.where === 'local' && event.fetch !== undefined);
+  assert.equal(event.fetch.bytes, (await f.storage.objects.stat(f.repo, big[0]!)).size, 'the input alone, not what the rack holds');
+  assert.ok(event.fetch.fetchMs > 60_000 && event.fetch.ranMs < event.fetch.fetchMs && event.fetch.measured);
+  assert.ok(ranLocally(event), 'a rack\'s work run here, which the summary counts');
+  assert.equal(f.budget.peak, 1, 'it ran here');
+
+  // --rack-only keeps it for the rack, as it keeps it from spilling
+  const kept = await f.open({ rackOnly: true });
+  const served = await datasetWrite(f.storage, f.repo, randomBytes(50_000).toString('hex'), StringType);
+  await onRack(kept.runner.execute(f.storage, f.hash, [served], { taskName: 'length' }));
+  // Served through its data URL to its last byte, the input is the rack's now, and the link counted it
+  const alias = (await f.client.status()).sessions[0]!.repoAlias;
+  assert.equal(meter.link(agent.rackId).holds(alias, served), true);
+  assert.equal(meter.link(agent.rackId).holds('r-another', served), false);
+  // And a policy that does not weigh fetches places it by its rules alone
+  const unweighed = await f.open({ policy: { ...f.policy, weighFetch: false } });
+  await onRack(unweighed.runner.execute(f.storage, f.hash, [await datasetWrite(f.storage, f.repo, randomBytes(50_000).toString('hex'), StringType)], { taskName: 'length' }));
+  assert.equal(fetchBound().length, 1, 'neither was weighed');
 });

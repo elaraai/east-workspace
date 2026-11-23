@@ -231,6 +231,27 @@ export class RackSession {
   }
 
   /**
+   * What work reading these objects would fetch from each rack the hub has
+   * served: the rack's link rate, as the hub measured it, and which of the
+   * objects of this session's repository it was served whole.
+   *
+   * @param hashes - The objects the work reads
+   * @returns Each rack's link, by its id: its rate in bytes a second, null
+   *   while unmeasured, and of each object, in the order given, whether the
+   *   rack holds it; null when the session is closed, or the hub does not
+   *   answer
+   */
+  async fetchCosts(hashes: readonly string[]): Promise<Map<string, { bytesPerSecond: number | null; held: boolean[] }> | null> {
+    if (this.lost || this.closing !== undefined) return null;
+    try {
+      const links = await this.client.fetchCosts(this.sessionId, hashes);
+      return new Map(links.map((link) => [link.rackId, { bytesPerSecond: link.bytesPerSecond.type === 'some' ? link.bytesPerSecond.value : null, held: link.held }]));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Attaches to identical work already queued or held, which costs the racks
    * no further capacity, and queues nothing otherwise: how a run spills work
    * locally when the racks are full, without first offering it to them.

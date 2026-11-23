@@ -373,21 +373,23 @@ it('reads a policy an earlier release stored once the repository\'s upgrade has 
   await writeFile(policyPath(repo), POLICY_1_0_107);
   await assert.rejects(loadPolicy(repo), RackPolicyError, 'before the upgrade, this release does not read it');
 
-  // The local repository's own step, as an open applies it to a repository an earlier release wrote.
+  // The local repository's own steps, in order, as an open applies them to a repository an earlier release wrote.
   const storage = new LocalStorage();
-  const step = storage.upgrades.find((upgrade) => upgrade.name === 'rack-policy-limits');
-  assert(step, 'the local backend ships the step');
-  assert.equal(await step.apply(storage, repo, null, Date.now() + 60_000), null);
+  const steps = ['rack-policy-limits', 'rack-policy-weigh-fetch'].map((name) => storage.upgrades.find((upgrade) => upgrade.name === name));
+  assert(steps.every((step) => step !== undefined), 'the local backend ships the steps');
+  assert.deepEqual(storage.upgrades.map((upgrade) => upgrade.name).filter((name) => name.startsWith('rack-policy-')), ['rack-policy-limits', 'rack-policy-weigh-fetch']);
+  const applyAll = async () => { for (const step of steps) assert.equal(await step!.apply(storage, repo, null, Date.now() + 60_000), null); };
+  await applyAll();
 
   const expected = { ...DEFAULT_RACK_POLICY, enabled: true, mode: variant('auto', null), defaultSize: variant('xlarge', null),
-    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, rules: [
+    defaultTimeoutMinutes: 720n, spill: false, claimTimeoutSeconds: 45n, retryTaskFailuresLocally: true, weighFetch: true, rules: [
       { tasks: 'train_*', target: variant('rack', null), size: some(variant('large', null)), timeoutMinutes: some(90n), allowHostCoupled: true, memoryLimit: none, gpu: false },
       { tasks: 'ingest_*', target: variant('local', null), size: none, timeoutMinutes: none, allowHostCoupled: false, memoryLimit: none, gpu: false },
     ] };
   const policy = await loadPolicy(repo);
-  assert.ok(equalFor(RackPolicyType)(policy, expected), 'every rule is kept as it was, with no memory limit and no GPU');
-  // What this release writes is what the step wrote: its frozen form is this release's type.
-  await savePolicy(repo, policy);
-  assert.equal(await step.apply(storage, repo, null, Date.now() + 60_000), null);
-  assert.ok(equalFor(RackPolicyType)(await loadPolicy(repo), expected));
+  assert.ok(equalFor(RackPolicyType)(policy, expected), 'every rule is kept as it was, with no memory limit and no GPU, and fetches are weighed');
+  // What this release writes is what the last step wrote: its frozen form is this release's type.
+  await savePolicy(repo, { ...policy, weighFetch: false });
+  await applyAll();
+  assert.ok(equalFor(RackPolicyType)(await loadPolicy(repo), { ...expected, weighFetch: false }), 'a policy this release wrote is left as it is');
 });

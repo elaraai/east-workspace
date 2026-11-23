@@ -1477,10 +1477,38 @@ Each wire changed under this rule, with the kind it is.
   its `reason` and `retries` are, read for the fields a build knows
   (`readRackPhases`): each mark of the lease's time on its rack, in ms after
   the rack received its grant, and the bytes it fetched, read from its cache
-  and sent. No BEAST2 struct changes and rack protocol 3 and hub control
-  protocol 5 stay as they are: a hub or a source that knows no phases takes
-  the field as nothing, and a rack's agent of an earlier release sends none,
-  of which a run prints nothing more. In process, e3-core's `ExecutionResult`,
-  `TaskResult`, `TaskCompletedCallback` and e3-types' `PartitionProgress` gain
-  an optional `timing`, the line a run prints of them; none is encoded, so no
+  and sent. No BEAST2 struct changes, rack protocol 3 stays as it is and the
+  hub control protocol takes no step for it: a hub or a source that knows no
+  phases takes the field as nothing, and a rack's agent of an earlier release
+  sends none, of which a run prints nothing more. In process, e3-core's
+  `ExecutionResult`, `TaskResult`, `TaskCompletedCallback` and e3-types'
+  `PartitionProgress` gain an optional `timing`, the line a run prints of
+  them; none is encoded, so no repository upgrade step ships.
+- **e3-rack's `RackPolicyType` gains `weighFetch` (#1722)** — stored state, of
+  a local repository's own layout: its rack policy, `rack/policy.beast2`. The
+  policy gains `weighFetch`, a Boolean after `retryTaskFailuresLocally`:
+  whether a task or a unit whose closure the racks do not hold would take
+  longer to fetch over their link than it last ran runs locally. The
+  policy's header names the whole policy type, so one an earlier release
+  stored does not decode under the new type, and the release ships the local
+  backend's second step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+  `storage/local/rack-policy-weigh-fetch.ts`): `rack-policy-weigh-fetch`
+  rewrites the file in the form `rack-policy-limits` writes, which runs before
+  it, into the new one, everything as it was and `weighFetch` on, as a new
+  policy has it. A repository with no policy file is left without one; a
+  file in no form the steps know is left as it is, and a read refuses it as
+  before, naming its reset. The step's written form is frozen in e3-core and
+  held to `RackPolicyType` by the rack package's own test, over the policy
+  release 1.0.107 stored, carried through both steps. An earlier release
+  refuses a repository that has had the step, naming this release.
+- **e3-rack's hub control protocol 6 answers what work would fetch (#1722)**
+  — neither package-borne nor stored: what a hub and the e3 processes of its
+  sessions exchange over its socket. A session asks, of the objects a task or
+  a unit reads, each rack's link rate as the hub measures it from the data
+  URLs it serves (`FetchCostRequestType`, `FetchCostResultType`, `POST
+  /v1/sessions/:id/fetch-costs`), and which of those objects it served that
+  rack whole. The protocol is negotiated exactly (`HUB_PROTOCOL`), so an e3
+  that finds a hub of protocol 5 asks it to drain and runs locally that
+  time, as for any older number.
+  The hub keeps what it measures in memory; no form is stored, so no
   repository upgrade step ships.

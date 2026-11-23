@@ -59,6 +59,12 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
   return openRackRunner(options);
 }
 
+/** A time as a placement line says it: `0.4 s` under ten seconds, `90 s` past. */
+function seconds(ms: number): string {
+  const s = ms / 1000;
+  return s < 10 ? `${Math.round(s * 10) / 10} s` : `${Math.round(s)} s`;
+}
+
 /**
  * The line a run prints for a placement event, when it prints one:
  * - `[RACK] train → rack-a (cap 16 GB)` when a rack claims a task (split
@@ -80,6 +86,10 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   result gave one, a task's or a unit's alike;
  * - `[LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)` for a
  *   piece whose cap would pass its rule's memory limit;
+ * - `[LOCAL] scan (fetch-bound: 903 MB ≈ 90 s to fetch, ran 19 s)` for a
+ *   task or a unit whose inputs the racks do not hold would take longer to
+ *   fetch over their link than it last ran, a unit's too; `≈ 7 s to fetch at
+ *   an assumed 1 Gbit/s` while the hub has not measured the link;
  * - `[LOCAL] fit (environment:native-package:fastfit)` for a task whose
  *   environment cannot go to a rack, and `[LOCAL] fit
  *   (no-rack-for-environment:py)` where no rack composes environments.
@@ -116,6 +126,10 @@ export function rackPlacementLine(event: RackPlacementEvent, everyReason = false
   }
   if (event.detail?.code === 'memory-limit-exceeded' && event.detail.needsBytes !== undefined && event.detail.limitBytes !== undefined) {
     return `  [LOCAL] ${event.taskName} (memory-limit-exceeded: needs ${formatSize(event.detail.needsBytes)}, limit ${formatSize(event.detail.limitBytes)})`;
+  }
+  if (event.fetch !== undefined) {
+    const { bytes, fetchMs, ranMs, measured } = event.fetch;
+    return `  [LOCAL] ${event.taskName} (${event.reason}: ${formatSize(bytes)} ≈ ${seconds(fetchMs)} to fetch${measured ? '' : ' at an assumed 1 Gbit/s'}, ran ${seconds(ranMs)})`;
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;

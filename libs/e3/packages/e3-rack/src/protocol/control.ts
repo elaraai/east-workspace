@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from '@elaraai/east';
+import { ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from '@elaraai/east';
 import { RackRegistrationType } from './registration.js';
 
 /** An empty control message. */
@@ -86,6 +86,15 @@ export const CapacitySnapshotType = StructType({
 export const TierManifestRequestType = StructType({ digest: StringType });
 /** The manifest's text, as a rack that boots the tier reported it; none when no rack the hub hears reports it. */
 export const TierManifestResultType = OptionType(StringType);
+/** Asks what a session's work would fetch: of each object, by its hash, whether each rack is known to hold it. */
+export const FetchCostRequestType = StructType({ hashes: ArrayType(StringType) });
+/**
+ * Of each rack the hub has served a transfer: its link's rate towards it, in
+ * bytes a second, none while it is unmeasured or stale; and, of each object
+ * asked about, in the order asked, whether the rack was served it whole for
+ * the session's repository, and so holds it.
+ */
+export const FetchCostResultType = ArrayType(StructType({ rackId: StringType, bytesPerSecond: OptionType(FloatType), held: ArrayType(BooleanType) }));
 /** Requests events after a cursor, waiting at most 20 seconds. */
 export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerType });
 /** Returns ordered events and a fresh capacity snapshot. */

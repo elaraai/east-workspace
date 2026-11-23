@@ -47,6 +47,11 @@ it('prints a line for a task a rack claims, a transfer retried, and a rack\'s wo
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fallback:rack-unavailable' }), '  [LOCAL] train (fallback:rack-unavailable)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'environment:native-package:fastfit' }), '  [LOCAL] train (environment:native-package:fastfit)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'no-rack-for-environment:py' }), '  [LOCAL] train (no-rack-for-environment:py)');
+  // Fetch-bound work says what its fetch would cost against how long it ran, a unit's as a task's
+  assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'fetch-bound', fetch: { bytes: 903 * 1024 ** 2, fetchMs: 90_300, ranMs: 19_400, measured: true } }),
+    '  [LOCAL] score (fetch-bound: 903 MB ≈ 90 s to fetch, ran 19 s)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fetch-bound', fetch: { bytes: 1.2 * 1024 ** 3, fetchMs: 10_300, ranMs: 420, measured: false } }),
+    '  [LOCAL] train (fetch-bound: 1.2 GB ≈ 10 s to fetch at an assumed 1 Gbit/s, ran 0.4 s)');
 });
 
 it('prints a line when an environment\'s layers are built for a rack, and what the build came to', () => {
