@@ -52,7 +52,7 @@ import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 import { planSlices, planWindowParts } from "../root/sources.js";
 import { leadingWindow, slicedResolution, statedWindow, windowPartsDomain, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
-import { zoomedWindow } from "../../shared/time/zoom.js";
+import { windowFitsZoom, zoomedWindow } from "../../shared/time/zoom.js";
 
 /**
  * The scale as the window is held NOW — the same resolution the canvas
@@ -134,11 +134,14 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 const resolution = some(variant(eff.resolution, null)) as Parameters<(typeof holders)[number]["setResolution"]>[0];
                 for (const part of holders) part.setResolution(resolution);
                 if (shown?.resolution !== undefined) {
+                    const held = bound ? leadingWindow(parts, value.axis.type) : hold?.last;
+                    // A window the new resolution's periods already hold stands, re-bucketed, and is written again
+                    // nowhere: such a zoom reads nothing. A zoom about a middle it names (#1438) moves there all the same.
+                    const stands = eff.about === undefined && held !== undefined && windowFitsZoom(held, eff.resolution);
                     const domain = bound ? windowPartsDomain(parts) : undefined;
                     const span = domain !== undefined ? [domain.min, domain.max] as const : hold?.span;
-                    const zoomed = zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, span, eff.about);
-                    // A window the new resolution's periods already hold is written again nowhere: such a zoom reads nothing.
-                    const held = bound ? leadingWindow(parts, value.axis.type) : hold?.last;
+                    const zoomed = stands ? undefined
+                        : zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, span, eff.about);
                     if (zoomed !== undefined && (held === undefined || held[0] !== zoomed[0] || held[1] !== zoomed[1])) {
                         writePlanWindow(parts, zoomed[0], zoomed[1], hold);
                     }

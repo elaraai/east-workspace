@@ -133,7 +133,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
     );
 }
 
-describe("a zoom keeps its window's time within the new resolution's periods (§3, #1344, #1710)", () => {
+describe("a zoom keeps its window's time within the new resolution's periods, and a window they already hold stands (§3, #1344, #1710)", () => {
     test("WEEK → DAY: the twelve weeks the source holds come in to six weeks of days about their middle, the resolution and the window written; back to the week the six weeks fit — the resolution alone written", async () => {
         // The dated rows' window, twelve weeks from W27 — the source holds it, and it alone.
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom", {
@@ -166,6 +166,39 @@ describe("a zoom keeps its window's time within the new resolution's periods (§
         expect(recordSliceWindow(part)).toEqual(sixWeeks);
         expect(rail.writes("dated") - before).toBe(3);
         expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(6);
+    });
+
+    test("WEEK → MONTH → WEEK: twelve weeks the source holds touch four months, which a month's periods hold — the window stands, re-bucketed, the resolution alone written each way", async () => {
+        const rail = await bindRail(() => Slice.bindRecords("plan.zoom-fits", {
+            dated: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
+                fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+            },
+        }), ["resolution"]);
+        const part = rail.part("dated");
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some(rail.chrome),
+            resolutions: [variant("month", null), variant("week", null)],
+        }));
+        await settle();
+        const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+        const twelveWeeks = { kind: "datetime", min: W27.getTime(), max: W39.getTime() };
+        expect(recordSliceWindow(part)).toEqual(twelveWeeks);
+        const before = rail.writes("dated");
+        // To the month: its periods hold the four months the twelve weeks touch, so the window keeps its instants — never
+        // the three months its time would round to, which would move what the source holds.
+        fireEvent.click(screen.getByText("MONTH"));
+        await settle();
+        expect(part.read().resolution).toEqual(some(variant("month", null)));
+        expect(recordSliceWindow(part)).toEqual(twelveWeeks);
+        expect(ticks()).toEqual(["JUN", "JUL", "AUG", "SEP"]);
+        expect(rail.writes("dated") - before).toBe(1);
+        // And back: the twelve weeks again, never the seventeen the months drawn would round to.
+        fireEvent.click(screen.getByText("WEEK"));
+        await settle();
+        expect(recordSliceWindow(part)).toEqual(twelveWeeks);
+        expect(ticks()).toHaveLength(12);
+        expect(rail.writes("dated") - before).toBe(2);
     });
 });
 

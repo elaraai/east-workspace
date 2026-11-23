@@ -10,11 +10,11 @@
  * How much time a window shows at each zoom (#1710): at least and at most so
  * many of the zoom's own periods, and a window kept within them — the end a
  * gesture holds staying, the other giving way, a window moved whole keeping
- * its start.
+ * its start; and a window that already fits a zoom, which keeps its instants.
  */
 
 import { describe, expect, test } from "vitest";
-import { ZOOM_PERIODS, brushPeriodsOf, coarserThan, limitWindow, zoomPeriodsOf } from "./zoom.js";
+import { ZOOM_PERIODS, brushPeriodsOf, coarserThan, limitWindow, windowFitsZoom, zoomPeriodsOf } from "./zoom.js";
 
 /** Instants as period numbers: a period on is one more. */
 const offset = (at: number, n: number) => at + n;
@@ -64,5 +64,22 @@ describe("how much time a window shows at each zoom (#1710)", () => {
     test("years have no most: a decade at the year stays a decade, a year goes out to two", () => {
         expect(limitWindow(2020, 2030, "start", ZOOM_PERIODS.year, offset, toNumber)).toEqual([2020, 2030]);
         expect(limitWindow(2026, 2027, "start", ZOOM_PERIODS.year, offset, toNumber)).toEqual([2026, 2028]);
+    });
+
+    test("a window fits a zoom whose periods it touches between the least and the most, whatever its ends: such a zoom keeps its instants (#1344)", () => {
+        const at = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
+        // Twelve weeks from W27, 29 June to 21 September 2026: twelve weeks, four months — June to September — and one
+        // quarter's two, Q2 and Q3.
+        const twelveWeeks = [at("2026-06-29"), at("2026-09-21")] as const;
+        expect(["day", "week", "month", "quarter", "year"].map((zoom) => windowFitsZoom(twelveWeeks, zoom))).toEqual([false, true, true, false, false]);
+        // Four weeks touch two months, short of a month's three; four whole months touch four.
+        expect(windowFitsZoom([at("2026-10-05"), at("2026-11-02")], "month")).toBe(false);
+        expect(windowFitsZoom([at("2026-10-01"), at("2027-02-01")], "month")).toBe(true);
+        // Twenty-seven weeks pass a week's most, and years have none.
+        expect(windowFitsZoom([at("2026-01-05"), at("2026-07-13")], "week")).toBe(false);
+        expect(windowFitsZoom([at("2020-01-01"), at("2030-01-01")], "year")).toBe(true);
+        // An hour, a name no period has, and an empty window fit nothing.
+        expect([windowFitsZoom(twelveWeeks, "hour"), windowFitsZoom(twelveWeeks, "auto"), windowFitsZoom([twelveWeeks[0], twelveWeeks[0]], "week")])
+            .toEqual([false, false, false]);
     });
 });

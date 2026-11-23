@@ -127,6 +127,24 @@ export function tileStartsOver(tile: RecordTile, from: number, to: number): numb
 }
 
 /**
+ * Whether a window already shows what a zoom shows (#1344, #1710): the periods
+ * of the zoom it touches are at least the zoom's least and at most its most. A
+ * zoom to it re-buckets the window, and keeps its instants — what the sources
+ * holding it hold — rather than rounding the time its old zoom's buckets drew,
+ * so twelve weeks are four months and twelve weeks again, never seventeen.
+ *
+ * @param window - The window, `[from, to)` in ms
+ * @param resolution - The zoom: a resolution's name
+ * @returns Whether it fits; `false` for a resolution no calendar period names, and for an empty window
+ */
+export function windowFitsZoom(window: readonly [number, number], resolution: string): boolean {
+    const periods = zoomPeriodsOf(resolution);
+    if (periods === undefined || window[1] <= window[0]) return false;
+    const touched = tileStartsOver(resolution as RecordTile, window[0], window[1]).length;
+    return touched >= periods.min && (periods.max === undefined || touched <= periods.max);
+}
+
+/**
  * The window a zoom shows (#1438, #1710): the time the window shown held, as
  * many of the new resolution's periods as it holds — at least and at most as
  * many as that resolution shows (`ZOOM_PERIODS`), so a zoom out never shows a
