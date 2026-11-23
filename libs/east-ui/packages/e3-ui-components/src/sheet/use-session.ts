@@ -16,9 +16,9 @@ import { IntegerType, OptionType, StringType, StructType, equalFor, fromEastType
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
-    type EditIssue, type EntryKeys,
+    type EditIssue, type EditPoint, type EntryKeys,
 } from "@elaraai/east-ui-components";
-import { kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { baselineOf, kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
@@ -28,7 +28,8 @@ import { optimiseSessions } from "../shared/func/optimise-sessions.js";
 import {
     useOptimise, type OptimiseCounts, type OptimiseMissing, type OptimiseRefused, type OptimiseRowRead, type OptimiseWaiting,
 } from "../shared/func/use-optimise.js";
-import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
+import { useOptimiseMarks, type OptimiseFollowing } from "../shared/func/use-optimise-marks.js";
+import { sheetMarksUnder, sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
@@ -294,7 +295,17 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // out (O4), whose answer is of the rows it was asked of.
     const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
     const runScope = printRunScope({ rows: rowsQuery, tab: ui.tabs.active ?? "", entry: optimiseTypes.entry?.printed ?? "" });
-    const [optimised, setOptimised] = useState<SheetOptimised | undefined>(undefined);
+    // What the runs left on the rows (R17), each mark under the key its row stands under now, whoever moved it there — a
+    // gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709): followed through the
+    // session's history from where the rows stood as each run landed.
+    const following = useMemo((): OptimiseFollowing<EditPoint> => ({
+        point: () => session.point(),
+        since: (point) => {
+            const follow = session.follow(point);
+            return follow === undefined ? undefined : (_kind, id) => follow(id);
+        },
+    }), [session]);
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<SheetOptimised, EditPoint>(following, editingState.version, sheetMarksUnder);
     const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number, read: OptimiseRowRead) =>
         OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined>(() => undefined);
     const run = useOptimise<SheetOptimiseRequest, SheetOptimiseResult>({
@@ -345,11 +356,19 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // draws the sheet again.
     const gestureCount = useRef(0);
     const recordSession = editingState.record;
+    // The message that stands as a gesture begins: the sheet's as it was last drawn — what a gesture leaves itself is
+    // drawn only after it.
+    const stood = useRef(ui.msg);
+    stood.current = ui.msg;
     const recordGesture = useCallback<typeof recordSession>((events, placements, originOverride, draftEdits, seeds, label, joins, held) => {
         const recorded = recordSession(events, placements, originOverride, draftEdits, seeds, label, joins, held);
-        if (recorded) gestureCount.current += 1;
+        if (recorded) {
+            gestureCount.current += 1;
+            // A gesture taken: a refusal's words before it go with it, and its row's mark (`refusal.ts`).
+            dispatchStore({ t: "taken", stood: stood.current });
+        }
         return recorded;
-    }, [recordSession]);
+    }, [recordSession, dispatchStore]);
     const drafts = editingState.drafts;
     // The session's rows, each with its cells from data read over its draft (#1559) — a Save's landed rows over theirs.
     const layerDrafts = editingState.layerDrafts;
@@ -408,7 +427,8 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         return (id: string, row: SheetRowValue): SheetRowChanges | undefined => {
             const known = byId.get(id);
             if (known !== undefined) return known ?? undefined;
-            const began = session.originals.get(id);
+            // A row moved under another key began as the row it was (east-workspace#1709): changed, never added.
+            const began = baselineOf(session, id);
             const draft = session.entries.get(id)?.draft;
             let found: SheetRowChanges | null = null;
             if (began !== undefined && draft !== undefined) {
@@ -470,7 +490,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
         landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseTypes, optimiseWhole, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
-        session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
+        session, setBarClosedAt, setLayer, keepOptimised, clearOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,
     };
 }

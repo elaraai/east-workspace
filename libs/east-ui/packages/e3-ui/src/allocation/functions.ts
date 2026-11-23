@@ -17,12 +17,14 @@
  * is an East function over `Allocation.Types.Day(KilnBin)`. They read each
  * bin's roles, never its row, which they carry for the app's own functions.
  *
- * A fit's — `Allocation.candidates`, `answer` and `lookahead` — are over what
- * the app's function read (`Allocation.Types.FitContext`, east-workspace#1624):
- * the day's bins as their roles, and the arrivals and the resources it asks
- * about, with no row type. `Allocation.fit` reads one candidate. What a
- * resource holds is one measure ({@link allocationMatesOf}), which the page's
- * loads and a fit's candidates both read.
+ * A fit's — `Allocation.candidates()`, `answer()` and `lookahead()` — are over
+ * what the app's function read (`Allocation.Types.FitContext()`,
+ * east-workspace#1624): the day's bins as their roles, and the arrivals and the
+ * resources it asks about, with no row type. `Allocation.fit()` reads one
+ * candidate. Each is made over the bins' key type (east-workspace#1709, ruling
+ * 12), String where none is given, as the fit's types are. What a resource
+ * holds is one measure ({@link allocationMatesOf}), which the page's loads and
+ * a fit's candidates both read.
  *
  * @packageDocumentation
  */
@@ -35,10 +37,11 @@ import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
 import { ScheduleAllocationRolesType } from "../schedule/types.js";
 import { scheduleNumberText } from "../schedule/words.js";
 import {
-    AllocationArrivalType, AllocationBinTypeFor, AllocationCandidateType, AllocationContextType, AllocationDayTypeFor, AllocationFitContextType,
-    AllocationFitRequestType, AllocationFitResultType, AllocationFitType, AllocationFixType, AllocationIntervalType, AllocationIssueType, AllocationJobType,
-    AllocationLoadType, AllocationResourceLineType, AllocationResourceType, AllocationRulesType, AllocationSlotType, type AllocationBinType,
-    type AllocationContextType as ContextType, type AllocationDayType,
+    AllocationArrivalType, AllocationBinTypeFor, AllocationCandidateTypeFor, AllocationContextType, AllocationDayTypeFor, AllocationFitContextTypeFor,
+    AllocationFitRequestTypeFor, AllocationFitResultTypeFor, AllocationFitType, AllocationFixType, AllocationIntervalType, AllocationIssueType, AllocationJobType,
+    AllocationLoadType, AllocationResourceLineType, AllocationResourceType, AllocationRulesType, AllocationSlotType, allocationFitKey, type AllocationBinType,
+    type AllocationCandidateType, type AllocationContextType as ContextType, type AllocationDayType, type AllocationFitContextType, type AllocationFitOptions,
+    type AllocationFitRequestType, type AllocationFitResultType,
 } from "./types.js";
 
 /** A day, in milliseconds. */
@@ -256,7 +259,8 @@ export function allocationBinOf<R extends EastType>(row: R) {
 /**
  * One bin's part on one resource, as loads and candidates read it.
  *
- * @property bin - The bin's id; empty for a placement the look-ahead adds
+ * @property bin - The bin, by its key's East text — what tells one bin's part from another's, whatever the bins' key
+ *   type; empty for a placement the look-ahead adds
  * @property quantity - Its part's quantity
  * @property hold - Its hold, in milliseconds
  * @property kind - Its kind
@@ -268,7 +272,7 @@ export const AllocationMateType = StructType({ bin: StringType, quantity: FloatT
 /** The bins' parts on every resource, by the resource's key. @internal */
 const MatesType = DictType(StringType, ArrayType(AllocationMateType));
 
-/** A day's bins by key, each its roles: what a fit's function reads, and what the page's own bins are without their rows. */
+/** A day's bins by key, each its roles: what the page's own bins are without their rows. */
 const BinsType = DictType(StringType, ScheduleAllocationRolesType);
 
 /**
@@ -277,25 +281,29 @@ const BinsType = DictType(StringType, ScheduleAllocationRolesType);
  * ({@link allocationMates}) and a fit's candidates ({@link allocationCandidates},
  * east-workspace#1624) both read.
  *
- * @param bins - The day's bins by key, each its roles
- * @param resources - The resources by key
- * @returns The parts on each resource, by the resource's key; a bin's part on a resource not given is on none
+ * @param key - The bins' key type (east-workspace#1709): each part names its bin by its key's East text
+ * @returns An East function `(bins, resources) → Dict<String, Array<Mate>>`: the day's bins by key, each its roles, and
+ *   the resources by key, to the parts on each resource, by the resource's key; a bin's part on a resource not given is
+ *   on none
  * @internal
  */
-export const allocationMatesOf = East.function([BinsType, DictType(StringType, AllocationResourceType)], MatesType, ($, bins, resources) => {
-    const step = $.const(allocationMilliseconds);
-    const out = $.let(resources.map((_$2, _resource) => East.value([], ArrayType(AllocationMateType))));
-    $.for(bins, ($2, bin, id) => {
-        const hold = $2.const(step(bin.hold));
-        const reserve = $2.const(bin.arrival.hasTag("none"));
-        $2.for(bin.parts, ($3, quantity, resource) => {
-            $3.if(out.has(resource), ($4) => {
-                $4(out.get(resource).pushLast({ bin: id, quantity, hold, kind: bin.kind, reserve }));
+export function allocationMatesOf(key: EastType) {
+    return East.function([DictType(key, ScheduleAllocationRolesType), DictType(StringType, AllocationResourceType)], MatesType, ($, bins, resources) => {
+        const step = $.const(allocationMilliseconds);
+        const out = $.let(resources.map((_$2, _resource) => East.value([], ArrayType(AllocationMateType))));
+        $.for(bins, ($2, bin, id) => {
+            const hold = $2.const(step(bin.hold));
+            const reserve = $2.const(bin.arrival.hasTag("none"));
+            const named = $2.const(East.str`${id}`);
+            $2.for(bin.parts, ($3, quantity, resource) => {
+                $3.if(out.has(resource), ($4) => {
+                    $4(out.get(resource).pushLast({ bin: named, quantity, hold, kind: bin.kind, reserve }));
+                });
             });
         });
+        return out;
     });
-    return out;
-});
+}
 
 /**
  * Every resource's parts of the day's bins, an entry for every resource.
@@ -306,8 +314,9 @@ export const allocationMatesOf = East.function([BinsType, DictType(StringType, A
  * @internal
  */
 export function allocationMates<R extends EastType>(row: R) {
+    const matesOf = allocationMatesOf(StringType);
     return East.function([AllocationDayTypeFor(row), AllocationContextType], MatesType, ($, plan, context) => {
-        const parts = $.const(allocationMatesOf);
+        const parts = $.const(matesOf);
         // The bins as their roles: the measure reads no row.
         const bins = $.const(plan.bins.map((_$2, bin) => ({
             at: bin.at, lane: bin.lane, arrival: bin.arrival, quantity: bin.quantity, parts: bin.parts, hold: bin.hold, kind: bin.kind,
@@ -355,54 +364,53 @@ export const allocationLoadOf = East.function([DateTimeType, AllocationResourceT
 /**
  * One candidate: a quantity on a resource, against the parts it already holds.
  *
- * @param day - The plan day
- * @param bin - The bin it is for, if any
- * @param reserve - Whether it reserves a slot
- * @param quantity - What the resource would hold of it
- * @param arrival - Its arrival, if any
- * @param kind - Its kind
- * @param hold - Its hold, in milliseconds
- * @param resource - The resource
- * @param mates - The resource's other parts
- * @param load - The resource's load
- * @param rules - The built-in rules
- * @param unit - The quantity's unit
- * @returns The candidate
+ * @param key - The bins' key type (east-workspace#1709): the candidate names its bin by a key of it
+ * @returns An East function `(day, bin, reserve, quantity, arrival, kind, hold, resource, mates, load, rules, unit) →
+ *   Candidate`: the plan day, the bin it is for if any, whether it reserves a slot, what the resource would hold of it,
+ *   its arrival if any, its kind, its hold in milliseconds, the resource, the resource's other parts, its load, the
+ *   built-in rules and the quantity's unit, to the candidate
  * @internal
  */
-export const allocationCandidateOf = East.function([
-    DateTimeType, OptionType(StringType), BooleanType, FloatType, OptionType(AllocationArrivalType), OptionType(StringType), IntegerType,
-    AllocationResourceType, ArrayType(AllocationMateType), AllocationLoadType, AllocationRulesType, StringType,
-], AllocationCandidateType, ($, day, bin, reserve, quantity, arrival, kind, hold, resource, mates, load, rules, unit) => {
-    const nextOf = $.const(allocationNextJob);
-    const fill = $.let(0.0, FloatType);
-    const length = $.let(hold, IntegerType);
-    const kindMates = $.let(false, BooleanType);
-    $.for(mates, ($2, mate) => {
-        $2.assign(fill, fill.add(mate.quantity));
-        $2.assign(length, East.max(length, mate.hold));
-        $2.if(kind.hasTag("some").and(() => East.equal(mate.kind, kind)), ($3) => { $3.assign(kindMates, true); });
+export function allocationCandidateOf(key: EastType) {
+    // The bin's key is the bins' own; nothing here reads it.
+    const Bin = OptionType(key) as unknown as OptionType<StringType>;
+    return East.function([
+        DateTimeType, Bin, BooleanType, FloatType, OptionType(AllocationArrivalType), OptionType(StringType), IntegerType,
+        AllocationResourceType, ArrayType(AllocationMateType), AllocationLoadType, AllocationRulesType, StringType,
+    ], AllocationCandidateTypeFor({ key }) as unknown as AllocationCandidateType, ($, day, bin, reserve, quantity, arrival, kind, hold, resource, mates, load, rules, unit) => {
+        const nextOf = $.const(allocationNextJob);
+        const fill = $.let(0.0, FloatType);
+        const length = $.let(hold, IntegerType);
+        const kindMates = $.let(false, BooleanType);
+        $.for(mates, ($2, mate) => {
+            $2.assign(fill, fill.add(mate.quantity));
+            $2.assign(length, East.max(length, mate.hold));
+            $2.if(kind.hasTag("some").and(() => East.equal(mate.kind, kind)), ($3) => { $3.assign(kindMates, true); });
+        });
+        const to = $.const(day.addMilliseconds(length));
+        const spare = $.let(none, OptionType(FloatType));
+        $.match(nextOf(resource, day), {
+            some: ($2, job) => { $2.assign(spare, some(to.durationMilliseconds(job.start).toFloat().divide(DAY_MS))); },
+        });
+        return {
+            day, bin, reserve, quantity, arrival, kind, resource, load, after: fill.add(quantity), hold: { from: day, to }, spare, kindMates,
+            otherMates: East.greater(mates.size(), 0n).and(() => kindMates.not()), rules, unit,
+        };
     });
-    const to = $.const(day.addMilliseconds(length));
-    const spare = $.let(none, OptionType(FloatType));
-    $.match(nextOf(resource, day), {
-        some: ($2, job) => { $2.assign(spare, some(to.durationMilliseconds(job.start).toFloat().divide(DAY_MS))); },
-    });
-    return {
-        day, bin, reserve, quantity, arrival, kind, resource, load, after: fill.add(quantity), hold: { from: day, to }, spare, kindMates,
-        otherMates: East.greater(mates.size(), 0n).and(() => kindMates.not()), rules, unit,
-    };
-});
+}
 
 // ============================================================================
 // The built-in rules
 // ============================================================================
 
 /**
- * The built-in rules (§12.3): one verdict for one candidate.
+ * The built-in rules (§12.3): one verdict for one candidate, made over the bins' key type (east-workspace#1709, ruling
+ * 12), String where none is given.
  *
- * @param candidate - A quantity on a resource, against the drafted day
- * @returns Its verdict
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns An East function `(candidate) → Fit`: a quantity on a resource, against the drafted day, to its verdict
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @remarks
  * In order: a job covering the day's start refuses it (`busy until Fri 14`);
@@ -414,55 +422,59 @@ export const allocationCandidateOf = East.function([
  * 0.5 under the minimum, less 0.04 a spare day up to six; its reason the spare
  * days and the load it leaves; under the minimum it warns, when the rules ask.
  */
-export const allocationFit = East.function([AllocationCandidateType], AllocationFitType, ($, candidate) => {
-    const busyOf = $.const(allocationBusyJob);
-    const nextOf = $.const(allocationNextJob);
-    const dayText = $.const(allocationDayText);
-    const qty = $.const(allocationQuantityText);
-    const num = $.const(scheduleNumberText);
-    const loadText = $.const(allocationLoadText);
-    const resource = $.const(candidate.resource);
-    $.match(busyOf(resource, candidate.day), {
-        some: ($2, job) => {
-            $2.return(variant("refused", { group: "Busy", reason: East.str`busy until ${dayText(job.end)}`, measure: variant("day", { lead: "until", at: job.end }) }));
-        },
-    });
-    const next = $.const(nextOf(resource, candidate.day));
-    $.match(next, {
-        some: ($2, job) => {
-            $2.if(East.greater(candidate.hold.to, job.start), ($3) => {
-                $3.return(variant("refused", {
-                    group: "Gap too short", reason: East.str`gap too short · next job ${dayText(job.start)}`,
-                    measure: variant("day", { lead: "next job", at: job.start }),
-                }));
-            });
-        },
-    });
-    $.if(East.greater(candidate.after, resource.max), ($2) => {
-        const by = $2.const(East.Float.roundHalf(candidate.after.subtract(resource.max)).toFloat());
-        $2.return(variant("refused", { group: "Over max", reason: East.str`over max by ${qty(by, candidate.unit)}`, measure: variant("amount", { lead: "by", value: by }) }));
-    });
-    const fill = $.const(candidate.after.subtract(candidate.quantity));
-    $.if(candidate.reserve.and(() => East.greaterEqual(fill, resource.max)), ($2) => {
-        $2.return(variant("refused", { group: "Full", reason: East.str`full · ${loadText(fill, resource, candidate.unit)}`, measure: variant("none", null) }));
-    });
-    // The score, term for term in the mock's order, so equal fits tie exactly.
-    const spare = $.const(candidate.spare.unwrap("some", () => 9.0));
-    const score = $.const(candidate.after.divide(resource.max)
-        .add(candidate.kindMates.ifElse(() => 0.25, () => 0.0))
-        .subtract(candidate.otherMates.ifElse(() => 0.1, () => 0.0))
-        .subtract(East.less(candidate.after, resource.min).ifElse(() => 0.5, () => 0.0))
-        .subtract(East.min(spare, $.const(6.0, FloatType)).multiply(0.04)));
-    const gap = $.const(next.match({
-        some: (_$2, job) => East.str`${num(spare)} d spare to ${dayText(job.start)}`,
-        none: (_$2) => East.str`open gap`,
-    }));
-    return variant("fits", {
-        score, why: East.str`${gap} · leaves ${loadText(candidate.after, resource, candidate.unit)}`,
-        warn: East.less(candidate.after, resource.min).and(() => candidate.rules.under).ifElse(
-            () => East.value(some("under min"), OptionType(StringType)), () => East.value(none, OptionType(StringType))),
-    });
-});
+export function allocationFit<K extends EastType = StringType>(options?: AllocationFitOptions<K>): ExprType<FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>> {
+    // The candidate's bin is keyed by the bins' own type; the rules read none of it.
+    const Candidate = AllocationCandidateTypeFor({ key: allocationFitKey(options, "Allocation.fit") }) as unknown as AllocationCandidateType;
+    return East.function([Candidate], AllocationFitType, ($, candidate) => {
+        const busyOf = $.const(allocationBusyJob);
+        const nextOf = $.const(allocationNextJob);
+        const dayText = $.const(allocationDayText);
+        const qty = $.const(allocationQuantityText);
+        const num = $.const(scheduleNumberText);
+        const loadText = $.const(allocationLoadText);
+        const resource = $.const(candidate.resource);
+        $.match(busyOf(resource, candidate.day), {
+            some: ($2, job) => {
+                $2.return(variant("refused", { group: "Busy", reason: East.str`busy until ${dayText(job.end)}`, measure: variant("day", { lead: "until", at: job.end }) }));
+            },
+        });
+        const next = $.const(nextOf(resource, candidate.day));
+        $.match(next, {
+            some: ($2, job) => {
+                $2.if(East.greater(candidate.hold.to, job.start), ($3) => {
+                    $3.return(variant("refused", {
+                        group: "Gap too short", reason: East.str`gap too short · next job ${dayText(job.start)}`,
+                        measure: variant("day", { lead: "next job", at: job.start }),
+                    }));
+                });
+            },
+        });
+        $.if(East.greater(candidate.after, resource.max), ($2) => {
+            const by = $2.const(East.Float.roundHalf(candidate.after.subtract(resource.max)).toFloat());
+            $2.return(variant("refused", { group: "Over max", reason: East.str`over max by ${qty(by, candidate.unit)}`, measure: variant("amount", { lead: "by", value: by }) }));
+        });
+        const fill = $.const(candidate.after.subtract(candidate.quantity));
+        $.if(candidate.reserve.and(() => East.greaterEqual(fill, resource.max)), ($2) => {
+            $2.return(variant("refused", { group: "Full", reason: East.str`full · ${loadText(fill, resource, candidate.unit)}`, measure: variant("none", null) }));
+        });
+        // The score, term for term in the mock's order, so equal fits tie exactly.
+        const spare = $.const(candidate.spare.unwrap("some", () => 9.0));
+        const score = $.const(candidate.after.divide(resource.max)
+            .add(candidate.kindMates.ifElse(() => 0.25, () => 0.0))
+            .subtract(candidate.otherMates.ifElse(() => 0.1, () => 0.0))
+            .subtract(East.less(candidate.after, resource.min).ifElse(() => 0.5, () => 0.0))
+            .subtract(East.min(spare, $.const(6.0, FloatType)).multiply(0.04)));
+        const gap = $.const(next.match({
+            some: (_$2, job) => East.str`${num(spare)} d spare to ${dayText(job.start)}`,
+            none: (_$2) => East.str`open gap`,
+        }));
+        return variant("fits", {
+            score, why: East.str`${gap} · leaves ${loadText(candidate.after, resource, candidate.unit)}`,
+            warn: East.less(candidate.after, resource.min).and(() => candidate.rules.under).ifElse(
+                () => East.value(some("under min"), OptionType(StringType)), () => East.value(none, OptionType(StringType))),
+        });
+    }) as unknown as ExprType<FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>>;
+}
 
 // ============================================================================
 // Loads, candidates and answers
@@ -487,12 +499,17 @@ export function allocationLoads<R extends EastType>(row: R) {
 
 /**
  * The candidates for a fit's question (§12.3, east-workspace#1624), over what
- * the app's function read.
+ * the app's function read: made over the bins' key type (east-workspace#1709,
+ * ruling 12), String where none is given.
  *
- * @param request - The question: the plan day and what is asked of it
- * @param context - What the function read: the day's bins as their roles, the arrivals, the resources, the rules and the unit
- * @returns A place's subject on every resource of the context, in the resources' key order; or for a take, every bin on its resource, then every arrival the context's bins have not booked, then a reservation
- * @throws East runtime error if a place's bin is not among the context's bins, or a place's arrival or a take's resource is not in the context
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns An East function `(request, context) → Array<Candidate>`: the question — the plan day and what is asked of
+ *   it — and what the function read — the day's bins as their roles, the arrivals, the resources, the rules and the unit
+ *   — to a place's subject on every resource of the context, in the resources' key order; or for a take, every bin on
+ *   its resource, then every arrival the context's bins have not booked, then a reservation
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type; and as it runs, an East runtime error if a
+ *   place's bin is not among the context's bins, or a place's arrival or a take's resource is not in the context
  *
  * @remarks
  * A bin is placed with its own kind and hold, an arrival with its, and a bin
@@ -506,139 +523,166 @@ export function allocationLoads<R extends EastType>(row: R) {
  * @example
  * ```ts
  * // Inside an e3.function's body: the built-in rule over each candidate of the question.
- * const candidates = $.const(Allocation.candidates);
- * const rule = $.const(Allocation.fit);
+ * const candidates = $.const(Allocation.candidates());
+ * const rule = $.const(Allocation.fit());
  * $.for(candidates(request, context), ($2, candidate) => { $2(verdicts.insert(candidate.resource.key, rule(candidate))); });
  * ```
  */
-export const allocationCandidates = East.function([AllocationFitRequestType, AllocationFitContextType], ArrayType(AllocationCandidateType), ($, request, context) => {
-    const parts = $.const(allocationMatesOf);
-    const loadOf = $.const(allocationLoadOf);
-    const candidateOf = $.const(allocationCandidateOf);
-    const step = $.const(allocationMilliseconds);
-    const day = $.const(request.day);
-    const mates = $.const(parts(context.bins, context.resources));
-    const out = $.let([], ArrayType(AllocationCandidateType));
-    $.match(request.ask, {
-        place: ($2, place) => {
-            const bin = $2.let(none, OptionType(StringType));
-            const arrival = $2.let(none, OptionType(AllocationArrivalType));
-            const kind = $2.let(none, OptionType(StringType));
-            const hold = $2.let(0n, IntegerType);
-            const reserve = $2.let(false, BooleanType);
-            $2.match(place.subject, {
-                bin: ($3, id) => {
-                    const subject = $3.const(context.bins.get(id));
-                    $3.assign(bin, some(id));
-                    $3.match(subject.arrival, { some: ($4, key) => { $4.assign(arrival, context.arrivals.tryGet(key)); } });
-                    $3.assign(kind, subject.kind);
-                    $3.assign(hold, step(subject.hold));
-                    $3.assign(reserve, subject.arrival.hasTag("none"));
-                },
-                arrival: ($3, key) => {
-                    const subject = $3.const(context.arrivals.get(key));
-                    $3.assign(arrival, some(subject));
-                    $3.assign(kind, subject.kind);
-                    $3.assign(hold, step(subject.hold));
-                },
-            });
-            const subject = $2.const(bin.unwrap("some", () => ""));
-            $2.for(context.resources, ($3, resource, key) => {
-                const all = $3.const(mates.get(key));
-                const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, subject)));
-                const length = $3.const(reserve.ifElse(() => step(resource.hold), () => hold));
-                $3(out.pushLast(candidateOf(day, bin, reserve, place.quantity, arrival, kind, length, resource, others, loadOf(day, resource, all), context.rules, context.unit)));
-            });
-        },
-        take: ($2, take) => {
-            const resource = $2.const(context.resources.get(take.resource));
-            const all = $2.const(mates.get(take.resource));
-            const load = $2.const(loadOf(day, resource, all));
-            $2.for(context.bins, ($3, bin, id) => {
-                const allocated = $3.let(0.0, FloatType);
-                $3.for(bin.parts, ($4, part) => { $4.assign(allocated, allocated.add(part)); });
-                const reserve = $3.const(bin.arrival.hasTag("none"));
-                const quantity = $3.let(bin.quantity, FloatType);
-                $3.if(reserve, ($4) => { $4.assign(quantity, 0.0); }).else(($4) => {
-                    $4.if(East.less(allocated, bin.quantity), ($5) => {
-                        $5.assign(quantity, bin.quantity.subtract(allocated).add(bin.parts.get(take.resource, () => 0.0)));
+export function allocationCandidates<K extends EastType = StringType>(options?: AllocationFitOptions<K>): ExprType<FunctionType<
+    [AllocationFitRequestType<K>, AllocationFitContextType<K>], ArrayType<AllocationCandidateType<K>>>> {
+    const key = allocationFitKey(options, "Allocation.candidates");
+    // A bin is named by a key of the bins' own type: the subject's parts are told from the others' by its key's text.
+    const Request = AllocationFitRequestTypeFor({ key }) as unknown as AllocationFitRequestType;
+    const Context = AllocationFitContextTypeFor({ key }) as unknown as AllocationFitContextType;
+    const Candidate = AllocationCandidateTypeFor({ key }) as unknown as AllocationCandidateType;
+    const matesOf = allocationMatesOf(key), candidateFor = allocationCandidateOf(key);
+    return East.function([Request, Context], ArrayType(Candidate), ($, request, context) => {
+        const parts = $.const(matesOf);
+        const loadOf = $.const(allocationLoadOf);
+        const candidateOf = $.const(candidateFor);
+        const step = $.const(allocationMilliseconds);
+        const day = $.const(request.day);
+        const mates = $.const(parts(context.bins, context.resources));
+        const out = $.let([], ArrayType(Candidate));
+        $.match(request.ask, {
+            place: ($2, place) => {
+                const bin = $2.let(none, Candidate.fields.bin);
+                const arrival = $2.let(none, OptionType(AllocationArrivalType));
+                const kind = $2.let(none, OptionType(StringType));
+                const hold = $2.let(0n, IntegerType);
+                const reserve = $2.let(false, BooleanType);
+                $2.match(place.subject, {
+                    bin: ($3, id) => {
+                        const subject = $3.const(context.bins.get(id));
+                        $3.assign(bin, some(id));
+                        $3.match(subject.arrival, { some: ($4, key) => { $4.assign(arrival, context.arrivals.tryGet(key)); } });
+                        $3.assign(kind, subject.kind);
+                        $3.assign(hold, step(subject.hold));
+                        $3.assign(reserve, subject.arrival.hasTag("none"));
+                    },
+                    arrival: ($3, key) => {
+                        const subject = $3.const(context.arrivals.get(key));
+                        $3.assign(arrival, some(subject));
+                        $3.assign(kind, subject.kind);
+                        $3.assign(hold, step(subject.hold));
+                    },
+                });
+                const subject = $2.const(bin.match({ some: (_$3, id) => East.str`${id}`, none: (_$3) => "" }));
+                $2.for(context.resources, ($3, resource, key) => {
+                    const all = $3.const(mates.get(key));
+                    const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, subject)));
+                    const length = $3.const(reserve.ifElse(() => step(resource.hold), () => hold));
+                    $3(out.pushLast(candidateOf(day, bin, reserve, place.quantity, arrival, kind, length, resource, others, loadOf(day, resource, all), context.rules, context.unit)));
+                });
+            },
+            take: ($2, take) => {
+                const resource = $2.const(context.resources.get(take.resource));
+                const all = $2.const(mates.get(take.resource));
+                const load = $2.const(loadOf(day, resource, all));
+                $2.for(context.bins, ($3, bin, id) => {
+                    const allocated = $3.let(0.0, FloatType);
+                    $3.for(bin.parts, ($4, part) => { $4.assign(allocated, allocated.add(part)); });
+                    const reserve = $3.const(bin.arrival.hasTag("none"));
+                    const quantity = $3.let(bin.quantity, FloatType);
+                    $3.if(reserve, ($4) => { $4.assign(quantity, 0.0); }).else(($4) => {
+                        $4.if(East.less(allocated, bin.quantity), ($5) => {
+                            $5.assign(quantity, bin.quantity.subtract(allocated).add(bin.parts.get(take.resource, () => 0.0)));
+                        });
+                    });
+                    const arrival = $3.let(none, OptionType(AllocationArrivalType));
+                    $3.match(bin.arrival, { some: ($4, key) => { $4.assign(arrival, context.arrivals.tryGet(key)); } });
+                    const named = $3.const(East.str`${id}`);
+                    const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, named)));
+                    $3(out.pushLast(candidateOf(day, some(id), reserve, quantity, arrival, bin.kind, step(bin.hold), resource, others, load, context.rules, context.unit)));
+                });
+                // Every arrival the day has not booked, whole on the resource.
+                const booked = $2.let(new Set<string>(), SetType(StringType));
+                $2.for(context.bins, ($3, bin) => {
+                    $3.match(bin.arrival, { some: ($4, key) => { $4.if(booked.has(key).not(), ($5) => { $5(booked.insert(key)); }); } });
+                });
+                $2.for(context.arrivals, ($3, arrival, key) => {
+                    $3.if(booked.has(key).not(), ($4) => {
+                        $4(out.pushLast(candidateOf(day, none, false, arrival.quantity, some(arrival), arrival.kind, step(arrival.hold), resource, all, load, context.rules, context.unit)));
                     });
                 });
-                const arrival = $3.let(none, OptionType(AllocationArrivalType));
-                $3.match(bin.arrival, { some: ($4, key) => { $4.assign(arrival, context.arrivals.tryGet(key)); } });
-                const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, id)));
-                $3(out.pushLast(candidateOf(day, some(id), reserve, quantity, arrival, bin.kind, step(bin.hold), resource, others, load, context.rules, context.unit)));
-            });
-            // Every arrival the day has not booked, whole on the resource.
-            const booked = $2.let(new Set<string>(), SetType(StringType));
-            $2.for(context.bins, ($3, bin) => {
-                $3.match(bin.arrival, { some: ($4, key) => { $4.if(booked.has(key).not(), ($5) => { $5(booked.insert(key)); }); } });
-            });
-            $2.for(context.arrivals, ($3, arrival, key) => {
-                $3.if(booked.has(key).not(), ($4) => {
-                    $4(out.pushLast(candidateOf(day, none, false, arrival.quantity, some(arrival), arrival.kind, step(arrival.hold), resource, all, load, context.rules, context.unit)));
-                });
-            });
-            $2(out.pushLast(candidateOf(day, none, true, 0.0, none, none, step(resource.hold), resource, all, load, context.rules, context.unit)));
-        },
-    });
-    return out;
-});
+                $2(out.pushLast(candidateOf(day, none, true, 0.0, none, none, step(resource.hold), resource, all, load, context.rules, context.unit)));
+            },
+        });
+        return out;
+    }) as unknown as ExprType<FunctionType<[AllocationFitRequestType<K>, AllocationFitContextType<K>], ArrayType<AllocationCandidateType<K>>>>;
+}
 
 /**
  * Answers a fit's question with a fit per candidate (east-workspace#1624),
- * over what the app's function read.
+ * over what the app's function read: made over the bins' key type
+ * (east-workspace#1709, ruling 12), String where none is given.
  *
- * @param request - The question
- * @param context - What the function read
- * @param fit - The rule, asked one candidate at a time
- * @param basis - How the fit ranks, in words (`ranked by load, kind and spare days`)
- * @returns A place's verdict for every resource of the context, or a take's for every bin, every arrival the context's bins have not booked, and reserving
- * @throws East runtime error as {@link allocationCandidates} does, where the question's own subject is not in the context
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns An East function `(request, context, fit, basis) → FitResult`: the question, what the function read, the rule
+ *   — asked one candidate at a time — and how it ranks in words (`ranked by load, kind and spare days`), to a place's
+ *   verdict for every resource of the context, or a take's for every bin, every arrival the context's bins have not
+ *   booked, and reserving
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type; and as it runs, an East runtime error as
+ *   {@link allocationCandidates} does, where the question's own subject is not in the context
  *
  * @example
  * ```ts
- * const answer = $.const(Allocation.answer);
- * const context = $.const({ bins: day, arrivals: loads, resources, rules: { under: true }, unit: "m³" }, Allocation.Types.FitContext);
- * return answer(request, context, Allocation.fit, "ranked by load, kind and spare days");
+ * const answer = $.const(Allocation.answer());
+ * const context = $.const({ bins: day, arrivals: loads, resources, rules: { under: true }, unit: "m³" }, Allocation.Types.FitContext());
+ * return answer(request, context, Allocation.fit(), "ranked by load, kind and spare days");
  * ```
  */
-export const allocationAnswer = East.function([
-    AllocationFitRequestType, AllocationFitContextType, FunctionType([AllocationCandidateType], AllocationFitType), StringType,
-], AllocationFitResultType, ($, request, context, fit, basis) => {
-    const candidates = $.const(allocationCandidates);
-    const resources = $.let(new Map(), DictType(StringType, AllocationFitType));
-    const bins = $.let(new Map(), DictType(StringType, AllocationFitType));
-    const arrivals = $.let(new Map(), DictType(StringType, AllocationFitType));
-    const reserve = $.let(none, OptionType(AllocationFitType));
-    $.for(candidates(request, context), ($2, candidate) => {
-        $2.match(request.ask, {
-            place: ($3) => { $3(resources.insert(candidate.resource.key, fit(candidate))); },
-            take: ($3) => {
-                $3.match(candidate.bin, {
-                    some: ($4, id) => { $4(bins.insert(id, fit(candidate))); },
-                    none: ($4) => {
-                        $4.match(candidate.arrival, {
-                            some: ($5, arrival) => { $5(arrivals.insert(arrival.key, fit(candidate))); },
-                            none: ($5) => { $5.assign(reserve, some(fit(candidate))); },
-                        });
-                    },
-                });
-            },
+export function allocationAnswer<K extends EastType = StringType>(options?: AllocationFitOptions<K>): ExprType<FunctionType<[
+    AllocationFitRequestType<K>, AllocationFitContextType<K>, FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>, StringType,
+], AllocationFitResultType<K>>> {
+    const key = allocationFitKey(options, "Allocation.answer");
+    // The answer names a bin by a key of the bins' own type, as its question does.
+    const Request = AllocationFitRequestTypeFor({ key }) as unknown as AllocationFitRequestType;
+    const Context = AllocationFitContextTypeFor({ key }) as unknown as AllocationFitContextType;
+    const Candidate = AllocationCandidateTypeFor({ key }) as unknown as AllocationCandidateType;
+    const Result = AllocationFitResultTypeFor({ key }) as unknown as AllocationFitResultType;
+    const candidatesFor = allocationCandidates({ key });
+    return East.function([Request, Context, FunctionType([Candidate], AllocationFitType), StringType], Result, ($, request, context, fit, basis) => {
+        const candidates = $.const(candidatesFor as unknown as ExprType<FunctionType<[AllocationFitRequestType, AllocationFitContextType], ArrayType<AllocationCandidateType>>>);
+        const resources = $.let(new Map(), DictType(StringType, AllocationFitType));
+        const bins = $.let(new Map(), Result.fields.bins);
+        const arrivals = $.let(new Map(), DictType(StringType, AllocationFitType));
+        const reserve = $.let(none, OptionType(AllocationFitType));
+        $.for(candidates(request, context), ($2, candidate) => {
+            $2.match(request.ask, {
+                place: ($3) => { $3(resources.insert(candidate.resource.key, fit(candidate))); },
+                take: ($3) => {
+                    $3.match(candidate.bin, {
+                        some: ($4, id) => { $4(bins.insert(id, fit(candidate))); },
+                        none: ($4) => {
+                            $4.match(candidate.arrival, {
+                                some: ($5, arrival) => { $5(arrivals.insert(arrival.key, fit(candidate))); },
+                                none: ($5) => { $5.assign(reserve, some(fit(candidate))); },
+                            });
+                        },
+                    });
+                },
+            });
         });
-    });
-    return { ask: request.ask, resources, bins, arrivals, reserve, basis };
-});
+        return { ask: request.ask, resources, bins, arrivals, reserve, basis };
+    }) as unknown as ExprType<FunctionType<[
+        AllocationFitRequestType<K>, AllocationFitContextType<K>, FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>, StringType,
+    ], AllocationFitResultType<K>>>;
+}
 
 /**
  * A greedy look-ahead over a fit (§12.4, east-workspace#1624): what a
  * placement leaves for the day's other arrivals, over what the app's function
- * read.
+ * read — made over the bins' key type (east-workspace#1709, ruling 12), String
+ * where none is given.
  *
- * @param context - What the function read: the day's bins, every arrival the look-ahead places, and every resource
- * @param candidate - The placement
- * @param fit - The rule
- * @returns The rule's verdict, lowered by what the placement leaves with nowhere to go
+ * @typeParam K - The bins' key type
+ * @param options - The bins' key type, `key`, where they are keyed by other than String: `{ key: IntegerType }`
+ * @returns An East function `(context, candidate, fit) → Fit`: what the function read — the day's bins, every arrival
+ *   the look-ahead places, and every resource — the placement and the rule, to the rule's verdict, lowered by what the
+ *   placement leaves with nowhere to go
+ * @throws {Error} When the options are no `{ key }`, or `key` is no East type
  *
  * @remarks
  * A refusal is returned as `fit` gives it. A fit places the candidate — a bin
@@ -651,64 +695,73 @@ export const allocationAnswer = East.function([
  *
  * @example
  * ```ts
- * const ahead = $.const(Allocation.lookahead);
- * const rule = $.const(Allocation.fit);
- * return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
+ * const ahead = $.const(Allocation.lookahead());
+ * const rule = $.const(Allocation.fit());
+ * return answer(request, context, East.function([Allocation.Types.Candidate()], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
  *     "ranked by load, kind and spare days, and what it leaves for the day's other loads");
  * ```
  */
-export const allocationLookahead = East.function([
-    AllocationFitContextType, AllocationCandidateType, FunctionType([AllocationCandidateType], AllocationFitType),
-], AllocationFitType, ($, context, candidate, fit) => {
-    const parts = $.const(allocationMatesOf);
-    const loadOf = $.const(allocationLoadOf);
-    const candidateOf = $.const(allocationCandidateOf);
-    const step = $.const(allocationMilliseconds);
-    const day = $.const(candidate.day);
-    const verdict = $.const(fit(candidate));
-    $.match(verdict, { refused: ($2) => { $2.return(verdict); } });
-    const fits = $.const(verdict.unwrap("fits"));
-    // The candidate placed: its bin off every resource, its quantity on its resource.
-    const subject = $.const(candidate.bin.unwrap("some", () => ""));
-    const placed = $.const(parts(context.bins, context.resources).map(($2, list) => list.filter(($3, mate) => East.notEqual(mate.bin, subject))));
-    $(placed.get(candidate.resource.key).pushLast({
-        bin: "", quantity: candidate.quantity, hold: day.durationMilliseconds(candidate.hold.to), kind: candidate.kind, reserve: candidate.reserve,
-    }));
-    // The day's unbooked arrivals, largest first.
-    const booked = $.let(new Set<string>(), SetType(StringType));
-    $.for(context.bins, ($2, bin) => {
-        $2.match(bin.arrival, { some: ($3, key) => { $3.if(booked.has(key).not(), ($4) => { $4(booked.insert(key)); }); } });
-    });
-    $.match(candidate.arrival, { some: ($2, arrival) => { $2.if(booked.has(arrival.key).not(), ($3) => { $3(booked.insert(arrival.key)); }); } });
-    const waiting = $.const(context.arrivals.filter(($2, _arrival, key) => booked.has(key).not()).toArray(($2, arrival) => arrival)
-        .sort(($2, arrival) => ({ quantity: arrival.quantity.negate(), key: arrival.key })));
-    const left = $.let(0n, IntegerType);
-    $.for(waiting, ($2, arrival) => {
-        const hold = $2.const(step(arrival.hold));
-        const best = $2.let(none, OptionType(StringType));
-        const bestScore = $2.let(0.0, FloatType);
-        $2.for(context.resources, ($3, resource, key) => {
-            const mates = $3.const(placed.get(key));
-            const there = $3.const(candidateOf(day, none, false, arrival.quantity, some(arrival), arrival.kind, hold, resource, mates, loadOf(day, resource, mates), context.rules, context.unit));
-            $3.match(fit(there), {
-                fits: ($4, it) => {
-                    $4.if(best.hasTag("none").or(() => East.greater(it.score, bestScore)), ($5) => {
-                        $5.assign(best, some(key));
-                        $5.assign(bestScore, it.score);
-                    });
-                },
+export function allocationLookahead<K extends EastType = StringType>(options?: AllocationFitOptions<K>): ExprType<FunctionType<[
+    AllocationFitContextType<K>, AllocationCandidateType<K>, FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>,
+], typeof AllocationFitType>> {
+    const key = allocationFitKey(options, "Allocation.lookahead");
+    // The candidate's bin is keyed by the bins' own type: its parts are told from the others' by its key's text.
+    const Context = AllocationFitContextTypeFor({ key }) as unknown as AllocationFitContextType;
+    const Candidate = AllocationCandidateTypeFor({ key }) as unknown as AllocationCandidateType;
+    const matesOf = allocationMatesOf(key), candidateFor = allocationCandidateOf(key);
+    return East.function([Context, Candidate, FunctionType([Candidate], AllocationFitType)], AllocationFitType, ($, context, candidate, fit) => {
+        const parts = $.const(matesOf);
+        const loadOf = $.const(allocationLoadOf);
+        const candidateOf = $.const(candidateFor);
+        const step = $.const(allocationMilliseconds);
+        const day = $.const(candidate.day);
+        const verdict = $.const(fit(candidate));
+        $.match(verdict, { refused: ($2) => { $2.return(verdict); } });
+        const fits = $.const(verdict.unwrap("fits"));
+        // The candidate placed: its bin off every resource, its quantity on its resource.
+        const subject = $.const(candidate.bin.match({ some: (_$2, id) => East.str`${id}`, none: (_$2) => "" }));
+        const placed = $.const(parts(context.bins, context.resources).map(($2, list) => list.filter(($3, mate) => East.notEqual(mate.bin, subject))));
+        $(placed.get(candidate.resource.key).pushLast({
+            bin: "", quantity: candidate.quantity, hold: day.durationMilliseconds(candidate.hold.to), kind: candidate.kind, reserve: candidate.reserve,
+        }));
+        // The day's unbooked arrivals, largest first.
+        const booked = $.let(new Set<string>(), SetType(StringType));
+        $.for(context.bins, ($2, bin) => {
+            $2.match(bin.arrival, { some: ($3, key) => { $3.if(booked.has(key).not(), ($4) => { $4(booked.insert(key)); }); } });
+        });
+        $.match(candidate.arrival, { some: ($2, arrival) => { $2.if(booked.has(arrival.key).not(), ($3) => { $3(booked.insert(arrival.key)); }); } });
+        const waiting = $.const(context.arrivals.filter(($2, _arrival, key) => booked.has(key).not()).toArray(($2, arrival) => arrival)
+            .sort(($2, arrival) => ({ quantity: arrival.quantity.negate(), key: arrival.key })));
+        const left = $.let(0n, IntegerType);
+        $.for(waiting, ($2, arrival) => {
+            const hold = $2.const(step(arrival.hold));
+            const best = $2.let(none, OptionType(StringType));
+            const bestScore = $2.let(0.0, FloatType);
+            $2.for(context.resources, ($3, resource, key) => {
+                const mates = $3.const(placed.get(key));
+                const there = $3.const(candidateOf(day, none, false, arrival.quantity, some(arrival), arrival.kind, hold, resource, mates, loadOf(day, resource, mates), context.rules, context.unit));
+                $3.match(fit(there), {
+                    fits: ($4, it) => {
+                        $4.if(best.hasTag("none").or(() => East.greater(it.score, bestScore)), ($5) => {
+                            $5.assign(best, some(key));
+                            $5.assign(bestScore, it.score);
+                        });
+                    },
+                });
+            });
+            $2.match(best, {
+                some: ($3, key) => { $3(placed.get(key).pushLast({ bin: "", quantity: arrival.quantity, hold, kind: arrival.kind, reserve: false })); },
+                none: ($3) => { $3.assign(left, left.add(1n)); },
             });
         });
-        $2.match(best, {
-            some: ($3, key) => { $3(placed.get(key).pushLast({ bin: "", quantity: arrival.quantity, hold, kind: arrival.kind, reserve: false })); },
-            none: ($3) => { $3.assign(left, left.add(1n)); },
-        });
-    });
-    const leaves = $.const(East.equal(left, 1n).ifElse(() => East.str` · leaves 1 load with no fit`, () => East.str` · leaves ${left} loads with no fit`));
-    return East.greater(left, 0n).ifElse(
-        () => East.value(variant("fits", { score: fits.score.subtract(left.toFloat()), why: East.str`${fits.why}${leaves}`, warn: fits.warn }), AllocationFitType),
-        () => verdict);
-});
+        const leaves = $.const(East.equal(left, 1n).ifElse(() => East.str` · leaves 1 load with no fit`, () => East.str` · leaves ${left} loads with no fit`));
+        return East.greater(left, 0n).ifElse(
+            () => East.value(variant("fits", { score: fits.score.subtract(left.toFloat()), why: East.str`${fits.why}${leaves}`, warn: fits.warn }), AllocationFitType),
+            () => verdict);
+    }) as unknown as ExprType<FunctionType<[
+        AllocationFitContextType<K>, AllocationCandidateType<K>, FunctionType<[AllocationCandidateType<K>], typeof AllocationFitType>,
+    ], typeof AllocationFitType>>;
+}
 
 // ============================================================================
 // The built-in checks

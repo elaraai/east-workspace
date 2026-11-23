@@ -61,7 +61,8 @@
  * event a gesture scheduled draws where it is placed, and a draft of an event
  * another narrowing holds draws nowhere. A narrowed kind with no backlog draws a
  * draft only of an event its window holds, or of a new one (`isNew`, #1343), as
- * its window's own read drew them.
+ * its window's own read drew them — an event its drafts moved under another key
+ * (east-workspace#1709) among the new: its record holds none under that key.
  *
  * @packageDocumentation
  */
@@ -73,6 +74,7 @@ import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
     type ScheduleCellsRead,
 } from "../shared/schedule/cells.js";
+import { draftAdds } from "../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import type { CalendarKind, CalendarRange } from "./model.js";
 import { CALENDAR_PAGE_SIZE, pagedRowAt, type CalendarPagedValue, type CalendarPagedView, type CalendarPages } from "./pages.js";
@@ -187,10 +189,10 @@ export interface CalendarCellsArgs {
     /**
      * The editing's say of what confirmed Saves landed of the kinds it names ({@link calendarCellKinds}), and how it is
      * let go: drawn over a kind's cells read before the commit until they are read again — and the row each drafted
-     * event's session began from, which tells a new event from one the record holds; `undefined` for a Calendar read
-     * only.
+     * event's session began from, which tells a new event from one the record holds, with the events its drafts moved
+     * under another key, which its record holds none under; `undefined` for a Calendar read only.
      */
-    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying" | "movedFrom"> | undefined;
 }
 
 /**
@@ -219,6 +221,7 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
     const { kinds, parts, resources, range, bucket, drafts, paged, span, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
+    const movedFrom = editing?.movedFrom;
     const cellKinds = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -240,8 +243,9 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
         // draws nowhere.
         windowField: kind.backlog && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? kind.schedule.start : undefined,
         // A narrowed kind with no backlog draws a draft only of an event its window holds, or of a new one (#1343): one its
-        // session began from no stored row.
-        isNew: !kind.backlog && held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // session began from no stored row, or one its drafts moved under the key its fields build (east-workspace#1709).
+        isNew: !kind.backlog && held !== undefined && movedFrom !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key))
+            ? draftAdds(held, movedFrom, kind.key) : undefined,
         // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
         // another session's removal of an event drafted here never takes it off the board before the session has read it.
         carrying: carrying === undefined ? undefined : () => carrying(kind.key),
@@ -249,7 +253,7 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
         // no source narrowing it — the revision its record reads at.
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, held, carrying]);
+    })), [kinds, parts, held, carrying, movedFrom]);
     const from = range.from.getTime();
     const to = range.to.getTime();
     const over = useMemo(() => ({ from: new Date(from), to: new Date(to) }), [from, to]);

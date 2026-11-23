@@ -11,6 +11,7 @@
  */
 
 import { useCallback, type ReactNode } from "react";
+import { StringType, equalFor } from "@elaraai/east";
 import { lineId } from "./model.js";
 import type { SheetRowMarks } from "./optimise.js";
 import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow } from "./Rows.js";
@@ -26,6 +27,9 @@ import type { SheetScroll } from "./use-scroll.js";
 import type { SheetRowParts } from "./use-row-parts.js";
 import type { SheetActions } from "./use-actions.js";
 import { ariaRowIndexOf, dropText } from "./items.js";
+import { refusedRowOf } from "./refusal.js";
+
+const stringEqual = equalFor(StringType);
 
 /**
  * Builds the virtual rows' renderer (see the module docs).
@@ -70,7 +74,12 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
+    // The row the last gesture was refused on, for its key, while the footer says so: it is marked where it stands.
+    const refusedRow = refusedRowOf(ui.msg);
+    const refusedId = refusedRow?.id;
+    const refusedTurn = refusedRow?.turn;
     const renderRow = useCallback((i: number): ReactNode => {
+        const refusedOn = (id: string | undefined) => (id !== undefined && refusedId !== undefined && stringEqual(id, refusedId) ? refusedTurn : undefined);
         const item = body[i];
         if (item === undefined) return null;
         // Its place among the grid's rows (#860).
@@ -151,6 +160,7 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
                     ariaRowIndex={ariaRowIndex}
                     membership={memberships[i]}
                     draft={draftOf(item.row.id)}
+                    refused={refusedOn(item.row.id)}
                     onDiscard={onRowDiscard}
                     group={group}
                     folded={item.folded}
@@ -199,6 +209,7 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
                         editor={edit !== null && edit.r === r ? editorAt : undefined}
                         draft={real !== undefined ? draftOf(real.id) : undefined}
                         changes={real !== undefined ? changesOf(real.id, real) : undefined}
+                        refused={refusedOn(real?.id)}
                         writable={canEdit && editingState.available}
                         linkCtx={linkCellCtx}
                         actions={rowActions}
@@ -237,6 +248,8 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
                 group={lg}
                 membership={memberships[i]}
                 draft={item.kind === "real" ? draftOf(lg?.row.id ?? item.row.id, lg?.key) : undefined}
+                // A row's own key: a line stands under its group's, which its band says.
+                refused={item.kind === "real" && lg === undefined ? refusedOn(item.row.id) : undefined}
                 onDiscard={item.kind === "real" ? onRowDiscard : undefined}
                 linkCtx={linkCellCtx}
                 selC={!ui.ringless && ui.sel.r === r ? ui.sel.c : undefined}
@@ -268,7 +281,7 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, hostLayout, changesOf, canEdit, editingState.available]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, hostLayout, changesOf, canEdit, editingState.available, refusedId, refusedTurn]);
     return { renderRow };
 }
 

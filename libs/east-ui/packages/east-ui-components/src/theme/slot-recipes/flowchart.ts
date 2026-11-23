@@ -66,6 +66,7 @@ import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { conflictRing } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { oneLineBox } from "../one-line-box.js";
+import { refusedTone } from "../refused-mark.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -860,8 +861,9 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "[data-phone] &": { height: "auto", minHeight: "38px", flexWrap: "wrap", rowGap: "1", paddingY: "2", whiteSpace: "normal" },
         },
         footerStrong: { color: "fg", fontWeight: "700" },
-        /* Why a card's ⏎ was refused (#1249): the footer's own ink, taking the rail's slack, cut short before the split. */
-        footerMessage: { flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        /* Why a gesture was refused — a card's ⏎ (#1249), a row whose key another holds, a transition drawn where there is
+         * one (east-workspace#1709): in the danger ink, taking the rail's slack, cut short before the split. */
+        footerMessage: { flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...refusedTone },
         footerSplit: { marginLeft: "auto", color: "fg.subtle", flexShrink: 0, "[data-phone] &": { marginLeft: "0" } },
 
         /* Nothing to draw, and no gesture to start one: the shared empty state, centred in main. */

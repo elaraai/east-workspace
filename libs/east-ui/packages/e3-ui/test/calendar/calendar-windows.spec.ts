@@ -9,8 +9,10 @@
  * wire listing no resource; the refusals at build — an event kind on the paged
  * kind read whole, read through its day index, or placed on another kind
  * beside it, each naming both indexes over the kind's own fields, and two
- * paged kinds — and the examples' manifests: the jobs record and the presses
- * paged reads alone, never preloaded or polled whole. What the Calendar reads —
+ * paged kinds — an event kind over a record keyed by a struct or a variant,
+ * through its source of the slice (#1696), and the examples' manifests: the
+ * jobs record and the presses paged reads alone, never preloaded or polled
+ * whole. What the Calendar reads —
  * a cell at a time, the summary past the cap, the pages around the view — and
  * the refusals of a source's indexes, which the Calendar reads only as it is
  * evaluated, are read from e3, so they are checked in e3-ui-components on e3
@@ -19,14 +21,14 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DateTimeType, DictType, East, NullType, StringType, StructType, VariantType, variant, type BlockBuilder, type EastType, type ExprType } from "@elaraai/east";
+import { DateTimeType, DictType, East, IntegerType, NullType, StringType, StructType, VariantType, variant, type BlockBuilder, type EastType, type ExprType } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Calendar, CalendarPayloadType, Data, Record, Schedule, createCalendarPayload, deriveManifest } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as ex from "./calendar-windows.examples.js";
 import * as plan from "../plan/plan-windows.examples.js";
-import { PrintPress } from "../plan/plan-events.examples.js";
+import { PrintJob, PrintPress } from "../plan/plan-events.examples.js";
 import { refusingPlatform } from "../refusing-platform.js";
 
 describeEast("Calendar read a page at a time — the examples (#1424)", (test) => {
@@ -144,6 +146,57 @@ describe("a Calendar's paged resource kind (#1424)", () => {
         const wholePresses = ($: BlockBuilder<NullType>) => Calendar.resources($.let(Data.bind(plan.planWindowPresses)).read(), { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name });
         assert.equal(refusal(($) => createCalendarPayload({ resources: { presses: wholePresses($) }, events: { job: wholeJobs($ as never) } })), "");
         assert.equal(refusal(($) => createCalendarPayload({ resources: { presses: wholePresses($) }, events: { job: windowedJobs($ as never) } })), "");
+    });
+});
+
+describe("a Calendar's event kind over a record keyed by any type (#1696)", () => {
+    test("#1696 — the jobs keyed by a struct, and keyed by a variant — a composite's key — each build through their `job` source of the slice, on the paged presses, read a cell at a time", () => {
+        const placed = e3.record("calendar_windows_placed_jobs", DictType(StructType({ press: StringType, seq: IntegerType }), PrintJob), {
+            initial: new Map(),
+            indexes: (index) => ({
+                calendar_windows_placed_jobs_by_time: index.interval({ from: "start", to: "end" }),
+                calendar_windows_placed_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+                calendar_windows_placed_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+            }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        const sourced = e3.record("calendar_windows_sourced_jobs", DictType(VariantType({ erp: StringType, own: StringType }), PrintJob), {
+            initial: new Map(),
+            indexes: (index) => ({
+                calendar_windows_sourced_jobs_by_time: index.interval({ from: "start", to: "end" }),
+                calendar_windows_sourced_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+                calendar_windows_sourced_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+            }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        assert.equal(refusal(($) => {
+            const jobs = $.let(Record.bind(placed));
+            const entries = $.let(Data.bindPaged(placed));
+            return createCalendarPayload({
+                slice: { slice: Slice.bindRecords("spec.calendar.placed", {
+                    job: { source: Data.bindPaged(placed, { indexes: ["calendar_windows_placed_jobs_by_time", "calendar_windows_placed_jobs_by_press_week", "calendar_windows_placed_jobs_by_press_month"] }), range: "start" },
+                }) },
+                resources: { presses: pressesOf($) },
+                events: { job: Calendar.events(jobs, {
+                    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                    backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due }, entries,
+                }) },
+            });
+        }), "");
+        assert.equal(refusal(($) => {
+            const jobs = $.let(Record.bind(sourced));
+            const entries = $.let(Data.bindPaged(sourced));
+            return createCalendarPayload({
+                slice: { slice: Slice.bindRecords("spec.calendar.sourced", {
+                    job: { source: Data.bindPaged(sourced, { indexes: ["calendar_windows_sourced_jobs_by_time", "calendar_windows_sourced_jobs_by_press_week", "calendar_windows_sourced_jobs_by_press_month"] }), range: "start" },
+                }) },
+                resources: { presses: pressesOf($) },
+                events: { job: Calendar.events(jobs, {
+                    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                    backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due }, entries,
+                }) },
+            });
+        }), "");
     });
 });
 

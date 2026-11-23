@@ -48,7 +48,7 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { articleOf as article } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, keyRefusedText, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicValue } from "./data.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
@@ -166,7 +166,7 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     placeholderRefused: (p: { kind: string }) => string;
     /**
      * Why a kind adds no row (#1549) — on a template's card, a drop's ghost and the footer: `Racks are keyed by Blob,
-     * which can't be typed — give the kind `key` to add them`; `name` is the kind's, as running text writes it, `type` its
+     * which can't be typed — give the kind `rowKey` to add them`; `name` is the kind's, as running text writes it, `type` its
      * key type's name.
      */
     keysUntyped: (p: { name: string; type: string }) => string;
@@ -176,7 +176,8 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
      */
     keyPlaceholder: (p: { name: string }) => string;
     /**
-     * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `A01 isn't changed:
+     * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `No key can be
+     * made for this rack` (east-workspace#1709), `A01 isn't changed:
      * the filters hide some fibre runs that may name it — clear them, then try again` (#1580), `A01 isn't changed: this page
      * holds only some fibre runs, and one it does not may name it — edit it where they are all held` (#1621), `A01 isn't
      * changed: the fibre runs naming it take no edit now — try again in a moment` (#1584).
@@ -372,7 +373,8 @@ export type SchematicDropRefusalWord =
 /**
  * Why a gesture records nothing (#1549), as the footer says it: the row holding
  * the key a row builds, by its kind's name and its own, as running text writes
- * them; a kind adding no row, its keys of a type the form can't type; an item
+ * them; a kind adding no row, its keys of a type the form can't type; a row no
+ * key could be made for (east-workspace#1709); an item
  * whose key would move, by its name, while some rows of a link or net kind that
  * may name it — by its name, as running text writes it — the filters hide,
  * aren't read (#1580) or lie beyond the page's scope (#1621), or those naming it
@@ -382,6 +384,7 @@ export type SchematicDropRefusalWord =
 export type SchematicKeyRefusalWord =
     | { readonly refusal: "taken"; readonly kind: string; readonly name: string }
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
+    | { readonly refusal: "unkeyed"; readonly kind: string }
     | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "scoped" | "unread" | "busy" }
     | { readonly refusal: "details"; readonly name: string; readonly kind: string };
 
@@ -400,7 +403,7 @@ const membersOf = ({ names, more }: SchematicMembers): string => (more === undef
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Why a kind adds no row (#1549): its name as running text writes it, and its key type's name. */
-const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
+const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`rowKey\` to add them`;
 
 /** What an issue says, in English. */
 function issueText(p: SchematicIssueWord): string {
@@ -521,6 +524,8 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
             switch (p.refusal) {
                 case "taken": return `${capital(article(p.kind))} ${p.kind} ${p.name} is there already`;
                 case "untyped": return keysUntyped(p.kind, p.type);
+                // The words every builder says it in.
+                case "unkeyed": return keyRefusedText(p.kind, { failed: undefined });
                 case "unheld": return `${p.name} isn't changed: ${({
                     filtered: `the filters hide some ${p.kind}s that may name it — clear them, then try again`,
                     // A page's scope (#1621) is no filter of the viewer's: no choice clears it.

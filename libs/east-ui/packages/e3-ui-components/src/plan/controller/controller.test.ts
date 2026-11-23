@@ -17,7 +17,8 @@
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { none, some, variant } from "@elaraai/east";
+import { IntegerType, StringType, VariantType, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { SeekQueryType } from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui/internal";
 import { registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
 import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
@@ -59,11 +60,13 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
 /** A decoded root — the inline stream unless a paged source is given, on the
  *  `pinned` arm when the source names its revision and the `paged` arm when it
  *  names none; callbacks as the decoder hands them over (plain functions
- *  inside `some`). */
+ *  inside `some`). Its rows are keyed by String, as `Plan.Root` says of data
+ *  keyed so, unless a test gives another key type. */
 function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}): PlanRootValue {
     const src = opts.source as object | undefined;
     return {
         rows: src !== undefined ? variant("revision" in src ? "pinned" : "paged", blocksSource(src)) : variant("inline", oneBlock(rows)),
+        rowsKeyType: some(toEastTypeValue(StringType)),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -77,6 +80,10 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
 }
 
 const ROWS = [planRow("G", group()), planRow("g1", span(), "G"), planRow("r1"), planRow("r2"), planRow("r3")];
+/** Rows keyed as a composite record keys them (east-workspace#1696): the ERP's numbered, the plant's own named. */
+const Sourced = VariantType({ erp: IntegerType, own: StringType });
+const printSourced = printFor(Sourced);
+const sameQuery = equalFor(SeekQueryType);
 /** {@link ROWS} without one row. */
 const without = (key: string) => ROWS.filter((r) => !rowIdEqual(r.id, rowId(key)));
 /** A row's test key from its id. */
@@ -730,6 +737,26 @@ describe("a bound ui state (#824)", () => {
         expect(c.getSnapshot().scroll).toMatchObject({ owner: "nav", nav: { key: rowItem("g40c2"), align: "start" } });
         expect(c.getSnapshot().seek.sought).toBeNull();
     });
+
+    test("#1696 — a paged row never seen, keyed by a variant, is sought by its key's text, which is its literal — never quoted as a String's is", async () => {
+        const host = hostState();
+        const tenth = printSourced(variant("erp", 10n));
+        const asked: ValueTypeOf<typeof SeekQueryType>[] = [];
+        mount([], host, {
+            root: {
+                rows: variant("paged", blocksSource({
+                    id: "c1696-focus",
+                    page: () => some([planRow(printSourced(variant("erp", 2n)))]),
+                    total: () => some(1n),
+                    seek: some((q: ValueTypeOf<typeof SeekQueryType>) => { asked.push(q); return some({ found: false, row: 1n, count: 0n }); }),
+                })),
+                rowsKeyType: some(toEastTypeValue(Sourced)),
+            },
+        });
+        host.set({ focus: some(rowId(tenth)) });
+        await microtasks();
+        expect(asked.map((q) => sameQuery(q, variant("key", tenth)))).toEqual([true]);
+    });
 });
 
 describe("the source's channels (#815)", () => {
@@ -1089,6 +1116,23 @@ describe("a key search looks among the source's elements (#1192)", () => {
         await c.search.find({ key: '"e10"' });
         expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
         expect(await c.search.listRange(2, 1)).toEqual([{ row: 2, label: "e2" }]);
+    });
+});
+
+describe("a key search over rows keyed by another type (east-workspace#1696)", () => {
+    test("#1696 — a key between two lands on the first row whose key sorts after it in the key's own order — never its text's, whose first is the second", async () => {
+        // The source's elements in their keys' order — the ERP's 2, 9 and 10, then the plant's own — none of them the
+        // eleventh, which sorts before the plant's own.
+        const texts = [variant("erp", 2n), variant("erp", 9n), variant("erp", 10n), variant("own", "Annex")].map((key) => printSourced(key));
+        const source = {
+            id: "c1696-sourced",
+            page: (offset: bigint, limit: bigint) => some(texts.slice(Number(offset), Number(offset + limit)).map((text) => planRow(text))),
+            total: () => some(BigInt(texts.length)),
+            seek: some(() => some({ found: false, row: 3n, count: 0n })),
+        };
+        const { c } = show(root([], { source, rowsKeyType: some(toEastTypeValue(Sourced)) }));
+        await c.search.find({ key: printSourced(variant("erp", 11n)) });
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey(printSourced(variant("own", "Annex"))));
     });
 });
 

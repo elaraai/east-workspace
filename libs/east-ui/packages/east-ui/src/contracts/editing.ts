@@ -774,7 +774,15 @@ export const EditingSessionFields = {
     sourceId: StringType,
     /** The entry schema. */
     entryType: EastTypeType,
-    /** An Array source's String identity field. */
+    /**
+     * The field of an entry that holds its identity. For an Array source, the
+     * String field its entries are addressed by. For a keyed source, whose
+     * entries are addressed by their keys, the field of an entry that holds
+     * its key too — of the key's own type — where its entries hold one
+     * (`keyField`, east-workspace#1705): the collection keeps a new entry's
+     * key there, and the session reads none of it. `none` for a source with
+     * neither.
+     */
     idField: OptionType(StringType),
     /** The entry's draft schema. */
     draftType: EastTypeType,

@@ -10,7 +10,7 @@ import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { durationMinutes } from "../shared/schedule/due.js";
 import { fieldChange } from "../shared/schedule/records.js";
-import { lowerWord } from "../shared/schedule/words.js";
+import { keyRefusedText, lowerWord } from "../shared/schedule/words.js";
 import {
     QUARTER, resourceKey, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
 } from "./model.js";
@@ -67,11 +67,28 @@ const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
 /**
  * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
  * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343) — of a paged kind, one of the
- * windows the frame holds (`paged`, #1424).
+ * windows the frame holds (`paged`, #1424). A gesture whose event's key is refused — the key its fields build is another
+ * event's, or its kind's rule makes none — records nothing, and says why (`refused`); asked of a gesture not made yet
+ * (`checkOnly`), a command answers with those words, as it does with any other refusal.
  */
 export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = [],
-    shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS): CalendarCommands {
+    shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS, refused: (why: string) => void = () => undefined): CalendarCommands {
     const kindOf = (item: CalendarItem) => value.events.find(kind => kind.key === item.kind);
+    /**
+     * Why a gesture's keys refuse it, in the shared words: the gesture just made, or — given its changes — one not made
+     * yet. `undefined` where its keys stand.
+     */
+    const keyRefused = (asked?: readonly ScheduleChange[]): string | undefined => {
+        const refusal = asked === undefined ? editing.keyRefusal() : editing.keyRefusalOf(asked);
+        return refusal === undefined ? undefined : keyRefusedText(refusal.name, refusal.why);
+    };
+    /** Records a gesture, saying why where its key refuses it. */
+    const record: ScheduleEditing["record"] = (changes, origin, label) => {
+        if (editing.record(changes, origin, label)) return true;
+        const why = keyRefused();
+        if (why !== undefined) refused(why);
+        return false;
+    };
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
         if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
@@ -125,10 +142,12 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
             const refusal = validate(source, at); if (refusal !== undefined) return refusal;
             const creating = "template" in source;
             const id = creating ? keyFor(source.kind.key, source.template.key, checkOnly) : source.item.key;
-            if (id === undefined) return "This record's key type needs an application-provided new key";
+            if (id === undefined) return keyRefused() ?? "This record's key type needs an application-provided new key";
             const gesture = creating ? variant("create", { template: source.template.key, ...at }) : variant("place", at);
             const refused = checkedWrite(source.kind, id, gesture); if (refused !== undefined) return refused;
-            if (!checkOnly && editing.record([{ kind: source.kind.key, id, gesture }], creating ? "insert" : origin,
+            const changes: ScheduleChange[] = [{ kind: source.kind.key, id, gesture }];
+            if (checkOnly) return keyRefused(changes);
+            if (record(changes, creating ? "insert" : origin,
                 `${creating ? "Create" : "Schedule"} ${creating ? source.template.name : source.item.title}`)) select([{ kind: source.kind.key, key: id }]);
             return undefined;
         },
@@ -142,10 +161,11 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 if (refused !== undefined) return refused;
                 changes.push({ kind: item.kind, id: item.key, gesture: variant("place", at) });
             }
-            if (!checkOnly) editing.record(changes, "move", `Move ${items.length} events`);
+            if (checkOnly) return keyRefused(changes);
+            record(changes, "move", `Move ${items.length} events`);
             return undefined;
         },
-        remove(items) { if (editing.record(items.map(item => ({ kind: item.kind, id: item.key, remove: true })), "remove", `Delete ${items.length} events`)) select([]); },
+        remove(items) { if (record(items.map(item => ({ kind: item.kind, id: item.key, remove: true })), "remove", `Delete ${items.length} events`)) select([]); },
         unschedule(items, checkOnly = false) {
             for (const item of items) {
                 const kind = kindOf(item);
@@ -154,15 +174,20 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 const refused = checkedWrite(kind, item.key, variant("unplace", null));
                 if (refused !== undefined) return refused;
             }
-            if (!checkOnly) editing.record(items.map(item => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) })), "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
+            const changes = items.map((item): ScheduleChange => ({ kind: item.kind, id: item.key, gesture: variant("unplace", null) }));
+            if (checkOnly) return keyRefused(changes);
+            record(changes, "move", `Return ${items.length} events to ${lowerWord(value.vocabulary.backlog)}`);
             return undefined;
         },
         duplicate(items) {
             const changes: ScheduleChange[] = []; const refs: CalendarRef[] = []; const minted = new Set<string>();
             for (const item of items) {
                 const kind = kindOf(item); const read = editing.read(item.kind, item.key);
+                if (kind === undefined || read === undefined) return "This event cannot be duplicated yet";
                 const id = editing.mint(item.kind, item.key, minted);
-                if (kind === undefined || read === undefined || id === undefined) return "This event cannot be duplicated yet";
+                // No key for the copy: its kind's rule gave one a row holds, or failed — said as any refused key is — or
+                // its record is still being asked for its largest.
+                if (id === undefined) return keyRefused() ?? "This event cannot be duplicated yet";
                 if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
                 if (item.start.type === "some" && item.end.type === "some") {
                     const at = { start: item.end.value, end: new Date(2 * item.end.value.getTime() - item.start.value.getTime()), resource: item.resource };
@@ -182,7 +207,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 }
                 refs.push({ kind: item.kind, key: id });
             }
-            if (editing.record(changes, "insert", `Duplicate ${items.length} events`)) select(refs);
+            if (record(changes, "insert", `Duplicate ${items.length} events`)) select(refs);
             return undefined;
         },
         status(items, name) {
@@ -195,19 +220,19 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
                 changes.push({ kind: kind.key, id: item.key, gesture: variant("field", { path: [path], value: encodeBeast2For(rowType.fields[path]!)(variant(name, null) as never) }) });
             }
-            editing.record(changes, "typed", `Set status of ${items.length} events`);
+            record(changes, "typed", `Set status of ${items.length} events`);
             return undefined;
         },
         field(item, path, next) {
             const kind = kindOf(item); if (kind === undefined) return;
             // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
             const change = fieldChange(kind, item.key, path, next);
-            if (change !== undefined) editing.record([change], "typed", `Edit ${item.title}`);
+            if (change !== undefined) record([change], "typed", `Edit ${item.title}`);
         },
         patch(items, fields) {
             const changes = items.flatMap(item => fields.map(field => ({ kind: item.kind, id: item.key,
                 gesture: variant("field", { path: [...field.path], value: field.value }) })));
-            editing.record(changes, "drop", `Update ${items.length} events`);
+            record(changes, "drop", `Update ${items.length} events`);
         },
     };
 }

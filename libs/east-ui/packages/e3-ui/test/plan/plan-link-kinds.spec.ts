@@ -12,7 +12,8 @@
  * - **The kind, built and run.** Its ends on the wire, the event kinds each
  *   may name; its stored links, each one's roles — its two events by their
  *   kind's slot and their key's text, and its quantity — beside its bytes; a
- *   drafted link's roles; a new link between two events; and the record's
+ *   drafted link's roles; a new link between two events; a link's row with
+ *   its ends written afresh (east-workspace#1709); and the record's
  *   side: editable through its patch door, its form over every field but its
  *   ends.
  * - **Read whole, within the cap.** Past the cap an event kind is read under,
@@ -115,7 +116,7 @@ describe("a link kind over the app's record: its links, each a row", () => {
         assert.deepEqual(kind.ends, { from: ["binding", "job"], to: ["binding", "delivery"] });
         assert.ok(isTypeEqual(fromEastTypeValue(kind.keyType), StringType));
         assert.ok(isTypeEqual(fromEastTypeValue(kind.rowType), Feed));
-        assert.equal(kind.rowKey.type, "none", "a String key is made up: no `key` is given");
+        assert.equal(kind.rowKey.type, "none", "a String key is made up: no `rowKey` is given");
     });
 
     test("its stored links, by their keys: each one's two events by their kind's slot and their key's text, and the sheets it moves", () => {
@@ -141,6 +142,15 @@ describe("a link kind over the app's record: its links, each a row", () => {
         // An end of a kind its field holds no keys of makes nothing: a feed runs from no delivery, and into no print job.
         assert.equal(kind.create({ from: ref("delivery", "D-101"), to: ref("binding", "B-102") }, none).type, "none");
         assert.equal(kind.create({ from: ref("job", "J-1003"), to: ref("job", "J-1004") }, none).type, "none");
+    });
+
+    test("ruling 1 — a link's row with its ends written afresh, every other field as it was: how it follows an event that moves under another key", () => {
+        const row = feedBytes({ from: variant("job", "J-1001"), to: variant("binding", "B-101"), sheets: 12000.0 });
+        const written = kind.write(row, { from: ref("job", "J-1009"), to: ref("binding", "B-101") });
+        if (written.type !== "some") assert.fail("a feed's ends are written");
+        assert.ok(feedEqual(feedOf(written.value), { from: variant("job", "J-1009"), to: variant("binding", "B-101"), sheets: 12000.0 }));
+        // An end of a kind its field holds no keys of writes nothing, as it makes no link.
+        assert.equal(kind.write(row, { from: ref("delivery", "D-101"), to: ref("binding", "B-101") }).type, "none");
     });
 
     test("its templates are a record's, on the wire as the library lists them; a link made from one takes its values, its ends still the two events", () => {
@@ -213,18 +223,18 @@ describe("a link's quantity, and its key", () => {
         assert.deepEqual(kind.ends, { from: ["job"], to: ["job"] });
     });
 
-    test("a record keyed by its two ends gives `key`, which builds a new link's key from its row", () => {
+    test("a record keyed by its two ends gives `rowKey`, which builds a new link's key from its row", () => {
         const Ends = StructType({ from: IntegerType, to: IntegerType });
         const Step = StructType({ from: IntegerType, to: IntegerType, note: StringType });
         const steps = recordHandle(DictType(Ends, Step), new Map(), "steps");
-        const declare = ($: BlockBuilder<EastType>, key?: (step: ExprType<typeof Step>) => unknown) => Plan.links($.let(steps()), {
+        const declare = ($: BlockBuilder<EastType>, rowKey?: (step: ExprType<typeof Step>) => unknown) => Plan.links($.let(steps()), {
             name: "Step", icon: "arrow-right-long", from: { field: "from", of: "job" }, to: { field: "to", of: "job" },
-            ...(key === undefined ? {} : { key: key as never }),
+            ...(rowKey === undefined ? {} : { rowKey: rowKey as never }),
         });
         assert.match(refusal(($) => declare($ as never)),
-            /^Plan\.links: "Step": the links are keyed by .*, and Connect makes one with no key typed — give `key`, building one's key from its row, or key them by String or Integer$/);
+            /^Plan\.links: "Step": the links are keyed by .*, and Connect makes one with no key typed — give `rowKey`, building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer$/);
         const kind = kindOf(($) => declare($, (step) => ({ from: step.from, to: step.to })).build("step"));
-        if (kind.rowKey.type !== "some") assert.fail("its `key` is on the wire");
+        if (kind.rowKey.type !== "some") assert.fail("its `rowKey` is on the wire");
         // Its ends hold the jobs' keys at their own type, an Integer, read back from their text.
         const made = kind.create({ from: ref("job", "7"), to: ref("job", "9") }, none);
         if (made.type !== "some") assert.fail("a Connect between two jobs makes a step");
@@ -291,9 +301,9 @@ describe("Plan.links refuses, naming the option", () => {
         assert.match(refusal(over(Row, { ...ends, quantity: { field: "note" } })), /^Plan\.links: "Feed": `quantity\.field` names a Float field, or an Option of one, the quantity a link moves — "note" holds /);
         assert.match(refusal(over(Row, { ...ends, quantity: { field: "sheets" } })), /^Plan\.links: "Feed": `quantity\.field` names "sheets", a field the row does not have \(from, to, note, weight\)$/);
         // The record is keyed by String, and this key is the row's weight, a Float.
-        assert.match(refusal(over(Row, { ...ends, key: (row: { weight: unknown }) => row.weight })),
-            /^Plan\.links: "Feed": `key` builds a link's key, of the record's key type \.String — and this one builds \.Float$/);
-        assert.equal(refusal(over(Row, { ...ends, quantity: { field: "weight" }, key: (row: { note: unknown }) => row.note })), "", "a Float quantity and a String key are taken");
+        assert.match(refusal(over(Row, { ...ends, rowKey: (row: { weight: unknown }) => row.weight })),
+            /^Plan\.links: "Feed": `rowKey` builds a link's key, of the record's key type \.String — and this one builds \.Float$/);
+        assert.equal(refusal(over(Row, { ...ends, quantity: { field: "weight" }, rowKey: (row: { note: unknown }) => row.note })), "", "a Float quantity and a String key are taken");
     });
 });
 

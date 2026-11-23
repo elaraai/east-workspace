@@ -10,28 +10,38 @@
  * `seek` is a tracked platform read: `none` means "still searching" and the
  * channel re-fires when it lands. The two meet here — the query is held, the
  * read runs as a tracked read so its channel is registered, and the pending
- * promise settles on the read that lands the answer.
+ * promise settles on the read that lands the answer — for a query that names
+ * no one key (east-workspace#1696), once its first match's own key is read
+ * too, which the canvas then goes to.
  *
  * @packageDocumentation
  */
 
-import { StringType, compareFor, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
+import { StringType, equalFor } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, DatasetKeySearchProps } from "@elaraai/east-ui-components";
 import { toSeekQuery, type SeekQueryValue } from "@elaraai/east-ui/internal";
 import { createTrackedRead } from "@elaraai/east-ui-components/internal";
-import type { PlanRowValue } from "../model.js";
+import type { PlanRootValue, PlanRowValue } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import { soughtKeyOf } from "../use-seek.js";
+import { STRING_KEYS, kindKeys, type KindKeys } from "../../shared/schedule/kind-keys.js";
 
-/** A row names the element it came from by a String — the first segment of
- *  its id's path (#822: a String key as is, any other printed) — so a Plan's
- *  search input is typed against that, whatever the underlying dataset keys
- *  its elements by. */
-export const CANVAS_KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
+const stringEqual = equalFor(StringType);
 
-/** East's own total order on Strings — the order a String-keyed source serves
- *  its elements in, and so the order its rows' element keys run in. */
-const KEY_ORDER = compareFor(StringType);
+/**
+ * The keys a canvas's rows name their elements by (east-workspace#1696): the
+ * type of the keys its `data` holds its entries by, as its root carries it. A
+ * row's id starts with its element's key's text — a String key as itself, any
+ * other as East prints it (#822) — so a key typed into a search is read at
+ * that type, and the keys a search finds are ordered by it, never by their
+ * text. String's for a canvas with no `data`, whose rows no search reads.
+ *
+ * @param keyType - The root's `rowsKeyType`
+ * @returns The rows' keys
+ */
+export function planRowKeys(keyType: PlanRootValue["rowsKeyType"]): KindKeys {
+    return keyType.type === "some" ? kindKeys(keyType.value) : STRING_KEYS;
+}
 
 /**
  * The key of the element a row came from — its id's first path segment — or
@@ -69,6 +79,8 @@ export interface SeekDriverOptions {
     clearJump: () => void;
     /** Called once per change to the snapshot. */
     onChange: () => void;
+    /** The rows' keys as the canvas's root names them now ({@link planRowKeys}): what a query's sought key is read at. */
+    keys: () => KindKeys;
 }
 
 /** The search's handle. */
@@ -102,9 +114,10 @@ export interface SeekDriver {
 
 /**
  * Where a search positions the canvas, and where its labels start: the first
- * loaded row that SHOWS the sought element — its key, else the first whose
- * key the sought text begins — and, when no block shows one, the first row
- * whose element sorts at-or-after it.
+ * loaded row that SHOWS the sought element — its key, else, over String keys,
+ * the first whose key the sought text begins — and, when no block shows one,
+ * the first row whose element sorts at-or-after it, in East's order at the
+ * rows' key type (east-workspace#1696), each element's text read back once.
  *
  * @remarks
  * Each block's windows land in the source's key order, and each series places
@@ -116,21 +129,27 @@ export interface SeekDriver {
  * never a child's (for `views`, its first view row).
  *
  * @param rows - The loaded canvas rows, stream order
- * @param key - The sought key
+ * @param key - The sought key's text: a String key as itself, any other as East prints it
+ * @param keys - The rows' keys ({@link planRowKeys}); String's by default
  * @returns The index, or `-1` when no loaded row's element sorts at or after it
  */
-export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string): number {
+export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string, keys: KindKeys = STRING_KEYS): number {
+    const elements = rows.map(elementKeyOf);
     let exact = -1;
     let prefixed = -1;
-    let after = -1;
-    rows.forEach((r, i) => {
-        const element = elementKeyOf(r);
+    elements.forEach((element, i) => {
         if (element === undefined) return;
-        if (exact < 0 && element === key) exact = i;
-        if (prefixed < 0 && element.startsWith(key)) prefixed = i;
-        if (after < 0 && KEY_ORDER(element, key) >= 0) after = i;
+        if (exact < 0 && stringEqual(element, key)) exact = i;
+        // A key's start is a String key's: the text of a key of another type begins nothing.
+        if (keys.text && prefixed < 0 && element.startsWith(key)) prefixed = i;
     });
-    return exact >= 0 ? exact : prefixed >= 0 ? prefixed : after;
+    if (exact >= 0) return exact;
+    if (prefixed >= 0) return prefixed;
+    // Each element's place in their keys' order beside the sought key's, which is none of theirs: a text no key prints
+    // as sorts after every key.
+    const ranks = keys.ranks([key, ...elements.filter((element): element is string => element !== undefined)]);
+    const sought = ranks.get(key)!;
+    return elements.findIndex((element) => element !== undefined && ranks.get(element)! > sought);
 }
 
 /**
@@ -208,6 +227,9 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
     // `onFind` and then calls `onListRange`, and the labels must answer for
     // THIS search, not the previous one (#614).
     let soughtKey = "";
+    // Whether the query names no one key the canvas could go to by itself: over keys of another type than String, a
+    // range, or a struct key's leading parts (east-workspace#1696). Its first match's own key is read before it answers.
+    let namesNone = false;
     let pending: { resolve: (r: DatasetKeyMatchRange) => void; reject: (e: unknown) => void } | null = null;
     let snapshot: PlanSeekSnapshot = NO_SEEK;
 
@@ -251,8 +273,25 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         if (answer.type !== "some") return;
         const range = answer.value;
         pending = null;
-        if (snapshot.sought !== null) publish({ ...snapshot, sought: { key: snapshot.sought.key, row: Number(range.row) } });
-        waiting.resolve({ found: range.found, row: Number(range.row), count: Number(range.count) });
+        const answered: DatasetKeyMatchRange = { found: range.found, row: Number(range.row), count: Number(range.count) };
+        const settle = (key: string) => {
+            if (snapshot.sought !== null) publish({ ...snapshot, sought: { key, row: answered.row } });
+            waiting.resolve(answered);
+        };
+        if (!namesNone || !range.found) {
+            settle(snapshot.sought?.key ?? soughtKey);
+            return;
+        }
+        // The first match's own key, read before the search answers: what the canvas goes to — never a sought key no row's
+        // text sorts beside, which places nothing.
+        labelRequests.add({
+            row: answered.row, limit: 1, reject: waiting.reject,
+            resolve: (labels) => {
+                soughtKey = labels[0]?.label ?? soughtKey;
+                settle(soughtKey);
+            },
+        });
+        readLabels();
     }
 
     return {
@@ -269,7 +308,9 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
                 pending?.reject(new Error("superseded by a newer query"));
                 dropLabels(new Error("superseded by a newer query"));
                 pending = { resolve, reject };
-                soughtKey = soughtKeyOf(q) ?? "";
+                const named = soughtKeyOf(q, options.keys());
+                namesNone = named === undefined;
+                soughtKey = named ?? "";
                 query = toSeekQuery(q);
                 publish({ sought: { key: soughtKey, row: 0 }, searchError: undefined, again: snapshot.again });
                 read();

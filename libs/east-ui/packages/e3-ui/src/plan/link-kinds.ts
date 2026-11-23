@@ -5,7 +5,7 @@
 
 /**
  * The Plan's link kinds (#1541, U10): `Plan.links(record, { name, icon, from,
- * to, quantity?, fields?, key? })`, a kind of link over the app's own record.
+ * to, quantity?, fields?, rowKey? })`, a kind of link over the app's own record.
  * Each link is a row of the record, its key the link's identity, and each of
  * its ends a field holding the key of the event it joins — as a Schematic's
  * link names its items, and an event kind its resource.
@@ -29,9 +29,12 @@
  *   the cap the Plan's event kinds are drawn under (`SCHEDULE_EVENT_CAP`), and
  *   past it none is: the cap bounds what is drawn, not what is read.
  * - **A new link** takes its ends from the two events a Connect joins, and
- *   every other field its type's default. Its key is made up for a String key
- *   and counted on for an Integer one; a record keyed by any other type gives
- *   `key`, which builds it from the row.
+ *   every other field its type's default. Its key is its kind's `rowKey`'s,
+ *   built from the row, or its `newKey`'s, made from the keys taken — one or
+ *   neither; with neither it is made up for a String key and counted on for
+ *   an Integer one, and a record keyed by any other type gives one of the
+ *   two. Where a link's row holds its key in a field too, `keyField` names
+ *   it: a link a Connect makes holds its key there, and is saved with it.
  *
  * The kind closes its record behind East functions over beast2 bytes, as every
  * kind over the app's record does (`utils/record-kind.ts`): the renderer needs
@@ -57,7 +60,7 @@ import type { ScheduleValuesOf } from "../schedule/events.js";
 import { optionOf, typeText } from "../schedule/window.js";
 import {
     KindSideFields, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindWholeRows, linkEndFields, linkEndsWriter, readOf, recordSide, storedRows, valuesTypeOf,
-    type KindKeyBuilder,
+    type KindKeyBuilder, type KindRowKeys,
 } from "../utils/record-kind.js";
 import { createQuantity } from "./builders.js";
 import { PlanQuantityType } from "./types.js";
@@ -111,8 +114,10 @@ export type PlanLinkEndsType = typeof PlanLinkEndsType;
  * @property templates - Its presets, as the library lists them: each a value for every field but its two ends
  * @property create - A new link between two events, its other fields a template's values, or, given none, their
  *   types' defaults; `none` for an end of a kind its field holds no keys of, or a key no key of that kind prints as
- * @property rowKey - A new link's key's text, built from its row; `none`, a String key is made up and an Integer one
- *   counted on
+ * @property write - A link's row with its ends written from the two events given, every other field as it was: how a
+ *   link follows an event it joins that moves under another key; `none` as `create` gives it
+ * @property rowKey - A new link's key's text, built from its row; `none`, it is its `newKey`'s, or a String key is made
+ *   up and an Integer one counted on
  * @property keyType - Its record's key type
  */
 export const PlanLinkKindType = StructType({
@@ -126,6 +131,7 @@ export const PlanLinkKindType = StructType({
     read: FunctionType([BlobType, StringType], PlanLinkRolesType),
     templates: ArrayType(ScheduleTemplateType),
     create: FunctionType([PlanLinkEndsType, OptionType(BlobType)], OptionType(BlobType)),
+    write: FunctionType([BlobType, PlanLinkEndsType], OptionType(BlobType)),
     rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
@@ -189,7 +195,7 @@ export interface PlanLinkQuantity<R extends StructType> {
  * @typeParam TF - The `to` field
  * @typeParam K - The record's key type
  */
-export interface PlanLinksConfig<R extends StructType, FF extends string, TF extends string, K extends EastType = StringType> {
+export interface PlanLinksConfig<R extends StructType, FF extends string, TF extends string, K extends EastType = StringType> extends KindRowKeys<R, K> {
     /** The kind's name: in the Connect tool's menu and the inspector. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -211,10 +217,10 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
     templates?: ScheduleTemplates<ScheduleValuesOf<R, FF | TF>>;
     /**
      * A new link's key, built from its row — `(feed) => ({ from: feed.from, to: feed.to })`: what a Connect makes one
-     * under. Omitted, a String key is made up and an Integer one is one past the largest; an editable kind keyed by
-     * any other type needs it.
+     * under. Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest; an editable
+     * kind keyed by any other type needs one of the two. It never reads the field `keyField` names.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
 }
 
 /**
@@ -293,8 +299,11 @@ export function isPlanLinks(value: unknown): value is PlanLinks {
  * @throws {Error} Naming the option and the remedy: a record that is no binding of a record of structs by key, a
  *   paged binding, or a `Record.bind` without its patch door; no `icon`; an end that is no `{ field, of }`, names a
  *   field the row lacks or one of a type no Dict is keyed by, an Option, or an `of` that names no kind for a case; both
- *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `key` that builds
- *   another type than the record's key; and an editable record keyed by neither String nor Integer, given no `key`
+ *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `rowKey` that builds
+ *   another type than the record's key, or reads the field `keyField` names; a `newKey` that is no East function from
+ *   a Set of the record's keys to one, or
+ *   one beside `rowKey`; an editable record keyed by neither String nor Integer, given neither; and a `keyField` that is no
+ *   field of the row of the record's key type, or that an end names
  *
  * @example
  * ```tsx
@@ -551,8 +560,8 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         }
     }
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key);
-    checkMadeKeys(bound, keyBuilt, where, "links", "Connect makes one");
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.rowKey, config.keyField);
+    checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
     // What a link moves, as the Plan builds every quantity (`Plan.quantity`): its value, with the kind's unit and format.
@@ -584,6 +593,11 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         const others = $.let(templateValues(values, ValuesType, (_$2) => blank), ValuesType);
         return ended($ as never, others, ends) as never;
     });
+    // A link's row with its ends written, every other field as it was: an event it joins moved under another key.
+    const write = East.function([BlobType, PlanLinkEndsType], OptionType(BlobType), ($, bytes, ends) => {
+        const row = $.const(bytes.decodeBeast(rowType, "v2"));
+        return ended($ as never, row, ends) as never;
+    });
     // Its presets: a templates record's, each a value for every field but its ends — and none of them timed.
     const templates = linkTemplates(config.templates, ValuesType, [from.field, to.field], where);
 
@@ -611,7 +625,12 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         // Each end as `<Plan>` checks it against its kinds' key types: the key it holds of each — the field's own, or its case's.
         ends: { from: keyFieldRole(from), to: keyFieldRole(to) },
         build(slot) {
-            const side = recordSide(bound, undefined, undefined, config.fields === undefined ? {} : { fields: config.fields }, [from.field, to.field], where);
+            const side = recordSide<R, K>(bound, undefined, undefined, {
+                ...(config.fields === undefined ? {} : { fields: config.fields }),
+                ...(config.rowKey === undefined ? {} : { rowKey: config.rowKey }),
+                ...(config.newKey === undefined ? {} : { newKey: config.newKey }),
+                ...(config.keyField === undefined ? {} : { keyField: config.keyField }),
+            }, [from.field, to.field], where);
             return East.value({
                 ...side,
                 key: slot,
@@ -623,6 +642,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
                 read: readOf(bound.keyType, rowType, rolesOf, PlanLinkRolesType),
                 templates,
                 create,
+                write,
                 rowKey: keyBuilt === undefined ? none : some(keyBuilt),
                 keyType: toEastTypeValue(bound.keyType),
             } as never, PlanLinkKindType) as ExprType<PlanLinkKindType>;

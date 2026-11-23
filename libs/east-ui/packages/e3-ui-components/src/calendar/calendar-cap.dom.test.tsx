@@ -235,8 +235,9 @@ describe("a kind counted past the cap, through its source of the rail (#1424)", 
         expect(windowRead()).toBe(false);
         expect(h.requests("read", JOBS)).toEqual([]);
         expect(askedOf(SUMMARY)).toEqual([]);
-        // No figure counts the jobs as none: a press's booked hours say so.
-        expect(pressRow(c, "P-1001")!.querySelector("[data-calendar-booked]")?.textContent).toBe(" · hours not counted");
+        // No figure counts the jobs as none: a press's booked hours say so — alone, these presses having no meta: no
+        // separator stands before nothing.
+        expect(pressRow(c, "P-1001")!.querySelector("[data-calendar-booked]")?.textContent).toBe("hours not counted");
         // At Month: the summary's cells, two requests, and each press's share of each month booked.
         await press(c, "radio", "Month");
         await waitFor(() => expect(askedOf(SUMMARY)).toEqual(["find", "runs"]), { timeout: 10_000 });

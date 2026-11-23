@@ -30,7 +30,7 @@ import { DictType, StringType, equalFor, type EastType, type ValueTypeOf, type o
 import { AllocationOptimiseRequestType, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { landOptimisePatches, recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
+import { landOptimisePatches, recordOptimiseRun, scheduleOptimiseRecorder, type OptimiseFollow, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
@@ -80,7 +80,11 @@ export interface AllocationGhost {
  * What the runs left on the Allocation's bins, until Apply (R17): each bin's
  * operation, a later run's over an earlier's on the same bin; the ghosts of
  * the bins the runs moved or removed, where they stood; the lanes the latest
- * run changed; and whether it booked an arrival or returned one.
+ * run changed; and whether it booked an arrival or returned one. A bin's
+ * operation, its links and its ghosts are kept by the key it stands under now:
+ * a bin a run's step moved under the key its fields build takes them with it
+ * (east-workspace#1709, ruling 14), and so does one a gesture since, its Undo or
+ * its Redo moved (ruling 16, {@link allocationMarksUnder}).
  */
 export interface AllocationOptimised {
     readonly ops: ReadonlyMap<string, AllocationBinOp>;
@@ -99,23 +103,57 @@ export interface AllocationOptimised {
     readonly resources: ReadonlySet<string>;
 }
 
+/**
+ * What the runs left on the Allocation's bins, each under the key its bin stands under now (ruling 16 of
+ * east-workspace#1709): a bin moved under another key since takes its operation, its links and its ghosts with it; one
+ * that stands under no key of its own — removed, another come to stand under its key — takes none of them there. The
+ * lanes the latest run changed, and whether it booked or returned an arrival, are the lanes' and the arrivals' still;
+ * the kilns the links land on are those the links kept.
+ *
+ * @param marks - What the runs left, each under the key its bin stood under
+ * @param follow - Where each bin stands now
+ * @param kind - The bin kind's slot
+ * @returns The marks, each under the key its bin stands under now
+ */
+export function allocationMarksUnder(marks: AllocationOptimised, follow: OptimiseFollow, kind: string): AllocationOptimised {
+    const ops = new Map<string, AllocationBinOp>();
+    for (const [id, op] of marks.ops) {
+        const at = follow(kind, id);
+        if (at !== undefined) ops.set(at, op);
+    }
+    const links = new Map<string, ReadonlySet<string>>();
+    for (const [id, kilns] of marks.links) {
+        const at = follow(kind, id);
+        if (at !== undefined) links.set(at, kilns);
+    }
+    const ghosts: AllocationGhost[] = [];
+    for (const ghost of marks.ghosts) {
+        const id = follow(kind, ghost.id);
+        if (id !== undefined) ghosts.push(sameKey(id, ghost.id) ? ghost : { ...ghost, id });
+    }
+    const resources = new Set<string>();
+    for (const kilns of links.values()) for (const kiln of kilns) resources.add(kiln);
+    return { ops, ghosts, lanes: marks.lanes, arrivalsChanged: marks.arrivalsChanged, links, resources };
+}
+
 /** What the bound optimiser is called with, as the tag held it to, and the bins' record type. */
 export interface AllocationOptimiseTypes {
     readonly request: EastType;
     readonly result: EastType;
-    /** The bins' record type, `Dict<String, R>`: what the answer's patch is read by. */
+    /** The bins' record type, `Dict<K, R>`: what the answer's patch is read by, its keys at the record's own key type. */
     readonly record: DictType<EastType, EastType>;
 }
 
 /**
- * The request and result types over the app's bin row type: what the bound
+ * The request and result types over the app's bin record: what the bound
  * optimiser is called with, as the tag held it to.
  *
+ * @param keyType - The bin kind's record's key type
  * @param rowType - The bin kind's row type
  * @returns The request and result East types, and the bins' record type
  */
-export function allocationOptimiseTypes(rowType: EastType): AllocationOptimiseTypes {
-    const record = DictType(StringType, rowType);
+export function allocationOptimiseTypes(keyType: EastType, rowType: EastType): AllocationOptimiseTypes {
+    const record = DictType(keyType, rowType);
     return { request: AllocationOptimiseRequestType, result: AllocationOptimiseResultTypeFor(record), record };
 }
 
@@ -194,12 +232,15 @@ export interface AllocationLanding {
  * day it was asked of — where the bin stood, or where the answer puts it — is
  * refused whole, naming the bin, and so is one that changes anything of a day
  * that takes no edit, as a gesture there is (`open`); one that touches a bin
- * the page does not hold names it, to be read by its key.
+ * the page does not hold names it, to be read by its key. An answer is an edit
+ * like any other (east-workspace#1709, ruling 14): a bin whose key it changes
+ * moves under the key its fields build, with what the runs left on it; one a
+ * bin's key refuses records nothing, saying why.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the bins — unchanged by a run that changed nothing;
- *   the bins to read first; a refusal, naming the bin; `undefined` for an answer that does not fit the bins the page
- *   holds, or one the session would not take
+ *   the bins to read first; a refusal, naming the bin or the key refused; `undefined` for an answer that does not fit
+ *   the bins the page holds, or one the session would not take
  */
 export function landAllocationOptimise(args: AllocationLanding,
 ): OptimiseLanded<AllocationOptimised> | OptimiseMissing | OptimiseRefused | undefined {
@@ -223,17 +264,21 @@ export function landAllocationOptimise(args: AllocationLanding,
         // it takes no gesture.
         if (!open) return { refused: m.optimiseClosed({ bin: named(), removes: op.op === "del", unit }) };
     }
-    return recordOptimiseRun(diff, editing.schedule, label, () => {
-        // This run's operations over the earlier runs': a bin it touched again is its, and an earlier ghost of it gives way.
-        const touched = new Set([...diff.ops.values()].map(op => op.id));
-        const ops = new Map<string, AllocationBinOp>(before?.ops ?? []);
-        const links = new Map<string, ReadonlySet<string>>(before?.links ?? []);
-        const ghosts = (before?.ghosts ?? []).filter(ghost => !touched.has(ghost.id));
+    return recordOptimiseRun(diff, scheduleOptimiseRecorder(editing.schedule), label, (under) => {
+        // This run's operations over the earlier runs', each under the key its bin stands under now: a bin it touched again
+        // is its, and an earlier ghost of it gives way.
+        const binUnder = (id: string): string => under(kind, id);
+        const touched = new Set([...diff.ops.values()].map(op => binUnder(op.id)));
+        const earlier = before === undefined ? undefined : allocationMarksUnder(before, under, kind);
+        const ops = new Map<string, AllocationBinOp>(earlier?.ops ?? []);
+        const links = new Map<string, ReadonlySet<string>>(earlier?.links ?? []);
+        const ghosts = (earlier?.ghosts ?? []).filter(ghost => !touched.has(ghost.id));
         const lanes = new Set<string>();
         let arrivalsChanged = false;
         for (const op of diff.ops.values()) {
-            const { id } = op;
-            const was = plan.bins.get(id);
+            // What the run leaves on the bin, by the key it stands under now; what it was before the run, by the key it had.
+            const id = binUnder(op.id);
+            const was = plan.bins.get(op.id);
             if (op.op === "del") {
                 ops.delete(id);
                 links.delete(id);

@@ -4,14 +4,14 @@
  */
 /**
  * A builder's narrowing, checked once for every builder (#1340, #1341): its
- * `slice` is `Slice.bindRecords`, every source one it takes, each a record with
- * String keys, and each bound once in the builder's payload (#1356) — a tab's
- * `source` is one of the slice's, and a templates list's is too, templates
- * being records (#1345).
+ * `slice` is `Slice.bindRecords`, every source one it takes, each a record
+ * keyed by any type a Dict takes (#1696), and each bound once in the builder's
+ * payload (#1356) — a tab's `source` is one of the slice's, and a templates
+ * list's is too, templates being records (#1345).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, Expr, IntegerType, StringType, StructType, isTypeEqual, some, type EastType } from "@elaraai/east";
+import { ArrayType, DictType, Expr, IntegerType, StringType, StructType, VariantType, isTypeEqual, some, type EastType } from "@elaraai/east";
 import { RowSourceType, Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Data, recordSources, tabSource, templatesSource } from "@elaraai/e3-ui/internal";
@@ -82,15 +82,33 @@ test("a source the builder does not take is refused, naming the ones it does; an
     assert.deepEqual(recordSources({ slice }, { ...spec, takes: () => true }).names, ["staff"]);
 });
 
-test("a source over a record whose keys are not Strings is refused", () => {
+test("#1696 — a source over a record keyed by any type a Dict takes — an Integer, a variant, a struct — is bound as one keyed by String is, its keys a source of their text", () => {
     const numbered = e3.record("sources_spec_numbered", DictType(IntegerType, Person), {
         initial: new Map(),
-        indexes: (index) => ({
-            sources_spec_numbered_by_team: index.on(["team"]),
-        }),
+        indexes: (index) => ({ sources_spec_numbered_by_team: index.on(["team"]) }),
     });
-    const slice = Slice.bindRecords("spec.numbered", { people: { source: Data.bindPaged(numbered, { indexes: ["sources_spec_numbered_by_team"] }) } });
-    assert.throws(() => recordSources({ slice }, spec), /Roster: `slice`'s people narrows a record whose keys are not Strings — each source is a record with String primary keys/);
+    // A composite's key: a variant of the sources it holds rows from.
+    const sourced = e3.record("sources_spec_sourced", DictType(VariantType({ erp: StringType, own: StringType }), Person), {
+        initial: new Map(),
+        indexes: (index) => ({ sources_spec_sourced_by_team: index.on(["team"]) }),
+    });
+    const placed = e3.record("sources_spec_placed", DictType(StructType({ site: StringType, seq: IntegerType }), Person), {
+        initial: new Map(),
+        indexes: (index) => ({ sources_spec_placed_by_team: index.on(["team"]) }),
+    });
+    const slice = Slice.bindRecords("spec.any-key", {
+        numbered: { source: Data.bindPaged(numbered, { indexes: ["sources_spec_numbered_by_team"] }), fields: { team: { label: "Group" } } },
+        sourced: { source: Data.bindPaged(sourced, { indexes: ["sources_spec_sourced_by_team"] }), fields: { team: { label: "Group" } } },
+        placed: { source: Data.bindPaged(placed, { indexes: ["sources_spec_placed_by_team"] }) },
+    });
+    const sources = recordSources({ slice }, { ...spec, takes: () => true });
+    assert.deepEqual(sources.names, ["numbered", "sourced", "placed"]);
+    Expr.block(($) => {
+        const bound = sources.bind($);
+        // Each source's keys are their text on the wire, as a String key's are.
+        for (const name of sources.names) assert.ok(isTypeEqual(Expr.type(bound.keys[name] as unknown as Expr) as EastType, RowSourceType(ArrayType(StringType))), name);
+        return null;
+    });
 });
 
 test("a String field with neither hints nor search is refused, naming its source: it would offer nothing to choose", () => {

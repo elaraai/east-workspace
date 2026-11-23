@@ -307,3 +307,14 @@ test("a phone's Discard asks first, in the band under its row (FR8, no popover, 
     await act(async () => { fireEvent.click(document.querySelector<HTMLElement>("[data-history-discard-confirm]")!); });
     expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["discard"]);
 });
+
+test("a row moved under another key is one change on a phone (east-workspace#1709): the count and Discard's question say one, never the row removed and the row added", async () => {
+    const ui = setup(false, true);
+    const moved: EntryVersion<string> = { draft: liftDraft(Draft, { id: "b", end: 1n }), wire: "b to 1", place: start };
+    ui.session.record([{ id: "a", before: version(1n), after: { draft: undefined, wire: undefined, place: none } }, { id: "b", before: { draft: undefined, wire: undefined, place: none }, after: moved, from: "a" }], "typed", "Edit a's id");
+    ui.refresh();
+    expect([ui.session.pending, ui.session.moved.size]).toEqual([2, 1]);
+    expect(ui.getByRole("status").firstElementChild!.textContent).toBe(`⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`);
+    await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
+    expect(document.body.textContent).toContain(`⟦${editingMessages.discardAskTitle({ n: 1, count: "1" })}`);
+});

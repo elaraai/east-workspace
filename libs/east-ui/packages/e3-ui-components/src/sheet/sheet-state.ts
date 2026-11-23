@@ -93,6 +93,7 @@ import {
     renameStart, renameChange, renameCommit, renameCancel, reorderTab, escTabs, searchKey,
 } from "./sheet-tabs-state.js";
 import type { SheetCellValue } from "./values.js";
+import { noticeRefuses } from "./refusal.js";
 
 export * from "./sheet-types.js";
 export { nextTargetOf, fillOrder, anchorRow } from "./sheet-suggest-state.js";
@@ -759,8 +760,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
         // ── The narrowing and the tabs (B§8) ───────────────────────────────
-        case "narrowing.changed":
-            return narrowed(s, ctx);
+        case "narrowing.changed": {
+            // A refusal's words go with the view they were said over (east-workspace#1709): the row they named may be
+            // out of it, and said still, in the danger tone, they would read as of the rows now shown.
+            const t = narrowed(s, ctx);
+            return noticeRefuses(t.state.msg) ? { ...t, state: { ...t.state, msg: null } } : t;
+        }
         case "tab.switch":
         case "tab.create":
         case "tab.close": {
@@ -829,7 +834,13 @@ export interface SheetStore {
 export type SheetAction =
     | { t: "event"; e: SheetEvent; ctx: SheetMachineCtx }
     /** A direct UI patch from the component (the range after a paste, a message). */
-    | { t: "patch"; patch: Partial<SheetUiState> };
+    | { t: "patch"; patch: Partial<SheetUiState> }
+    /**
+     * A gesture was taken — the session recorded it (east-workspace#1709): the words of a refusal that `stood` as it
+     * began go, since said still, in the danger tone, they would say it of the gesture just taken. Any other message
+     * stands, and so do words the gesture left itself — a refusal of part of it among them.
+     */
+    | { t: "taken"; stood: SheetNotice | null };
 
 /**
  * The initial store — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens
@@ -855,5 +866,7 @@ export function sheetStoreReducer(store: SheetStore, a: SheetAction): SheetStore
         }
         case "patch":
             return { ...store, ui: { ...store.ui, ...a.patch } };
+        case "taken":
+            return store.ui.msg !== null && Object.is(store.ui.msg, a.stood) && noticeRefuses(store.ui.msg) ? { ...store, ui: { ...store.ui, msg: null } } : store;
     }
 }

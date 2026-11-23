@@ -7,7 +7,7 @@
  * worked facts (`Allocation Spec.md` §0, §12.4). The page's functions — loads,
  * checks and slots — read the board's reading of the yard's own bins
  * (`Allocation.Types.Day(KilnBin)`, #1371). A fit's rules read what a function
- * read (`Allocation.Types.FitContext`, east-workspace#1624): they are held to
+ * read (`Allocation.Types.FitContext()`, east-workspace#1624): they are held to
  * a context that holds what the page holds — the day's bins as their roles,
  * the yard's loads and kilns — so their verdicts are the ones a request that
  * carried the day gave. The yard's functions are run as e3 runs them: each
@@ -18,8 +18,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DictType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
-    type EastIR, type EastType, type ValueTypeOf,
+    DictType, East, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, parseFor,
+    printFor, some, variant, type EastIR, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Allocation, Schedule } from "@elaraai/e3-ui";
@@ -36,23 +36,25 @@ import * as ex from "./fit.examples.js";
 describeEast("Allocation — pure functions", test => {
     Assert.examples(test, {
         allocationDayLoads: ex.allocationDayLoads, allocationRules: ex.allocationRules, allocationAnswerPlace: ex.allocationAnswerPlace,
-        allocationAnswerTake: ex.allocationAnswerTake, allocationLookahead: ex.allocationLookahead, allocationChecks: ex.allocationChecks,
-        allocationSlots: ex.allocationSlots,
+        allocationAnswerTake: ex.allocationAnswerTake, allocationAnswerByNumber: ex.allocationAnswerByNumber, allocationLookahead: ex.allocationLookahead,
+        allocationChecks: ex.allocationChecks, allocationSlots: ex.allocationSlots,
     });
 }, { platformFns: TestImpl });
 
-type Request = ValueTypeOf<typeof Allocation.Types.FitRequest>;
-type Read = ValueTypeOf<typeof Allocation.Types.FitContext>;
+/** The fit's types over bins keyed by String, as the yard's are. */
+const FitRequest = Allocation.Types.FitRequest(), FitContext = Allocation.Types.FitContext(), FitResult = Allocation.Types.FitResult();
+type Request = ValueTypeOf<typeof FitRequest>;
+type Read = ValueTypeOf<typeof FitContext>;
 type Roles = ValueTypeOf<typeof Schedule.Types.AllocationRoles>;
 type Fit = ValueTypeOf<typeof Allocation.Types.Fit>;
-type Result = ValueTypeOf<typeof Allocation.Types.FitResult>;
+type Result = ValueTypeOf<typeof FitResult>;
 type Plan = ValueTypeOf<typeof YardPlan>;
 type Bin = ValueTypeOf<typeof YardBin>;
 type Row = ValueTypeOf<typeof KilnBin>;
 type MinimalRow = ValueTypeOf<typeof MinimalBin>;
 const byString = compareFor(StringType);
-const sameResult = equalFor(Allocation.Types.FitResult);
-const printResult = printFor(Allocation.Types.FitResult);
+const sameResult = equalFor(FitResult);
+const printResult = printFor(FitResult);
 
 // The plan day as a fresh decoded value, so a test may change it.
 const fresh = () => decodeBeast2For(YardPlan)(encodeBeast2For(YardPlan)(yardPlanDay));
@@ -69,18 +71,18 @@ const readOf = (plan: Plan, cx = context): Read => ({
     }] as const), byString),
     arrivals: cx.arrivals, resources: cx.resources, rules: cx.rules, unit: cx.unit,
 });
-/** The built-in rules over what a function read: `Allocation.answer` with `Allocation.fit`. */
-const builtInOver = East.compile(East.function([Allocation.Types.FitRequest, Allocation.Types.FitContext], Allocation.Types.FitResult, ($, request, read) => {
-    const answer = $.const(Allocation.answer);
-    const rule = $.const(Allocation.fit);
+/** The built-in rules over what a function read: `Allocation.answer()` with `Allocation.fit()`. */
+const builtInOver = East.compile(East.function([FitRequest, FitContext], FitResult, ($, request, read) => {
+    const answer = $.const(Allocation.answer());
+    const rule = $.const(Allocation.fit());
     return answer(request, read, rule, "ranked by load, kind and spare days");
 }), []);
 /** The built-in rules with the greedy look-ahead, over what a function read. */
-const aheadOver = East.compile(East.function([Allocation.Types.FitRequest, Allocation.Types.FitContext], Allocation.Types.FitResult, ($, request, read) => {
-    const answer = $.const(Allocation.answer);
-    const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead);
-    return answer(request, read, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
+const aheadOver = East.compile(East.function([FitRequest, FitContext], FitResult, ($, request, read) => {
+    const answer = $.const(Allocation.answer());
+    const rule = $.const(Allocation.fit());
+    const ahead = $.const(Allocation.lookahead());
+    return answer(request, read, East.function([Allocation.Types.Candidate()], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
         "ranked by load, kind and spare days, and what it leaves for the day's other loads");
 }), []);
 /** The built-in rules over a day the page holds, the plan day by default. */
@@ -100,7 +102,7 @@ const minimal = (request: Request, rows: ReadonlyMap<string, MinimalRow> = yardM
 const loads = East.compile(Allocation.loads(KilnBin), []);
 const check = East.compile(Allocation.check(KilnBin), []);
 const slots = East.compile(Allocation.slots(KilnBin), []);
-const candidates = East.compile(Allocation.candidates, []);
+const candidates = East.compile(Allocation.candidates(), []);
 
 /** The question a board asks of a day: the day, what is asked and the page's scope, here none — and no row. */
 const asked = (ask: Request["ask"], day: Date = yardDay): Request => ({ day, ask, scope: new SortedMap([], byString) });
@@ -358,17 +360,17 @@ test("a type constructor returns the same East type for the same bin row type", 
 // ============================================================================
 
 test("#1624 rule 1 — a fit's request holds the day, the question and the scope alone, and takes no row type", () => {
-    assert.deepEqual(Object.keys(Allocation.Types.FitRequest.fields), ["day", "ask", "scope"]);
+    assert.deepEqual(Object.keys(FitRequest.fields), ["day", "ask", "scope"]);
     // The scope is typed as an optimiser's `slice` is (#1622): each rail source's fields by the source's name.
-    assert.ok(isTypeEqual(Allocation.Types.FitRequest.fields.scope, Allocation.Types.OptimiseRequest.fields.slice));
+    assert.ok(isTypeEqual(FitRequest.fields.scope, Allocation.Types.OptimiseRequest.fields.slice));
     // What a function read holds no row either: the bins are their roles.
-    assert.ok(isTypeEqual(Allocation.Types.FitContext.fields.bins, DictType(StringType, Schedule.Types.AllocationRoles)));
+    assert.ok(isTypeEqual(FitContext.fields.bins, DictType(StringType, Schedule.Types.AllocationRoles)));
 });
 
 test("#1624 — the yard's fit on e3 reads the day's bins through their index, and answers what the rules answer over the day the page holds", () => {
     // The record holds three days' bins; the function reads the plan day's 26 through the interval index, and no other.
     for (const request of [placeArrival("LD-2231"), placeArrival("LD-2236"), placeBin("3113", 32), takeOf("K-601"), takeOf("K-203")]) {
-        sameAnswer(yard(request), aheadOver(request, readOf(fresh())), printFor(Allocation.Types.FitAsk)(request.ask));
+        sameAnswer(yard(request), aheadOver(request, readOf(fresh())), printFor(Allocation.Types.FitAsk())(request.ask));
     }
     // Asked of another day, it reads that day's bins: Wed 12's three, split across kilns.
     const split = yard(asked(variant("take", { resource: "K-110" }), yardSplitDay));
@@ -426,6 +428,88 @@ test("#1624 — the smallest board's fit reads as its page's kinds do: no kind, 
         arrivals: page.arrivals, resources: page.resources, rules: page.rules, unit: page.unit,
     };
     for (const request of [placeArrival("LD-2231"), placeBin("3113", 32), takeOf("K-601")]) {
-        sameAnswer(minimal(request), builtInOver(request, read), printFor(Allocation.Types.FitAsk)(request.ask));
+        sameAnswer(minimal(request), builtInOver(request, read), printFor(Allocation.Types.FitAsk())(request.ask));
     }
+});
+
+// ============================================================================
+// Bins keyed by other than String (east-workspace#1709, ruling 12)
+// ============================================================================
+
+/** The fit's types over bins keyed by number. */
+const ByNumber = { key: IntegerType };
+const NumberRequest = Allocation.Types.FitRequest(ByNumber), NumberContext = Allocation.Types.FitContext(ByNumber), NumberResult = Allocation.Types.FitResult(ByNumber);
+type NumberAsk = ValueTypeOf<typeof NumberRequest>["ask"];
+type NumberRead = ValueTypeOf<typeof NumberContext>;
+type NumberAnswer = ValueTypeOf<typeof NumberResult>;
+const byNumber = compareFor(IntegerType);
+/** What a fit's function reads of a day, its bins keyed by number: bin 3113 by 3113. */
+const numbered = (read: Read): NumberRead => ({
+    ...read, bins: new SortedMap([...read.bins].map(([id, roles]) => {
+        const number = parseFor(IntegerType)(id);
+        if (!number.success) throw new Error(`bin ${id} is named by no number`);
+        return [number.value, roles] as const;
+    }), byNumber),
+});
+/** The question a board over bins keyed by number asks of the plan day, with no scope. */
+const askedByNumber = (ask: NumberAsk): ValueTypeOf<typeof NumberRequest> => ({ day: yardDay, ask, scope: new SortedMap([], byString) });
+/** The built-in rules with the look-ahead, each made over bins keyed by number, as a fit's function over them makes them. */
+const numberAhead = East.compile(East.function([NumberRequest, NumberContext], NumberResult, ($, request, read) => {
+    const answer = $.const(Allocation.answer(ByNumber));
+    const rule = $.const(Allocation.fit(ByNumber));
+    const ahead = $.const(Allocation.lookahead(ByNumber));
+    return answer(request, read, East.function([Allocation.Types.Candidate(ByNumber)], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
+        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+}), []);
+const numberCandidates = East.compile(Allocation.candidates(ByNumber), []);
+/** An answer over bins keyed by number as the same bins keyed by text get it: each bin under its number as East prints it, asked as given. */
+const asText = (answer: NumberAnswer, ask: Request["ask"]): Result => ({
+    ...answer, ask, bins: new SortedMap([...answer.bins].map(([id, fit]) => [printFor(IntegerType)(id), fit] as const), byString),
+});
+
+test("ruling 12 — each of the fit's types is made over the bins' key type, String where none is given: a bin is named by its own key in the question, what a function read, a candidate and the answer, and nothing else is", () => {
+    const makers: readonly ((options?: { readonly key: EastType }) => EastType)[] = [
+        Allocation.Types.FitAsk, Allocation.Types.FitRequest, Allocation.Types.FitContext, Allocation.Types.FitResult, Allocation.Types.Candidate,
+    ];
+    for (const make of makers) assert.ok(isTypeEqual(make(), make({ key: StringType })), make.name);
+    assert.ok(isTypeEqual(Allocation.Types.FitAsk(ByNumber).cases.place.fields.subject.cases.bin, IntegerType));
+    assert.ok(isTypeEqual(NumberRequest.fields.ask, Allocation.Types.FitAsk(ByNumber)));
+    assert.ok(isTypeEqual(NumberContext.fields.bins, DictType(IntegerType, Schedule.Types.AllocationRoles)));
+    assert.ok(isTypeEqual(Allocation.Types.Candidate(ByNumber).fields.bin, OptionType(IntegerType)));
+    assert.ok(isTypeEqual(NumberResult.fields.ask, Allocation.Types.FitAsk(ByNumber)));
+    assert.ok(isTypeEqual(NumberResult.fields.bins, DictType(IntegerType, Allocation.Types.Fit)));
+    // A bin's key alone is the app's: the resources and the arrivals are keyed by String, as the board's kinds are.
+    assert.ok(isTypeEqual(NumberResult.fields.resources, FitResult.fields.resources));
+    assert.ok(isTypeEqual(NumberResult.fields.arrivals, FitResult.fields.arrivals));
+    assert.ok(isTypeEqual(NumberContext.fields.resources, FitContext.fields.resources));
+});
+
+test("ruling 12 — a fit's type or part given what is no `{ key }`, or a key that is no East type, is refused, naming the form", () => {
+    assert.throws(() => Allocation.Types.FitRequest(IntegerType as never),
+        { message: "Allocation.Types.FitRequest: takes nothing, or { key: IntegerType } — the bins' key type, for bins keyed by other than String" });
+    assert.throws(() => Allocation.answer({ key: "Integer" } as never),
+        { message: "Allocation.answer: `key` is the bins' key type, an East type — { key: IntegerType } for bins keyed by number" });
+});
+
+test("ruling 12 — over bins keyed by number, the ready-made parts name each bin by its number and give it the verdicts the same bins keyed by text get: a place of a bin, a take, and a place of an arrival with the look-ahead", () => {
+    const read = readOf(fresh());
+    // A place of bin 3113: its candidates name it by its number.
+    const place = askedByNumber(variant("place", { subject: variant("bin", 3113n), quantity: 32 }));
+    const sameBin = equalFor(OptionType(IntegerType));
+    assert.ok(numberCandidates(place, numbered(read)).every(c => sameBin(c.bin, some(3113n))));
+    const quantity = context.arrivals.get("LD-2236")!.quantity;
+    const asks: readonly (readonly [Request, ValueTypeOf<typeof NumberRequest>])[] = [
+        [placeBin("3113", 32), place],
+        [takeOf("K-203"), askedByNumber(variant("take", { resource: "K-203" }))],
+        [placeArrival("LD-2236"), askedByNumber(variant("place", { subject: variant("arrival", "LD-2236"), quantity }))],
+    ];
+    const sameAsk = equalFor(Allocation.Types.FitAsk(ByNumber));
+    for (const [text, number] of asks) {
+        const answer = numberAhead(number, numbered(read));
+        assert.ok(sameAsk(answer.ask, number.ask), "it answers the question it was asked");
+        sameAnswer(asText(answer, text.ask), aheadOver(text, read), printFor(Allocation.Types.FitAsk())(text.ask));
+    }
+    // A take's verdicts are the day's bins', each by its number.
+    const take = numberAhead(askedByNumber(variant("take", { resource: "K-203" })), numbered(read));
+    assert.deepEqual([take.bins.size, take.bins.has(3105n)], [26, true]);
 });

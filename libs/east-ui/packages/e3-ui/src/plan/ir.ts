@@ -14,6 +14,7 @@
 
 import {
     ArrayType,
+    EastTypeType,
     FunctionType,
     NullType,
     OptionType,
@@ -66,6 +67,10 @@ export const PlanRootType = StructType({
     // row read by its key. None where the rows are no narrowing: their own key
     // search finds every one of them.
     unnarrowed: OptionType(PlanRowsType),
+    // The type of the keys `data` holds its entries by (east-workspace#1696): the canvas holds a row's key as its text,
+    // and Search Records over the rows reads a key typed into it, and orders the keys it finds, at this type. None
+    // where the canvas has no `data`: a Plan of event kinds or `rows` alone.
+    rowsKeyType: OptionType(EastTypeType),
     // The link graph (R1) — run-edge to run-edge quantity links; the
     // links-focus control gathers a row's transitive family over it.
     links: ArrayType(PlanLinkType),

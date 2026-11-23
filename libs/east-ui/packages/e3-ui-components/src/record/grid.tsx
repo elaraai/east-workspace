@@ -24,7 +24,9 @@
  *   data's where it falls on its member's place in the field — or the row's
  *   edge, where the row itself is one — as the Sheet's rows draw it; a row
  *   with a field still missing is marked incomplete, and a cell's issue is
- *   its description to a screen reader.
+ *   its description to a screen reader. A row the last gesture was refused
+ *   on — its fields would have moved it under a key another row holds — is
+ *   marked so (`data-refused`), and flashes: it holds what it held.
  * - **The header** — the column groups' row, each group's label over a rule
  *   under its columns, the columns before the first group and an unlabelled
  *   group drawing neither, then the header row, the select column's box
@@ -183,7 +185,7 @@ function conflicted(meta: SheetColumnMeta, conflicts: ConflictMarks | undefined)
  * Sheet's gestures on each — see the module docs.
  */
 export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
-    const { styles: sheetStyles, r, row, columns, registers, gridTemplate, layout, rowPx, idPrefix, selC, range, editor, draft, changes, writable } = props;
+    const { styles: sheetStyles, r, row, columns, registers, gridTemplate, layout, rowPx, idPrefix, selC, range, editor, draft, changes, refused, writable } = props;
     const { styles, ticks } = useRecordGrid();
     const words = useSheetWords();
     // Each cell's issue, read out as its description: `{issuePrefix}-{c}`.
@@ -215,6 +217,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
             data-draft={draft?.pending === true ? "" : undefined}
             data-conflict={draft?.conflicts?.whole === true ? "" : undefined}
             data-incomplete={draft?.incomplete === true ? "" : undefined}
+            data-refused={refused}
             data-still={still ? "" : undefined}
             role="row"
             aria-rowindex={props.ariaRowIndex}

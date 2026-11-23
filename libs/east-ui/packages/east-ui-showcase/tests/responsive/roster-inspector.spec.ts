@@ -183,7 +183,7 @@ test("A refused duty gone to whose panel can't hold its refusal's box and its fi
     await expect.poll(shown).toEqual({ apart: true, field: true, reason: true, says: 'Give the duty a cost centre', keyboard: true });
 });
 
-test("A duty's Start twelve hours past its shift's start is refused: its box shows the 6:00 AM the duty holds again, never the 6:00 PM it refused, the reason under it (#1585) @desktop", async ({ page }) => {
+test("A duty's Start twelve hours past its shift's start is refused: its box shows the 06:00 the duty holds again, never the 18:00 it refused, the reason under it — a time's hours run 0 to 23, with no AM/PM (#1585) @desktop", async ({ page }) => {
     const route = "e3/roster/roster/rosterWarehouse";
     await page.goto(`/#${route}`);
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
@@ -192,18 +192,19 @@ test("A duty's Start twelve hours past its shift's start is refused: its box sho
     await entry.scrollIntoViewIfNeeded(); await settled(page);
     const end = frame.locator('[data-frame-slot="end"]');
     const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
-    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    // A. Alder's early on the day the example opens on, Thursday: 06:00 to 14:00, its hours 0 to 23 as the app prints
+    // every time — its box has no AM/PM.
     await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
     const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
     if (await expand.isVisible()) { await expand.click(); await settled(page); }
-    await expect(segment('start', 'hour')).toHaveText('6');
-    // Its start on to 6:00 PM, and the keyboard away: refused, the box back at the 6:00 AM the duty holds.
-    await segment('start', 'AM/PM').click();
-    await page.keyboard.press('ArrowUp');
-    await expect(segment('start', 'AM/PM')).toHaveText('PM');
+    await expect(segment('start', 'hour')).toHaveText(/^0?6$/);
+    await expect(segment('start', 'AM/PM')).toHaveCount(0);
+    // Its start on to 18:00, twelve hours on, and the keyboard away: refused, the box back at the 06:00 the duty holds.
+    await segment('start', 'hour').click();
+    for (let on = 0; on < 12; on++) await page.keyboard.press('ArrowUp');
+    await expect(segment('start', 'hour')).toHaveText('18');
     await end.locator('[data-inspector-title]').click(); await settled(page);
-    await expect(segment('start', 'hour')).toHaveText('6');
-    await expect(segment('start', 'AM/PM')).toHaveText('AM');
+    await expect(segment('start', 'hour')).toHaveText(/^0?6$/);
     await expect(end.locator('[data-field="start"] [data-part="error-text"]')).toHaveText("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
 });
 
@@ -216,19 +217,19 @@ test("A click into a duty's Start just after an edit of its End: the End taken a
     await entry.scrollIntoViewIfNeeded(); await settled(page);
     const end = frame.locator('[data-frame-slot="end"]');
     const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
-    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    // A. Alder's early on the day the example opens on, Thursday: 06:00 to 14:00.
     await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
     const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
     if (await expand.isVisible()) { await expand.click(); await settled(page); }
-    await expect(segment('end', 'hour')).toHaveText('2');
+    await expect(segment('end', 'hour')).toHaveText('14');
     // Its end an hour on, then a click into its start's hour: the end taken as the keyboard goes, the duty drawn again.
     await segment('end', 'hour').click();
     await page.keyboard.press('ArrowUp');
     await segment('start', 'hour').click(); await settled(page);
     await expect(end.locator('[data-inspector-marks]')).toContainText('Edited · unsaved');
-    await expect(segment('end', 'hour')).toHaveText('3');
+    await expect(segment('end', 'hour')).toHaveText('15');
     // The keyboard where the click put it: the next key steps the start, never the heading's.
     await expect(segment('start', 'hour')).toBeFocused();
     await page.keyboard.press('ArrowUp');
-    await expect(segment('start', 'hour')).toHaveText('7');
+    await expect(segment('start', 'hour')).toHaveText(/^0?7$/);
 });

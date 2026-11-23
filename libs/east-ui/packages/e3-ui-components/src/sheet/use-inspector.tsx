@@ -16,7 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNod
 import { StringType, equalFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
-import { kindOfIssue } from "@elaraai/east-ui-components/internal";
+import { baselineOf, changeCount, kindOfIssue } from "@elaraai/east-ui-components/internal";
 import { EditingIssueType } from "@elaraai/east-ui/internal";
 import {
     NULL_CELL, TITLE_KEY, cellIsBlank, cellText, cellWritable, driverKeyOf, lineAddress, markOf, resolveMember as resolveRegisterMember, takesClear, unitOf, type SheetColumnMeta,
@@ -195,8 +195,9 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         if (place === undefined) return undefined;
         const { entry, child, kind } = place;
         const current = structOf(versionOf(entry), child);
-        // What the record holds: the version the first gesture began from — or, never touched, the draft itself.
-        const began = session.originals.get(entry);
+        // What the record holds: the version the first gesture began from — a row moved under another key's, the row it
+        // was (east-workspace#1709), never a new row's nothing — or, never touched, the draft itself.
+        const began = baselineOf(session, entry);
         const base = began === undefined ? current : structOf(began, child);
         const children = kind === "line" ? undefined : childField;
         return {
@@ -667,7 +668,8 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
             removeRows: canEdit && capabilities.removeRows && editingState.available,
             removeGroups: canEdit && capabilities.removeGroups && editingState.available,
         },
-        counts: { rows: wholeCount, pending: session.pending, issues: issueList.length },
+        // The changes as the history bar counts them: a row moved under another key is one (east-workspace#1709).
+        counts: { rows: wholeCount, pending: changeCount(session), issues: issueList.length },
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,

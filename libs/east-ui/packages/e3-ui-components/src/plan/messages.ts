@@ -29,7 +29,8 @@ import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
+import type { ScheduleKeyRefusal } from "../shared/schedule/editing.js";
+import { eventsNotCounted, hiddenByText, joinedWords as joined, keyRefusedText, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 import type { PlanTool } from "./links/connect.js";
 import type { PlanFocusRole } from "./body-items.js";
@@ -246,7 +247,7 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     linkEndRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
     /** Why Connect's draft doesn't land: the kind's record holds a link under the key this one's row builds. */
     linkHeld: (p: { kind: string }) => string;
-    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `key` failed. */
+    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `rowKey` failed. */
     linkUnkeyed: (p: { kind: string }) => string;
     /** Why Connect's draft doesn't land: the kind's new row failed as it was made. */
     linkFailed: (p: { kind: string }) => string;
@@ -451,6 +452,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     dropRefused: () => string;
     /** Why a drop that would change an event its kind's `locked` holds where it is can't land (#1541, U9) — `Spring catalogue is locked`. */
     dropLocked: (p: { event: string }) => string;
+    /**
+     * Why an event or a link is not added, or not changed, for its key (east-workspace#1709): the key its fields build,
+     * or its kind's rule gave, is another's — `Another print job is keyed "J-2002" already`; the links naming it cannot
+     * follow it under another; or none could be made. `kind` its kind's name, `why` as the editing says it.
+     */
+    keyRefused: (p: { kind: string; why: ScheduleKeyRefusal["why"] }) => string;
     /** An author's card over an event of its patch's kind — `Harbour Arts Society → Spring catalogue`. */
     dropCardOnEvent: (p: { card: string; event: string }) => string;
     /** An author's card anywhere but an event — `Drop a customer onto an event`: `fields` the fields its patch sets. */
@@ -841,6 +848,7 @@ export const planMessages: PlanMessages = {
     dropBusy: ({ kind }) => `${kind} can't change now`,
     dropRefused: () => "Can't go here",
     dropLocked: ({ event }) => `${event} is locked`,
+    keyRefused: ({ kind, why }) => keyRefusedText(kind, why),
     dropCardOnEvent: ({ card, event }) => `${card} → ${event}`,
     dropCardNeedsEvent: ({ fields }) => `Drop ${withArticle(fieldNoun(fields))} onto an event`,
     dropKindTakesNo: ({ kind, fields }) => `${pluralName(kind)} take no ${fieldNoun(fields)}`,

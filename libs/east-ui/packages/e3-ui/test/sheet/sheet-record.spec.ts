@@ -131,7 +131,7 @@ describe("a record's whole Dict, read in key order", () => {
             $(createSheetRootWith(jobs, COLUMNS, options, { keyOrdered: true, ...internal }));
         });
         assert.throws(() => build({}, { applyKeyed: applied }),
-            /the rows are keyed by \.DateTime, and a new row's key is made only for a String key or an Integer one — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+            /the rows are keyed by \.DateTime, and a new row's key is made only for a String key or an Integer one — pass `rowKey`, building a new row's key from the row, or `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
         // A sheet that adds no row needs none: one that writes nowhere, one read only, one whose edits insert none.
         build({}, {});
         build({ readOnly: true }, { applyKeyed: applied });
@@ -211,7 +211,7 @@ describe("a record's whole Dict, read in key order", () => {
         assert.throws(() => unread(taken), /the record's last key is still being read — try again in a moment/);
         // Over a narrowing the app makes it, or the sheet adds no row.
         assert.throws(() => narrowed({}),
-            /the rows are keyed by Integer and read through a narrowing, which can't say the record's largest key — a new row's is one past it — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+            /the rows are keyed by Integer and read through a narrowing, which can't say the record's largest key — a new row's is one past it — pass `rowKey`, building a new row's key from the row, or `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
         narrowed({ edits: { insertRows: false } });
         narrowed({ newKey: East.function([SetType(IntegerType)], IntegerType, (_$, keys) => keys.size().add(100n)) });
     });

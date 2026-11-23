@@ -61,8 +61,8 @@ const addPart = East.function([Kilns, StringType, FloatType], Kilns, ($, held, k
  */
 const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, StringType, FloatType], StructType({ bins: Bins, placed: FloatType }),
     ($, day, context, held, id, quantity) => {
-        const candidatesOf = $.const(Allocation.candidates);
-        const rule = $.const(Allocation.fit);
+        const candidatesOf = $.const(Allocation.candidates());
+        const rule = $.const(Allocation.fit());
         const rolesOf = $.const(yardBinRoles);
         const rowWith = $.const(withKilns);
         const partOn = $.const(addPart);
@@ -73,10 +73,10 @@ const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, Stri
             const rows = $2.let(new Map(), Bins);
             $2.for(bins, ($3, bin, key) => { $3(rows.insert(key, bin)); });
             $2(rows.insert(East.str`${id}·`, bins.get(id)));
-            const request = $2.const({ day, ask: variant("place", { subject: variant("bin", id), quantity: remaining }), scope: new Map() }, Allocation.Types.FitRequest);
+            const request = $2.const({ day, ask: variant("place", { subject: variant("bin", id), quantity: remaining }), scope: new Map() }, Allocation.Types.FitRequest());
             const read = $2.const({
                 bins: rows.map((_$3, bin) => rolesOf(bin)), arrivals: context.arrivals, resources: context.resources, rules: context.rules, unit: context.unit,
-            }, Allocation.Types.FitContext);
+            }, Allocation.Types.FitContext());
             const best = $2.let(none, OptionType(StringType)), bestScore = $2.let(0.0, FloatType);
             const roomiest = $2.let(none, OptionType(StringType)), room = $2.let(0.0, FloatType);
             $2.for(candidatesOf(request, read), ($3, candidate) => {
@@ -115,7 +115,7 @@ const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, Stri
  * best. Then the bins: one not linked, or partly allocated, gets what its parts leave of it placed the same way. Then the
  * loads: every one not yet booked, in the loads' order, is booked into the day's first free bay slot — its m³, its spec
  * and its drying time the load's, its spec booked as measured, under a key of the run's own — and placed on the kilns
- * the fit ranks best. A quantity goes whole onto the best fit (`Allocation.fit`: never a busy kiln, never one whose next
+ * the fit ranks best. A quantity goes whole onto the best fit (`Allocation.fit()`: never a busy kiln, never one whose next
  * job its hold runs into, never over a maximum); when no kiln takes it whole it is split, the kiln with the most room
  * first; what no kiln has room for stays unallocated, for the planner. It reads the day's bins through their interval
  * index and each by its key, the board's unsaved edits laid over them, and the bays, the kilns and the loads from the

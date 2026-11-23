@@ -31,7 +31,8 @@
  *
  * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
  * Frame Spec.md` FR6, FR8): the drafts' count at its start — its number whole
- * or not there at all — then the issues, there whatever their number, off at
+ * or not there at all, a row moved under another key one change
+ * (`change-count.ts`) — then the issues, there whatever their number, off at
  * none, and the four buttons at touch size, Save filled while it would save.
  * The row holds its five squares whatever waits: the conflicts have no button
  * of their own there, the Issues square counting them and opening them — in
@@ -60,6 +61,7 @@ import type { EastType, PatchPath } from "@elaraai/east";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { autosaveChoiceOf, type AutosaveKept } from "./autosave-choice.js";
+import { changeCount } from "./change-count.js";
 import { ConflictsControl, type ConflictsSquare } from "./conflicts.js";
 import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
@@ -434,7 +436,8 @@ function Bar<W>({
     const readiness = session.readiness;
     const status = session.status;
     const issues = readiness.type === "ready" ? session.issues : readiness.value;
-    const pending = session.pending;
+    // The drafts' changes as a person counts them: a row moved under another key is one.
+    const changes = changeCount(session);
     // An open editor is committed before Undo, Discard and Save: each is on for it while the session takes a gesture —
     // and Save only while a Save could be sent, so one unresolved shows on it, off, with an editor open as with none.
     const commitEditor = editing && session.writable;
@@ -464,7 +467,7 @@ function Bar<W>({
     const keeping = useDraftsKeeping(session);
     const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
         : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
-    const discardOff = !session.canDiscard || (pending === 0 && !commitEditor);
+    const discardOff = !session.canDiscard || (changes === 0 && !commitEditor);
     const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitToSave;
     if (phone) {
         const askingNow = asking && !discardOff;
@@ -475,7 +478,7 @@ function Bar<W>({
             (gone ? discard.closest("[data-slot=history]")?.querySelector<HTMLElement>("[data-history-more]") ?? discard : discard)?.focus({ preventScroll: true });
             setAsking(false);
         };
-        const ask = askingNow && <DiscardAsk head={m.discardAskHead()} title={m.discardAskTitle({ n: pending, count: words.number(pending) })} body={m.discardAskBody()}
+        const ask = askingNow && <DiscardAsk head={m.discardAskHead()} title={m.discardAskTitle({ n: changes, count: words.number(changes) })} body={m.discardAskBody()}
             cancel={m.discardAskCancel()} confirm={m.discardAskConfirm()} styles={styles}
             cancelCss={buttonRecipe({ variant: "outline", size: "md" })} confirmCss={buttonRecipe({ variant: "solid", size: "md" })}
             onCancel={stopAsking} onConfirm={() => { stopAsking(); onAction("discard"); }} />;
@@ -486,8 +489,8 @@ function Bar<W>({
                 <Box css={styles.summary} role="status" aria-live="polite" data-history-summary={statusLine !== undefined ? "message" : "count"}>
                     {statusLine !== undefined ? <Text as="span" css={styles.status}>{statusLine}</Text>
                         : (() => {
-                            const counted = m.historyChanges({ n: pending, count: words.number(pending) });
-                            if (pending === 0) return <Box as="span" css={styles.changes}>{counted}</Box>;
+                            const counted = m.historyChanges({ n: changes, count: words.number(changes) });
+                            if (changes === 0) return <Box as="span" css={styles.changes}>{counted}</Box>;
                             const space = counted.indexOf(" ");
                             return <Box as="span" css={styles.changes} data-changes="" style={{ "--history-figures": (space < 0 ? counted : counted.slice(0, space)).length } as CSSProperties}>
                                 <CountWords text={counted} />

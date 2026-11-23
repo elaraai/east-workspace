@@ -13,7 +13,9 @@
  * it does in every builder's toolbar; then the title's count goes, then Add
  * and Delete fold to their icons, and the history folds last. The status
  * line takes the row's slack and nothing more, so it never holds a fold back:
- * a row short of room cuts its words with an ellipsis, down to nothing.
+ * a row short of room cuts its words with an ellipsis, down to nothing — and
+ * says so ({@link RecordToolbar.statusCut}), so the footer says them whole. It
+ * says a refused gesture's words in the danger tone.
  *
  * In a phone's frame (`Mobile Builder Frame Spec.md` FR2) the row is the
  * title, the rail's summary and its Filters button, and Add as its icon at
@@ -31,6 +33,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import type { ToolbarItem } from "@elaraai/east-ui-components";
 import { HOST_RANK, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetToolbarParts } from "../sheet/Toolbar.js";
+import { useCutOff } from "../shared/use-cut-off.js";
 import { recordMessages as m } from "./messages.js";
 import type { RecordNoun } from "./status.js";
 
@@ -49,6 +52,8 @@ export interface RecordToolbarProps {
     count: string | undefined;
     /** The status line's words. */
     status: string;
+    /** Whether they say a gesture was refused: said in the danger tone. */
+    refused: boolean;
     /** The Record's word for its rows. */
     noun: RecordNoun;
     /** Add, where the Record adds rows; `undefined` hides it. */
@@ -96,19 +101,29 @@ function RecordAction({ css, icon, label, tip, disabled, labelled, part, onClick
     );
 }
 
+/** The Record's toolbar, as its frame takes it. */
+export interface RecordToolbar {
+    /** The items in the row's order, a falsy entry for each the Record has no use for. */
+    readonly items: ReadonlyArray<ToolbarItem | false | undefined>;
+    /** Whether the row cuts the status line's words for want of room: the footer then says them whole. */
+    readonly statusCut: boolean;
+}
+
 /**
  * Builds the Record's toolbar items in the row's order — see the module docs.
  *
  * @param props - What the items show and drive
- * @returns The items, a falsy entry for each the Record has no use for
+ * @returns The items, and whether the status line's words are cut
  */
-export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { styles, parts, title, count, status, noun, onAdd, onDelete, ticked, tickedCount, writable } = props;
+export function useRecordToolbarItems(props: RecordToolbarProps): RecordToolbar {
+    const { styles, parts, title, count, status, refused, noun, onAdd, onDelete, ticked, tickedCount, writable } = props;
     const buttonRecipe = useRecipe({ key: "button" });
     const iconRecipe = useRecipe({ key: "iconButton" });
     const phoneStyles = useSlotStyles("toolbarPhone");
     const button = [buttonRecipe({ variant: "outline", size: "sm" }), styles.action] as SystemStyleObject[];
     const icon = [iconRecipe({ variant: "outline", size: "sm" }), styles.action] as SystemStyleObject[];
+    // The status line takes the row's slack alone: where that cuts its words, the frame's footer says them.
+    const statusLine = useCutOff(status);
     const addTip = m.addTip({ noun: noun.singular });
     const deleteTip = m.deleteTip({ n: ticked, count: tickedCount });
 
@@ -131,7 +146,8 @@ export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<
     const statusItem: ToolbarItem = {
         key: "record-status",
         side: "end",
-        forms: [<Box as="span" css={styles.status} data-slot="status" role="status" aria-live="polite" title={status === "" ? undefined : status}>{status}</Box>],
+        forms: [<Box as="span" ref={statusLine.ref} css={styles.status} data-slot="status" data-tone={refused ? "refused" : undefined} role="status" aria-live="polite"
+            title={status === "" ? undefined : status}>{status}</Box>],
         grow: true,
         // A phone's row has no room for them: its footer's band says them.
         phone: { form: null },
@@ -164,5 +180,5 @@ export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<
         },
     };
 
-    return [titleItem, ...parts.rail, statusItem, actionsItem, parts.optimise, parts.history];
+    return { items: [titleItem, ...parts.rail, statusItem, actionsItem, parts.optimise, parts.history], statusCut: statusLine.cut };
 }

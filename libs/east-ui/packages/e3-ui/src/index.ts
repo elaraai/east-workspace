@@ -94,6 +94,7 @@ export {
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
+    type RecordKeyField,
     recordBindPlatformFn,
 } from './bind/record.js';
 // The Record: `<Record>`, the table for a system of records, and the record

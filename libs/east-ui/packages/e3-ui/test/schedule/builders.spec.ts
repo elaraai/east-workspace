@@ -21,7 +21,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BlobType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
-    VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, printType, some, variant,
+    VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, printType, some, variant, type ExprType,
 } from "@elaraai/east";
 import { TimeStepType } from "@elaraai/east-ui";
 import { CalendarPayloadType, Plan, PlanPayloadType, Record, Schedule, ScheduleTemplateType, createCalendarPayload, templateValues } from "@elaraai/e3-ui/internal";
@@ -107,7 +107,7 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
         assert.throws(() => bins({ kind: "load" }), /`arrival` and `kind` both name "load" — the Allocation writes each of its roles into a field of its own/);
     });
 
-    test("the Roster refuses a kind with no shift or group, an instant kind, Option times, and keys that are not Strings", () => {
+    test("the Roster refuses a kind with no shift or group, an instant kind, and Option times", () => {
         assert.throws(() => duties({ group: "team" }), /the Roster places a duty by its `shift` and its `group` — give both/);
         assert.throws(() => East.function([], NullType, ($) => {
             const bound = $.let(Record.bind(dutiesRecord, ["patch"]));
@@ -123,27 +123,16 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
             const bound = $.let(Record.bind(optional));
             Schedule.events(bound as never, { name: "Duty", icon: "i", start: "start", end: "end", shift: "shift", group: "team" } as never).buildRoster("duty");
         }), /a duty has its times — `start` and `end` are DateTime fields, not Options/);
-        const byNumber = e3.record("builders_spec_numbered", DictType(IntegerType, PlainDutyType), {
-            initial: new Map(),
-            mutations: (mutation) => ({
-                patch: mutation.patch(),
-            }),
-        });
-        assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(byNumber));
-            Schedule.events(bound as never, { name: "Duty", icon: "i", start: "start", end: "end", shift: "shift", group: "team" } as never).buildRoster("duty");
-        }), /the Roster's duties are keyed by String — a duty is named by its key, and this record is keyed by \.Integer/);
         assert.throws(() => duties({ shift: "shift", group: "team" }), /the Roster rosters each duty to a person or an agency, its `resource` — give it/);
     });
 
-    test("the Allocation refuses a span kind, a missing role, keys that are not Strings, and a lane that is no String key", () => {
+    test("the Allocation refuses a span kind, a missing role, and a lane that is no String key", () => {
         assert.throws(() => duties({}, "allocation"), /the Allocation's bins are an instant kind: give `at` in place of `start` and `end`/);
         assert.throws(() => bins({ arrival: undefined }), /the Allocation books a bin's `arrival` — give it/);
         assert.throws(() => bins({ parts: undefined }), /the Allocation allocates a bin's `parts` — give it/);
         assert.throws(() => bins({ hold: undefined }), /the Allocation holds a bin for its `hold` — give it/);
         assert.throws(() => bins({ quantity: undefined }), /the Allocation reads a bin's `quantity` — give it/);
         assert.throws(() => bins({ resource: undefined }), /the Allocation books a bin into a lane, its `resource` — give it/);
-        const byNumber = e3.record("builders_spec_bins_numbered", DictType(IntegerType, BinType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const VariantLaneType = StructType({ ...BinType.fields, bay: VariantType({ bay: StringType, dock: StringType }) });
         const variantLane = e3.record("builders_spec_bins_variant_lane", DictType(StringType, VariantLaneType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const OptionLaneType = StructType({ ...BinType.fields, bay: OptionType(StringType) });
@@ -156,11 +145,47 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
                 parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
             } as never).buildAllocation("bin");
         });
-        assert.throws(() => binsOver(byNumber, "bays"), /the Allocation's bins are keyed by String — a bin is named by its key, and this record is keyed by \.Integer/);
         assert.throws(() => binsOver(variantLane, { bay: "bays", dock: "docks" }),
             /the Allocation books each bin into one lane — `resource` names a String field, a key of the lanes' kind, and "bay" holds \.Variant/);
         assert.throws(() => binsOver(optionLane, "bays"),
             /the Allocation books each bin into one lane — `resource` names a String field, a key of the lanes' kind, and "bay" holds an Option of \.String/);
+    });
+
+    test("ruling 10 — the Roster's duties and the Allocation's bins take a record keyed by any type: a String or an Integer key the builder makes, any other the app's `rowKey` or `newKey` does, and without either the page is refused, saying which to give", () => {
+        const roster = (record: unknown, options: object = {}) => East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(record as typeof plainDutiesRecord, ["patch"]));
+            Schedule.events(bound as never, {
+                name: "Duty", icon: "i", start: "start", end: "end", shift: "shift", group: "team", resource: { field: "person", of: "people" }, ...options,
+            } as never).buildRoster("duty");
+        });
+        const allocation = (record: unknown, options: object = {}) => East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(record as typeof binsRecord, ["patch"]));
+            Schedule.events(bound as never, {
+                name: "Bin", icon: "i", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load", quantity: { field: "m3" },
+                parts: { field: "kilns", of: "kilns" }, hold: "dryFor", ...options,
+            } as never).buildAllocation("bin");
+        });
+        // Keyed by number: the builder counts a new row's key on, one past the largest.
+        const numberedDuties = e3.record("builders_spec_numbered", DictType(IntegerType, PlainDutyType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        const numberedBins = e3.record("builders_spec_bins_numbered", DictType(IntegerType, BinType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.doesNotThrow(() => roster(numberedDuties), "duties keyed by Integer");
+        assert.doesNotThrow(() => allocation(numberedBins), "bins keyed by Integer");
+        // The app's `hours` hears each duty's key at the record's key type: a number, never its text.
+        assert.doesNotThrow(() => roster(numberedDuties, { hours: (_duty: unknown, key: ExprType<IntegerType>) => key.toFloat() }), "an `hours` of the duty's number");
+        // Keyed by a date, which no builder makes: the app's rule makes one, or the page is refused, naming both.
+        const datedDuties = e3.record("builders_spec_dated", DictType(DateTimeType, PlainDutyType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        const datedBins = e3.record("builders_spec_bins_dated", DictType(DateTimeType, BinType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.throws(() => roster(datedDuties), {
+            message: "Schedule.events: \"Duty\": the duties are keyed by .DateTime, and the Roster makes one with no key typed — give `rowKey`, building one's key from its row, " +
+                "or `newKey`, making one from the keys taken, or key them by String or Integer",
+        });
+        assert.throws(() => allocation(datedBins), {
+            message: "Schedule.events: \"Bin\": the bins are keyed by .DateTime, and the Allocation makes one with no key typed — give `rowKey`, building one's key from its row, " +
+                "or `newKey`, making one from the keys taken, or key them by String or Integer",
+        });
+        assert.doesNotThrow(() => roster(datedDuties, { rowKey: (duty: { start: unknown }) => duty.start }), "a duty keyed by its start, as its `rowKey` builds it");
+        assert.doesNotThrow(() => allocation(datedBins, { newKey: East.function([SetType(DateTimeType)], DateTimeType, (_$, _taken) => at("2027-05-11T00:00:00Z")) }),
+            "a bin keyed by the app's own rule");
     });
 });
 

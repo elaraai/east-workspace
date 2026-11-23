@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 import { equalFor, none, variant, type EastType } from "@elaraai/east";
-import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation as EntryPresentation } from "@elaraai/east-ui-components/internal";
+import { CLEAN_DRAFT, baselineOf, conflictMarks, presentDraft, type DraftPresentation as EntryPresentation } from "@elaraai/east-ui-components/internal";
 import { type BatchReadiness } from "@elaraai/east-ui-components";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
@@ -61,7 +61,8 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     const entry = session.entries.get(id);
     if (entry?.draft === undefined) return CLEAN_DRAFT;
     const points = session.conflicts.get(id)?.points;
-    const original = session.originals.get(id);
+    // A row moved under another key is the row it was, edited (east-workspace#1709): never a new one to discard.
+    const original = baselineOf(session, id);
     // A conflict's steps run from the entry, whatever row of it is presented.
     const entryType = type;
     let current: unknown = entry.draft;
@@ -110,7 +111,8 @@ export function draftChanges(type: EastType): (before: unknown, current: unknown
 /**
  * Discard only a never-applied row/group or child, as one ordinary undoable gesture — and only while no request for
  * its source is unresolved: a row the session has sent may have landed, and put back to nothing it would be a removal
- * to save, never a draft dropped.
+ * to save, never a draft dropped. A row moved under another key is the row its source holds under the key it left
+ * (east-workspace#1709), never one to discard: dropped under its new key, its removal under the old one would stand.
  *
  * @param session - The editing session
  * @param type - The entry's draft type — on a sheet with loose rows (#846), the variant of a group and a row
@@ -123,7 +125,7 @@ export function discardDraft(session: SheetTransactions, type: EastType, field: 
     if (!session.writable || !session.canDiscard) return false;
     const before = session.entries.get(id);
     if (before?.draft === undefined || before.wire === undefined) return false;
-    const baseline = session.originals.get(id);
+    const baseline = baselineOf(session, id);
     if (child === undefined) {
         if (baseline?.draft !== undefined) return false;
         return session.record([{ id, before, after: { draft: undefined, wire: undefined, place: none } }], "discard", "Discard new row");

@@ -426,9 +426,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // The kinds read by area (#1393): never read whole, nor their narrowing complete.
     const areas = useMemo(() => areaSlots(value), [value]);
     // The rows of the kinds read by area that the paged Backlog and the Index read outside the window (#1393), as their
-    // `rowsOf` makes them: what a gesture on one rewrites, asked as the gesture reads it.
+    // `rowsOf` makes them: what a gesture on one rewrites, asked as the gesture reads it, and keys a new row's key is made
+    // past.
     const [kindRows] = useState(() => new KindRows<ItemRoles>());
-    const pagedRow = useCallback((slot: string, key: string) => kindRows.rowOf(slot, key), [kindRows]);
     // ── What stands in while a new narrowing is read (#1398, CL5, CL8; the loading design's retained card) ──
     // Each kind read through its source of the rail.
     const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
@@ -452,7 +452,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const retained = stale || [...sourced].some((slot) => followed.get(slot)?.error !== undefined);
     // What the editing says of a new row's key (#1549): its kind's name as running text writes it.
     const keyWords = useMemo((): SchematicKeyWords => ({ placeholder: ({ name }) => words.m.keyPlaceholder({ name: name.toLocaleLowerCase(words.locale) }) }), [words]);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, keyWords, pagedRow, retained);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, keyWords, kindRows, retained);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
@@ -942,6 +942,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const said = ((): string => {
             switch (refusal.refusal) {
                 case "untyped": return words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type });
+                case "unkeyed": return words.m.keyRefused({ refusal: "unkeyed", kind: named(refusal.kind) });
                 case "taken": return words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
                 case "unheld": return words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why });
                 case "details": return words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });

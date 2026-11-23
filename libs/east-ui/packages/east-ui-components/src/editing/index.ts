@@ -17,6 +17,7 @@
 
 export {
     EditSession,
+    type EditPoint,
     type EditSessionBinding,
     type HeldRows,
     type LandedEntry,

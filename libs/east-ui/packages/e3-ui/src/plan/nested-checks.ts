@@ -12,9 +12,10 @@
  * collections its record's nested series index declares, so:
  *
  * - no function of the row maps one of them: the walk reads each accessor's
- *   IR for a field read on its row, following each East function it calls,
- *   and refuses a call it cannot follow (a platform function given the row,
- *   or a function value it cannot read) rather than guess;
+ *   IR for a field read on its row (`utils/row-reads.ts`), following each
+ *   East function it calls, and refuses a call it cannot follow (a platform
+ *   function given the row, or a function value it cannot read) rather than
+ *   guess;
  * - a read by name reads only what the index declares, as it declares it —
  *   items or values, by the times it files them by;
  * - a parent's subtotals are only those e3 keeps — a rollup the index
@@ -34,6 +35,7 @@ import {
     type PlanSeriesNestFacts, type PlanSeriesRead,
 } from "./series.js";
 import type { PlanValuesReadSpec } from "./reads.js";
+import { rowReadIn, type RowRead } from "../utils/row-reads.js";
 
 // ============================================================================
 // The index, read back from the binding's type
@@ -147,125 +149,6 @@ export function nestedPartOf(source: EastType | undefined): EastType | undefined
 // A function of the row, walked
 // ============================================================================
 
-/** What a function of the row does that a page of lean rows cannot serve. */
-type Found = { readonly kind: "reads"; readonly field: string } | { readonly kind: "opaque" };
-
-/** An IR node: a variant of East's IR. */
-interface IRNode {
-    readonly type: string;
-    readonly value: Readonly<Record<string, unknown>>;
-}
-
-/** East's IR variants: what the walk treats as a node, and nothing else. */
-const IR_NODES = new Set([
-    "Error", "TryCatch", "Value", "Variable", "Let", "Assign", "As", "Function", "AsyncFunction", "Call", "CallAsync",
-    "NewRef", "NewArray", "NewSet", "NewDict", "NewVector", "NewMatrix", "Struct", "GetField", "Variant", "Block",
-    "IfElse", "Match", "UnwrapRecursive", "WrapRecursive", "While", "ForArray", "ForSet", "ForDict", "Return",
-    "Continue", "Break", "Builtin", "Platform",
-]);
-
-/** A node's own properties that hold no IR: its type, its location, its type arguments, a loop's label. */
-const NOT_IR = new Set(["type", "loc_id", "type_parameters", "label"]);
-
-/** Whether a value is an IR node. */
-function isNode(x: unknown): x is IRNode {
-    return typeof x === "object" && x !== null && typeof (x as { type?: unknown }).type === "string"
-        && IR_NODES.has((x as { type: string }).type) && typeof (x as { value?: unknown }).value === "object";
-}
-
-/** A variable's name. */
-function variableName(x: unknown): string | undefined {
-    return isNode(x) && x.type === "Variable" ? x.value.name as string : undefined;
-}
-
-/** Whether a node is the row: a variable holding it, its node unwrapped, or it cast. */
-function isRow(x: unknown, rows: ReadonlySet<string>): boolean {
-    if (!isNode(x)) return false;
-    if (x.type === "Variable") return rows.has(x.value.name as string);
-    if (x.type === "UnwrapRecursive" || x.type === "As") return isRow(x.value.value, rows);
-    return false;
-}
-
-/** The first finding of a list of walks. */
-function firstOf<T>(xs: readonly T[], walk: (x: T) => Found | undefined): Found | undefined {
-    for (const x of xs) {
-        const found = walk(x);
-        if (found !== undefined) return found;
-    }
-    return undefined;
-}
-
-/** The IR nodes a value holds: itself, or those of an array or a plain object of them (a struct's fields, a match's cases). */
-function nodesIn(x: unknown): unknown[] {
-    if (isNode(x)) return [x];
-    if (Array.isArray(x)) return x.flatMap(nodesIn);
-    if (typeof x === "object" && x !== null) return Object.values(x).flatMap(nodesIn);
-    return [];
-}
-
-/**
- * Walks a node for a read of one of `fields` on the row, or a call the walk
- * cannot follow given the row.
- *
- * @param node - The node
- * @param rows - The variables holding the row, in scope
- * @param fields - The fields a page of lean rows carries empty
- * @returns What it found; `undefined` for nothing
- */
-function walk(node: unknown, rows: ReadonlySet<string>, fields: ReadonlySet<string>): Found | undefined {
-    if (!isNode(node)) return undefined;
-    const value = node.value;
-    switch (node.type) {
-        case "GetField":
-            if (isRow(value.struct, rows) && fields.has(value.field as string)) return { kind: "reads", field: value.field as string };
-            return walk(value.struct, rows, fields);
-        case "Platform": {
-            const args = value.arguments as readonly unknown[];
-            if (args.some((arg) => isRow(arg, rows))) return { kind: "opaque" };
-            return firstOf(args, (arg) => walk(arg, rows, fields));
-        }
-        case "Call":
-        case "CallAsync": {
-            const fn = value.function;
-            const args = value.arguments as readonly unknown[];
-            const found = firstOf(args, (arg) => walk(arg, rows, fields));
-            if (found !== undefined) return found;
-            // An East function called in place is followed into, each parameter given the row holding it.
-            if (isNode(fn) && (fn.type === "Function" || fn.type === "AsyncFunction")) {
-                const params = (fn.value.parameters as readonly unknown[]).map(variableName);
-                const inner = new Set([...rows].filter((name) => !params.includes(name)));
-                params.forEach((param, i) => { if (param !== undefined && isRow(args[i], rows)) inner.add(param); });
-                return walk(fn.value.body, inner, fields);
-            }
-            // Any other function given the row is one the walk cannot see into.
-            if (args.some((arg) => isRow(arg, rows))) return { kind: "opaque" };
-            return walk(fn, rows, fields);
-        }
-        case "Function":
-        case "AsyncFunction": {
-            // A function's own parameters shadow the row's names; what it captures keeps them.
-            const params = (value.parameters as readonly unknown[]).map(variableName);
-            return walk(value.body, new Set([...rows].filter((name) => !params.includes(name))), fields);
-        }
-        case "Block": {
-            // A variable bound to the row holds it for the statements after.
-            const scope = new Set(rows);
-            for (const statement of value.statements as readonly unknown[]) {
-                const found = walk(statement, scope, fields);
-                if (found !== undefined) return found;
-                if (isNode(statement) && statement.type === "Let" && isRow(statement.value.value, scope)) {
-                    const name = variableName(statement.value.variable);
-                    if (name !== undefined) scope.add(name);
-                }
-            }
-            return undefined;
-        }
-        default:
-            return firstOf(Object.entries(value).filter(([key]) => !NOT_IR.has(key)).flatMap(([, held]) => nodesIn(held)),
-                (held) => walk(held, rows, fields));
-    }
-}
-
 /**
  * Walks a function of the row (#1435) for a read of one of `fields` — the
  * collections a page of lean rows carries empty — or a call the walk cannot
@@ -278,14 +161,10 @@ function walk(node: unknown, rows: ReadonlySet<string>, fields: ReadonlySet<stri
  * @returns What it found; `undefined` for nothing
  */
 function findInFunction(rowType: EastType, keyType: EastType, fn: (node: ExprType<EastType>, key: ExprType<EastType>) => unknown,
-    fields: ReadonlySet<string>): Found | undefined {
+    fields: ReadonlySet<string>): RowRead | undefined {
     const recursive = rowType.type === "Recursive";
     const node = (row: ExprType<EastType>) => (recursive ? (row as unknown as { unwrap(): ExprType<EastType> }).unwrap() : row);
-    const built = reifyAccessor([rowType, keyType], (row: ExprType<EastType>, key: ExprType<EastType>) => fn(node(row), key));
-    const ir = (built as unknown as { toIR(): { ir: unknown } }).toIR().ir;
-    if (!isNode(ir)) return undefined;
-    const param = variableName((ir.value.parameters as readonly unknown[])[0]);
-    return param === undefined ? undefined : walk(ir.value.body, new Set([param]), fields);
+    return rowReadIn(reifyAccessor([rowType, keyType], (row: ExprType<EastType>, key: ExprType<EastType>) => fn(node(row), key)), fields);
 }
 
 // ============================================================================

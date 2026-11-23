@@ -165,6 +165,15 @@ export class BacklogServed {
     get(id: string): ServedRow | undefined {
         return this.rows.get(id);
     }
+
+    /**
+     * Every page's event it keeps.
+     *
+     * @returns Each one's kind, key and row, the oldest first
+     */
+    all(): Iterable<ServedRow> {
+        return this.rows.values();
+    }
 }
 
 /**
@@ -399,5 +408,19 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
      */
     servedRow(kind: string, id: string): { readonly revision: string; readonly row: Uint8Array } | undefined {
         return this.servedRows.get(eventKey({ kind, key: id }))?.row;
+    }
+
+    /**
+     * The keys of a kind's events the pages listed at a revision ({@link CalendarBacklogPages.servedRow}): what the list
+     * shows of the kind's record, which a new event's key is made past.
+     *
+     * @param kind - The kind's slot
+     * @param revision - The revision their pages read them at
+     * @returns Their keys' texts
+     */
+    *servedIds(kind: string, revision: string): Iterable<string> {
+        for (const served of this.servedRows.all()) {
+            if (stringEqual(served.kind, kind) && stringEqual(served.row.revision, revision)) yield served.key;
+        }
     }
 }

@@ -604,9 +604,8 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
     }
     const tabSources = schematicTabSources(given.library);
     const names = [...new Set([...kinds.map((one) => one.slot), ...templateSources, ...tabSources])];
-    // Each source may narrow a record keyed by any type, its shown keys their text (#1549).
     const sources = recordSources(narrowing, {
-        builder: "Schematic", names, anyKey: true, what: "its kinds, each by its slot, and the templates lists and tabs that name a source",
+        builder: "Schematic", names, what: "its kinds, each by its slot, and the templates lists and tabs that name a source",
     });
     const library = buildSchematicLibrary(given.library, {
         kinds: kinds.map((one): SchematicLibraryKind => ({

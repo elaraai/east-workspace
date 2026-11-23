@@ -90,7 +90,12 @@
  * kind's own `write` turning it down, or nothing changed — draws its form
  * again, showing what the event holds, or what the events share, with no
  * words, as the Schematic's and the Flowchart's do for a refusal they have no
- * words for (#1585): a box never keeps a value its event does not hold.
+ * words for (#1585): a box never keeps a value its event does not hold. An
+ * edit refused for its event's key (east-workspace#1709) — the key its fields
+ * would then build is another event's, or the links naming it cannot follow
+ * it — says why under its field, and Duplicate is off for an event whose copy
+ * would be refused so. A link's edit refused for its link's key says why the
+ * same way.
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Duplicate, which selects the copies, an overlap's line, which
@@ -687,9 +692,6 @@ function hoursText(minutes: number, w: PlanWords): string {
 // The edits (#1194, PB42, PB60)
 // ============================================================================
 
-/** No key a gesture has made yet. */
-const NONE_MINTED: ReadonlySet<string> = new Set();
-
 /** What a new event's form is tinted against: nothing — every field it has is a change. */
 const NEW_EVENT: Readonly<Record<string, unknown>> = {};
 
@@ -704,11 +706,36 @@ function labelOf(verb: string, events: readonly InspectedEvent[]): string {
 }
 
 /**
- * Whether every event can be duplicated: its kind's keys are ones a new key
- * is made of (String or Integer).
+ * A copy of each event under a new key, its row as drafted: what Duplicate records, and the copies it then selects.
+ *
+ * @param events - The events
+ * @param editing - The event kinds' editing
+ * @returns Each copy as a new event, and the copies' elements' keys; a copy for every event only where a key is made for each
+ */
+function copiesOf(events: readonly InspectedEvent[], editing: PlanEventEditing): { readonly changes: PlanEventChange[]; readonly copies: string[] } {
+    const minted = new Set<string>();
+    const changes: PlanEventChange[] = [];
+    const copies: string[] = [];
+    for (const event of events) {
+        const id = editing.mint(event.kind.key, event.item.key, minted);
+        if (id === undefined) continue;
+        minted.add(id);
+        // A copy is a new event: absent before it, read nowhere (#1199).
+        changes.push({ kind: event.kind.key, id, row: event.row, created: true });
+        copies.push(printEventRef({ kind: event.kind.key, key: id }));
+    }
+    return { changes, copies };
+}
+
+/**
+ * Whether every event can be duplicated: a key is made for each copy — its kind's keys are ones a new key is made of
+ * (String or Integer), or its kind gives a rule for one — and none is refused for its key, as the copy of an event
+ * whose kind builds each key from its row is: it builds the key of the event it copies.
  */
 function canDuplicate(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): boolean {
-    return editing !== undefined && events.every((event) => editing.mint(event.kind.key, event.item.key, NONE_MINTED) !== undefined);
+    if (editing === undefined) return false;
+    const { changes } = copiesOf(events, editing);
+    return changes.length === events.length && editing.keyRefusalOf(changes) === undefined;
 }
 
 /**
@@ -722,17 +749,7 @@ function canDuplicate(events: readonly InspectedEvent[], editing: PlanEventEditi
  */
 function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined, row: RowKey | null): void {
     if (editing === undefined) return;
-    const minted = new Set<string>();
-    const changes: PlanEventChange[] = [];
-    const copies: string[] = [];
-    for (const event of events) {
-        const id = editing.mint(event.kind.key, event.item.key, minted);
-        if (id === undefined) continue;
-        minted.add(id);
-        // A copy is a new event: absent before it, read nowhere (#1199).
-        changes.push({ kind: event.kind.key, id, row: event.row, created: true });
-        copies.push(printEventRef({ kind: event.kind.key, key: id }));
-    }
+    const { changes, copies } = copiesOf(events, editing);
     if (editing.record(changes, "insert", labelOf("Duplicate", events))) chrome?.selectEvents(copies, row ?? undefined);
 }
 
@@ -886,15 +903,19 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
     const [redraws, setRedraws] = useState(0);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     // One that records nothing — the edits off meanwhile, the write turning it down, nothing changed — draws the form
-    // again, with nothing to say (#1585).
-    const onField = useCallback((path: readonly string[], next: unknown) => {
+    // again, with nothing to say (#1585); one its event's key refuses (east-workspace#1709) says why under the field.
+    const onField = useCallback((path: readonly string[], next: unknown): string | void => {
         // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
         const change = specs.some((s) => samePath(s.path, path)) ? fieldChange(kind, item.key, path, next) : undefined;
-        if (editing === undefined || change === undefined) return;
-        if (!writes.current || !editing.record([change], "typed", labelOf("Edit", [event]))) {
-            setRedraws((n) => n + 1);
+        if (editing === undefined || change === undefined) return undefined;
+        if (writes.current) {
+            if (editing.record([change], "typed", labelOf("Edit", [event]))) return undefined;
+            const refusal = editing.keyRefusal();
+            if (refusal !== undefined) return m.keyRefused({ kind: refusal.name, why: refusal.why });
         }
-    }, [editing, specs, kind, item.key, event]);
+        setRedraws((n) => n + 1);
+        return undefined;
+    }, [editing, specs, kind, item.key, event, m]);
     // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction — none while the edits are off,
     // whatever control of the kind's own the fieldset does not reach.
     const update = useCallback((edited: Uint8Array): null => {
@@ -1325,13 +1346,21 @@ function OneLink({ link, words, styles, chrome }: OneLinkProps) {
     const focus = useFieldAsk(kind.key, link.id);
     // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
     const [redraws, setRedraws] = useState(0);
-    // A field edited: one step, written through its record's `set` over the row as the step finds it.
-    const onField = useCallback((path: readonly string[], next: unknown) => {
+    // A field edited: one step, written through its record's `set` over the row as the step finds it. One that records
+    // nothing — the edits off meanwhile, the set turning it down, nothing changed — draws the form again, with nothing to
+    // say; one its link's key refuses (east-workspace#1709) says why under the field, as an event's does.
+    const onField = useCallback((path: readonly string[], next: unknown): string | void => {
         const write = fieldWrite(kind.fields, kind.rowType, path, next);
-        if (editing === undefined || write === undefined) return;
+        if (editing === undefined || write === undefined) return undefined;
         const rewrite = (at: Uint8Array) => getSomeorUndefined(kind.set(at, [write]));
-        if (!writes.current || !editing.record([{ kind: kind.key, id: link.id, rewrite }], "typed", linkStepLabel("Edit", [kind]))) setRedraws((n) => n + 1);
-    }, [editing, kind, link.id]);
+        if (writes.current) {
+            if (editing.record([{ kind: kind.key, id: link.id, rewrite }], "typed", linkStepLabel("Edit", [kind]))) return undefined;
+            const refusal = editing.keyRefusal();
+            if (refusal !== undefined) return m.keyRefused({ kind: refusal.name, why: refusal.why });
+        }
+        setRedraws((n) => n + 1);
+        return undefined;
+    }, [editing, kind, link.id, m]);
     return (
         <Box css={styles.root} data-plan-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={kind} title={m.linkEnds({ from: link.from, to: link.to })} when={null} home />

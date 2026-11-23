@@ -26,6 +26,16 @@
  *   over it, and Save keeps both.
  * - **A key the optimiser gave, taken by another page's row before Save**: a
  *   conflict to choose, as for any key an app's function makes.
+ * - **A key the row's fields build** (east-workspace#1709, ruling 14): over a
+ *   record whose rows' keys the app builds from them (`rowKey`), an answer is an
+ *   edit like any other — a row whose key it changes moves under the key it
+ *   then builds, the run's mark with it, and Save writes it there; one whose key
+ *   would be another row's lands nothing, saying why in the words every refused
+ *   key is said in.
+ * - **The run's mark follows its row** (east-workspace#1709, ruling 16):
+ *   whoever moves the row under another key — a person's edit of what its key
+ *   reads, its Undo, its Redo — its mark goes with it; nothing is drawn under
+ *   the key it left, and a row that comes to stand there wears none of it.
  *
  * @packageDocumentation
  */
@@ -70,9 +80,68 @@ export interface OptimiseCases<R extends EastType> {
      * Sheet.
      */
     readonly outside?: { readonly to: (row: ValueTypeOf<R>) => ValueTypeOf<R>; readonly named: string; readonly standing?: string };
+    /**
+     * The builder's page over the same record, its rows keyed by the key each builds from its fields (`rowKey`,
+     * east-workspace#1709) — and the answers ruling 14's case lands on it. Left out, the case is not run.
+     */
+    readonly keyed?: {
+        /** Mounts the page with its optimiser, ready for a run, and answers what it rendered into. */
+        readonly mounted: () => Promise<HTMLElement>;
+        /** A row of the period in view, a change of it whose key then reads another that no row stands under, and that key. */
+        readonly move: readonly [key: string, to: (row: ValueTypeOf<R>) => ValueTypeOf<R>, moved: string];
+        /** A change of the same row whose key then reads another row's, and why the run says it lands nothing. */
+        readonly taken: readonly [to: (row: ValueTypeOf<R>) => ValueTypeOf<R>, why: string];
+        /**
+         * What the page draws a run did to a row, by its key — `chg` for a row the run changed.
+         *
+         * @param c - What the page rendered into
+         * @param key - The row's key
+         * @returns The operation drawn; `undefined` where none is, or no row stands under the key
+         */
+        readonly op: (c: HTMLElement, key: string) => string | undefined;
+        /**
+         * A row the page draws, and a change of it a run makes that leaves what its key reads as it is (ruling 16). Left
+         * out, it is {@link OptimiseCases.change}'s: its row drawn here too, its change leaving the key as it was.
+         */
+        readonly mark?: readonly [key: string, to: (row: ValueTypeOf<R>) => ValueTypeOf<R>];
+        /** Another row the page draws, which a person's edit then moves under the key the marked row left (ruling 16). */
+        readonly another: string;
+        /**
+         * Whether the page draws a row under a key.
+         *
+         * @param c - What the page rendered into
+         * @param key - The row's key
+         */
+        readonly drawn: (c: HTMLElement, key: string) => boolean;
+        /**
+         * A person's own edit of a row, by the builder's own gesture, that changes what its key reads (ruling 16): the row
+         * then stands under `to`.
+         *
+         * @param c - What the page rendered into
+         * @param key - The row's key
+         * @param to - The key its row then builds
+         */
+        readonly rename: (c: HTMLElement, key: string, to: string) => Promise<void>;
+    };
 }
 
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
+
+/**
+ * A person's own edit of a row in its builder's inspector, as ruling 16's case renames one: the row pressed — selected,
+ * the inspector open on it — and a text field of its form typed into and left, which commits it.
+ *
+ * @param c - What the page rendered into
+ * @param row - The row's element on the page, which a press selects
+ * @param field - The field's key in the row's form
+ * @param to - What is typed
+ */
+export async function typeInInspector(c: HTMLElement, row: Element | null, field: string, to: string): Promise<void> {
+    await press(row);
+    const box = within(slot(c, "end").querySelector<HTMLElement>(`[data-field="${field}"]`)!).getByRole("textbox");
+    await act(async () => { fireEvent.change(box, { target: { value: to } }); fireEvent.blur(box); });
+    await settle();
+}
 const eye = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-optimise-button]");
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 const banner = (c: HTMLElement, kind: string) => c.querySelector<HTMLElement>(`[data-optimise-banner="${kind}"]`);
@@ -257,5 +326,59 @@ export function optimiseCases<R extends EastType>(cases: OptimiseCases<R>): void
             await press(save(c));
             await waitFor(async () => expect(sameRow(rowOf(await h.read(record), addKey), added)).toBe(true), { timeout: 15_000 });
         });
+
+        const keyed = cases.keyed;
+        if (keyed !== undefined) {
+            const [movedKey, moveTo, movesTo] = keyed.move;
+            test("ruling 14 of east-workspace#1709 — over rows keyed by the key each builds, an answer that changes what a row's key reads moves the row under the key it then builds, as an edit does, the run's mark with it; Save writes it there", async () => {
+                const c = await keyed.mounted();
+                const before = await h.read(record);
+                const deployed = await commits();
+                answer(diff(before, edited(before, (rows) => { rows.set(movedKey, moveTo(rowOf(rows, movedKey))); })));
+                await press(eye(c));
+                await said(c, "done");
+                expect(words(banner(c, "done")!)[1]).toBe(counted(0, 1, 0));
+                await waitFor(() => expect([keyed.op(c, movesTo), keyed.op(c, movedKey)]).toEqual(["chg", undefined]));
+                await press(save(c));
+                await waitFor(async () => expect(await commits()).toEqual(["patch", ...deployed]), { timeout: 15_000 });
+                const saved = await h.read(record);
+                expect([saved.has(movedKey), sameRow(rowOf(saved, movesTo), moveTo(rowOf(before, movedKey)))]).toEqual([false, true]);
+            });
+
+            test("ruling 14 of east-workspace#1709 — an answer whose row would build another row's key lands nothing, and the run says why in the words every refused key is said in, never only that the answer could not be used", async () => {
+                const c = await keyed.mounted();
+                const before = await h.read(record);
+                const deployed = await commits();
+                const [takeTo, why] = keyed.taken;
+                answer(diff(before, edited(before, (rows) => { rows.set(movedKey, takeTo(rowOf(rows, movedKey))); })));
+                const at = period(c);
+                await press(eye(c));
+                await said(c, "fail");
+                expect(words(banner(c, "fail")!)).toEqual([optimiseMessages.fail({ period: at }), optimiseMessages.refusedDetail({ reason: why })]);
+                expect([save(c).disabled, keyed.op(c, movedKey), await commits()]).toEqual([true, undefined, deployed]);
+            });
+
+            test("ruling 16 of east-workspace#1709 — what a run left on a row follows it to every key it moves under, whoever moves it: a person's edit of what its key reads, its Undo and its Redo; nothing is drawn under the key it left, and a row that comes to stand under that key wears none of the run's marks", async () => {
+                const c = await keyed.mounted();
+                const before = await h.read(record);
+                const [markKey, markTo] = keyed.mark ?? cases.change;
+                answer(diff(before, edited(before, (rows) => { rows.set(markKey, markTo(rowOf(rows, markKey))); })));
+                await press(eye(c));
+                await said(c, "done");
+                await waitFor(() => expect(keyed.op(c, markKey)).toBe("chg"));
+                // A person's own edit moves the row under the key it then builds: the run's mark goes with it.
+                await keyed.rename(c, markKey, movesTo);
+                await waitFor(() => expect([keyed.op(c, movesTo), keyed.drawn(c, markKey)]).toEqual(["chg", false]));
+                // Undo takes the edit back, the row and its mark back under the key it had; Redo moves both on again.
+                await press(history(c, editingMessages.undo()));
+                await waitFor(() => expect([keyed.op(c, markKey), keyed.drawn(c, movesTo)]).toEqual(["chg", false]));
+                await press(history(c, editingMessages.redo()));
+                await waitFor(() => expect([keyed.op(c, movesTo), keyed.drawn(c, markKey)]).toEqual(["chg", false]));
+                // Another row edited to build the key the marked row left stands under it, and wears none of the run's marks.
+                await keyed.rename(c, keyed.another, markKey);
+                await waitFor(() => expect(keyed.drawn(c, markKey)).toBe(true));
+                expect([keyed.op(c, markKey), keyed.op(c, movesTo)]).toEqual([undefined, "chg"]);
+            });
+        }
     });
 }

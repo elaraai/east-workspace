@@ -16,8 +16,10 @@
  * - **A kind read whole** is sought in its events — every one its record
  *   holds, scheduled or in its backlog — their keys in East's order.
  *
- * The matches are one list, each kind's in its keys' order, the kinds in the
- * Calendar's order. A line names an event by its key, its title, its kind's
+ * Each kind's keys are read at its record's own key type: over kinds keyed by
+ * number, the box takes a number — `12` the key 12, `2..120` a range — and
+ * lists its matches in their numbers' order. The matches are one list, each
+ * kind's in its keys' order, the kinds in the Calendar's order. A line names an event by its key, its title, its kind's
  * name and when it starts; one the rail's narrowing hides says so, as every
  * builder's does (the shared hidden pick, `shared/schedule/hidden.ts`), the
  * Calendar saying which of its sources hide it: its kind's — its choices,
@@ -43,7 +45,7 @@ import { awaitTracked } from "@elaraai/east-ui-components/internal";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { draftsOffPage, hiddenLine, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
-import { STRING_KEYS } from "../shared/schedule/kind-keys.js";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
 import { rowsWithin, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
 import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
@@ -182,9 +184,12 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
     const sources = useMemo(() => kinds.flatMap((kind): SoughtSource<Listed>[] => {
         const draftsOf = () => latest.current.editing?.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
         const part = parts.find(p => keyEqual(p.kind.key, kind.key))?.part;
+        // Its keys at its record's own key type: a number typed into the box is a number key, and its matches are listed
+        // in their numbers' order.
+        const keys = kind.editing.keyType.type === "some" ? kindKeys(kind.editing.keyType.value) : STRING_KEYS;
         if (part !== undefined) {
             return [{
-                part, keys: STRING_KEYS, pick: picks.get(kind.key),
+                part, keys, pick: picks.get(kind.key),
                 // Each row a list shows read as an event by its key, over the window the Calendar shows, its drafts in place.
                 read: ({ id }) => {
                     const { range: window, held: cells } = latest.current;
@@ -207,7 +212,7 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
                 if (scheduled.type === "none" || backlog.type === "none") return none;
                 return some([...scheduled.value, ...backlog.value].map((item) => ({ item, kind: kind.name })));
             },
-            idOf: (event) => event.item.key, keys: STRING_KEYS,
+            idOf: (event) => event.item.key, keys,
             // Its commits: what tells the box the events were read again.
             token: () => {
                 const history = kind.history();

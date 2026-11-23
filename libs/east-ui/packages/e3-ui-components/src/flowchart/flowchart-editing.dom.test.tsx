@@ -17,7 +17,8 @@
  *   while a state stands in it, its tooltip saying why), the "+ STATE" ghost, a
  *   state dragged between two cards of a lane, a state double-clicked into its
  *   rename, Duplicate, a handle dragged to a state (the `canConnect` veto, the
- *   in-place drop and a repeat holding as before), and the form's fields. A
+ *   in-place drop, and a repeat, which adds nothing and says so in the footer,
+ *   in the danger tone), and the form's fields. A
  *   move or a handle's drag that the browser takes the pointer back from lands
  *   nothing; each is its own pointer's — another finger's lift neither lands
  *   it nor ends it — and the window losing the page lets go of it.
@@ -136,6 +137,11 @@ const node = (c: HTMLElement, key: string): HTMLElement | null => c.querySelecto
 const laneHeads = (c: HTMLElement): (string | null)[] => [...c.querySelectorAll("[data-flowchart-lane]")].map((el) => el.textContent);
 const linkKeys = (c: HTMLElement): (string | null)[] => [...c.querySelectorAll("[data-flowchart-link]")].map((el) => el.getAttribute("data-flowchart-link")).sort();
 const pending = (c: HTMLElement): string | null => c.querySelector("[data-flowchart-pending]")?.textContent ?? null;
+/** The footer's line for a refused gesture: its words, and its tone — `null` where it has none. */
+const refusal = (c: HTMLElement): (string | null)[] => {
+    const line = c.querySelector("[data-flowchart-message]");
+    return [line?.textContent ?? null, line?.getAttribute("data-tone") ?? null];
+};
 const canvasBox = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
 const laneSelected = (c: HTMLElement): string | null => c.querySelector("[data-flowchart-lane-selected]")?.getAttribute("data-flowchart-lane-selected") ?? null;
 const banners = (c: HTMLElement): (string | null)[] => [...slot(c, "banners").querySelectorAll("[data-session-banner]")].map((b) => b.getAttribute("data-session-banner"));
@@ -448,8 +454,9 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
             .toBe(printTransitions(changed(before, { "minted-1": { ...defaultValue(ex.DepotTransition), src: "SRD", dst: "IND" } })));
     });
 
-    test("a drop on the state it left is its in-place transition; a drop repeating a transition, or one canConnect vetoes, adds nothing", async () => {
+    test("a drop on the state it left is its in-place transition; a drop repeating a transition, or one canConnect vetoes, adds nothing — a repeat saying in the footer, in the danger tone, that the transition is there already, until a gesture is taken", async () => {
         const before = await h.read(ex.depotTransitions);
+        const states = await h.read(ex.depotStates);
         // The editing example's flowchart, with a `canConnect` refusing every transition into IND.
         const { container: c } = await h.mountFlowchart(($) => {
             const states = $.let(Record.bind(ex.depotStates));
@@ -465,8 +472,13 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
                 name: "depotEditing",
             };
         });
-        // A repeat: IND → CH* is there already.
+        expect(refusal(c)).toEqual(["", null]);
+        // A repeat: IND → CH* is there already. The footer says so, naming its ends as the canvas names them, in the danger
+        // tone: the drop is never one that seems to have done nothing.
         await drag(handle(c, "IND", "right"), centre(c, "IND"), centre(c, "CH*"));
+        expect(refusal(c)).toEqual([
+            m.gestureRefused({ refusal: "taken", sort: "transitions", from: states.get("IND")!.name, to: states.get("CH*")!.name }), "refused",
+        ]);
         // Vetoed: nothing goes into IND.
         await drag(handle(c, "SRD", "left"), centre(c, "SRD"), centre(c, "IND"));
         expect(pending(c)).toBe(pendingText(0));
@@ -474,6 +486,8 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         offering(["minted-2"]);
         await drag(handle(c, "SRD", "left"), centre(c, "SRD"), centre(c, "SRD"));
         expect(c.querySelector("[data-flowchart-inplace='SRD']")?.textContent).toContain("1");
+        // A gesture taken: the refusal's words go.
+        expect(refusal(c)).toEqual(["", null]);
         expect(await save()).toEqual([ex.depotTransitions.name]);
         expect(printTransitions(await h.read(ex.depotTransitions)))
             .toBe(printTransitions(changed(before, { "minted-2": { ...defaultValue(ex.DepotTransition), src: "SRD", dst: "SRD" } })));

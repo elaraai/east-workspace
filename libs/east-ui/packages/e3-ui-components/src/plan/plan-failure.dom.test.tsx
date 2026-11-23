@@ -14,7 +14,7 @@ import { describe, test, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { StringType, toEastTypeValue, variant, some, none } from "@elaraai/east";
 import { system, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -89,6 +89,8 @@ function spanKind(runs: unknown[], opts?: { rollup?: string }) {
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        // Keyed by String, as `Plan.Root` says of data keyed so (east-workspace#1696).
+        rowsKeyType: some(toEastTypeValue(StringType)),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {

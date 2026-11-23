@@ -23,6 +23,10 @@
  * it, clears what hides the row and asks again under the narrowing that leaves;
  * and hands the place to the controller, which opens its window once the source
  * reads that narrowing. A clear of the box, or a new query, leaves the row.
+ * Over rows keyed by any type (east-workspace#1696) the box reads a key typed
+ * into it at the rows' key type and orders the keys it finds by it, a line
+ * names a row by its key's text, and a pick reads its row and its place by
+ * the key itself.
  *
  * @packageDocumentation
  */
@@ -34,7 +38,7 @@ import type { KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePosition, recordSliceRows } from "@elaraai/east-ui-components/internal";
 import type { PlanController } from "./controller/index.js";
 import { hiddenLine, hiddenOf, type SourceHidden, type SourceHiding } from "../shared/schedule/hidden.js";
-import { STRING_KEYS } from "../shared/schedule/kind-keys.js";
+import type { KindKeys } from "../shared/schedule/kind-keys.js";
 import { useSearchRecords, type Found, type PickTurn, type SoughtSource } from "../shared/schedule/search-records.js";
 import type { PlanSourcePart } from "./root/sources.js";
 import type { PlanWords } from "./words.js";
@@ -53,9 +57,10 @@ export function isPlanRowsFind(search: KeySearchSource | undefined): boolean {
     return search?.resetKey === PLAN_ROWS_FIND;
 }
 
-/** A row Search Records found: its key, and what its line names it by. */
+/** A row Search Records found: its key's text, its key, and what its line names it by. */
 interface FoundRow {
-    readonly key: string;
+    readonly id: string;
+    readonly key: unknown;
     readonly name: string;
 }
 
@@ -63,6 +68,11 @@ interface FoundRow {
 export interface PlanRowsFindProps {
     /** The part of the source the canvas pages its rows from; `undefined` with none, or over inline rows: no box. */
     readonly part: PlanSourcePart | undefined;
+    /**
+     * The keys its rows are held by (`planRowKeys`): what a key typed into the box is read at, and its keys ordered by;
+     * `undefined` with no part.
+     */
+    readonly keys: KindKeys | undefined;
     /** The hidden pick over it. */
     readonly pick: SourceHidden;
     /** Clears what hides a row, saying so where the Plan says a gesture's error; `false` where it could not. */
@@ -78,28 +88,30 @@ export interface PlanRowsFindProps {
 /**
  * Search Records' source over the source the canvas pages — see the module docs.
  *
- * @param props - The source's part, its hidden pick, the clear, the controller, the words and where an error is said
+ * @param props - The source's part and its rows' keys, its hidden pick, the clear, the controller, the words and where an
+ *   error is said
  * @returns The source; `undefined` with no part
  */
-export function usePlanRowsFind({ part, pick, clear, controller, words, onError }: PlanRowsFindProps): KeySearchSource | undefined {
+export function usePlanRowsFind({ part, keys, pick, clear, controller, words, onError }: PlanRowsFindProps): KeySearchSource | undefined {
     const latest = useRef({ part, pick, clear, controller, words, onError });
     useLayoutEffect(() => { latest.current = { part, pick, clear, controller, words, onError }; });
     const sources = useMemo((): SoughtSource<FoundRow>[] => {
-        if (part === undefined) return [];
+        if (part === undefined || keys === undefined) return [];
         // On a scoped page (#1621) the query is asked of the rows' keys among the scope's rows, read through the index on
         // exactly the scope's fields, whose key is the scope's value: the row's key names it.
         const byKey = recordSliceScoped(part);
         return [{
-            part, keys: STRING_KEYS, pick,
+            part, keys, pick,
             // The index the record's rows are read through names a row where it reads them by name; else its key does.
-            read: ({ id, entry }) => some(some({ key: id, name: !byKey && isValueOf(entry.ik.value, StringType) ? entry.ik.value as string : id })),
+            read: ({ id, key, entry }) => some(some({ id, key, name: !byKey && isValueOf(entry.ik.value, StringType) ? entry.ik.value as string : id })),
         }];
-    }, [part, pick]);
+    }, [part, keys, pick]);
     /** Goes to a found row: its place among the rows of the narrowing the source holds, cleared of what hides it first. */
     const goTo = (found: Found<FoundRow>, turn: PickTurn) => {
         const { part: source, onError: say } = latest.current;
         if (source === undefined) return;
-        const key = found.item.key;
+        // The row is read, and placed, by its key; the hidden pick and the canvas name it by its key's text.
+        const { id, key } = found.item;
         say(undefined);
         /** Its place among the rows of the narrowing the source holds now, the narrowing beside it. */
         const placed = () => awaitTracked(() => {
@@ -117,11 +129,11 @@ export function usePlanRowsFind({ part, pick, clear, controller, words, onError 
             if (place.at === null) {
                 // The narrowing hides it: what e3 has said hides it, else every choice of the source.
                 const { pick: now, clear: clearing } = latest.current;
-                if (!clearing(hiddenOf([{ pick: now, id: key }]) ?? [{ pick: now, answer: undefined }])) return;
+                if (!clearing(hiddenOf([{ pick: now, id }]) ?? [{ pick: now, answer: undefined }])) return;
                 place = await placed();
                 if (!turn.current()) return;
             }
-            if (place.at !== null) latest.current.controller.goToRow(key, Number(place.at), printWhere(place.where));
+            if (place.at !== null) latest.current.controller.goToRow(id, Number(place.at), printWhere(place.where));
         })().catch((error: unknown) => {
             if (turn.current()) latest.current.onError(error instanceof Error ? error.message : latest.current.words.m.keySearchUnplaced());
         });

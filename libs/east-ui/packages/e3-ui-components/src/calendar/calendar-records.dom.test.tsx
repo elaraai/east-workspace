@@ -272,7 +272,8 @@ describe("the timeline shows the period chosen and scrolls only within it (ruled
         const ready = [...events.values()].filter(row => text(row.machine, "press-a") && text(row.status, "Ready"));
         const pressA = () => [...timeline.querySelectorAll<HTMLElement>("[data-calendar-resource-row]")]
             .find(row => row.querySelector("[data-calendar-resource-title]")?.textContent === "Press A")!;
-        const hoursSaid = () => Number(/· ([\d,.]+) h booked$/.exec(pressA().querySelector("[data-calendar-booked]")!.textContent!)![1]!.replaceAll(",", ""));
+        // Its line is its hours alone: these machines have no meta, and no separator stands before nothing.
+        const hoursSaid = () => Number(/^([\d,.]+) h booked$/.exec(pressA().querySelector("[data-calendar-booked]")!.textContent!)![1]!.replaceAll(",", ""));
         for (const period of ["day", "week", "month"] as const) {
             if (period !== "day") {
                 await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: period === "week" ? "Week" : "Month" })); });

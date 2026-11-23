@@ -24,15 +24,18 @@
  * newer save and lands; with a conflict to choose the run ends saying so, and
  * the person chooses before running again. What it does with any answer — one that inserts, updates and
  * deletes, one that replaces the whole Dict, another page's save while the
- * call is out, a key another page takes — is the builders' shared cases
+ * call is out, a key another page takes, a row whose reference builds its key
+ * (east-workspace#1709, ruling 14), and the run's mark on a row a person then
+ * gives another reference (ruling 16) — is the builders' shared cases
  * (`optimise-cases.test-utils.ts`), over the orders; a sheet has no period for
  * an answer to leave.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { none } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui";
+import { East, none } from "@elaraai/east";
+import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Func, Record, Sheet } from "@elaraai/e3-ui";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as opt from "@elaraai/e3-ui/examples/sheet/optimise";
 import { act, conflictCards, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
@@ -286,6 +289,21 @@ describe("a record that changed under the sheet's edits (rule 12)", () => {
     });
 });
 
+/** The orders with the shop's optimiser, each keyed by the key its reference builds (`rowKey`, east-workspace#1709). */
+const keyedOrders = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const orders = $.let(Record.bind(opt.optimiseWorkOrders));
+    const optimise = $.let(Func.bind(opt.setDueDates));
+    return Sheet({
+        record: orders, name: "sheetOptimiseKeyed", optimise, rowKey: (order) => order.reference,
+        columns: {
+            reference: Sheet.column.text(opt.OptimiseWorkOrder, { header: "Reference" }),
+            job: Sheet.column.text(opt.OptimiseWorkOrder, { header: "Job" }),
+            status: Sheet.column.text(opt.OptimiseWorkOrder, { header: "Status" }),
+            quantity: Sheet.column.integer(opt.OptimiseWorkOrder, { header: "Quantity" }),
+        },
+    });
+}))) };
+
 // The orders, and one the optimiser adds.
 optimiseCases<typeof opt.OptimiseWorkOrder>({
     builder: "the Sheet", h,
@@ -296,4 +314,15 @@ optimiseCases<typeof opt.OptimiseWorkOrder>({
     change: ["WO-1002", (order) => ({ ...order, quantity: 1500n })],
     remove: "WO-1004",
     other: ["WO-1006", (order) => ({ ...order, job: "Edge band · rush" })],
+    // An order the answer gives a new reference stands under it; one given another order's is refused.
+    keyed: {
+        mounted: async () => (await h.mount(keyedOrders)).container,
+        move: ["WO-1005", (order) => ({ ...order, reference: "WO-2005" }), "WO-2005"],
+        taken: [(order) => ({ ...order, reference: "WO-1001" }), 'Another row is keyed "WO-1001" already'],
+        op: (c, key) => c.querySelector<HTMLElement>(`[data-row-id="${key}"] [data-slot=cell][data-op]`)?.getAttribute("data-op") ?? undefined,
+        another: "WO-1006",
+        drawn: (c, key) => c.querySelector(`[data-row-id="${key}"]`) !== null,
+        // The order's reference typed in its cell.
+        rename: (c, key, to) => typeInto(cell(c, key, "reference"), to),
+    },
 });

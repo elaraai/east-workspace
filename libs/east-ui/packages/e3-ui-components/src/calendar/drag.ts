@@ -70,6 +70,10 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
             returns: { libraries: value.library.some(tab => tab.type === "backlog") ? [calendarLibraryId(key, "backlog")] : [],
                 canDrop: (event: DragEventValue) => run(event, true) === undefined },
             onDrag: (event: DragEventValue) => { const refusal = run(event, false); onError(refusal); return refusal === undefined; },
+            // A drop its cell refused never reaches `onDrag`: said here, in the words the ghost's caption gave while the drag
+            // rested there, where the Calendar says every gesture's error (east-workspace#1709) — the event is where it was,
+            // and its person is told why once the ghost is gone.
+            onRefuse: (event: DragEventValue) => { onError(run(event, true)); },
         };
     }, [enabled, key, value.library, run, onError]);
     useDragTarget(target);

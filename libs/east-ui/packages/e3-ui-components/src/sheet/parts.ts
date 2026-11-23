@@ -18,6 +18,7 @@ import type { PlaceholderKind, SlotStyles } from "@elaraai/east-ui-components/in
 import type { SheetColumnIndex, SheetColumnMeta, SheetRegisterIndex } from "./model.js";
 import type { SheetCellRefusalWord } from "./messages.js";
 import type { SheetNotice } from "./sheet-types.js";
+import type { RefusedTurn } from "./refusal.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import type { SheetDropHost } from "./drop.js";
 import type { LinkCellContext } from "./cells/Cell.js";
@@ -315,6 +316,11 @@ export interface SheetHostRowProps {
     draft: DraftPresentation | undefined;
     /** What its drafts changed; `undefined` for a row no gesture has touched. */
     changes: SheetRowChanges | undefined;
+    /**
+     * The last gesture was refused on it, for its key (east-workspace#1709): the refusal's turn, which its mark
+     * (`data-refused`) starts over by; `undefined` for any other row, and once another message is left.
+     */
+    refused: RefusedTurn | undefined;
     /** Whether a gesture may be made now: the sheet writable, and its session taking one. */
     writable: boolean;
     /** A link cell's halves, vocabulary and flags. */

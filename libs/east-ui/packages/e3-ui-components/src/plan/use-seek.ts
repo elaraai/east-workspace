@@ -31,6 +31,7 @@
 
 import { StringType, parseFor, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, DatasetKeySearchProps } from "@elaraai/east-ui-components";
+import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
@@ -41,7 +42,7 @@ export interface PlanSearch {
      *  stands (#821, #1199): the control asks the query it holds again there,
      *  its text kept. Windows read again over the same data move nothing. */
     requery: number;
-    /** The key type the control parses typed input against. */
+    /** The key type the control parses typed input against: the rows' (east-workspace#1696). */
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. `again`, the
      *  query the control holds asked again at a new snapshot: the view stays
@@ -58,8 +59,12 @@ export interface PlanSearch {
 /** The key a query's run starts at, which the canvas anchors on. The `.east`
  *  literal of a String key is its quoted text; a prefix is carried plainly; a
  *  range starts at its lower bound, or at the first row when it is open
- *  below. `undefined` ⇒ nothing to position on. */
-export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
+ *  below. Over keys of another type (east-workspace#1696) a row names its
+ *  element by the key's `.east` text, which a whole-key query holds as it is;
+ *  a query of a key's leading parts names no one key. `undefined` ⇒ nothing
+ *  to position on. */
+export function soughtKeyOf(query: DatasetKeyQuery, keys: KindKeys = STRING_KEYS): string | undefined {
+    if (!keys.text) return "key" in query ? query.key : undefined;
     if ("prefix" in query) return query.prefix;
     if ("key" in query) {
         const parsed = parseFor(StringType)(query.key);

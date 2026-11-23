@@ -1126,7 +1126,7 @@ export const bakeryMoves = e3.record("flowchart_bakery_moves", DictType(BakeryMo
 });
 
 export const flowchartBakery = example({
-    keywords: ["Flowchart", "key type", "IntegerType", "Integer keys", "struct keys", "key", "Flowchart.transitions", "Connect",
+    keywords: ["Flowchart", "key type", "IntegerType", "Integer keys", "struct keys", "rowKey", "Flowchart.transitions", "Connect",
         "Fields.select", "cases", "variant", "block", "inspector", "records", "Record.bind", "values"],
     description: "A bakery's line over records keyed as the bakery keys them: its steps and its stations by number, a new one numbered one past the largest, and each move by the two steps it joins — Connect makes the move, then its key from its ends, and a second move between the same two steps is refused; each step's portioning a variant whose cases hold data, edited in the inspector as a choice with the chosen case's fields in a block under it, a new step's a whole loaf from the states' `values`",
     fn: East.function([], UIComponentType, (_$) => (
@@ -1153,7 +1153,7 @@ export const flowchartBakery = example({
                         transitions={Flowchart.transitions(moves, {
                             from: "from", to: "to",
                             // Connect makes the row, then its key from it: a move is keyed by its two ends.
-                            key: (move) => ({ from: move.from, to: move.to }),
+                            rowKey: (move) => ({ from: move.from, to: move.to }),
                         })}
                         lanes={Flowchart.lanes(stations, { label: "label", order: "seq" })}
                         name="bakery"

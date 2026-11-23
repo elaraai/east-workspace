@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { StringType, equalFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
+import { baselineOf } from "@elaraai/east-ui-components/internal";
 import { NULL_CELL, TITLE_KEY, cellText, cellWritable, lineId, resolveMember as resolveRegisterMember, type SheetColumnMeta } from "./model.js";
 import { selectionRect } from "./sheet-state.js";
 import type { EntryVersion } from "./transactions.js";
@@ -298,8 +299,9 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         dirty: (r, key) => {
             const a = actionAt(r, key);
             if (a === undefined) return false;
-            // Against what the record held where the drafts began; an entry no gesture touched is no draft.
-            const began = session.originals.get(a.lg !== undefined ? a.lg.row.id : a.it.row.id);
+            // Against what the record held where the drafts began — a row moved under another key against the row it was
+            // (east-workspace#1709); an entry no gesture touched is no draft.
+            const began = baselineOf(session, a.lg !== undefined ? a.lg.row.id : a.it.row.id);
             if (began === undefined) return false;
             const wire = began.wire;
             const was = a.lg !== undefined ? wire?.lines.find((line) => line.key === a.lg!.key)?.cells.get(key) : wire?.cells.get(key);

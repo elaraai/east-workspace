@@ -210,7 +210,8 @@ describe("a booking's row: its roles, its `values` and the defaults (B13)", () =
 });
 
 describe("a bin's own row where the app's functions read it: a fit from the bins' record, a check in its context (B16)", () => {
-    const Request = Allocation.Types.FitRequest;
+    const Request = Allocation.Types.FitRequest();
+    const Result = Allocation.Types.FitResult();
     const Context = Allocation.Types.CheckContext(KilnBin);
     const fresh = () => decodeBeast2For(YardPlan)(encodeBeast2For(YardPlan)(yardPlanDay));
 
@@ -220,15 +221,15 @@ describe("a bin's own row where the app's functions read it: a fit from the bins
             inputs: [e3.index(ex.kilnBins.indexes.kiln_bins_by_time), ex.kilnBins, ex.kilns, ex.arrivals],
             drafts: [ex.kilnBins],
             args: [Request],
-            output: Allocation.Types.FitResult,
+            output: Result,
         }, ($, binsByTime, bins, kilnRows, loadRows, request) => {
             const roles = $.const(ex.yardBinRoles);
             const day = $.let(new Map(), DictType(StringType, Schedule.Types.AllocationRoles));
             binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
             const read = $.const(ex.yardRead);
-            const answer = $.const(Allocation.answer);
-            const rule = $.const(Allocation.fit);
-            return answer(request, read(day, kilnRows, loadRows), East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => {
+            const answer = $.const(Allocation.answer());
+            const rule = $.const(Allocation.fit());
+            return answer(request, read(day, kilnRows, loadRows), East.function([Allocation.Types.Candidate()], Allocation.Types.Fit, ($2, c) => {
                 $2.match(c.bin, { some: ($3, id) => {
                     const row = $3.const(bins.get(id));
                     $3.if(East.notEqual(row.specBooked, row.specMeasured), ($4) => {
@@ -238,7 +239,7 @@ describe("a bin's own row where the app's functions read it: a fit from the bins
                 return rule(c);
             }), "ranked by load, kind and spare days; a bin off its spec goes nowhere");
         });
-        const fit = (offSpec.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => ValueTypeOf<typeof Allocation.Types.FitResult>;
+        const fit = (offSpec.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => ValueTypeOf<typeof Result>;
         // As the renderer sends it: encoded at the request type, and decoded where the fit runs.
         const ask = (bin: string, quantity: number) => decodeBeast2For(Request)(encodeBeast2For(Request)({
             day: yardDay, ask: variant("place", { subject: variant("bin", bin), quantity }), scope: new SortedMap([], byString),

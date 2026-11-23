@@ -30,6 +30,7 @@ import { formatters, useFormatters, type Formatters, sessionErrorText } from "@e
 import { DRAFT_ISSUE_TEXT, SESSION_TEXT } from "@elaraai/east-ui-components/internal";
 import { sheetMessages, useSheetMessages, type SheetMessages } from "./messages.js";
 import type { SheetNotice, SheetRowRef } from "./sheet-types.js";
+import { keyRefusedText } from "../shared/schedule/words.js";
 
 // The editing session's own error text and how it shows — shared by every
 // editable collection (#879); the sheet's history bar words it in its words.
@@ -143,6 +144,8 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "keyFailed": return m.noticeKeyFailed({ reason: notice.reason });
         case "renumbered": return m.noticeRenumbered({ from: notice.from, to: notice.to, n: notice.n, count: w.number(notice.n) });
         case "cantAdd": return m.noticeCantAdd({ what: notice.what, noun: noun(notice.noun), label: notice.label });
+        // The words every builder says a refused key in.
+        case "keyRefused": return keyRefusedText(notice.what === "group" ? noun(notice.noun) : notice.what, notice.why);
         case "text": return notice.text;
     }
 }

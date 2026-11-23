@@ -224,11 +224,11 @@ export const rosterStaffFit = e3.function("roster_staff_fit", {
     $.for(positionRows, ($2, p, key) => { $2(positions.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
     const activities = $.let([], ArrayType(Roster.Types.Skill));
     $.for(activityRows, ($2, a, key) => { $2(activities.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
-    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext);
+    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext());
     // The ready-made rule, then the warehouse's order: the most spare contract hours first, whatever the group.
-    const answer = $.const(Roster.answer);
+    const answer = $.const(Roster.answer());
     const rule = $.const(Roster.fit());
-    return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+    return answer(request, context, East.function([Roster.Types.Candidate()], Roster.Types.Fit, ($2, candidate) => {
         const verdict = $2.const(rule(candidate));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));
@@ -244,7 +244,7 @@ export const rosterStaffFit = e3.function("roster_staff_fit", {
 export const rosterFitRead = East.function([
     DictType(StringType, Roster.Types.Person), DictType(StringType, Schedule.Types.RosterRoles),
     DictType(StringType, WarehouseShift), DictType(StringType, WarehouseTeam), DictType(StringType, WarehousePosition), DictType(StringType, WarehouseActivity),
-], Roster.Types.FitContext, ($, people, week, shiftRows, teamRows, positionRows, activityRows) => {
+], Roster.Types.FitContext(), ($, people, week, shiftRows, teamRows, positionRows, activityRows) => {
     const shifts = $.let([], ArrayType(Roster.Types.Shift));
     $.for(shiftRows, ($2, s, key) => { $2(shifts.pushLast({ key, label: s.label, code: s.code, start: s.start, hours: s.hours, color: s.colour })); });
     const groups = $.let([], ArrayType(Roster.Types.Group));
@@ -256,7 +256,7 @@ export const rosterFitRead = East.function([
     return { people, duties: week, shifts, groups, positions, activities, rest: 10.0 };
 });
 /** The warehouse's order over the ready-made rule (#1624): the most spare contract hours first, whatever the group. */
-export const rosterGreedyFit = East.function([Roster.Types.Candidate], Roster.Types.Fit, ($, candidate) => {
+export const rosterGreedyFit = East.function([Roster.Types.Candidate()], Roster.Types.Fit, ($, candidate) => {
     const rule = $.const(Roster.fit());
     const verdict = $.const(rule(candidate));
     $.match(verdict, { refused: ($2) => { $2.return(verdict); } });
@@ -319,7 +319,7 @@ export const rosterLockedFit = e3.function("roster_locked_fit", {
     const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
     dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
     const read = $.const(rosterFitRead);
-    const answer = $.const(Roster.answer);
+    const answer = $.const(Roster.answer());
     return answer(request, read(people, week, shiftRows, teamRows, positionRows, activityRows), rosterGreedyFit);
 });
 
@@ -353,12 +353,12 @@ export const rosterContractFit = e3.function("roster_contract_fit", {
     $.for(positionRows, ($2, p, key) => { $2(positions.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
     const activities = $.let([], ArrayType(Roster.Types.Skill));
     $.for(activityRows, ($2, a, key) => { $2(activities.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
-    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext);
+    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext());
     // What the slot's shift adds to a person's week.
     const shift = $.const(shiftRows.has(request.slot.shift).ifElse(() => shiftRows.get(request.slot.shift).hours, () => 0.0));
-    const answer = $.const(Roster.answer);
+    const answer = $.const(Roster.answer());
     const rule = $.const(Roster.fit());
-    return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+    return answer(request, context, East.function([Roster.Types.Candidate()], Roster.Types.Fit, ($2, candidate) => {
         const verdict = $2.const(rule(candidate));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));

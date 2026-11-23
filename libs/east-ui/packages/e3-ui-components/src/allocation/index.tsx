@@ -29,8 +29,8 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrayType, SortedMap, StringType, equalFor, fromEastTypeValue, isVariant, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent, AllocationIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
@@ -42,15 +42,18 @@ import { LoadingReveal, formatDatePattern, keptRead, useSlotStyles } from "@elar
 import { rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
-import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { optimiseLandedCounts, type OptimiseFollow } from "../shared/func/optimise-diff.js";
 import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
+import { useOptimiseMarks } from "../shared/func/use-optimise-marks.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import type { SchedulePoint } from "../shared/schedule/editing.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useClassesAhead, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
+import { heldUnderMoves } from "../shared/schedule/moved.js";
 import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -79,10 +82,10 @@ import {
 import { allocationNarrowed, narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
 import { NounsContext, a, lower, one, other } from "./nouns.js";
 import {
-    allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
+    allocationMarksUnder, allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
     type AllocationOptimiseRequest, type AllocationOptimiseResult, type AllocationOptimised,
 } from "./optimise.js";
-import { AllocationTable, RESERVE_PROBE } from "./table.js";
+import { AllocationTable, RESERVE_PROBE, type ReserveProbe } from "./table.js";
 import { rowHiding } from "./table-rows.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { ROW_H } from "./timeline-layout.js";
@@ -108,6 +111,8 @@ const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
 /** A board that takes no edit holds no draft: the one object its fit's answers are kept for. */
 const NO_FIT_DRAFTS: object = {};
+/** A probe reservation's key is made past no key a gesture has made. */
+const NONE_MINTED: ReadonlySet<string> = new Set();
 const keyEqual = equalFor(StringType);
 const sameIssues = equalFor(ArrayType(AllocationIssueType));
 /** The Table's view has rested nowhere yet. */
@@ -157,7 +162,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useSliceReactivity(binsPart?.key);
     const binChoices = binChoicesOf(binsPart);
     // The day assembled from the records' rows (§9): the bins its window read, every day's drafts in place, and its own row.
-    const stored = current ? data.bins : NO_STORED;
+    // A bin an edit moved under the key its fields build is filed under it, as the drafts key it (east-workspace#1709): the
+    // bin it was, edited — its Details name it, and Revert brings it back — never one removed and one new.
+    const movedBins = editing?.schedule.movedFrom(value.bin.kind.key);
+    const stored = useMemo(() => heldUnderMoves(current ? data.bins : NO_STORED, movedBins), [current, data.bins, movedBins]);
     const heldBins = useMemo(() => placeStored(domain, stored, day), [domain, stored, day]);
     // A day not read yet draws none of its bins, its drafts included: they wait in their session, and draw beside its
     // stored bins once those land — never a day of drafts alone (#1398, CL13).
@@ -202,6 +210,17 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         setChooser(undefined);
         if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
     }, []);
+    // A bin that goes on under another key — one a gesture moved under the key its fields build (east-workspace#1709), a
+    // new one's from the key made for it — stays selected under it, its link with it: each move followed once.
+    const selectionNow = useRef(selection); selectionNow.current = selection;
+    const renumbered = editing?.schedule.renumbered, binSlot = value.bin.kind.key;
+    useLayoutEffect(() => {
+        const under = renumbered?.get(binSlot);
+        const held = selectionNow.current;
+        const to = held?.type === "bin" ? under?.get(held.id) : undefined;
+        if (to !== undefined) setSelection({ type: "bin", id: to });
+        setLink(was => { const bin = was === undefined ? undefined : under?.get(was.bin); return was === undefined || bin === undefined ? was : { ...was, bin }; });
+    }, [renumbered, binSlot]);
     // The inspector's open tab (A55): an explicit inspection opens Details; a selection a command makes keeps it (A8).
     const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${key}.inspector.tab`, { tab: "details" }, readTab);
     const inspect = useCallback((next: Selection | undefined, soft = false) => {
@@ -356,14 +375,21 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const stale = current && (data.filtering || narrowingLoading);
     const retained = stale || narrowingLoading || narrowingFailed;
     // Commands update what is selected without changing the panes or their tabs.
-    const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish);
+    const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish, setError);
     // The app's optimiser (#1409, #1420, east-workspace#1622): one run over the day in view — asked the day and the rail's
     // narrowing, the board's unsaved edits sent as drafts — its answer's patch landed on the bins as one edit, and what it
     // left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
-    const optimiseTypes = useMemo(() => allocationOptimiseTypes(domain.rowType), [domain]);
-    const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
+    // The bins' own key type: the optimiser's answer's patch is read at it, and the fit asked in it (east-workspace#1709) — a
+    // number key as a number.
+    const binKeys = value.bin.kind.editing.keyType;
+    const binKeyType = useMemo(() => binKeys.type === "some" ? fromEastTypeValue(binKeys.value) as EastType : StringType, [binKeys]);
+    const optimiseTypes = useMemo(() => allocationOptimiseTypes(binKeyType, domain.rowType), [binKeyType, domain]);
+    // What the runs left on the bins (R17), each mark under the key its bin stands under now, whoever moved it there — a
+    // gesture since, its Undo or its Redo, or the run's own (ruling 16 of east-workspace#1709).
+    const binMarksUnder = useCallback((marks: AllocationOptimised, follow: OptimiseFollow) => allocationMarksUnder(marks, follow, binSlot), [binSlot]);
+    const { marks: optimised, keep: keepOptimised, clear: clearOptimised } = useOptimiseMarks<AllocationOptimised, SchedulePoint>(editing?.schedule, editing?.schedule.version ?? 0, binMarksUnder);
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // Whether the day takes edits: its period's status, stored and drafted (rule 11).
     const dayOpen = editableStatus(heldPeriod.status) && editableStatus(period.status);
@@ -395,7 +421,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                 held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }),
                 runText, period: now.dayWords, plan: now.plan, context: now.context, before: now.optimised, open: now.dayOpen, unit, m: words.m });
             // Bins the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
+            return optimiseLandedCounts(landed, (left) => { keepOptimised(left); landAfter.current(n); });
         },
     });
     // While a run is out (R2) the day takes no gesture: every command refused, the drags off, the history locked.
@@ -415,11 +441,11 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // kept while that step is the next to redo.
     const pendingSteps = editing?.history.pending ?? 0;
     useEffect(() => {
-        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
-    }, [pendingSteps, editing?.schedule.version, editing]);
+        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") clearOptimised();
+    }, [pendingSteps, editing?.schedule.version, editing, clearOptimised]);
     // The app's fit (§12, east-workspace#1624): every verdict a drag or a pick shows is its answer — asked the day, the
     // question and the page's scope, the board's unsaved edits sent as drafts.
-    const fit = useAllocationFit(value, domain, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
+    const fit = useAllocationFit(value, domain, binKeyType, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
     const { ask: askFit } = fit;
     // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38). Each derived
     // day goes to the fit as one more draft of the bins' record, laid after the pending Save (rule 10): its change from
@@ -431,23 +457,59 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (derived === undefined) { derived = domain.copyDay(plan); derived.bins.delete(bin); withouts.set(bin, derived); }
         return derived;
     };
-    // The day with a probe reservation in a free slot, its row made as a reservation's is (B13): what a free Table row's resource
-    // Chooser asks the fit of (A48). The drafts are the cache's key: new drafts, a new cache.
+    // A free slot's question of a probe reservation in it, its row made as a reservation's is (B13), and the day with it on:
+    // what a free slot's Reserve list and a free Table row's resource Chooser ask the fit (A48, A60). Over bins keyed by
+    // String it stands under a text no bin holds. Over bins keyed by any other type it stands under the key Reserve there
+    // would make (east-workspace#1709, ruling 13), so the fit answers for it as for any bin: the key its row builds, where
+    // the bins' kind builds keys from rows; else the one the kind's rule makes, made once for the drafts and what a key is
+    // made past — the record as its session holds it, and its largest key as last read, which another session's Save
+    // moves — however often a list draws; a record read a window at a time makes its first once its largest key is read.
+    // None made yet, it is asked once one is; none to be made — the rule refuses, the key its row builds fails or is
+    // another bin's of the day, or the board is read only — the lists say so. The drafts are the probes' key: new drafts,
+    // new probes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const reservings = useMemo(() => new Map<string, Day>(), [plan]);
-    const reserving = (lane: string, at: Date) => {
-        const id = `${lane}|${dayKey(at)}`;
-        let derived = reservings.get(id);
-        if (derived === undefined) {
-            derived = domain.copyDay(plan);
-            // A probe the app's `values` fail to make draws none, as the Reserve it stands for makes none.
-            const bytes = madeFromValues("Allocation", `a probe ${one(value.labels.reservation)}`, () => value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none,
-                hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none));
-            const probe = bytes === undefined ? none : domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
-            if (probe.type === "some") derived.bins.set(RESERVE_PROBE, probe.value);
-            reservings.set(id, derived);
+    const reservings = useMemo(() => new Map<string, ReserveProbe>(), [plan]);
+    const madePast = editing?.schedule.version, largest = editing?.schedule.lastKeys;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const probeKeys = useMemo((): { made?: { readonly id: string | undefined } } => ({}), [plan, madePast, largest]);
+    const reservation = value.labels.reservation;
+    const unkeyed = useMemo(() => ({ unkeyed: `${a(reservation)} here has no key until it is made` }), [reservation]);
+    const reserving = (lane: string, at: Date): ReserveProbe => {
+        const kind = value.bin.kind;
+        let id: string | undefined = binKeyType.type === "String" ? RESERVE_PROBE : undefined;
+        if (id === undefined && kind.rowKey.type !== "some") {
+            if (probeKeys.made === undefined) {
+                const schedule = editing?.schedule;
+                const minted = schedule?.mint(kind.key, "", NONE_MINTED);
+                if (minted === undefined && schedule !== undefined && schedule.keyRefusal() === undefined) return undefined;
+                probeKeys.made = { id: minted };
+            }
+            id = probeKeys.made.id;
+            if (id === undefined) return unkeyed;
         }
-        return derived;
+        const slot = `${lane}|${dayKey(at)}|${id ?? ""}`;
+        const kept = reservings.get(slot);
+        if (kept !== undefined) return kept;
+        // A probe the app's `values` fail to make draws none, as the Reserve it stands for makes none.
+        const bytes = madeFromValues("Allocation", `a probe ${one(reservation)}`, () => value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none,
+            hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none));
+        if (id === undefined && bytes !== undefined && kind.rowKey.type === "some") {
+            try {
+                id = kind.rowKey.value(bytes);
+            } catch (error) {
+                console.error(`[Allocation] a probe ${one(reservation)}'s key could not be built from its row:`, error);
+            }
+            if (id !== undefined && plan.bins.has(id)) id = undefined;
+        }
+        let probe: ReserveProbe = unkeyed;
+        if (id !== undefined) {
+            const derived = domain.copyDay(plan);
+            const made = bytes === undefined ? none : domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            if (made.type === "some") derived.bins.set(id, made.value);
+            probe = { ask: variant("place", { subject: variant("bin", id), quantity: 0 }), of: derived };
+        }
+        reservings.set(slot, probe);
+        return probe;
     };
     // The day with a committed bin the drafts removed back on it, unlinked (and without a reservation it fills): what booking it
     // again asks the fit of (A51). The drafts are the cache's key: new drafts, a new cache.

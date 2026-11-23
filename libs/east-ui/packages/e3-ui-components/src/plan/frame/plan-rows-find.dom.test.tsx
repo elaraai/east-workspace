@@ -11,12 +11,20 @@
  * resources their operations land on (#1541): the box finds
  * a row the rail hides, its line names the choices hiding it, and a pick clears
  * just those and goes to the row where the narrowing left holds it, in that
- * narrowing's index's order, its row taking the keyboard.
+ * narrowing's index's order, its row taking the keyboard. And over rows keyed
+ * by a variant, as a composite record keys its rows (east-workspace#1696): the
+ * rows source pages them in the key's own order, and the box finds one by its
+ * typed key and goes to its row — as the canvas's own key search does over the
+ * same rows paged straight from `data`.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { ArrayType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DictType, East, IntegerType, SortedMap, StringType, VariantType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data, Plan } from "@elaraai/e3-ui/internal";
@@ -25,9 +33,28 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { act, planHarness, settle, slot } from "./harness.test-utils.js";
+import { rowKeyOf } from "../model.js";
+import { act, entry, planHarness, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan/plan-nested": ex, "plan/plan-records": records, "sheet/sheet-records": sheet, "calendar/calendar-scope": cs });
+/** A run's key as a composite record keys its rows: the ERP's numbered, the plant's own named. */
+const Sourced = VariantType({ erp: IntegerType, own: StringType });
+/**
+ * Press 1's runs keyed by the source each came from — the ERP's numbered 2, 9 and 10, the plant's own named — filed by
+ * their press (east-workspace#1696).
+ */
+const sourcedRuns = e3.record("plan_sourced_runs", DictType(Sourced, cs.PressRun), {
+    initial: new SortedMap<ValueTypeOf<typeof Sourced>, ValueTypeOf<typeof cs.PressRun>>([
+        [variant("erp", 2n), { title: "Covers", press: "P-1", crew: none, start: some(new Date("2026-10-01T06:00:00Z")), end: some(new Date("2026-10-01T10:00:00Z")), hours: 4.0, due: none }],
+        [variant("erp", 9n), { title: "Inserts", press: "P-1", crew: none, start: some(new Date("2026-10-02T06:00:00Z")), end: some(new Date("2026-10-02T10:00:00Z")), hours: 4.0, due: none }],
+        [variant("erp", 10n), { title: "Posters", press: "P-1", crew: none, start: some(new Date("2026-10-03T06:00:00Z")), end: some(new Date("2026-10-03T10:00:00Z")), hours: 4.0, due: none }],
+        [variant("own", "Annex"), { title: "Leaflets", press: "P-1", crew: none, start: some(new Date("2026-10-04T06:00:00Z")), end: some(new Date("2026-10-04T10:00:00Z")), hours: 4.0, due: none }],
+        [variant("own", "Berth"), { title: "Menus", press: "P-1", crew: none, start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T10:00:00Z")), hours: 4.0, due: none }],
+    ], compareFor(Sourced)),
+    indexes: (index) => ({ sourced_runs_by_press: index.on(["press"]) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const h = planHarness({ "plan/plan-nested": ex, "plan/plan-records": records, "sheet/sheet-records": sheet, "calendar/calendar-scope": cs, "plan/sourced-runs": { sourcedRuns } });
 const KEY = "ex.planNestedAll.rows";
 
 const decodeState = decodeBeast2For(RecordSliceStateType);
@@ -142,6 +169,75 @@ describe("Search Records over a scoped Plan's rows source (#1621)", () => {
         fireEvent.keyDown(input(c), { key: "Enter" });
         await settle();
         await waitFor(() => expect(input(c).value).toBe("r1"));
+    });
+});
+
+/**
+ * Press 1's runs keyed by a variant, as a composite record keys its rows (east-workspace#1696): a Plan whose `rows`
+ * source pages them through the rail, each its own row's bar.
+ */
+const sourcedRows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const slice = $.let(Slice.bindRecords("spec.sourcedRows", {
+        rows: { source: Data.bindPaged(sourcedRuns, { indexes: ["sourced_runs_by_press"] }), label: "Runs", fields: { press: { label: "Press", hints: ["P-1"] } }, search: [] },
+    }));
+    const axis = $.const(Plan.axis({ window: { min: PRESS_WEEK, max: new Date("2026-10-08T00:00:00Z") }, resolution: "day" }));
+    // A list of TS, built for the rows' own key type.
+    return Plan({
+        axis, slice: { slice },
+        series: [Plan.series.span(cs.PressRun, {
+            key: "runs", title: "Runs", label: (r) => r.title, id: true,
+            runs: (r) => [Plan.run({
+                key: r.title, label: r.title, state: variant("confirmed", null),
+                start: r.start.match({ none: () => PRESS_WEEK, some: (_$, at) => at }), end: r.end.match({ none: () => PRESS_WEEK, some: (_$, at) => at }),
+            })],
+        })],
+    });
+}))) };
+/** The same runs paged straight from `data`, with no rail (east-workspace#1696): the canvas's own key search seeks them. */
+const sourcedData = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const runs = $.let(Data.bindPaged(sourcedRuns));
+    const axis = $.const(Plan.axis({ window: { min: PRESS_WEEK, max: new Date("2026-10-08T00:00:00Z") }, resolution: "day" }));
+    return Plan({
+        axis, data: runs,
+        series: [Plan.series.span(cs.PressRun, {
+            key: "runs", title: "Runs", label: (r) => r.title, id: true,
+            runs: (r) => [Plan.run({
+                key: r.title, label: r.title, state: variant("confirmed", null),
+                start: r.start.match({ none: () => PRESS_WEEK, some: (_$, at) => at }), end: r.end.match({ none: () => PRESS_WEEK, some: (_$, at) => at }),
+            })],
+        })],
+    });
+}))) };
+/** The rows the canvas draws, by their ids, in order. */
+const drawn = (c: HTMLElement) => [...slot(c, "main")!.querySelectorAll("[data-plan-row]")].map((row) => row.getAttribute("data-plan-row"));
+const printSourced = printFor(Sourced);
+
+describe("a Plan's rows source over rows keyed by a variant (east-workspace#1696)", () => {
+    test("#1696 — the rows source pages the runs in the key's own order: a variant's cases each one run, a number by its value — never their texts', whose first is the tenth", async () => {
+        const { container: c } = await h.mount(sourcedRows);
+        await settle();
+        await waitFor(() => expect(drawn(c)).toEqual([variant("erp", 2n), variant("erp", 9n), variant("erp", 10n), variant("own", "Annex"), variant("own", "Berth")]
+            .map((key) => rowKeyOf(entry("runs", printSourced(key))))), { timeout: 10_000 });
+    });
+
+    test("#1696 — Search Records finds a run by its key, typed as a variant reads, lists it by its key, and a pick goes to its row, which takes the keyboard", async () => {
+        const { container: c } = await h.mount(sourcedRows);
+        await settle();
+        await paste(c, ".erp 10");
+        await waitFor(() => expect(lines(c)).toEqual([printSourced(variant("erp", 10n))]), { timeout: 10_000 });
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(document.activeElement?.closest("[role='row']")?.textContent ?? "").toContain("Posters"));
+    });
+
+    test("#1696 — over the runs paged straight from `data`, the canvas's own key search reads a key typed as a variant reads, lists it by its key, and a pick goes to its row, which takes the keyboard", async () => {
+        const { container: c } = await h.mount(sourcedData);
+        await settle();
+        await paste(c, ".erp 10");
+        await waitFor(() => expect(lines(c)).toEqual([printSourced(variant("erp", 10n))]), { timeout: 10_000 });
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(document.activeElement?.closest("[role='row']")?.textContent ?? "").toContain("Posters"));
     });
 });
 

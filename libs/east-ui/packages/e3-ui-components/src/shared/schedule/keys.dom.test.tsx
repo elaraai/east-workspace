@@ -1,0 +1,498 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A record whose rows hold their own key in a field (`keyField`,
+ * east-workspace#1705), through the editing every builder over the app's
+ * records shares (`useScheduleEditing`): racks keyed by their code, each
+ * rack's `code` its key, the record a kind's — built as the Schematic's and
+ * the Flowchart's kinds build theirs (`recordSide`). A rack a gesture adds
+ * holds its key in the field from the first, whatever its row was given
+ * there, and is saved with it; a rack the record held already, whose field
+ * never held its key, keeps what it holds through a change of its bay, and
+ * through its removal and a Restore. And
+ * jobs keyed by their reference, an event kind's (`Schedule.events`), as the
+ * Calendar's, the Plan's, the Roster's and the Allocation's are: where
+ * another session's Save takes a new job's key first, the job goes on under
+ * the next, and its field follows. And tickets whose kind gives the app's own
+ * rule for a new key (`newKey`, east-workspace#1709): a new ticket takes the
+ * key the rule gives, and the rule is asked again where another session's
+ * Save takes it first; over tickets read a window at a time, the rule is told
+ * the keys of the rows the page shows — what the builder draws, what its own
+ * reads hold, or what its cells hold — beside those the session holds. And visits
+ * whose kind builds each one's key from its row (`rowKey`): a new visit stands
+ * under the key its row builds, an edit of what the key reads moves it, and a
+ * key another visit holds refuses the gesture, saying which; a moved visit is
+ * the visit it was, edited, until a new visit takes the key its move gave it —
+ * through its builder mounting again and its page loading again — and a move
+ * the rows that name the visit cannot follow is refused, saying whose rows.
+ * Over records deployed to e3 itself.
+ */
+
+import { useMemo } from "react";
+import { describe, expect, test } from "vitest";
+import { act, waitFor } from "@testing-library/react";
+import {
+    DateTimeType, DictType, East, IntegerType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, printFor, some,
+    type EastType, type ExprType, type ValueTypeOf,
+} from "@elaraai/east";
+import { Editing } from "@elaraai/east-ui";
+import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHistoryJoined } from "@elaraai/east-ui-components";
+import { Data, KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
+import e3 from "@elaraai/e3";
+import { e3Harness, reloadPage, settle } from "../../e3-web-mount.test-utils.js";
+import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef, type ScheduleFollowing } from "./editing.js";
+import { windowRead } from "./records.js";
+
+/** A rack: its code, which is its key too, and the bay it stands in. */
+const Rack = StructType({ code: StringType, bay: IntegerType });
+/** The racks: one whose row holds its key, and one saved before its row did. */
+const racks = e3.record("key_field_racks", DictType(StringType, Rack), {
+    initial: new Map([["R-1", { code: "R-1", bay: 1n }], ["R-2", { code: "", bay: 2n }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** A job: its reference, which is its key too, what it is, and when it runs. */
+const Job = StructType({ ref: StringType, title: StringType, start: DateTimeType, end: DateTimeType });
+const DAY = new Date("2026-11-23T08:00:00Z");
+const LATER = new Date("2026-11-23T12:00:00Z");
+/** The jobs: one, which a new job is made from. */
+const jobs = e3.record("key_field_jobs", DictType(StringType, Job), {
+    initial: new Map([["J-1", { ref: "J-1", title: "Strip", start: DAY, end: LATER }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The tickets: one, which a new ticket is copied from — keyed in the desk's own scheme, T-1, T-2, … */
+const tickets = e3.record("new_key_tickets", DictType(StringType, Job), {
+    initial: new Map([["T-1", { ref: "", title: "Reset a password", start: DAY, end: LATER }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The visits, keyed by their reference: one keyed as its row builds, and one an app stored under another key than its reference. */
+const visits = e3.record("built_key_visits", DictType(StringType, Job), {
+    initial: new Map([
+        ["V-1", { ref: "V-1", title: "Survey", start: DAY, end: LATER }],
+        ["legacy", { ref: "V-9", title: "Old survey", start: DAY, end: LATER }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+/** The desk's tickets T-1, T-3 and T-7, which its page shows: a record read a window at a time. */
+const shownTickets = e3.record("shown_key_tickets", DictType(StringType, Job), {
+    initial: new Map([
+        ["T-1", { ref: "", title: "Reset a password", start: DAY, end: LATER }],
+        ["T-3", { ref: "", title: "Replace a badge", start: DAY, end: LATER }],
+        ["T-7", { ref: "", title: "Move a desk", start: DAY, end: LATER }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets, visits, shownTickets } }, { measure: false });
+/** The visits' kind, which builds a visit's key from its row: its reference. */
+const visitsKind = East.function([], Schedule.Types.Kind, ($) => {
+    const handle = $.let(Record.bind(visits));
+    return Schedule.events(handle, { name: "Visit", icon: "location-dot", title: "title", start: "start", end: "end", rowKey: (visit) => visit.ref }).build("visits");
+});
+/** The tickets' kind, told the app's rule for a new ticket's key: the first T-n no ticket holds. */
+const ticketsKind = East.function([], Schedule.Types.Kind, ($) => {
+    const handle = $.let(Record.bind(tickets));
+    const newKey = $.const(East.function([SetType(StringType)], StringType, ($2, taken) => {
+        const n = $2.let(taken.size().add(1n));
+        $2.while(taken.has(East.str`T-${n}`), ($3) => {
+            $3.assign(n, n.add(1n));
+        });
+        return East.str`T-${n}`;
+    }));
+    return Schedule.events(handle, { name: "Ticket", icon: "ticket", title: "title", start: "start", end: "end", newKey }).build("tickets");
+});
+/** The jobs' kind, as the Calendar builds one, told the field its rows hold their key in. */
+const jobsKind = East.function([], Schedule.Types.Kind, ($) => {
+    const handle = $.let(Record.bind(jobs));
+    return Schedule.events(handle, { name: "Job", icon: "wrench", title: "title", start: "start", end: "end", keyField: "ref" }).build("jobs");
+});
+const RackSide = StructType({ ...KindSideFields });
+/** The racks' side of a kind, told the field its rows hold their key in. */
+const racksSide = East.function([], RackSide, ($) => {
+    const handle = $.let(Record.bind(racks));
+    const bound: KindBinding = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: StringType, rowType: Rack };
+    return recordSide(bound, undefined, undefined, { keyField: "code" } as never, [], "Spec.racks") as never;
+});
+/**
+ * The shown tickets' side of a kind, read by key through a paged read of the record's own entries — its session holds
+ * none of the record's keys but those it meets — and told the app's rule for a new ticket's key: one past the largest
+ * number of the keys taken.
+ */
+const shownSide = East.function([], StructType({ ...KindSideFields }), ($) => {
+    const handle = $.let(Record.bind(shownTickets));
+    const entries = $.let(Data.bindPaged(shownTickets));
+    const newKey = $.const(East.function([SetType(StringType)], StringType, ($2, taken) => {
+        const most = $2.let(0n);
+        $2.for(taken, ($3, key) => {
+            $3.assign(most, East.max(most, key.substring(2n, key.length()).parse(IntegerType)));
+        });
+        return East.str`T-${most.add(1n)}`;
+    }));
+    const bound: KindBinding = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: StringType, rowType: Job };
+    return recordSide(bound, entries as unknown as ExprType<EastType>, entries as unknown as ExprType<EastType>, { newKey } as never, [], "Spec.shown") as never;
+});
+
+const NO_KINDS: readonly ScheduleEditingKind[] = [];
+const NO_JOINED: readonly EditHistoryJoined<ScheduleEntryRef>[] = [];
+/** The editing the probe mounted, as its last render handed it. */
+const probe: { editing: ScheduleEditing | undefined } = { editing: undefined };
+
+/** The racks as a record a builder writes beside its kinds, under the shared editing: what the test drives. */
+function Probe() {
+    // Built again as the record it reads moves, as a builder's payload is.
+    const run = useMemo(() => racksSide.toIR().compile(getRegisteredPlatformImplementations()), []);
+    const { result } = useTrackedEvaluation(run);
+    if (!result.ok) throw result.error;
+    const side = result.value;
+    const records = useMemo(() => (side.editing.type !== "some" ? [] : [{ key: "racks", name: "Racks", editing: side.editing.value, entries: side.entries }]), [side]);
+    probe.editing = useScheduleEditing({ kinds: NO_KINDS, records, storageKey: "schedule-key-field", joined: NO_JOINED, autosave: false });
+    return null;
+}
+
+/** An event kind whose new events take another key where another Save took theirs, under the shared editing: the jobs, or the tickets. */
+const REKEYS: ReadonlySet<string> = new Set(["jobs", "tickets", "visits"]);
+function EventsProbe({ kind: fn, storageKey, following }: { readonly kind: typeof jobsKind; readonly storageKey: string; readonly following?: ScheduleFollowing }) {
+    const run = useMemo(() => fn.toIR().compile(getRegisteredPlatformImplementations()), [fn]);
+    const { result } = useTrackedEvaluation(run);
+    if (!result.ok) throw result.error;
+    const kind = result.value;
+    const kinds = useMemo(() => [kind as unknown as ScheduleEditingKind], [kind]);
+    probe.editing = useScheduleEditing({ kinds, storageKey, joined: NO_JOINED, rekeys: REKEYS, following, autosave: false });
+    return null;
+}
+
+const encodeJob = encodeBeast2For(Job);
+const jobEqual = equalFor(Job);
+const printJobs = printFor(jobs.type);
+const decodeJobDraft = decodeBeast2For(Editing.Types.DraftField(Job));
+const encodeRack = encodeBeast2For(Rack);
+const rackEqual = equalFor(Rack);
+const printRacks = printFor(racks.type);
+const decodeDraft = decodeBeast2For(Editing.Types.DraftField(Rack));
+/** The editing, once the probe has mounted. */
+const editing = (): ScheduleEditing => {
+    if (probe.editing === undefined) throw new Error("the probe has not mounted");
+    return probe.editing;
+};
+/** A rack as the editing's drafts hold it, by its key's text. */
+const drafted = (id: string) => {
+    const bytes = editing().draftsOf("racks").get(id);
+    return bytes === undefined ? undefined : decodeDraft(bytes);
+};
+
+/** How a builder hands the shared editing the rows its page shows: as what it draws, as its own reads, or as its cells'. */
+type ShownBy = "standing" | "reads" | "held";
+
+/** The shown tickets as a record a builder writes under the shared editing, its builder handing it the rows its page shows — T-1, T-3 and T-7 — as the test says. */
+function ShownProbe({ by }: { readonly by: ShownBy }) {
+    const run = useMemo(() => shownSide.toIR().compile(getRegisteredPlatformImplementations()), []);
+    const { result } = useTrackedEvaluation(run);
+    if (!result.ok) throw result.error;
+    const side = result.value;
+    const records = useMemo(() => (side.editing.type !== "some" ? []
+        : [{ key: "shown", name: "Tickets", editing: side.editing.value, entries: side.entries, newKey: side.newKey }]), [side]);
+    const shown = useMemo(() => new Map(["T-1", "T-3", "T-7"].map((id) => [id, { row: encodeJob({ ref: "", title: id, start: DAY, end: LATER }) }] as const)), []);
+    const standing = useMemo(() => (by !== "standing" ? undefined : { current: { shown: { row: (id: string) => shown.get(id)?.row, ids: () => shown.keys() } } }), [by, shown]);
+    const reads = useMemo(() => (by !== "reads" ? undefined : { shown: windowRead(() => some(shown)) }), [by, shown]);
+    const held = useMemo(() => (by !== "held" ? undefined : { current: new Map([["shown", shown]]) }), [by, shown]);
+    probe.editing = useScheduleEditing({ kinds: NO_KINDS, records, reads, standing, held, storageKey: `schedule-shown-${by}`, joined: NO_JOINED, autosave: false });
+    return null;
+}
+
+describe("the shared editing over a record whose rows hold their own key in a field", () => {
+    test("a rack a gesture adds holds its key in the field from the first, whatever its row was given there, and is saved with it; a rack whose field never held its key keeps what it holds through a change of its bay", async () => {
+        await h.mount({ fn: racksSide }, { view: <Probe /> });
+        await waitFor(() => expect(editing().available("racks")).toBe(true));
+        const id = editing().mint("racks", "", new Set());
+        if (id === undefined) throw new Error("expected the session to make a key");
+        // A new rack, its code as a template left it; and the stored rack whose code is empty, moved to bay 5.
+        act(() => {
+            expect(editing().record([
+                { kind: "racks", id, row: encodeRack({ code: "from-a-template", bay: 9n }), created: true },
+                { kind: "racks", id: "R-2", row: encodeRack({ code: "", bay: 5n }) },
+            ], "insert", "Add a rack")).toBe(true);
+        });
+        await settle();
+        const [added, moved] = [drafted(id), drafted("R-2")];
+        if (added?.type !== "value" || moved?.type !== "value") throw new Error("expected both racks drafted whole");
+        expect([rackEqual(added.value, { code: id, bay: 9n }), rackEqual(moved.value, { code: "", bay: 5n })]).toEqual([true, true]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(racks)).has(id)).toBe(true));
+        const saved = await h.read(racks);
+        expect([rackEqual(saved.get(id)!, { code: id, bay: 9n }), rackEqual(saved.get("R-2")!, { code: "", bay: 5n }), rackEqual(saved.get("R-1")!, { code: "R-1", bay: 1n })],
+            printRacks(saved)).toEqual([true, true, true]);
+    });
+
+    test("ruling 3 of #1705 — a rack whose field never held its key, removed and written back as its record holds it — a Restore — is that rack as stored: nothing is drafted, its field never given its key", async () => {
+        await h.mount({ fn: racksSide }, { view: <Probe /> });
+        await waitFor(() => expect(editing().available("racks")).toBe(true));
+        act(() => { expect(editing().record([{ kind: "racks", id: "R-2", remove: true }], "remove", "Remove a rack")).toBe(true); });
+        await settle();
+        expect(drafted("R-2")?.type).toBe("missing");
+        act(() => { expect(editing().record([{ kind: "racks", id: "R-2", row: encodeRack({ code: "", bay: 2n }) }], "drop", "Restore a rack")).toBe(true); });
+        await settle();
+        expect([drafted("R-2"), editing().history.pending]).toEqual([undefined, 0]);
+    });
+
+    test("an event whose key another session's Save takes first goes on under the next its kind makes, its key field with it: both saved, each holding the key it is saved under", async () => {
+        await h.mount({ fn: jobsKind }, { view: <EventsProbe kind={jobsKind} storageKey="schedule-key-field-jobs" /> });
+        await waitFor(() => expect(editing().available("jobs")).toBe(true));
+        // A job made from J-1: J-1-2, the next in its row, as another session's copy of J-1 is keyed too.
+        const id = editing().mint("jobs", "J-1", new Set());
+        expect(id).toBe("J-1-2");
+        const copy: ValueTypeOf<typeof Job> = { ref: "J-1", title: "Strip again", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "jobs", id: "J-1-2", row: encodeJob(copy), created: true }], "insert", "Copy a job")).toBe(true); });
+        await settle();
+        const first = editing().draftsOf("jobs").get("J-1-2");
+        const held = first === undefined ? undefined : decodeJobDraft(first);
+        if (held?.type !== "value") throw new Error("expected the copy drafted whole");
+        expect(jobEqual(held.value, { ...copy, ref: "J-1-2" })).toBe(true);
+        // The job as its session holds it from the moment it gives it another key: before the Save that follows.
+        const session = editing().sessions[0]!.session;
+        let rekeyed: unknown;
+        const stop = session.subscribe(() => { rekeyed ??= session.entries.get("J-1-3")?.draft; });
+        // Another session saves its own J-1-2 just as Save goes.
+        const theirs: ValueTypeOf<typeof Job> = { ref: "J-1-2", title: "Theirs", start: DAY, end: LATER };
+        await h.race(jobs, () => { void editing().history.apply(); }, (now) => {
+            now.set("J-1-2", theirs);
+            return now;
+        });
+        await waitFor(async () => expect((await h.read(jobs)).has("J-1-3")).toBe(true));
+        stop();
+        const moved = rekeyed as { readonly type: string; readonly value: ValueTypeOf<typeof Job> } | undefined;
+        if (moved?.type !== "value") throw new Error("expected the session to hold the job under J-1-3");
+        expect(jobEqual(moved.value, { ...copy, ref: "J-1-3" })).toBe(true);
+        const saved = await h.read(jobs);
+        expect([jobEqual(saved.get("J-1-2")!, theirs), jobEqual(saved.get("J-1-3")!, { ...copy, ref: "J-1-3" })], printJobs(saved)).toEqual([true, true]);
+    });
+});
+
+describe("the shared editing over an event kind told the app's rule for a new key", () => {
+    test("ruling 4 — a new ticket takes the key the app's rule gives, never the next after the one it is copied from; where another session's Save takes that key first, the rule is asked again and both are saved", async () => {
+        await h.mount({ fn: ticketsKind }, { view: <EventsProbe kind={ticketsKind} storageKey="schedule-new-key-tickets" /> });
+        await waitFor(() => expect(editing().available("tickets")).toBe(true));
+        // A copy of T-1: the rule's T-2, where a kind told no rule makes T-1-2.
+        expect(editing().mint("tickets", "T-1", new Set())).toBe("T-2");
+        const copy: ValueTypeOf<typeof Job> = { ref: "", title: "Reset a password again", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "tickets", id: "T-2", row: encodeJob(copy), created: true }], "insert", "Copy a ticket")).toBe(true); });
+        await settle();
+        // Another session saves its own T-2 just as Save goes.
+        const theirs: ValueTypeOf<typeof Job> = { ref: "", title: "Theirs", start: DAY, end: LATER };
+        await h.race(tickets, () => { void editing().history.apply(); }, (now) => {
+            now.set("T-2", theirs);
+            return now;
+        });
+        await waitFor(async () => expect((await h.read(tickets)).has("T-3")).toBe(true));
+        const saved = await h.read(tickets);
+        expect([jobEqual(saved.get("T-2")!, theirs), jobEqual(saved.get("T-3")!, copy)], printFor(tickets.type)(saved)).toEqual([true, true]);
+    });
+});
+
+describe("the shared editing over a record read a window at a time, told the app's rule for a new key", () => {
+    test.each<ShownBy>(["standing", "reads", "held"])("ruling 9 — the app's rule is told the keys of the rows the page shows (%s) beside those its session holds: one past the largest, a new ticket is T-8 — never T-2, past only the key it first runs into", async (by) => {
+        await h.mount({ fn: shownSide }, { view: <ShownProbe by={by} /> });
+        await waitFor(() => expect(editing().available("shown")).toBe(true));
+        expect(editing().mint("shown", "", new Set())).toBe("T-8");
+    });
+});
+
+describe("the shared editing over an event kind that builds each event's key from its row", () => {
+    /** A visit's draft, as its session holds it: its row, `missing` for one a gesture removed, `undefined` for none. */
+    const visitDraft = (id: string) => {
+        const bytes = editing().draftsOf("visits").get(id);
+        return bytes === undefined ? undefined : decodeJobDraft(bytes);
+    };
+
+    test("ruling 1 — a visit a gesture adds stands under the key its row builds, whatever key was made for it, and Save writes it there; a second whose row builds that key is refused, saying which", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-add" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        // The key made for a new visit stands for it only until its gesture is recorded.
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        const added: ValueTypeOf<typeof Job> = { ref: "V-2", title: "Fit-out", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob(added), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        const held = visitDraft("V-2");
+        if (held?.type !== "value") throw new Error("expected the visit drafted under the key its row builds");
+        expect([jobEqual(held.value, added), visitDraft(made), editing().renumbered.get("visits")?.get(made)]).toEqual([true, undefined, "V-2"]);
+        // Another whose row builds V-2 too: nothing is recorded, and the editing says the key is taken.
+        const again = editing().mint("visits", "", new Set());
+        if (again === undefined) throw new Error("expected a key made for the second visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: again, row: encodeJob({ ...added, title: "Fit-out again" }), created: true }], "insert", "Add a visit")).toBe(false); });
+        expect(editing().keyRefusal()).toEqual({ kind: "visits", name: "Visit", id: "", why: { taken: "V-2" } });
+        // Asked before it is made, a gesture says the same and records nothing.
+        const asked = [{ kind: "visits", id: again, row: encodeJob({ ...added, title: "Fit-out again" }), created: true as const }];
+        expect([editing().keyRefusalOf(asked)?.why, editing().keyRefusalOf([{ ...asked[0]!, row: encodeJob({ ...added, ref: "V-3" }) }]), visitDraft(again), visitDraft("V-3")])
+            .toEqual([{ taken: "V-2" }, undefined, undefined, undefined]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-2")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-2")!, added), saved.size], printJobs(saved)).toEqual([true, 3]);
+    });
+
+    test("ruling 1 — an edit of what a visit's key reads moves it under the key it then builds; one building a key another visit holds is refused, saying which; a visit stored apart from its key stays through an edit of another field; and Save writes each", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-move" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const renamed: ValueTypeOf<typeof Job> = { ref: "V-5", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob(renamed) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        const moved = visitDraft("V-5");
+        if (moved?.type !== "value") throw new Error("expected the visit drafted under its new key");
+        expect([jobEqual(moved.value, renamed), visitDraft("V-1")?.type, editing().renumbered.get("visits")?.get("V-1")]).toEqual([true, "missing", "V-5"]);
+        // Its reference typed as the key another visit stands under: refused whole, the visit where it was.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...renamed, ref: "legacy" }) }], "typed", "Edit a visit")).toBe(false); });
+        expect([editing().keyRefusal(), visitDraft("V-5")?.type]).toEqual([{ kind: "visits", name: "Visit", id: "V-5", why: { taken: "legacy" } }, "value"]);
+        // The visit an app stored under another key than its reference: its title edited, it stays where it is.
+        const titled: ValueTypeOf<typeof Job> = { ref: "V-9", title: "Old survey, revisited", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "legacy", row: encodeJob(titled) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([visitDraft("legacy")?.type, visitDraft("V-9")]).toEqual(["value", undefined]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-5")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-5")!, renamed), saved.has("V-1"), jobEqual(saved.get("legacy")!, titled)], printJobs(saved)).toEqual([true, false, true]);
+    });
+
+    test("ruling 1 — a visit an edit moves under another key is, to what its drafts are compared with, the visit its record holds under the key it had: an Undo puts it back and a Redo moves it again; moved on, it is still that visit; removed, it is none", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-held" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        /** Whether a key's row, as the editing says the record holds it, is the survey as stored; `undefined` for none. */
+        const heldAs = (id: string) => {
+            const row = editing().held("visits", id);
+            return row === undefined ? undefined : jobEqual(row as ValueTypeOf<typeof Job>, stored);
+        };
+        const moves = () => [...editing().movedFrom("visits")];
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        // Under V-5, the survey its record holds under V-1 — which holds it still.
+        expect([heldAs("V-5"), heldAs("V-1"), moves()]).toEqual([true, true, [["V-5", "V-1"]]]);
+        act(() => { editing().history.undo(); });
+        await settle();
+        expect([editing().held("visits", "V-5"), heldAs("V-1"), moves()]).toEqual([undefined, true, []]);
+        act(() => { editing().history.redo(); });
+        await settle();
+        expect([heldAs("V-5"), moves()]).toEqual([true, [["V-5", "V-1"]]]);
+        // Moved on again: still the survey its record holds under V-1.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-5", row: encodeJob({ ...stored, ref: "V-6" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([editing().held("visits", "V-5"), heldAs("V-6"), moves()]).toEqual([undefined, true, [["V-6", "V-1"]]]);
+        // Removed: no row stands for it, and V-1 is a visit the drafts removed.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-6", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        expect([editing().held("visits", "V-6"), moves(), visitDraft("V-1")?.type]).toEqual([undefined, [], "missing"]);
+    });
+
+    test("ruling 1 — a move undone is gone once a new visit takes the key it gave: the visit there is new, never the one the drafts removed, moved", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-retaken" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        act(() => { editing().history.undo(); });
+        await settle();
+        // The survey removed, and a new visit whose reference builds the key its undone move gave it.
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-5", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        expect([visitDraft("V-5")?.type, editing().held("visits", "V-5"), [...editing().movedFrom("visits")], visitDraft("V-1")?.type])
+            .toEqual(["value", undefined, [], "missing"]);
+    });
+
+    test.each<[string, () => void]>([
+        ["its builder mounted again, its sessions kept", () => undefined],
+        ["the page loaded again, its drafts kept by the tab", reloadPage],
+    ])("ruling 1 — a visit an edit moved under another key is the visit its record holds under the key it had still, %s", async (_how, leave) => {
+        const view = <EventsProbe kind={visitsKind} storageKey="schedule-built-key-kept" />;
+        const first = await h.mount({ fn: visitsKind }, { view });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const stored: ValueTypeOf<typeof Job> = { ref: "V-1", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob({ ...stored, ref: "V-5" }) }], "typed", "Edit a visit")).toBe(true); });
+        await settle();
+        expect([...editing().movedFrom("visits")]).toEqual([["V-5", "V-1"]]);
+        // The builder goes, and comes back to the drafts it left: the survey under V-5, none under V-1.
+        first.unmount();
+        probe.editing = undefined;
+        leave();
+        await h.mount({ fn: visitsKind }, { view });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        await waitFor(() => expect([visitDraft("V-5")?.type, visitDraft("V-1")?.type]).toEqual(["value", "missing"]));
+        const held = editing().held("visits", "V-5");
+        expect([[...editing().movedFrom("visits")], held !== undefined && jobEqual(held as ValueTypeOf<typeof Job>, stored)]).toEqual([[["V-5", "V-1"]], true]);
+    });
+
+    test("ruling 1 — a visit whose key an edit changes stays where the rows that name it cannot follow: nothing is recorded, and the editing says whose rows, never nothing", async () => {
+        // The rows that name a visit are a record's this editing holds no session of: their change is refused.
+        const following: ScheduleFollowing = (moved) => ({ changes: [...moved.get("visits") ?? []].map(([, to]) => ({ kind: "notes", id: to, remove: true as const })) });
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-unfollowed" following={following} /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const renamed: ValueTypeOf<typeof Job> = { ref: "V-5", title: "Survey", start: DAY, end: LATER };
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-1", row: encodeJob(renamed) }], "typed", "Edit a visit")).toBe(false); });
+        expect([editing().keyRefusal(), visitDraft("V-5"), visitDraft("V-1")]).toEqual([{ kind: "visits", name: "Visit", id: "V-1", why: { named: "notes" } }, undefined, undefined]);
+    });
+
+    test("ruling 1 — a visit may take the key another leaves in the same gesture: each leaves its key before any arrives, and both are kept, each under the key it builds", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-chain" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-2", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        // One gesture: the survey takes the fit-out's reference, and the fit-out the next.
+        const survey: ValueTypeOf<typeof Job> = { ref: "V-2", title: "Survey", start: DAY, end: LATER };
+        const fitOut: ValueTypeOf<typeof Job> = { ref: "V-3", title: "Fit-out", start: DAY, end: LATER };
+        act(() => {
+            expect(editing().record([
+                { kind: "visits", id: "V-1", row: encodeJob(survey) },
+                { kind: "visits", id: "V-2", row: encodeJob(fitOut) },
+            ], "typed", "Renumber the visits")).toBe(true);
+        });
+        await settle();
+        const [second, third] = [visitDraft("V-2"), visitDraft("V-3")];
+        if (second?.type !== "value" || third?.type !== "value") throw new Error(`expected both visits drafted, each under the key it builds — V-2 ${second?.type ?? "undrafted"}, V-3 ${third?.type ?? "undrafted"}`);
+        expect([jobEqual(second.value, survey), jobEqual(third.value, fitOut), visitDraft("V-1")?.type]).toEqual([true, true, "missing"]);
+        await act(async () => { await editing().history.apply(); });
+        await waitFor(async () => expect((await h.read(visits)).has("V-3")).toBe(true));
+        const saved = await h.read(visits);
+        expect([jobEqual(saved.get("V-2")!, survey), jobEqual(saved.get("V-3")!, fitOut), saved.has("V-1")], printJobs(saved)).toEqual([true, true, false]);
+    });
+
+    test("ruling 1 — where a visit takes the key a new visit leaves in the same gesture, the new visit is new still: the survey moved there, then removed, leaves none of it under the key the new visit moved to", async () => {
+        await h.mount({ fn: visitsKind }, { view: <EventsProbe kind={visitsKind} storageKey="schedule-built-key-left" /> });
+        await waitFor(() => expect(editing().available("visits")).toBe(true));
+        const made = editing().mint("visits", "", new Set());
+        if (made === undefined) throw new Error("expected a key made for the new visit");
+        act(() => { expect(editing().record([{ kind: "visits", id: made, row: encodeJob({ ref: "V-2", title: "Fit-out", start: DAY, end: LATER }), created: true }], "insert", "Add a visit")).toBe(true); });
+        await settle();
+        act(() => {
+            expect(editing().record([
+                { kind: "visits", id: "V-1", row: encodeJob({ ref: "V-2", title: "Survey", start: DAY, end: LATER }) },
+                { kind: "visits", id: "V-2", row: encodeJob({ ref: "V-3", title: "Fit-out", start: DAY, end: LATER }) },
+            ], "typed", "Renumber the visits")).toBe(true);
+        });
+        await settle();
+        expect([...editing().movedFrom("visits")]).toEqual([["V-2", "V-1"]]);
+        act(() => { expect(editing().record([{ kind: "visits", id: "V-2", remove: true }], "remove", "Remove a visit")).toBe(true); });
+        await settle();
+        expect([[...editing().movedFrom("visits")], editing().held("visits", "V-3")]).toEqual([[], undefined]);
+    });
+});

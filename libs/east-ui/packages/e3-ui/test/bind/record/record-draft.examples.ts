@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { DictType, East, IntegerType, OptionType, PatchType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
 import { Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -74,4 +74,45 @@ export const recordSaveDraft = example({
     }),
     inputs: [],
     returns: "a draft of bindery_jobs.patch, of 1 argument",
+});
+
+// A record whose rows hold their own key in a field: the crew, each member
+// under their staff id, which the member's row carries too. `keyField` names
+// that field, and a Save writes a new member's key into it.
+export const CrewMemberType = StructType({ staff: StringType, name: StringType });
+export const crew = e3.record("crew", DictType(StringType, CrewMemberType), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordKeyField = example({
+    keywords: ["Record", "onApply", "toDraft", "keyField", "key field", "rows hold their key", "new row", "newKey", "identity field", "insert", "add a row", "ChangeSet"],
+    description: "A record whose rows hold their own key in a field: keyField names the field, and the Save writes a new row's key into it, whatever the batch drafted there. A new row's key is its editing session's to make, and to make again where another Save took it first, so only the Save knows the key the row is saved under",
+    fn: East.function([], StringType, ($) => {
+        const members = $.let(Record.bind(crew));
+        // `staff` holds a member's key: `Record.onApply(members, { keyed: true, keyField: "staff" })` saves the same way.
+        const toDraft = $.const(Record.toDraft(members, { keyed: true, keyField: "staff" }));
+        const absent = $.const(none, OptionType(CrewMemberType));
+        // A member added under the key S-1, their `staff` as the editing surface drafted it.
+        const added = $.const(some({ staff: "", name: "Ada" }), OptionType(CrewMemberType));
+        const pending = $.const({
+            requestId: "", base: variant("revision", "a41c09d2"), label: "Add a member",
+            changes: [{ id: "S-1", patch: East.diff(absent, added), place: some(variant("keyOrder", null)) }],
+        }, Editing.Types.ChangeSet(CrewMemberType, StringType));
+        return toDraft(pending).match({
+            draft: ($, draft) => {
+                // The patch that Save commits, laid over a crew of nobody.
+                const patch = $.const(draft.args.get(0n).decodeBeast(PatchType(crew.type), "v2"));
+                const saved = $.const(East.applyPatch(East.value(new Map(), crew.type), patch));
+                return East.str`${saved.get("S-1").name} is saved under S-1 with staff ${saved.get("S-1").staff}`;
+            },
+            unchanged: _$ => East.str`nothing to send`,
+            rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+            conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+        });
+    }),
+    inputs: [],
+    returns: "Ada is saved under S-1 with staff S-1",
 });

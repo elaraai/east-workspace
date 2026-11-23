@@ -28,7 +28,7 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
-import { act, settle, sheetHarness, slot } from "./frame/harness.test-utils.js";
+import { act, searchRecords, settle, sheetHarness, slot } from "./frame/harness.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-records": ex }, frame: 2000 });
 /** The work orders' record, as its dataset's requests name it. */
@@ -109,27 +109,6 @@ function sheetView(container: HTMLElement) {
     /** A row's number in its gutter. */
     const number = (id: string) => row(id)?.querySelector('[data-slot="gutterNumber"]')?.textContent;
     return { main, row, ids, ring, number };
-}
-
-/**
- * The toolbar's Search Records box: a query set in it at once, the box focused as a click focuses it — one query, so
- * the lines it lists are the only rows it reads — its lines, and Enter, which picks the first match.
- */
-function searchRecords(container: HTMLElement) {
-    const box = () => container.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
-    const input = () => box().querySelector<HTMLInputElement>("input")!;
-    const ask = async (text: string) => {
-        await act(async () => { input().focus(); });
-        await act(async () => { fireEvent.change(input(), { target: { value: text } }); });
-    };
-    const clear = async () => { await act(async () => { fireEvent.click(box().querySelector("button[aria-label='Clear search']")!); }); };
-    const enter = async () => { await act(async () => { fireEvent.keyDown(input(), { key: "Enter" }); }); };
-    // The box's list: the listbox its input controls, its lines as they read.
-    const lines = () => {
-        const list = document.getElementById(input().getAttribute("aria-controls") ?? "");
-        return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
-    };
-    return { box, input, ask, clear, enter, lines };
 }
 
 test("Search Records names the filters that hide a row the narrowing hides, as the rail words them — one of the two, or both", async () => {

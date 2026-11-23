@@ -217,17 +217,18 @@ describe('Roster shared and custom forms', () => {
         const end = () => slot(container, 'end');
         const segment = (field: string, name: string) => within(end().querySelector<HTMLElement>(`[data-field="${field}"]`)!).getAllByRole('spinbutton')
             .find(s => s.getAttribute('aria-label')?.startsWith(name))!;
-        // A. Alder's Saturday early: its end on to 11 PM, then its start to 6 PM, twelve hours past its shift's.
+        // A. Alder's Saturday early: its end on to 23:00, then its start to 18:00, twelve hours past its shift's — a time's
+        // hours run 0 to 23, as the app prints every time, so its box has no AM/PM to flip.
         await press(toolbar().getByRole('radio', { name: 'Sat' }));
         await press(assignment(container, 's4'));
         for (let i = 0; i < 9; i++) { await act(async () => { fireEvent.keyDown(segment('end', 'hour'), { key: 'ArrowUp' }); }); await settle(); }
         await act(async () => { fireEvent.focusOut(segment('end', 'hour')); }); await settle();
-        await act(async () => { fireEvent.keyDown(segment('start', 'AM/PM'), { key: 'ArrowUp' }); }); await settle();
-        expect(segment('start', 'AM/PM').textContent).toBe('PM');
-        await act(async () => { fireEvent.focusOut(segment('start', 'AM/PM')); }); await settle();
-        // Refused: the box shows the 6 AM the duty holds again, never the 6 PM it refused, and the field says why — once,
+        for (let i = 0; i < 12; i++) { await act(async () => { fireEvent.keyDown(segment('start', 'hour'), { key: 'ArrowUp' }); }); await settle(); }
+        expect(Number(segment('start', 'hour').textContent)).toBe(18);
+        await act(async () => { fireEvent.focusOut(segment('start', 'hour')); }); await settle();
+        // Refused: the box shows the 06:00 the duty holds again, never the 18:00 it refused, and the field says why — once,
         // under it, never again under the form.
-        expect([segment('start', 'hour').textContent, segment('start', 'AM/PM').textContent]).toEqual(['6', 'AM']);
+        expect(Number(segment('start', 'hour').textContent)).toBe(6);
         expect(end().querySelector('[data-field="start"] [data-part="error-text"]')?.textContent)
             .toBe("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
         expect(end().querySelector('[data-roster-inspector="details"] [role="alert"]')).toBeNull();

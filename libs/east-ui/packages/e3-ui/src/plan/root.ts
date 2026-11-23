@@ -503,7 +503,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined, undefined);
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined, undefined, undefined);
     // The canvas applies the list it was given, leaving out what is hidden (#1541, U3): the pick's state where the
     // series are picked, read wherever rows are made, or the keys `hidden` names. A gesture writes the data whichever
     // series show (#1440): the session's writer is built over the whole list, so a number written as its series is
@@ -597,7 +597,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             uses,
             rows: ordered.nestedRows(apply, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
         } as never, PlanNestedType) as ExprType<PlanNestedType>;
-        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick, unnarrowed);
+        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick, unnarrowed,
+            (resolved.collectionType as DictType<EastType, EastType>).key);
     }) as ExprType<PlanRootType>;
 }
 
@@ -611,11 +612,12 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
  * @param nested - What its paged rows' reader reads of their nested series index, if it reads it (#1438)
  * @param pick - The pick over `data`'s series, where they are picked (#1541, U3)
  * @param unnarrowed - Every row the Slice's `rows` source narrows, where it gives the canvas its rows (#1541)
+ * @param rowsKeyType - The type of the keys `data` holds its entries by (east-workspace#1696); `undefined` with no `data`
  * @returns An East expression of {@link PlanRootType}
  */
 function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
     chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined,
-    pick: ExprType<PickBindType> | undefined, unnarrowed: ExprType<PlanRowsType> | undefined): ExprType<PlanRootType> {
+    pick: ExprType<PickBindType> | undefined, unnarrowed: ExprType<PlanRowsType> | undefined, rowsKeyType: EastType | undefined): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -628,6 +630,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
     return East.value({
         rows:     rowsValue,
         unnarrowed: unnarrowed !== undefined ? some(unnarrowed) : none,
+        rowsKeyType: rowsKeyType !== undefined ? some(toEastTypeValue(rowsKeyType)) : none,
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
         axis:     config.axis as SubtypeExprOrValue<PlanAxisType>,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,
