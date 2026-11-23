@@ -63,8 +63,8 @@ import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueT
 import { planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import {
-    useScheduleCells, type ScheduleCellBucket, type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources,
-    type ScheduleCellSpan, type ScheduleCellsRead,
+    sameCellSpan, scheduleCellSpanOf, useScheduleCells, type ScheduleCellBucket, type ScheduleCellEnd, type ScheduleCellKey, type ScheduleCellKind,
+    type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
 import { draftAdds } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
@@ -362,12 +362,10 @@ export interface PlanCellSpanStore {
 export function createCellSpanStore(): PlanCellSpanStore {
     let span: ScheduleCellSpan | undefined;
     const listeners = new Set<() => void>();
-    const same = (a: ScheduleCellSpan["first"], b: ScheduleCellSpan["first"]) => a.w === b.w && stringEqual(a.key, b.key);
     return {
         get: () => span,
         set(next) {
-            if (next === span || (next !== undefined && span !== undefined && same(next.first, span.first) && same(next.last, span.last)
-                && sameNarrowing(next.narrowing, span.narrowing))) return;
+            if (next === span || (next !== undefined && span !== undefined && sameCellSpan(next, span))) return;
             span = next;
             for (const listener of [...listeners]) listener();
         },
@@ -379,11 +377,13 @@ export function createCellSpanStore(): PlanCellSpanStore {
 }
 
 /**
- * The paged rows in view among the canvas's items: the first and the last row
- * a paged window placed, each by its window and its resource's key — the last
- * step of its path — under the narrowing their windows are. A row that stands
- * for no resource, its path none — a group's own row — is passed over wherever
- * it is: an end is always a resource its window lists (#1711).
+ * The paged rows in view among the canvas's items: each row a paged window
+ * placed, by its window and its resource's key — the last step of its path —
+ * under the narrowing their windows are, in runs as the reader takes them
+ * (`scheduleCellSpanOf`): rows beside a group at the Plan's top run through the
+ * same windows twice, a run each (#1710). A row that stands for no resource,
+ * its path none — a group's own row — is passed over wherever it is: an end is
+ * always a resource its window lists (#1711).
  *
  * @param items - The rows in view, in order: each its key and the path its events are read by (`readPathOf`)
  * @param origin - Which window each paged row came from
@@ -394,17 +394,13 @@ export function cellSpanOf(
     items: readonly { readonly key: string; readonly path: readonly string[] }[], origin: ReadonlyMap<string, { readonly w: number }>,
     narrowing: string | undefined,
 ): ScheduleCellSpan | undefined {
-    let first: ScheduleCellSpan["first"] | undefined;
-    let last: ScheduleCellSpan["first"] | undefined;
+    const rows: ScheduleCellEnd[] = [];
     for (const { key, path } of items) {
         const at = origin.get(key);
         const resource = path[path.length - 1];
-        if (at === undefined || resource === undefined) continue;
-        const here = { w: at.w, key: resource };
-        first ??= here;
-        last = here;
+        if (at !== undefined && resource !== undefined) rows.push({ w: at.w, key: resource });
     }
-    return first === undefined || last === undefined ? undefined : { first, last, narrowing };
+    return scheduleCellSpanOf(rows, narrowing);
 }
 
 /**

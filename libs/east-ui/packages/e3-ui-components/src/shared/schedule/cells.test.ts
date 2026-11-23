@@ -30,8 +30,9 @@ import { none, some, type option } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, schedulePagedBlocks,
-    scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged, type ScheduleCellSpan,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, sameCellSpan,
+    scheduleCellSpanOf, schedulePagedBlocks, scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged,
+    type ScheduleCellSpan,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -73,9 +74,12 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
         narrowing: () => narrowing,
     });
     const two = pagedOf([presses(0, 200), presses(200, 200)]);
-    /** The rows in view, each end by its window and its key. */
+    /** The rows in view, one run of them: each end by its window and its key. */
     const span = (first: readonly [number, string], last: readonly [number, string], narrowing?: string): ScheduleCellSpan =>
-        ({ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] }, narrowing });
+        ({ runs: [{ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] } }], narrowing });
+    /** The rows in view, several runs of them in the view's order, each its ends as {@link span}'s. */
+    const runs = (...ends: (readonly [first: readonly [number, string], last: readonly [number, string]])[]): ScheduleCellSpan =>
+        ({ runs: ends.map(([first, last]) => ({ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] } })), narrowing: undefined });
     /** The blocks a view wants, by their names: each its window and its place there. */
     const named = (blocks: readonly { readonly id: string }[] | undefined) => blocks?.map((block) => block.id);
 
@@ -95,6 +99,27 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
         expect(named(schedulePagedBlocks(two, span([0, "H-07"], [1, "P-0260"])))).toEqual(["1.0", "1.1"]);
         // Neither held: where the first end's window opens, the margin reaching into the window before it.
         expect(named(schedulePagedBlocks(two, span([1, "H-07"], [1, "H-09"])))).toEqual(["0.3", "1.0"]);
+    });
+
+    test("the span of the rows in view: one run while their windows go on, another where a window goes back — the next series of the rows over the same windows (#1710); the same rows are the same span", () => {
+        const end = (w: number, key: string) => ({ w, key });
+        expect(scheduleCellSpanOf([], undefined)).toBeUndefined();
+        expect(scheduleCellSpanOf([end(0, "P-0010"), end(0, "P-0020"), end(1, "P-0210")], "hall: Hall 2")).toEqual(span([0, "P-0010"], [1, "P-0210"], "hall: Hall 2"));
+        const two = scheduleCellSpanOf([end(2, "P-0400"), end(3, "P-0700"), end(0, "P-0010"), end(0, "P-0020")], undefined)!;
+        expect(two).toEqual(runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0020"]]));
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0020"]]))).toBe(true);
+        // Another run's end, another number of runs, or another narrowing: other rows in view.
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]], [[0, "P-0010"], [0, "P-0030"]]))).toBe(false);
+        expect(sameCellSpan(two, runs([[2, "P-0400"], [3, "P-0700"]]))).toBe(false);
+        expect(sameCellSpan(span([0, "P-0010"], [0, "P-0020"]), span([0, "P-0010"], [0, "P-0020"], "hall: Hall 2"))).toBe(false);
+    });
+
+    test("rows beside a group at the top: a view running from one series of the rows into another over the same windows is a run each — the blocks of both, never those of the windows between (#1710)", () => {
+        const four = pagedOf([presses(0, 200), presses(200, 200), presses(400, 200), presses(600, 200)]);
+        // The first series' last rows, in the last window, then the second's first rows, in the first window again.
+        expect(named(schedulePagedBlocks(four, runs([[3, "P-0700"], [3, "P-0790"]], [[0, "P-0010"], [0, "P-0020"]])))).toEqual(["0.0", "3.1", "3.2", "3.3"]);
+        // Two runs in one window: the blocks around each, never those between them.
+        expect(named(schedulePagedBlocks(four, runs([[0, "P-0010"], [0, "P-0010"]], [[0, "P-0150"], [0, "P-0160"]])))).toEqual(["0.0", "0.2", "0.3"]);
     });
 
     test("none while a window of them is in flight, nor while the rows in view are another narrowing's", () => {

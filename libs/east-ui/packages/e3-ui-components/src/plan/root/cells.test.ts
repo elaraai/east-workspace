@@ -27,6 +27,10 @@ import { readPathOf, readResourceOf, type PlanLandingValue } from "./landings.js
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
 
+/** One run of rows in view, its ends by their windows and their keys, under a narrowing. */
+const oneRun = (first: readonly [number, string], last: readonly [number, string], narrowing: string | undefined) =>
+    ({ runs: [{ first: { w: first[0], key: first[1] }, last: { w: last[0], key: last[1] } }], narrowing });
+
 describe("the buckets a range is cut into (#1039)", () => {
     test("whole periods of the scale's resolution, in order", () => {
         const scale = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-10-19T00:00:00") }, resolution: "month" }) as PlanScale;
@@ -47,20 +51,32 @@ describe("where the canvas reports its rows in view (#1039)", () => {
             { key: "r2", path: ["P-1002"] },
             { key: "r3", path: ["P-1201"] },
         ];
-        expect(cellSpanOf(items, origin, undefined)).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" }, narrowing: undefined });
+        expect(cellSpanOf(items, origin, undefined)).toEqual(oneRun([0, "P-1001"], [1, "P-1201"], undefined));
         // A kind its source narrows (#1344): the rows are the narrowing's, and say so.
-        expect(cellSpanOf(items, origin, "hall: Hall 2")).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" }, narrowing: "hall: Hall 2" });
+        expect(cellSpanOf(items, origin, "hall: Hall 2")).toEqual(oneRun([0, "P-1001"], [1, "P-1201"], "hall: Hall 2"));
         // A row no paged window placed — the Plan's own — is never a paged kind's.
         expect(cellSpanOf([{ key: "stock", path: ["board"] }], origin, undefined)).toBeUndefined();
     });
 
+    test("a view running from one series of the paged rows into another over the same windows — rows beside a group at the top — is a run each, in the view's order (#1710)", () => {
+        // The halls as rows, a window each, then the halls as groups: their own rows, then their presses from the first window on.
+        const origin = new Map([["a6", { w: 6 }], ["a7", { w: 7 }], ["g0", { w: 0 }], ["p0", { w: 0 }], ["p1", { w: 1 }]]);
+        const items = [
+            { key: "a6", path: ["H-107"] }, { key: "a7", path: ["H-108"] },
+            { key: "g0", path: [] }, { key: "p0", path: ["H-101", "P-1001"] }, { key: "p1", path: ["H-102", "P-1011"] },
+        ];
+        expect(cellSpanOf(items, origin, undefined)).toEqual({
+            runs: [{ first: { w: 6, key: "H-107" }, last: { w: 7, key: "H-108" } }, { first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1011" } }],
+            narrowing: undefined,
+        });
+    });
+
     test("at rest: the paged rows the view shows; a view showing rows not read yet and none read keeps the span standing — never the opening's first block, a view away — and one showing neither reports none", () => {
         const origin = new Map([["r6", { w: 5 }], ["r7", { w: 5 }]]);
-        const standing = { first: { w: 0, key: "JOB-10090" }, last: { w: 0, key: "JOB-10180" }, narrowing: "status: Ready" };
+        const standing = oneRun([0, "JOB-10090"], [0, "JOB-10180"], "status: Ready");
         const shown = [{ key: "r6", path: ["JOB-49999"] }, { key: "r7", path: ["JOB-49909"] }];
         // Rows in view, a run below them: their span.
-        expect(shownCellSpan(shown, true, standing, origin, "status: Ready"))
-            .toEqual({ first: { w: 5, key: "JOB-49999" }, last: { w: 5, key: "JOB-49909" }, narrowing: "status: Ready" });
+        expect(shownCellSpan(shown, true, standing, origin, "status: Ready")).toEqual(oneRun([5, "JOB-49999"], [5, "JOB-49909"], "status: Ready"));
         // A run not read alone — the view sent far into it — the span standing, or none while none stands.
         expect(shownCellSpan([], true, standing, origin, "status: Ready")).toBe(standing);
         expect(shownCellSpan([{ key: "stock", path: ["board"] }], true, undefined, origin, undefined)).toBeUndefined();
@@ -77,12 +93,12 @@ describe("where the canvas reports its rows in view (#1039)", () => {
             { key: "p2", path: ["H-2", "P-21"] },
             { key: "h3", path: [] },
         ];
-        expect(cellSpanOf(items, origin, undefined)).toEqual({ first: { w: 0, key: "P-11" }, last: { w: 0, key: "P-21" }, narrowing: undefined });
+        expect(cellSpanOf(items, origin, undefined)).toEqual(oneRun([0, "P-11"], [0, "P-21"], undefined));
     });
 
     test("at rest over paged rows none of which stands for a resource — every group folded: the span standing while it is of the narrowing the windows are now, and none under another (#1711)", () => {
         const origin = new Map([["h1", { w: 0 }], ["h2", { w: 0 }]]);
-        const standing = { first: { w: 0, key: "P-11" }, last: { w: 0, key: "P-21" }, narrowing: "status: Ready" };
+        const standing = oneRun([0, "P-11"], [0, "P-21"], "status: Ready");
         const halls = [{ key: "h1", path: [] }, { key: "h2", path: [] }];
         expect(shownCellSpan(halls, false, standing, origin, "status: Ready")).toBe(standing);
         // Under another narrowing no row of the view reports one: none, or the reader waits on the last narrowing's rows.
@@ -90,23 +106,28 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         expect(shownCellSpan(halls, false, undefined, origin, "status: Ready")).toBeUndefined();
     });
 
-    test("the store holds the span reported last, and tells its listeners only of one that moves — its rows or its narrowing", () => {
+    test("the store holds the span reported last, and tells its listeners only of one that moves — its rows, its runs or its narrowing", () => {
         const store = createCellSpanStore();
         const heard = vi.fn();
         const stop = store.subscribe(heard);
         expect(store.get()).toBeUndefined();
-        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" }, narrowing: undefined });
-        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" }, narrowing: undefined });
+        store.set(oneRun([0, "P-1001"], [0, "P-1018"], undefined));
+        store.set(oneRun([0, "P-1001"], [0, "P-1018"], undefined));
         expect(heard).toHaveBeenCalledTimes(1);
-        store.set({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: undefined });
+        store.set(oneRun([0, "P-1002"], [0, "P-1019"], undefined));
         expect(heard).toHaveBeenCalledTimes(2);
-        expect(store.get()).toEqual({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: undefined });
+        expect(store.get()).toEqual(oneRun([0, "P-1002"], [0, "P-1019"], undefined));
         // The same rows under another narrowing are other rows (#1344).
-        store.set({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: "hall: Hall 2" });
+        store.set(oneRun([0, "P-1002"], [0, "P-1019"], "hall: Hall 2"));
         expect(heard).toHaveBeenCalledTimes(3);
+        // A second run is other rows in view (#1710); the same two runs again move nothing.
+        const two = { runs: [{ first: { w: 6, key: "H-107" }, last: { w: 7, key: "H-108" } }, { first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" } }], narrowing: "hall: Hall 2" };
+        store.set(two);
+        store.set({ ...two, runs: two.runs.map((run) => ({ ...run })) });
+        expect(heard).toHaveBeenCalledTimes(4);
         stop();
         store.set(undefined);
-        expect(heard).toHaveBeenCalledTimes(3);
+        expect(heard).toHaveBeenCalledTimes(4);
         expect(store.get()).toBeUndefined();
     });
 });

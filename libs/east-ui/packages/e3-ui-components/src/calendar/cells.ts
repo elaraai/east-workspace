@@ -71,8 +71,8 @@ import { useMemo } from "react";
 import { DateTimeType, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { tileNext, tileStart } from "@elaraai/east-ui/internal";
 import {
-    useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
-    type ScheduleCellsRead,
+    sameCellSpan, scheduleCellSpanOf, useScheduleCells, type ScheduleCellBucket, type ScheduleCellEnd, type ScheduleCellKind, type ScheduleCellPaged,
+    type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../shared/schedule/cells.js";
 import { draftAdds } from "../shared/schedule/drafted-rows.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
@@ -148,20 +148,15 @@ export function calendarCellsPaged(paged: CalendarPagedValue): ScheduleCellPaged
  */
 export function calendarCellSpan(view: CalendarPagedView | undefined, pages: CalendarPages | undefined, standing: ScheduleCellSpan | undefined): ScheduleCellSpan | undefined {
     if (view === undefined || pages === undefined || view.result !== pages.result) return standing;
-    let first: ScheduleCellSpan["first"] | undefined;
-    let last: ScheduleCellSpan["first"] | undefined;
+    // The held rows the views show, in order: a Calendar's resources are one series, so one run (`scheduleCellSpanOf`).
+    const rows: ScheduleCellEnd[] = [];
     for (let at = view.first; at <= view.last; at++) {
         const row = pagedRowAt(pages, at);
-        if (row === undefined || row.resource.type !== "some") continue;
-        const here = { w: Math.floor(at / CALENDAR_PAGE_SIZE), key: row.resource.value.key };
-        first ??= here;
-        last = here;
+        if (row !== undefined && row.resource.type === "some") rows.push({ w: Math.floor(at / CALENDAR_PAGE_SIZE), key: row.resource.value.key });
     }
-    if (first === undefined || last === undefined) return standing;
-    const same = (a: ScheduleCellSpan["first"], b: ScheduleCellSpan["first"]) => a.w === b.w && stringEqual(a.key, b.key);
-    if (standing !== undefined && same(standing.first, first) && same(standing.last, last)
-        && (standing.narrowing === undefined || pages.narrowing === undefined ? standing.narrowing === pages.narrowing : stringEqual(standing.narrowing, pages.narrowing))) return standing;
-    return { first, last, narrowing: pages.narrowing };
+    const span = scheduleCellSpanOf(rows, pages.narrowing);
+    if (span === undefined) return standing;
+    return standing !== undefined && sameCellSpan(standing, span) ? standing : span;
 }
 
 /** What {@link useCalendarCells} reads over. */

@@ -393,22 +393,76 @@ export interface ScheduleCellPaged {
     narrowing(): string | undefined;
 }
 
+/** A row in view at an end of a run of them: its window, and its key's text. */
+export interface ScheduleCellEnd {
+    /** Its window. */
+    readonly w: number;
+    /** Its key's text. */
+    readonly key: string;
+}
+
+/** A run of the paged rows in view, in their windows' order: its first row and its last. */
+export interface ScheduleCellRun {
+    /** Its first row. */
+    readonly first: ScheduleCellEnd;
+    /** Its last row. */
+    readonly last: ScheduleCellEnd;
+}
+
 /**
- * The paged kind's rows in view, as its host reports them: the first and the
- * last, each by its window and its key's text, and the narrowing they were
- * drawn under.
+ * The paged kind's rows in view, as its host reports them: the runs of them,
+ * each its first and its last row by its window and its key's text, and the
+ * narrowing they were drawn under. One run, but where the rows in view go from
+ * one series of the rows on into another over the same windows — a Plan's
+ * rows beside a group at its top, each paging the same entries (#1710): a run
+ * each, in the view's order.
  */
 export interface ScheduleCellSpan {
-    /** The first row in view. */
-    readonly first: { readonly w: number; readonly key: string };
-    /** The last row in view. */
-    readonly last: { readonly w: number; readonly key: string };
+    /** The runs of rows in view, in the view's order: at least one. */
+    readonly runs: readonly ScheduleCellRun[];
     /**
      * The narrowing the rows were drawn under, as the kind's source names it
      * (#1344): their windows are its. `undefined` for a kind its source does
      * not narrow.
      */
     readonly narrowing: string | undefined;
+}
+
+/**
+ * The span of the paged rows in view, from the rows themselves (#1710): each
+ * row that stands for a resource by its window and its key's text, in the
+ * view's order. The rows of one series run in their windows' order; a row of a
+ * window before the last row's is the next series of the rows over the same
+ * windows — a Plan's rows beside a group at its top — and starts a run of its
+ * own.
+ *
+ * @param rows - The rows in view that stand for a resource, in the view's order
+ * @param narrowing - The narrowing they were drawn under, as the kind's source names it (#1344)
+ * @returns The span; `undefined` for no row
+ */
+export function scheduleCellSpanOf(rows: Iterable<ScheduleCellEnd>, narrowing: string | undefined): ScheduleCellSpan | undefined {
+    const runs: { first: ScheduleCellEnd; last: ScheduleCellEnd }[] = [];
+    for (const here of rows) {
+        const run = runs[runs.length - 1];
+        if (run === undefined || here.w < run.last.w) runs.push({ first: here, last: here });
+        else run.last = here;
+    }
+    return runs.length === 0 ? undefined : { runs, narrowing };
+}
+
+/**
+ * Whether two spans are the same rows in view: the same runs, each the same
+ * rows at its ends, under the same narrowing (#1344) — what a host reports
+ * again moves no read.
+ *
+ * @param a - One span
+ * @param b - The other
+ * @returns Whether they are the same rows in view
+ */
+export function sameCellSpan(a: ScheduleCellSpan, b: ScheduleCellSpan): boolean {
+    const sameEnd = (x: ScheduleCellEnd, y: ScheduleCellEnd) => x.w === y.w && stringEqual(x.key, y.key);
+    return a.runs.length === b.runs.length && a.runs.every((run, i) => sameEnd(run.first, b.runs[i]!.first) && sameEnd(run.last, b.runs[i]!.last))
+        && sameNarrowing(a.narrowing, b.narrowing);
 }
 
 /** One bucket of the host's, by its start and its end, in ms. */
@@ -669,8 +723,12 @@ export interface ScheduleCellBlock {
  * opens, at its first resource (#1711). An end is never placed at its window's start for want of a place: the blocks
  * from there down to the view are none of the view's.
  *
+ * Rows in view that run from one series of the rows on into another over the same windows — rows beside a group at a
+ * Plan's top (#1710) — are a run each: each run's blocks are wanted, a window two runs meet in wanting the blocks
+ * around each, and never the windows between one run's and another's.
+ *
  * @param paged - The paged rows
- * @param span - The rows in view, as the host last reported them; `undefined` before it has: the first resource, where a view opens
+ * @param span - The rows in view, as the host last reported them — a run of them, or several; `undefined` before it has: the first resource, where a view opens
  * @returns The blocks; `undefined` while a window of them is in flight, and while the rows in view are another
  *   narrowing's than the one the windows read now (#1344) — a choice's rows still to land and be reported, whose places
  *   the last narrowing's windows do not hold
@@ -694,47 +752,56 @@ export function schedulePagedBlocks(paged: ScheduleCellPaged, span: ScheduleCell
     };
     // Each end of the rows in view, by its window and its place there: `null` for a key its window does not hold.
     // Before any is reported, the first resource, where a view opens.
-    const placeOf = (end: ScheduleCellSpan["first"] | undefined): { readonly w: number; readonly at: number } | null | undefined => {
+    const placeOf = (end: ScheduleCellEnd | undefined): { readonly w: number; readonly at: number } | null | undefined => {
         if (end === undefined) return { w: 0, at: 0 };
         const keys = keysOf(end.w);
         if (keys === undefined) return undefined;
         const at = keys.findIndex((k) => stringEqual(k.key, end.key));
         return at < 0 ? null : { w: end.w, at };
     };
-    const firstAt = placeOf(span?.first);
-    const lastAt = placeOf(span?.last);
-    if (firstAt === undefined || lastAt === undefined) return undefined;
-    // An end its window does not hold is read as the other; with neither, where the first end's window opens.
-    const first = firstAt ?? lastAt ?? { w: span?.first.w ?? 0, at: 0 };
-    const last = lastAt ?? first;
-    // Each window's wanted places, from the first row in view less the margin to the last plus it.
-    const wanted = new Map<number, { lo: number; hi: number }>();
-    for (let w = first.w; w <= last.w; w++) {
-        const keys = keysOf(w);
-        if (keys === undefined) return undefined;
-        wanted.set(w, { lo: w === first.w ? first.at - SCHEDULE_CELL_MARGIN : 0, hi: w === last.w ? last.at + SCHEDULE_CELL_MARGIN : keys.length - 1 });
-    }
-    // The margin spills into the window before the first, and after the last, as far as it reaches.
-    const head = wanted.get(first.w)!;
-    if (head.lo < 0 && first.w > 0) {
-        const before = keysOf(first.w - 1);
-        if (before === undefined) return undefined;
-        wanted.set(first.w - 1, { lo: before.length + head.lo, hi: before.length - 1 });
-    }
-    const tail = wanted.get(last.w)!;
-    const lastKeys = keysOf(last.w)!;
-    if (tail.hi >= lastKeys.length) {
-        const after = keysOf(last.w + 1);
-        if (after === undefined) return undefined;
-        wanted.set(last.w + 1, { lo: 0, hi: tail.hi - lastKeys.length });
+    // Each window's wanted blocks: those meeting its places a run wants. A window two runs meet in wants the blocks
+    // around each, never those between them; a place past its window's resources wants none.
+    const wanted = new Map<number, Set<number>>();
+    const want = (w: number, keys: readonly ScheduleCellKey[], lo: number, hi: number): void => {
+        let held = wanted.get(w);
+        if (held === undefined) wanted.set(w, (held = new Set()));
+        const end = Math.min(keys.length - 1, hi);
+        for (let j = Math.floor(Math.max(0, lo) / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= end; j++) held.add(j);
+    };
+    // Each run of the rows in view (#1710) — or, before any is reported, where a view opens — from its first row less the
+    // margin to its last plus it.
+    for (const run of span?.runs ?? [undefined]) {
+        const firstAt = placeOf(run?.first);
+        const lastAt = placeOf(run?.last);
+        if (firstAt === undefined || lastAt === undefined) return undefined;
+        // An end its window does not hold is read as the other; with neither, where the first end's window opens.
+        const one = firstAt ?? lastAt ?? { w: run?.first.w ?? 0, at: 0 };
+        const other = lastAt ?? one;
+        // Its ends in their windows' order, whichever its host named first.
+        const [first, last] = other.w < one.w || (other.w === one.w && other.at < one.at) ? [other, one] : [one, other];
+        for (let w = first.w; w <= last.w; w++) {
+            const keys = keysOf(w);
+            if (keys === undefined) return undefined;
+            want(w, keys, w === first.w ? first.at - SCHEDULE_CELL_MARGIN : 0, w === last.w ? last.at + SCHEDULE_CELL_MARGIN : keys.length - 1);
+        }
+        // The margin spills into the window before the first, and after the last, as far as it reaches.
+        if (first.at - SCHEDULE_CELL_MARGIN < 0 && first.w > 0) {
+            const before = keysOf(first.w - 1);
+            if (before === undefined) return undefined;
+            want(first.w - 1, before, before.length + first.at - SCHEDULE_CELL_MARGIN, before.length - 1);
+        }
+        const lastKeys = keysOf(last.w);
+        if (lastKeys === undefined) return undefined;
+        if (last.at + SCHEDULE_CELL_MARGIN >= lastKeys.length) {
+            const after = keysOf(last.w + 1);
+            if (after === undefined) return undefined;
+            want(last.w + 1, after, 0, last.at + SCHEDULE_CELL_MARGIN - lastKeys.length);
+        }
     }
     const blocks: ScheduleCellBlock[] = [];
     for (const w of [...wanted.keys()].sort((a, b) => a - b)) {
         const keys = keysOf(w)!;
-        const { lo, hi } = wanted.get(w)!;
-        const start = Math.max(0, lo);
-        const end = Math.min(keys.length - 1, hi);
-        for (let j = Math.floor(start / SCHEDULE_CELL_BLOCK); j * SCHEDULE_CELL_BLOCK <= end; j++) {
+        for (const j of [...wanted.get(w)!].sort((a, b) => a - b)) {
             // A block a slot its resources' rows land on, under the rows they stand under (#1710), in the order the
             // window draws them.
             const runs: { slot: string; under: readonly string[]; keys: string[] }[] = [];
