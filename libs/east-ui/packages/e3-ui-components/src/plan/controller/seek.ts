@@ -10,7 +10,9 @@
  * `seek` is a tracked platform read: `none` means "still searching" and the
  * channel re-fires when it lands. The two meet here — the query is held, the
  * read runs as a tracked read so its channel is registered, and the pending
- * promise settles on the read that lands the answer.
+ * promise settles on the read that lands the answer — for a query that names
+ * no one key (east-workspace#1696), once its first match's own key is read
+ * too, which the canvas then goes to.
  *
  * @packageDocumentation
  */
@@ -225,6 +227,9 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
     // `onFind` and then calls `onListRange`, and the labels must answer for
     // THIS search, not the previous one (#614).
     let soughtKey = "";
+    // Whether the query names no one key the canvas could go to by itself: over keys of another type than String, a
+    // range, or a struct key's leading parts (east-workspace#1696). Its first match's own key is read before it answers.
+    let namesNone = false;
     let pending: { resolve: (r: DatasetKeyMatchRange) => void; reject: (e: unknown) => void } | null = null;
     let snapshot: PlanSeekSnapshot = NO_SEEK;
 
@@ -268,8 +273,25 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         if (answer.type !== "some") return;
         const range = answer.value;
         pending = null;
-        if (snapshot.sought !== null) publish({ ...snapshot, sought: { key: snapshot.sought.key, row: Number(range.row) } });
-        waiting.resolve({ found: range.found, row: Number(range.row), count: Number(range.count) });
+        const answered: DatasetKeyMatchRange = { found: range.found, row: Number(range.row), count: Number(range.count) };
+        const settle = (key: string) => {
+            if (snapshot.sought !== null) publish({ ...snapshot, sought: { key, row: answered.row } });
+            waiting.resolve(answered);
+        };
+        if (!namesNone || !range.found) {
+            settle(snapshot.sought?.key ?? soughtKey);
+            return;
+        }
+        // The first match's own key, read before the search answers: what the canvas goes to — never a sought key no row's
+        // text sorts beside, which places nothing.
+        labelRequests.add({
+            row: answered.row, limit: 1, reject: waiting.reject,
+            resolve: (labels) => {
+                soughtKey = labels[0]?.label ?? soughtKey;
+                settle(soughtKey);
+            },
+        });
+        readLabels();
     }
 
     return {
@@ -286,7 +308,9 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
                 pending?.reject(new Error("superseded by a newer query"));
                 dropLabels(new Error("superseded by a newer query"));
                 pending = { resolve, reject };
-                soughtKey = soughtKeyOf(q, options.keys()) ?? "";
+                const named = soughtKeyOf(q, options.keys());
+                namesNone = named === undefined;
+                soughtKey = named ?? "";
                 query = toSeekQuery(q);
                 publish({ sought: { key: soughtKey, row: 0 }, searchError: undefined, again: snapshot.again });
                 read();
