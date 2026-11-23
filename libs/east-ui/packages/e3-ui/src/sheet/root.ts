@@ -642,6 +642,12 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             domain: domainOf(meta.key, cfg.domain),
             absent: optionOf(cfg.absent, StringType),
         });
+        // The cells a row's max and its tone's name are read into, at the day (east-workspace#1730).
+        case "meter": return kindOf("meter", {
+            max:    sheetRuleCell("max", meta.key),
+            tone:   optionOf(meta.meter?.tone !== undefined ? sheetRuleCell("tone", meta.key) : undefined, StringType),
+            absent: optionOf(cfg.absent, StringType),
+        });
     }
 }
 

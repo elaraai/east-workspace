@@ -132,9 +132,9 @@ describe("a Record's trace cells (east-workspace#1728)", () => {
         const { container } = await h.mount(ex.recordTrace, { storageKey: "record-trace-details" });
         await press(cell(container, "M-01", "load"));
         expect(details(container).getAttribute("data-record-entry")).toBe("M-01");
-        // The fields in the columns' order, each trace's the host's own control.
+        // The fields in the columns' order, each trace's the host's own control; then the fields no column shows, this week's figures.
         expect([...details(container).querySelectorAll("[data-field]")].map((f) => [f.getAttribute("data-field"), f.getAttribute("data-editor")]))
-            .toEqual([["name", "text"], ["load", "custom"], ["weeks", "custom"], ["history", "custom"]]);
+            .toEqual([["name", "text"], ["load", "custom"], ["weeks", "custom"], ["history", "custom"], ["booked", "number"], ["capacity", "number"], ["used", "number"], ["good", "number"], ["made", "number"]]);
         // The load as its cell draws it: twelve steps, each saying its week, at Trace's compact steps.
         const load = field(container, "load");
         expect(traces(load).map((t) => t.getAttribute("data-density"))).toEqual(["compact"]);

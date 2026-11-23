@@ -12,6 +12,9 @@
  * cell, and the cell read back into the field; and every refusal, naming the
  * column — the Sheet's among them, which draws no trace. A sparkline column
  * (east-workspace#1729) the same: its kind, its cells, Details, its refusals.
+ * A meter column (east-workspace#1730): its kind naming the cells its max and
+ * tone are read into, those read at the day over a row's entry and its draft,
+ * its cells, Details, and its refusals.
  */
 
 import { describe, test } from "node:test";
@@ -21,7 +24,10 @@ import {
     decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
-import { Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, buildInspectorPane, createSheetBuild, createSheetRootWith, deriveManifest } from "@elaraai/e3-ui/internal";
+import { StatusValueType } from "@elaraai/east-ui";
+import {
+    Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, SheetReadFromType, buildInspectorPane, createSheetBuild, createSheetRootWith, deriveManifest,
+} from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
 import * as ex from "./record-display.examples.js";
 
@@ -29,6 +35,7 @@ describeEast("Record — display cells (east-workspace#1726)", test => {
     Assert.examples(test, {
         recordTrace: ex.recordTrace,
         recordSparkline: ex.recordSparkline,
+        recordMeter: ex.recordMeter,
     });
 }, { platformFns: TestImpl });
 
@@ -110,7 +117,7 @@ function refusal(columns: Record<string, unknown>): string {
 
 describe("the display examples", () => {
     test("each declares the one record its Saves commit to: the machines'", () => {
-        for (const example of [ex.recordTrace, ex.recordSparkline]) {
+        for (const example of [ex.recordTrace, ex.recordSparkline, ex.recordMeter]) {
             assert.deepEqual([...new Set(deriveManifest(example.fn).records)], [ex.recordDisplayMachines.name]);
         }
     });
@@ -342,5 +349,162 @@ describe("a sparkline column on the wire (east-workspace#1729)", () => {
             const rows = $.const(UNITS, ArrayType(Unit));
             return Sheet.Root(rows, { name: Sheet.column.text(Unit), load: Record.column.sparkline(Unit) } as never, { id: "id" });
         }), /^Error: Sheet: column "load" is a sparkline column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>$/);
+    });
+});
+
+// ── Meter (east-workspace#1730) ──
+
+/** A bay of the floor: this week's hours booked and the hours it can run, how much of its time it ran, where it knows, and its good pieces of those made. */
+const Bay = StructType({ id: StringType, name: StringType, booked: FloatType, capacity: FloatType, used: OptionType(FloatType), good: FloatType, made: FloatType });
+type BayValue = ValueTypeOf<typeof Bay>;
+const BAYS: BayValue[] = [
+    { id: "B-1", name: "Bay 1", booked: 31.5, capacity: 40, used: some(92), good: 96, made: 100 },
+    { id: "B-2", name: "Bay 2", booked: 44, capacity: 40, used: none, good: 45, made: 50 },
+    { id: "B-3", name: "Bay 3", booked: 20, capacity: 0, used: some(30), good: 0, made: 10 },
+];
+
+const METERS = {
+    name:   Record.column.title(Bay, { header: "Bay" }),
+    // Against the max the row holds; booked past it, danger.
+    booked: Record.column.meter(Bay, {
+        header: "Booked", max: (b) => b.capacity,
+        tone: (b) => b.booked.greater(b.capacity).ifElse((_$) => variant("danger", null), (_$) => variant("neutral", null)),
+    }),
+    // One max for every row, the default 100; no tone.
+    used:   Record.column.meter(Bay, { header: "Used", absent: "not measured" }),
+    // A share two fields make, through `value`, of one max for every row.
+    good:   Record.column.meter(Bay, { header: "Yield", value: (b) => b.good.divide(b.made), max: 1 }),
+};
+
+/** The bays' root with the meter columns. */
+const METER_ROOT: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+    const rows = $.const(BAYS, ArrayType(Bay));
+    return createSheetRootWith(rows, METERS, { id: "id" }, { recordKinds: true });
+}), [])();
+
+/** A meter column, by its key. */
+const meterColumn = (key: string) => METER_ROOT.columns.find((c) => equalFor(StringType)(c.key, key)) ?? assert.fail(`no column ${key}`);
+
+/** A bay's own cell, by the bay's id and the cell's key. */
+function bayCell(id: string, key: string): Cell {
+    if (METER_ROOT.rows.type !== "inline") assert.fail(METER_ROOT.rows.type);
+    const row = METER_ROOT.rows.value.find((r) => equalFor(StringType)(r.id, id)) ?? assert.fail(`no row ${id}`);
+    return row.cells.get(key) ?? variant("Null", null);
+}
+
+const Cells = DictType(StringType, Sheet.Types.Cell);
+const BayDraft = Sheet.Types.Draft(Bay);
+const DAY = new Date("2026-11-23T00:00:00Z");
+
+/** A bay's cells at the day, read over its entry or its draft, as the renderer reads them: what follows the draft. */
+function cellsAtDay(from: ValueTypeOf<typeof SheetReadFromType>): ValueTypeOf<typeof Cells> {
+    if (METER_ROOT.cellsAt.type !== "some") assert.fail("the root reads no cells at the day");
+    return METER_ROOT.cellsAt.value(from, DAY);
+}
+
+/** A bay's draft: each field its value, `capacity` as given — or missing. */
+function bayDraft(bay: BayValue, capacity: number | "missing"): Uint8Array {
+    return encodeBeast2For(BayDraft)({
+        id: variant("value", bay.id), name: variant("value", bay.name), booked: variant("value", bay.booked),
+        capacity: capacity === "missing" ? variant("missing", null) : variant("value", capacity),
+        used: variant("value", bay.used), good: variant("value", bay.good), made: variant("value", bay.made),
+    } as never);
+}
+
+/** What building the bays' root with these columns throws; `""` where it builds. */
+function bayRefusal(columns: Record<string, unknown>): string {
+    try {
+        East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            return createSheetRootWith(rows, { name: METERS.name, ...columns }, { id: "id" }, { recordKinds: true });
+        });
+        return "";
+    } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+    }
+}
+
+describe("a meter column on the wire (east-workspace#1730)", () => {
+    test("its kind names the cells a row's max and its tone's name are read into — no tone, none — and its words for no value", () => {
+        assert.ok(sameKind(meterColumn("booked").kind, variant("meter", { max: "$max:booked", tone: some("$tone:booked"), absent: none })), printKind(meterColumn("booked").kind));
+        assert.ok(sameKind(meterColumn("used").kind, variant("meter", { max: "$max:used", tone: none, absent: some("not measured") })), printKind(meterColumn("used").kind));
+    });
+
+    test("is read only, and its cell the value's Float: on the field, an Option's none the blank cell, and a `value`'s", () => {
+        for (const key of ["booked", "used", "good"]) assert.equal(meterColumn(key).editable, false, key);
+        assert.ok(sameCell(bayCell("B-1", "booked"), variant("Float", 31.5)), printCell(bayCell("B-1", "booked")));
+        assert.ok(sameCell(bayCell("B-2", "used"), variant("Null", null)), printCell(bayCell("B-2", "used")));
+        assert.ok(sameCell(bayCell("B-1", "good"), variant("Float", 0.96)), printCell(bayCell("B-1", "good")));
+    });
+
+    test("a row's max and its tone are read at the day over its entry: the row's own, one for every row, or 100 — and no tone where the column has none", () => {
+        const entry = (bay: BayValue) => cellsAtDay(variant("entry", encodeBeast2For(Bay)(bay)));
+        const first = entry(BAYS[0]!);
+        assert.ok(equalFor(Cells)(first, new Map<string, Cell>([
+            ["$max:booked", variant("Float", 40)], ["$tone:booked", variant("String", "neutral")],
+            ["$max:used", variant("Float", 100)], ["$max:good", variant("Float", 1)],
+        ])), printFor(Cells)(first));
+        // Booked past its capacity: danger.
+        assert.ok(sameCell(entry(BAYS[1]!).get("$tone:booked")!, variant("String", "danger")));
+    });
+
+    test("they follow the row's draft (M9): its capacity edited, its booked max and tone are read over it — and over a draft not yet whole, not at all", () => {
+        const drafted = cellsAtDay(variant("draft", bayDraft(BAYS[0]!, 30)));
+        assert.ok(sameCell(drafted.get("$max:booked")!, variant("Float", 30)), printFor(Cells)(drafted));
+        assert.ok(sameCell(drafted.get("$tone:booked")!, variant("String", "danger")), printFor(Cells)(drafted));
+        const partial = cellsAtDay(variant("draft", bayDraft(BAYS[0]!, "missing")));
+        assert.deepEqual([...partial.keys()], []);
+    });
+
+    test("Details shows its field read only, through its column", () => {
+        const pane = East.compile(East.function([], OptionType(SheetInspectorPaneType), ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            const built = createSheetBuild(rows, METERS, { id: "id" }, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: undefined, groupFields: undefined, id: "id" });
+        }), [])();
+        if (pane.type !== "some") assert.fail("no inspector pane");
+        const fields = pane.value.forms.row.fields;
+        for (const key of ["booked", "used", "good"]) {
+            const field = fields.find((f) => equalFor(ArrayType(StringType))(f.spec.path, [key]));
+            if (field === undefined) assert.fail(`no field ${key}`);
+            assert.equal(field.spec.editor.type, "readonly", key);
+        }
+    });
+
+    test("refused, naming the column: an edit, columns from data, a field that holds no Float, a `value` that derives none, and the column on a Sheet", () => {
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { editable: false } as never) }),
+            /^Sheet: column "booked" is a meter column, which shows its value against its max and is read only — it takes no `editable`$/);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { fill: [] } as never) }), /it takes no `fill`$/);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { each: { mon: "Mon" } } as never) }),
+            /^Sheet: column "booked" is a meter column, which draws one row's value against its max — it makes no columns from data, so give it no `each`$/);
+        assert.match(bayRefusal({ name: Record.column.meter(Bay) as never }),
+            /^Sheet: meter column "name" must sit on a Float or Option<Float> field, or read one through `value` — got String$/);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { value: (b: ExprType<typeof Bay>) => b.name } as never) }),
+            /^Sheet: column "booked" is a meter column whose `value` projection returns String — a meter column's projection must return Float or its Option$/);
+        assert.throws(() => East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            return Sheet.Root(rows, { name: Sheet.column.text(Bay), booked: Record.column.meter(Bay) } as never, { id: "id" });
+        }), /^Error: Sheet: column "booked" is a meter column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>$/);
+    });
+
+    test("refused, naming the column: a max that is no Float, and a tone that is no status value or no function of the row", () => {
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { max: 40n } as never) }),
+            /^Sheet: meter column "booked" has a `max` of Integer — it is what the bar is a share of: a Float for every row, or one over the row$/);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { max: (b: ExprType<typeof Bay>) => b.name } as never) }), /has a `max` of String/);
+        const toneRefused = /^Sheet: meter column "booked" has a `tone` returning (String|Variant) — a meter's tone is a status value: success, warning, danger, info or neutral, or a variant of some of them$/;
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { tone: (b: ExprType<typeof Bay>) => b.name } as never) }), toneRefused);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { tone: () => variant("late", null) } as never) }), toneRefused);
+        assert.match(bayRefusal({ booked: Record.column.meter(Bay, { tone: variant("danger", null) } as never) }),
+            /^Sheet: meter column "booked" has a `tone` that is no function of the row — give it one returning a status value: \(row\) => …$/);
+        // A tone of every case, or of some of them, builds.
+        assert.equal(bayRefusal({ booked: Record.column.meter(Bay, { tone: () => East.value(variant("info", null), StatusValueType) }) }), "");
+    });
+
+    test("an editor hint for its field in Details", () => {
+        assert.throws(() => East.function([], OptionType(SheetInspectorPaneType), ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            const built = createSheetBuild(rows, { name: METERS.name, booked: METERS.booked }, { id: "id" }, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: { booked: Record.field.text() }, groupFields: undefined, id: "id" });
+        }), /^Error: Sheet: `fields\.booked` gives its field an editor, but its column is a meter column, which shows its value against its max — hint it Sheet\.field\.readonly\(\) or Sheet\.field\.hidden\(\), or give it a label or help alone$/);
     });
 });

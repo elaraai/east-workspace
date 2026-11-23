@@ -202,6 +202,7 @@ Task → What do you need?
     │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
     │   ├─ A row's series as a Trace, read only               → Record.column.trace(R, { now?, axis?, scale?: "brand" | "diverge", future?, domain?: [min, max], absent? }) on an Array<Float> or its Option, or value: (row) => … — domain puts every row on one scale
     │   ├─ A row's series as a Sparkline, read only           → Record.column.sparkline(R, { type?: "line" | "area", domain?: [min, max], absent? }), on the same fields — its hover the last value and the range
+    │   ├─ A value against its max as a Meter, read only      → Record.column.meter(R, { max?: 40 | (row) => …, tone?: (row) => a status value, absent? }) on a Float or its Option, or value: (row) => … — max 100 without one; the max and the tone follow a row's draft
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
     │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
     │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
@@ -445,7 +446,7 @@ and saves nothing. A draft that no longer fits its record ends the call
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records landing on its rows, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes`, `e3-ui:plan-events.examples.tsx:planPrintWorksRecords` (the whole of it: one record of rows, five event kinds, a link kind, templates, an optimiser) |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
-| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age, audit, trace and sparkline; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day), `e3-ui:record-display.examples.tsx:recordTrace` and `recordSparkline` (a series per row, drawn as a Trace or a Sparkline) |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age, audit, trace, sparkline and meter; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day), `e3-ui:record-display.examples.tsx:recordTrace`, `recordSparkline` and `recordMeter` (a series per row, drawn as a Trace or a Sparkline; a value against the row's max, as a Meter) |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish, duties in no group yet | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople`, `e3-ui:roster.examples.tsx:rosterNoGroup` (in two steps) |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
@@ -581,6 +582,11 @@ in; dates print in UTC.
   button applying `r.mutate.increment(1n)` with `loading={r.mutate.pending()}`:
   `e3-ui:record.examples.tsx:recordBindMutate`.
 - **Disable controls on stale data**: `disabled={t.status().hasTag('stale')}`.
+- **A threshold on a Record's meter** is its tone over the row — warning at or
+  past 90, danger past 100: `tone: (m) => m.used.greater(100.0).ifElse((_$) =>
+  variant("danger", null), (_$) => m.used.greaterEqual(90.0).ifElse((_$2) =>
+  variant("warning", null), (_$2) => variant("neutral", null)))`; without a
+  tone the bar is the brand's: `e3-ui:record-display.examples.tsx:recordMeter`.
 
 ## Related skills
 

@@ -25,6 +25,10 @@
  * - **sparkline** (east-workspace#1729) — the row's series as east-ui's
  *   Sparkline, a line or an area across the cell's room, in the record
  *   recipe's colour, its hover its last value and its range;
+ * - **meter** (east-workspace#1730) — the row's value against its max as
+ *   east-ui's Meter, its bar and percent at the Record's density, in the tone
+ *   the row's tone cell names; a max of 0 or below, or none read, an empty bar,
+ *   its hover saying why — else the value, the max and the share;
  * - **an absent value** (C10) — in the column's words, else a dash.
  *
  * A row the record does not hold yet has no age and no audit to show. Every
@@ -37,12 +41,12 @@ import type { CSSProperties, ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck } from "@fortawesome/free-solid-svg-icons";
-import { IntegerType, StringType, defaultValue, equalFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, IntegerType, StringType, defaultValue, equalFor, lessFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { DensityLiteral } from "@elaraai/east-ui";
-import { Sparkline, Trace } from "@elaraai/east-ui/internal";
+import { Meter, Sparkline, Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { EastChakraSparkline } from "@elaraai/east-ui-components";
-import { EastChakraTrace, formatDatePattern, type SlotStyles, type TraceValue } from "@elaraai/east-ui-components/internal";
+import { EastChakraMeter, EastChakraTrace, formatDatePattern, type MeterValue, type SlotStyles, type TraceValue } from "@elaraai/east-ui-components/internal";
 import type { SheetRowChanges } from "../sheet/index.js";
 import { resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
 import type { SheetCellValue, SheetColumnKindValue, SheetRowValue } from "../sheet/values.js";
@@ -52,15 +56,24 @@ import { recordMessages as m } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
 const integerEqual = equalFor(IntegerType);
+const floatLess = lessFor(FloatType);
 
-/** A display column's kind, decoded (east-workspace#1726): a trace's or a sparkline's, each with its part's own options and its words for no series. */
-export type RecordDisplayKind = Extract<SheetColumnKindValue, { type: "trace" | "sparkline" }>;
+/** A display column's kind, decoded (east-workspace#1726): a trace's, a sparkline's or a meter's, each with its part's own options and its words for no value. */
+export type RecordDisplayKind = Extract<SheetColumnKindValue, { type: "trace" | "sparkline" | "meter" }>;
+
+/** Whether a column's kind is a display column's: what a cell and Details draw with an east-ui part. */
+export function isDisplayKind(kind: SheetColumnKindValue): kind is RecordDisplayKind {
+    return kind.type === "trace" || kind.type === "sparkline" || kind.type === "meter";
+}
 
 /** A trace column's kind, decoded: Trace's own parts, and its words for no series. */
 type RecordTraceKind = Extract<RecordDisplayKind, { type: "trace" }>["value"];
 
 /** A sparkline column's kind, decoded: Sparkline's own type and its scale, and its words for no series. */
 type RecordSparklineKind = Extract<RecordDisplayKind, { type: "sparkline" }>["value"];
+
+/** A meter column's kind, decoded: the cells a row's max and its tone are read into, and its words for no value. */
+type RecordMeterKind = Extract<RecordDisplayKind, { type: "meter" }>["value"];
 
 /** A Trace's payload and its style with nothing set: East's defaults for their types, which a cell sets its parts on. */
 const TRACE = defaultValue<typeof Trace.Types.Trace>(Trace.Types.Trace);
@@ -72,6 +85,74 @@ const SPARKLINE_STYLE = some({ ...defaultValue<typeof Sparkline.Types.Style>(Spa
 
 /** A cell's Trace spans its whole width: the plot gutter's mode, no room kept at either side for a name. */
 const NO_GUTTER = some({ left: some("0px"), right: some("0px") });
+
+/** A Meter's payload with nothing set, which a cell sets its value, max, tone and density on — its label none: the header names it. */
+const METER = defaultValue<typeof Meter.Types.Meter>(Meter.Types.Meter);
+
+/** Meter's tones, as its type has them: a meter's tone cell names one by its case. */
+type MeterTone = ValueTypeOf<typeof Meter.Types.Meter.fields.tone.cases.some>;
+const TONES: ReadonlySet<string> = new Set(Object.keys(Meter.Types.Meter.fields.tone.cases.some.cases));
+/** Whether a tone cell's words name one of Meter's tones. */
+const isTone = (name: string): name is MeterTone["type"] => TONES.has(name);
+
+/** What a meter's cell draws from its row (east-workspace#1730): its value, the row's max — `undefined` while none is read — and its tone. */
+interface RecordMeterRead {
+    value: number;
+    max: number | undefined;
+    tone: MeterTone["type"] | undefined;
+}
+
+/**
+ * What a meter's cell reads (east-workspace#1730): its value, and the row's max and tone from the cells they are read into.
+ *
+ * @param kind - The column's kind
+ * @param cell - The cell: the value's Float, or none
+ * @param cells - The row's cells
+ * @returns The value, the max and the tone; `undefined` for a row with no value
+ */
+function meterRead(kind: RecordMeterKind, cell: SheetCellValue | undefined, cells: ReadonlyMap<string, SheetCellValue>): RecordMeterRead | undefined {
+    if (cell?.type !== "Float") return undefined;
+    const max = cells.get(kind.max);
+    const toneKey = getSomeorUndefined(kind.tone);
+    const tone = toneKey === undefined ? undefined : cells.get(toneKey);
+    return { value: cell.value, max: max?.type === "Float" ? max.value : undefined, tone: tone?.type === "String" && isTone(tone.value) ? tone.value : undefined };
+}
+
+/** Whether a meter draws a share: its max read, and above 0 — never a division by it otherwise. */
+const shares = (read: RecordMeterRead): read is RecordMeterRead & { max: number } => read.max !== undefined && floatLess(0, read.max);
+
+/**
+ * The Meter a meter column draws a row's value with (east-workspace#1730): its share of the row's max, in the row's tone, at
+ * the density given — and with no share to draw, an empty bar.
+ *
+ * @param read - The row's value, max and tone
+ * @param density - Meter's density
+ * @returns The Meter's payload
+ */
+function meterOf(read: RecordMeterRead, density: DensityLiteral): MeterValue {
+    const share = shares(read);
+    return {
+        ...METER,
+        value: share ? read.value : 0,
+        max: some(share ? read.max : 1),
+        tone: read.tone === undefined ? none : some(variant(read.tone, null)),
+        density: some(variant(density, null)),
+    };
+}
+
+/**
+ * A meter cell's hover (east-workspace#1730): its value, the row's max and the share, each in the viewer's language — or,
+ * with no share to draw, why.
+ *
+ * @param read - The row's value, max and tone
+ * @param words - The viewer's words
+ * @returns The hover
+ */
+function meterSays(read: RecordMeterRead, words: SheetWords): string {
+    const value = words.number(read.value);
+    if (!shares(read)) return m.meterNoShare({ value, max: read.max === undefined ? undefined : words.number(read.max) });
+    return m.meterTitle({ value, max: words.number(read.max), percent: words.percent(read.value / read.max) });
+}
 
 /** What a cell of a Record's own kind draws, and what it says on hover. */
 export interface RecordCellView {
@@ -146,10 +227,12 @@ export interface RecordDisplayProps {
     styles: SlotStyles;
     /** The display column's kind. */
     kind: RecordDisplayKind;
-    /** The cell: a series, or none. */
+    /** The cell: a series or a value, or none. */
     cell: SheetCellValue | undefined;
-    /** A Trace's density: the row's fit, or Details' compact. */
-    density: "compact" | "condensed";
+    /** The row's cells: where a meter reads its max and its tone. */
+    cells: ReadonlyMap<string, SheetCellValue>;
+    /** The density it stands at, the Record's rows' or Details': a Trace's steps at its compact, or at its condensed in a condensed row; a Meter's at its own. */
+    density: DensityLiteral;
     /** Where it is drawn: a row's cell, or Details' field. */
     place: "cell" | "details";
     /** Where the part keeps its state. */
@@ -157,20 +240,30 @@ export interface RecordDisplayProps {
 }
 
 /**
- * A display column's value (east-workspace#1726): its series as east-ui's Trace or Sparkline, read only — in a row's
- * cell and in Details' field alike — or, for none or an empty series, the column's words for it, else a dash (C10).
+ * A display column's value (east-workspace#1726): its series as east-ui's Trace or Sparkline, or its value against its
+ * max as a Meter, read only — in a row's cell and in Details' field alike — or, for none or an empty series, the
+ * column's words for it, else a dash (C10).
  *
- * @param props - The cell, its column's kind, the density a Trace's steps stand at, and where it is drawn
+ * @param props - The cell, the row's cells, its column's kind, the density it stands at, and where it is drawn
  * @returns The part, or the absent words
  */
-export function RecordDisplay({ styles, kind, cell, density, place, storageKey }: RecordDisplayProps) {
-    if (cell?.type !== "Series" || cell.value.length === 0) {
-        return <Box as="span" css={styles.absent} data-slot="absent">{getSomeorUndefined(kind.value.absent) ?? m.absent()}</Box>;
+export function RecordDisplay({ styles, kind, cell, cells, density, place, storageKey }: RecordDisplayProps) {
+    const absent = <Box as="span" css={styles.absent} data-slot="absent">{getSomeorUndefined(kind.value.absent) ?? m.absent()}</Box>;
+    if (kind.type === "meter") {
+        const read = meterRead(kind.value, cell, cells);
+        if (read === undefined) return absent;
+        return (
+            <Box css={styles.display} data-slot="display" data-kind="meter" data-place={place}>
+                <EastChakraMeter value={meterOf(read, density)} storageKey={storageKey} />
+            </Box>
+        );
     }
+    if (cell?.type !== "Series" || cell.value.length === 0) return absent;
+    const steps = density === "condensed" ? "condensed" : "compact";
     return (
-        <Box css={styles.display} data-slot="display" data-kind={kind.type} data-place={place} data-density={kind.type === "trace" ? density : undefined}>
+        <Box css={styles.display} data-slot="display" data-kind={kind.type} data-place={place} data-density={kind.type === "trace" ? steps : undefined}>
             {kind.type === "trace"
-                ? <EastChakraTrace value={traceOf(kind.value, cell.value, density)} storageKey={storageKey} />
+                ? <EastChakraTrace value={traceOf(kind.value, cell.value, steps)} storageKey={storageKey} />
                 : <EastChakraSparkline value={sparklineOf(kind.value, cell.value)} />}
         </Box>
     );
@@ -408,19 +501,22 @@ export function recordCell(input: RecordCellInput): RecordCellView | undefined {
             };
         }
         case "trace":
-        case "sparkline": {
+        case "sparkline":
+        case "meter": {
             // A trace's steps say their label, value and whether measured on hover, Trace's own words; a sparkline's
-            // cell its last value and its range. No series, the column's words, said on hover too where a narrow column
-            // ends them in an ellipsis.
+            // cell its last value and its range; a meter's its value, the row's max and the share. No value, the column's
+            // words, said on hover too where a narrow column ends them in an ellipsis.
+            const content = <RecordDisplay styles={styles} kind={kind} cell={cell} cells={row.cells} density={density} place="cell"
+                storageKey={`record.${meta.key}.${kind.type}`} />;
+            if (kind.type === "meter") {
+                const read = meterRead(kind.value, cell, row.cells);
+                return { content, title: read === undefined ? getSomeorUndefined(kind.value.absent) : meterSays(read, words) };
+            }
             const values = cell?.type === "Series" ? cell.value : [];
             const said = values.length === 0 ? getSomeorUndefined(kind.value.absent)
                 : kind.type === "trace" ? undefined
                     : m.sparklineTitle({ last: words.number(values[values.length - 1]!), min: words.number(Math.min(...values)), max: words.number(Math.max(...values)) });
-            return {
-                content: <RecordDisplay styles={styles} kind={kind} cell={cell} density={density === "condensed" ? "condensed" : "compact"} place="cell"
-                    storageKey={`record.${meta.key}.${kind.type}`} />,
-                title: said,
-            };
+            return { content, title: said };
         }
         default:
             return undefined;

@@ -160,8 +160,9 @@ export { useSlotClass, useSlotStyles, type SlotStyle, type SlotStyles, type Slot
 export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 
 // The display parts a Record draws in its own cells, from a payload it builds for each (east-workspace#1726): a series as a
-// Trace's one track.
+// Trace's one track, and a value against its max as a Meter's bar.
 export { EastChakraTrace, type TraceValue } from "./display/trace/index.js";
+export { EastChakraMeter, type MeterValue } from "./display/meter/index.js";
 
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";

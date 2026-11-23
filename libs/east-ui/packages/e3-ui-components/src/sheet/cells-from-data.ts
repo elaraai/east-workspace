@@ -5,8 +5,8 @@
 
 /**
  * A sheet's columns from data, read into its rows (#1559). Each row's cells
- * from data, and every column's marks, are read by the sheet's `cellsAt` at
- * the day: over the row's entry — the one its window read with it, where the
+ * from data, every column's marks, and each meter's max and tone
+ * (east-workspace#1730) are read by the sheet's `cellsAt` at the day: over the row's entry — the one its window read with it, where the
  * sheet's windows carry theirs (#1599), else as the source holds it (`readEntry`)
  * — and over its draft once a gesture has made one. The source's rows carry none of these
  * cells, so its projection stays pure, as it does for an age cell's count. A
@@ -16,8 +16,8 @@
  * (#1560).
  *
  * A lock never lifts for a read that can't see it: over a draft not yet whole —
- * a field empty, or holding text no column reads — the row's marks are not
- * read, and the last read's stand; and a row whose read fails keeps every
+ * a field empty, or holding text no column reads — the row's marks, and its
+ * meters' max and tone, are not read, and the last read's stand; and a row whose read fails keeps every
  * marked cell locked, its words saying it couldn't be read, the console why.
  *
  * @packageDocumentation
@@ -64,15 +64,23 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
     return useMemo((): SheetCellsFromData => {
         if (cellsAt.type === "none") return NOTHING_READ;
         const cellsOf = cellsAt.value;
-        // The cells a read writes: each column from data's, and every column's marks — each mark's two cells.
+        // The cells a read writes: each column from data's, every column's marks — each mark's two cells — and each meter's
+        // max and tone; the last two over the whole row alone.
         const readKeys = new Set<string>();
         const marks: { readonly words: string; readonly lock: string }[] = [];
+        const meters: string[] = [];
         for (const column of columns) {
             if (getSomeorUndefined(column.from) !== undefined) readKeys.add(column.key);
             const mark = getSomeorUndefined(column.mark);
             if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); marks.push(mark); }
+            if (column.kind.type === "meter") {
+                meters.push(column.kind.value.max);
+                const tone = getSomeorUndefined(column.kind.value.tone);
+                if (tone !== undefined) meters.push(tone);
+            }
         }
-        const markKeys = new Set(marks.flatMap((mark) => [mark.words, mark.lock]));
+        for (const key of meters) readKeys.add(key);
+        const wholeKeys = new Set([...marks.flatMap((mark) => [mark.words, mark.lock]), ...meters]);
         const draftType = fromEastTypeValue(editing.draftType) as EastType;
         const encodeDraft = encodeBeast2For(editing.draftType) as (draft: unknown) => Uint8Array;
         // Whether a draft is whole: every field it needs set and read, so the marks over the row read too.
@@ -95,8 +103,8 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
                 return locked(row);
             }
             // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes; but over a
-            // draft not yet whole, whose marks it can't read, the last read's marks stay.
-            const kept = (key: string): boolean => !readKeys.has(key) || cells.has(key) || (!marked && markKeys.has(key));
+            // draft not yet whole, whose marks and meters it can't read, the last read's stay.
+            const kept = (key: string): boolean => !readKeys.has(key) || cells.has(key) || (!marked && wholeKeys.has(key));
             const stale = [...row.cells.keys()].some((key) => !kept(key));
             if (cells.size === 0 && !stale) return row;
             const out = new Map([...row.cells].filter(([key]) => kept(key)));
