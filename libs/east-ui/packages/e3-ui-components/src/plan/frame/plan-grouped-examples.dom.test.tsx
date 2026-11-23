@@ -5,13 +5,15 @@
  * @vitest-environment jsdom
  *
  * The grouped example (#1710), on e3 itself: `planSeriesAll` mounts as a
- * surface mounts it — its halls read a hall at a time, and each of its four
- * kinds' events a cell at a time through the kind's series index in time order
- * led by the hall, each search a range a tile under one hall, never read whole
- * nor a row by its key — its Plan built with no refusal, and every way an
- * event kind draws drawn: the jobs' bars on the press's task rows, and the
- * services' chips, the deliveries' tiles and the checks' marks on the press's
- * own row.
+ * surface mounts it — its halls read a hall at a time, rows beside groups at
+ * every level, and each of its five kinds' events a cell at a time through the
+ * kind's own series index, never read whole nor a row by its key: the halls'
+ * inspections through an index in the halls' order, each search a range of one
+ * hall; the folders' runs and the bays' deliveries through indexes in time
+ * order led by the hall, each search under one hall; the presses' jobs and
+ * the guillotines' trims through indexes led by the hall and the line, each
+ * search under one line of one hall. Its Plan built with no refusal, and every
+ * way an event kind draws drawn: chips, bars, tiles and marks.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -32,20 +34,25 @@ let restore: (() => void)[] = [];
 beforeEach(() => { restore = [boundFrame(700), frameScrolls()]; });
 afterEach(() => { for (const undo of restore.reverse()) undo(); });
 
-/** Each kind's record and the series index in time order its source lists. */
+/**
+ * Each kind's record, the series index its source lists, and the rows its
+ * searches stand under: one hall — the index in the halls' own order, or one
+ * led by the hall — or one line of one hall.
+ */
 const KINDS = [
-    { record: ex.planSeriesJobs, series: "plan_series_jobs_by_hall_week" },
-    { record: ex.planSeriesServices, series: "plan_series_services_by_hall_week" },
-    { record: ex.planSeriesDeliveries, series: "plan_series_deliveries_by_hall_week" },
-    { record: ex.planSeriesChecks, series: "plan_series_checks_by_hall_week" },
+    { record: ex.planSeriesInspections, series: "plan_series_inspections_by_hall_week", under: "hall" },
+    { record: ex.planSeriesFolding, series: "plan_series_folding_by_hall_week", under: "hall" },
+    { record: ex.planSeriesDeliveries, series: "plan_series_deliveries_by_hall_week", under: "hall" },
+    { record: ex.planSeriesJobs, series: "plan_series_jobs_by_line_week", under: "line" },
+    { record: ex.planSeriesTrims, series: "plan_series_trims_by_line_week", under: "line" },
 ] as const;
 
 const printText = printFor(StringType);
-/** The halls' keys as the series indexes' leading field holds them: `.east` literals of a String. */
-const HALLS = new Set([...ex.planSeriesHalls.default!.keys()].map((key) => printText(key)));
+/** Each line's key, as an index's second leading field holds it, by its hall's key as the first holds it: `.east` literals of a String. */
+const LINES = new Map([...ex.planSeriesHalls.default!].map(([hall, of]) => [printText(hall), new Set([...of.lines.keys()].map((line) => printText(line)))] as const));
 
 describe("the grouped example on e3 (#1710)", () => {
-    test("planSeriesAll: its halls a hall at a time, each kind's events through its series index in time order, every way a kind draws drawn", async () => {
+    test("planSeriesAll: its halls a hall at a time, rows beside groups, each kind's events through its series index under the rows its resources stand under, every way a kind draws drawn", async () => {
         const { container: c } = await h.mount(ex.planSeriesAll);
         await settle();
         const main = slot(c, "main") ?? c;
@@ -60,18 +67,23 @@ describe("the grouped example on e3 (#1710)", () => {
         const pages = h.requests("page", pathText(ex.planSeriesHalls.path as TreePath));
         expect(pages.length).toBeGreaterThan(0);
         expect(pages.every((read) => read.query.get("limit") === "1")).toBe(true);
-        for (const { record, series } of KINDS) {
+        for (const { record, series, under } of KINDS) {
             const dataset = pathText(record.path as TreePath);
-            // Its cells through its series index in time order: the searches, then the entries they select.
-            expect(h.readKinds(dataset, series)).toEqual(expect.arrayContaining(["find", "runs"]));
-            // Each search a range a tile under one hall, the first of its key's parts.
+            // Its cells through its series index: the searches, then the entries they select.
+            expect(h.readKinds(dataset, series), series).toEqual(expect.arrayContaining(["find", "runs"]));
+            // Each search under one hall, the first of its key's parts, or one line of one hall, the first two.
             const searches = h.requests("find", dataset).filter((request) => request.query.get("index") === series).flatMap((request) => request.searches);
-            expect(searches.length).toBeGreaterThan(0);
+            expect(searches.length, series).toBeGreaterThan(0);
             for (const search of searches) {
                 const from = "from" in search ? search.from ?? [] : [];
                 const to = "to" in search ? search.to ?? [] : [];
-                expect(HALLS.has(from[0] ?? "")).toBe(true);
-                expect(to[0]).toBe(from[0]);
+                if (under === "hall") {
+                    expect(LINES.has(from[0] ?? ""), series).toBe(true);
+                    expect(to[0], series).toBe(from[0]);
+                } else {
+                    expect(LINES.get(from[0] ?? "")?.has(from[1] ?? ""), series).toBe(true);
+                    expect([to[0], to[1]], series).toEqual([from[0], from[1]]);
+                }
             }
             // Never read whole, nor a row by its key: nothing asked for one.
             expect(h.requests("read", dataset)).toEqual([]);
