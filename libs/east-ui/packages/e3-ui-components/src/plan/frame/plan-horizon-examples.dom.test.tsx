@@ -14,8 +14,9 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { waitFor } from "@testing-library/react";
-import type { option } from "@elaraai/east";
+import { StringType, equalFor, type option } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
+import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as windows from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as optimise from "@elaraai/e3-ui/examples/plan/optimise-windows";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
@@ -26,7 +27,8 @@ import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { horizonLaidOut, planHarness, settle } from "./harness.test-utils.js";
 
 const h = planHarness({
-    "plan/plan-windows": windows, "plan/optimise-windows": optimise, "plan/plan-records": records, "sheet/sheet-records": sheet,
+    "plan/plan-events": events, "plan/plan-windows": windows, "plan/optimise-windows": optimise, "plan/plan-records": records,
+    "sheet/sheet-records": sheet,
 });
 
 /** A record's path, as e3's requests name it. */
@@ -63,6 +65,11 @@ function spans<R>(rows: Iterable<R>, times: (row: R) => readonly [Date, Date]): 
     });
 }
 
+/** The spans of rows each an instant, by its DateTime field. */
+function instants<R>(rows: Iterable<R>, at: (row: R) => Date): Span[] {
+    return [...rows].map((row) => spanOf(at(row).getTime(), at(row).getTime()));
+}
+
 /**
  * Each month's count of the events that touch it — those starting in it, and those running into it — across the
  * horizon: from the month the first event or the axis's window begins in to the one the last event starts or the
@@ -91,6 +98,12 @@ function touched(events: readonly Span[], window: Span): number[] {
 const WINDOWS_FORTNIGHT: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 9, 19)];
 /** The window the work orders' Plan's axis states: the first fortnight of October 2026. */
 const ORDERS_FORTNIGHT: Span = [Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 15)];
+/** The window the print works' Plans' axes state: the four weeks from Monday 5 October 2026. */
+const WORKS_FOUR_WEEKS: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 10, 2)];
+
+/** The press tasks, each an instant on its day. */
+const pressTasks = () => [...events.planPressTaskRows.default!.values()];
+const sameText = equalFor(StringType);
 
 /** The windows' print jobs, each a span; four in the backlog, filed nowhere. */
 const windowJobs = () => optionSpans(windows.planWindowJobs.default!.values(), (job) => [job.start, job.end]);
@@ -117,6 +130,42 @@ const CASES: readonly HorizonCase[] = [
         name: "planRecordIndexes", example: records.planRecordIndexes, window: ORDERS_FORTNIGHT,
         sources: [{ record: records.planOperations, totals: "plan_operations" }],
         events: () => spans(records.planOperations.default!.values(), (operation) => [operation.start, operation.end]),
+    },
+    {
+        // Two sources hold the window: the jobs, read through their own totals while the rail chooses no stock, and the shifts.
+        name: "planPrintWorks", example: events.planPrintWorks, window: WORKS_FOUR_WEEKS,
+        sources: [{ record: events.planPrintJobs, totals: "plan_print_jobs" }, { record: events.planPrintShifts, totals: "plan_print_shifts" }],
+        events: () => [
+            ...optionSpans(events.planPrintJobs.default!.values(), (job) => [job.start, job.end]),
+            ...spans(events.planPrintShifts.default!.values(), (shift) => [shift.start, shift.end]),
+        ],
+    },
+    {
+        name: "planPressTasks", example: events.planPressTasks, window: WORKS_FOUR_WEEKS,
+        sources: [{ record: events.planPressTaskRows, totals: "plan_press_tasks" }],
+        events: () => instants(pressTasks(), (task) => task.day),
+    },
+    {
+        // A press's page: its scope holds the press it is for, the first, so its bars are that press's tasks, read through
+        // the totals led by the press.
+        name: "planOnePress", example: events.planOnePress, window: WORKS_FOUR_WEEKS,
+        sources: [{ record: events.planPressTaskRows, totals: "plan_press_tasks_by_press" }],
+        events: () => instants(pressTasks().filter((task) => sameText(task.press, "P03")), (task) => task.day),
+    },
+    {
+        name: "planPrintWorksRecords", example: events.planPrintWorksRecords, window: WORKS_FOUR_WEEKS,
+        sources: [
+            { record: events.planWorksJobs, totals: "plan_works_jobs" }, { record: events.planWorksShifts, totals: "plan_works_shifts" },
+            { record: events.planWorksStops, totals: "plan_works_stops" }, { record: events.planWorksBindings, totals: "plan_works_bindings" },
+            { record: events.planWorksDeliveries, totals: "plan_works_deliveries" },
+        ],
+        events: () => [
+            ...spans(events.planWorksJobs.default!.values(), (job) => [job.start, job.end]),
+            ...spans(events.planWorksShifts.default!.values(), (shift) => [shift.start, shift.end]),
+            ...instants(events.planWorksStops.default!.values(), (stop) => stop.at),
+            ...spans(events.planWorksBindings.default!.values(), (binding) => [binding.start, binding.end]),
+            ...instants(events.planWorksDeliveries.default!.values(), (delivery) => delivery.at),
+        ],
     },
 ];
 
