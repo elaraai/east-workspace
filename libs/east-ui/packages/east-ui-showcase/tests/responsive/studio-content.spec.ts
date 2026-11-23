@@ -68,4 +68,20 @@ test.describe("Studio content (#1669)", () => {
             framed: [false, true],
         });
     });
+
+    test("the KPI rail's four figures stand in full rows — four abreast, or two and two — never three and one beside an empty block", async ({ page }) => {
+        const builder = await openContent(page);
+        await expect.poll(() => builder.evaluate((root) => {
+            // The rail's grid, the first element in its tile laid out as one: each of its items a figure.
+            const grid = [...root.querySelectorAll('[data-snap-grid-tile="s-kpi"] *')].find((el) => getComputedStyle(el).display === "grid");
+            const figures = grid === undefined ? [] : [...grid.children];
+            // The figures in each row, by where they stand.
+            const rows = new Map<number, number>();
+            for (const figure of figures) {
+                const top = Math.round(figure.getBoundingClientRect().top);
+                rows.set(top, (rows.get(top) ?? 0) + 1);
+            }
+            return { figures: figures.length, rows: [...rows.values()] };
+        })).toEqual({ figures: 4, rows: [2, 2] });
+    });
 });
