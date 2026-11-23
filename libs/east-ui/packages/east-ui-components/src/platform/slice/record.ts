@@ -12,7 +12,7 @@ import {
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType,
-    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
+    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, isTiledIndex,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
     type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined, type RecordOnPrinter, type DatasetKeyQuery,
 } from "@elaraai/east-ui/internal";
@@ -630,7 +630,8 @@ export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>
 }
 
 /**
- * A record Slice's controller, refusing a series, a summary or an area index its binding does not list (#1039, #1393).
+ * A record Slice's controller, refusing a series, a summary or an area index its binding does not list (#1039, #1393) —
+ * a summary with no key among them, the record's totals its `totals` lists (#1732).
  *
  * @param slice - The record Slice
  * @param index - The index a reader reads cells of
@@ -640,8 +641,9 @@ export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>
 function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string): RecordSliceController {
     const controller = controllerOf(slice);
     const listed = controller.config.indexes.find(candidate => candidate.name === index);
-    if (listed === undefined || (tilingOf(listed) === undefined && listed.area.type !== "some")) {
-        throw new Error(`The record Slice '${slice.key}' lists no series, summary or area index '${index}' to read cells of: list it in Data.bindPaged's indexes`);
+    if (listed === undefined || (!isTiledIndex(listed) && listed.area.type !== "some")) {
+        throw new Error(`The record Slice '${slice.key}' lists no series, summary or area index '${index}' to read cells of: list it in Data.bindPaged's ` +
+            "indexes, or the record's totals in its totals");
     }
     return controller;
 }

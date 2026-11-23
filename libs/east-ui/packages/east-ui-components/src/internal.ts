@@ -136,6 +136,10 @@ export {
     recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
     recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceBasePlace,
 } from "./platform/slice/record.js";
+// The cells a reader keeps of an index for its record's revision — a builder's shading's, a horizon's — and the record's
+// totals a tile, which a horizon's bars read (#1732).
+export { RecordSliceKeptCells } from "./platform/slice/kept-cells.js";
+export { recordSliceTotals, type RecordSliceTileTotals } from "./platform/slice/record-totals.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";

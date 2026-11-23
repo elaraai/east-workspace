@@ -332,6 +332,11 @@ export const planSeriesInspections = e3.record("plan_series_inspections", DictTy
         plan_series_inspections_by_hall_month: index.summary({ key: "hall", from: "start", to: "end", tile: "month" }),
         plan_series_inspections_by_hall_quarter: index.summary({ key: "hall", from: "start", to: "end", tile: "quarter" }),
         plan_series_inspections_by_hall_year: index.summary({ key: "hall", from: "start", to: "end", tile: "year" }),
+        // The record's totals a month, a quarter and a year (#1732): how many of its events touch each, under no key — what
+        // the horizon's bars read at the tile that fits the strip, never counting events.
+        plan_series_inspections_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
+        plan_series_inspections_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_inspections_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The inspections' patch door: every Save commits through it.
@@ -350,6 +355,9 @@ export const planSeriesFolding = e3.record("plan_series_folding", DictType(Strin
         plan_series_folding_by_folder_month: index.summary({ key: "folder", from: "start", to: "end", tile: "month" }),
         plan_series_folding_by_folder_quarter: index.summary({ key: "folder", from: "start", to: "end", tile: "quarter" }),
         plan_series_folding_by_folder_year: index.summary({ key: "folder", from: "start", to: "end", tile: "year" }),
+        plan_series_folding_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
+        plan_series_folding_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_folding_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -364,6 +372,9 @@ export const planSeriesDeliveries = e3.record("plan_series_deliveries", DictType
         plan_series_deliveries_by_bay_month: index.summary({ key: "bay", from: "at", to: "at", tile: "month" }),
         plan_series_deliveries_by_bay_quarter: index.summary({ key: "bay", from: "at", to: "at", tile: "quarter" }),
         plan_series_deliveries_by_bay_year: index.summary({ key: "bay", from: "at", to: "at", tile: "year" }),
+        plan_series_deliveries_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
+        plan_series_deliveries_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
+        plan_series_deliveries_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -380,6 +391,9 @@ export const planSeriesJobs = e3.record("plan_series_jobs", DictType(StringType,
         plan_series_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         plan_series_jobs_by_press_quarter: index.summary({ key: "press", from: "start", to: "end", tile: "quarter" }),
         plan_series_jobs_by_press_year: index.summary({ key: "press", from: "start", to: "end", tile: "year" }),
+        plan_series_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
+        plan_series_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -394,6 +408,9 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
         plan_series_trims_by_guillotine_month: index.summary({ key: "guillotine", from: "at", to: "at", tile: "month" }),
         plan_series_trims_by_guillotine_quarter: index.summary({ key: "guillotine", from: "at", to: "at", tile: "quarter" }),
         plan_series_trims_by_guillotine_year: index.summary({ key: "guillotine", from: "at", to: "at", tile: "year" }),
+        plan_series_trims_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
+        plan_series_trims_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
+        plan_series_trims_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -459,6 +476,7 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesInspections, {
                         indexes: ["plan_series_inspections_by_time", "plan_series_inspections_by_hall_week", "plan_series_inspections_by_hall_day",
                             "plan_series_inspections_by_hall_month", "plan_series_inspections_by_hall_quarter", "plan_series_inspections_by_hall_year"],
+                        totals: ["plan_series_inspections_month_totals", "plan_series_inspections_quarter_totals", "plan_series_inspections_year_totals"],
                     }),
                     label: "Inspections", icon: { prefix: "fas", name: "clipboard-check" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -466,6 +484,7 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesFolding, {
                         indexes: ["plan_series_folding_by_time", "plan_series_folding_by_hall_week", "plan_series_folding_by_folder_day",
                             "plan_series_folding_by_folder_month", "plan_series_folding_by_folder_quarter", "plan_series_folding_by_folder_year"],
+                        totals: ["plan_series_folding_month_totals", "plan_series_folding_quarter_totals", "plan_series_folding_year_totals"],
                     }),
                     label: "Folding runs", icon: { prefix: "fas", name: "book-open" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -473,6 +492,7 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesDeliveries, {
                         indexes: ["plan_series_deliveries_by_time", "plan_series_deliveries_by_hall_week", "plan_series_deliveries_by_bay_day",
                             "plan_series_deliveries_by_bay_month", "plan_series_deliveries_by_bay_quarter", "plan_series_deliveries_by_bay_year"],
+                        totals: ["plan_series_deliveries_month_totals", "plan_series_deliveries_quarter_totals", "plan_series_deliveries_year_totals"],
                     }),
                     label: "Paper deliveries", icon: { prefix: "fas", name: "truck" }, fields: { at: { label: "Dates" } }, range: "at",
                 },
@@ -480,6 +500,7 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesJobs, {
                         indexes: ["plan_series_jobs_by_time", "plan_series_jobs_by_line_week", "plan_series_jobs_by_press_day",
                             "plan_series_jobs_by_press_month", "plan_series_jobs_by_press_quarter", "plan_series_jobs_by_press_year"],
+                        totals: ["plan_series_jobs_month_totals", "plan_series_jobs_quarter_totals", "plan_series_jobs_year_totals"],
                     }),
                     label: "Print jobs", icon: { prefix: "fas", name: "file-lines" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -487,6 +508,7 @@ export const planSeriesAll = example({
                     source: Data.bindPaged(planSeriesTrims, {
                         indexes: ["plan_series_trims_by_time", "plan_series_trims_by_line_week", "plan_series_trims_by_guillotine_day",
                             "plan_series_trims_by_guillotine_month", "plan_series_trims_by_guillotine_quarter", "plan_series_trims_by_guillotine_year"],
+                        totals: ["plan_series_trims_month_totals", "plan_series_trims_quarter_totals", "plan_series_trims_year_totals"],
                     }),
                     label: "Trims", icon: { prefix: "fas", name: "scissors" }, fields: { at: { label: "Dates" } }, range: "at",
                 },

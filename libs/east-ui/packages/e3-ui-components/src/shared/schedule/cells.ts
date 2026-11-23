@@ -190,7 +190,6 @@ import {
     compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some,
     type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { SeekQueryType } from "@elaraai/east-ui";
 import {
     MAX_RECORD_SLICE_BATCH, RecordSliceChoiceType, RecordSliceWhereType, levelRuns, seriesIndexFor, summaryCellQueries, summaryRun, tileIndexFor, tilingOf,
     type RecordSliceBindType, type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceEntry, type RecordSliceIndexType,
@@ -199,7 +198,7 @@ import {
 import { SCHEDULE_EVENT_CAP, ScheduleDraftsType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    readBeforeSaves, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    RecordSliceKeptCells, readBeforeSaves, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
@@ -247,7 +246,6 @@ const sameNarrowing = (a: string | undefined, b: string | undefined): boolean =>
 const blobEqual = equalFor(BlobType);
 const shadingEqual = equalFor(ShadingType);
 const draftsEqual = equalFor(DictType(StringType, ScheduleDraftsType));
-const printQueries = printFor(ArrayType(SeekQueryType));
 /** A resource among the paged rows' (#1541): its slot and key, as East prints a `Schedule.Types.ResourceRef`. */
 const printResourceRef = printFor(ScheduleResourceRefType);
 const printWhere = printFor(RecordSliceWhereType);
@@ -1069,11 +1067,6 @@ class PagedRowsFailure extends ReadFailure {
     }
 }
 
-/** A cell's searches, as a key of what the reader keeps. */
-function cellText(index: string, cell: RecordSliceCell): string {
-    return `${index}\u0000${printQueries([...cell.queries])}`;
-}
-
 /** A narrowing without its range of the field an index's tiles cover: the tiles hold the range. */
 function withoutTiled(where: Where, from: string): Map<string, ValueTypeOf<typeof RecordSliceChoiceType>> {
     return new Map([...where].filter(([field, choice]) => !(stringEqual(field, from) && choice.type === "range")));
@@ -1130,7 +1123,7 @@ function readByCells(kind: ScheduleCellKind, paged: ScheduleCellPaged | undefine
  */
 class CellsReader {
     /** The cells each kind's summary read holds, by the kind's slot and index: their entries by their searches' text, at a revision. */
-    private readonly kept = new Map<string, { revision: string; cells: Map<string, RecordSliceEntry[]> }>();
+    private readonly kept = new RecordSliceKeptCells();
     /** The tiles each kind's series read holds (#1433), by the kind's slot and index: each group's span a level, at a revision. */
     private readonly spans = new Map<string, { revision: string; spans: ReadonlyMap<string, Span> }>();
     private readonly codecs = new WeakMap<object, KindCodec>();
@@ -1288,33 +1281,6 @@ class CellsReader {
         const made = { from, bytes: codec.encodeCells(entries), held };
         this.encoded.set(slot, made);
         return made;
-    }
-
-    /**
-     * The cells' entries a kind's read holds, at the record's revision now:
-     * those of the wanted cells it does not hold read in one request, and
-     * every cell no longer wanted let go.
-     *
-     * @returns Each wanted cell's entries, in order; none while the revision or the read is in flight
-     */
-    private entriesOf(at: string, part: ScheduleCellPart, index: string, cells: readonly RecordSliceCell[]): option<RecordSliceEntry[][]> {
-        const revision = recordSliceRevision(part);
-        if (revision.type !== "some") return none;
-        let kept = this.kept.get(at);
-        if (kept === undefined || !stringEqual(kept.revision, revision.value)) {
-            kept = { revision: revision.value, cells: new Map() };
-            this.kept.set(at, kept);
-        }
-        const texts = cells.map((cell) => cellText(index, cell));
-        const missing = cells.filter((_cell, i) => !kept.cells.has(texts[i]!));
-        if (missing.length > 0) {
-            const read = recordSliceCellEntries(part, index, missing);
-            if (read.type !== "some") return none;
-            for (const cell of missing) kept.cells.set(cellText(index, cell), read.value.get(cell.id) ?? []);
-        }
-        const wanted = new Set(texts);
-        for (const text of [...kept.cells.keys()]) if (!wanted.has(text)) kept.cells.delete(text);
-        return some(texts.map((text) => kept.cells.get(text)!));
     }
 
     /**
@@ -1838,7 +1804,7 @@ class CellsReader {
         if (searches > MAX_RECORD_SLICE_BATCH) return undefined;
         const runs = recordSliceCellRuns(part, summary.name, cells.map((c) => c.cell));
         if (runs.type !== "some") return READING;
-        const read = this.entriesOf(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
+        const read = this.kept.entries(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
         if (read.type !== "some") return READING;
         cells.forEach(({ cell, block, keys }, n) => {
             const series = kind.shadeKey(block.slot);
