@@ -652,10 +652,21 @@ A rack reads and writes each object through a data URL that lasts 15 minutes,
 and a transfer may take all of it; an object is at most 5 GiB. Every transfer
 streams through this machine, so the hub looks after the link:
 
-- It serves one rack **eight transfers at once**, the number its hello states
+- It serves one rack **32 transfers at once**, the number its hello states
   (`limits.transfersAtOnce`). One more is answered `429 busy` with how long to
   wait, before any byte of it is read. An agent keeps to the hello's number
-  itself, so it is not told to wait.
+  itself, so it is not told to wait. A link of 35 ms and 15 MB/s holds half a
+  MB in flight, and a transfer of a segment moves some KiB a round trip: eight
+  at once, as before, carried a tenth of what such a link does.
+- It serves a **small object inline**, in the storage reply that asked for
+  it, rather than a URL to be read in another round trip: up to the size the
+  request names in `x-e3-rack-inline-max` (`RACK_INLINE_MAX_HEADER`), at most
+  64 KiB (`RACK_INLINE_OBJECT_MAX`), and 4 KiB for a request that names none,
+  as before. A reply carries at most 2 MiB inline (`RACK_INLINE_REPLY_BYTES`),
+  and the rest of its objects as URLs. Its hello names `inline-objects`
+  (`RACK_INLINE_OBJECTS`): an agent names a size only to a source that does,
+  and asks such a source for the small objects of a lease's closure, a few
+  hundred to a request, as the lease starts.
 - A read honours **`Range: bytes=N-`** and answers `206` from that byte, so a
   transfer a slow or broken link cut short goes on from where it stopped. A
   data URL whose 15 minutes ended, or whose transfer its end cut (`404`,
@@ -750,7 +761,7 @@ with a release:
 
 - **Hello.** `GET /api/rack/hello` answers anyone who reaches the listener,
   before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
-  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects", "tier-manifests"] }`. An
+  "limits": { "transfersAtOnce": 32 }, "features": ["call-value-objects", "tier-manifests", "inline-objects"] }`. An
   agent asks it before it spends an enrollment token. `features` names what the
   source takes beyond the protocol: a source from before it names none, and an
   entry a reader does not know, a word or of another form, is passed over.

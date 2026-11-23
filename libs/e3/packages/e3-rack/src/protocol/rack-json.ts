@@ -30,8 +30,20 @@ export const RACK_PROTOCOL = 3;
 /** The header every request of an agent names {@link RACK_PROTOCOL} in. */
 export const RACK_PROTOCOL_HEADER = 'x-e3-rack-protocol';
 
-/** The transfers a source serves one rack at once, unless it says otherwise. */
-export const RACK_TRANSFERS_AT_ONCE = 8;
+/**
+ * The transfers a source serves one rack at once, unless it says otherwise.
+ *
+ * @remarks
+ * A rack may reach its source over a link of tens of milliseconds and some
+ * MB/s (a tunnel to a developer's machine: 35 ms and 12 to 20 MB/s, measured).
+ * What one transfer moves in a round trip is one object, a segment of some
+ * KiB, so the link holds its rate only with its bytes in flight, its
+ * bandwidth-delay product, of half a MB: 8 transfers of 6 KB move 1.4 MB/s,
+ * a tenth of it; 32 move four times that, and whole objects past the inline
+ * limit ({@link RACK_INLINE_OBJECT_MAX}) fill it. Each transfer is a stream
+ * the hub relays with backpressure, some tens of KiB of buffer each.
+ */
+export const RACK_TRANSFERS_AT_ONCE = 32;
 
 /**
  * How long work that a rack's offer does not hold is passed over, in ms, by
@@ -119,6 +131,56 @@ export const RACK_CALL_VALUE_OBJECTS = 'call-value-objects';
 export const RACK_TIER_MANIFESTS = 'tier-manifests';
 
 /**
+ * The hello's feature by which a source says it serves an object of a
+ * storage request inline, in its reply, up to the size the request names in
+ * {@link RACK_INLINE_MAX_HEADER} (at most {@link RACK_INLINE_OBJECT_MAX}),
+ * within a bound on each reply's inline bytes past which the rest are URLs. So
+ * a request for many small objects is answered with their bytes, one round
+ * trip, rather than a URL for each to be read in another. A rack sends the
+ * header only to a source that names it, and asks such a source for the
+ * small objects of a lease's closure as the lease starts.
+ */
+export const RACK_INLINE_OBJECTS = 'inline-objects';
+
+/**
+ * The header of a storage request in which a rack names the largest object it
+ * takes inline in the reply, in bytes, as a decimal: a source that names
+ * {@link RACK_INLINE_OBJECTS} serves an object of at most that size inline, and
+ * at most its own {@link RACK_INLINE_OBJECT_MAX}. A request that names none
+ * takes {@link RACK_INLINE_OBJECT_DEFAULT}, as every request did before.
+ */
+export const RACK_INLINE_MAX_HEADER = 'x-e3-rack-inline-max';
+
+/** The largest object a storage request that names no {@link RACK_INLINE_MAX_HEADER} is served inline. */
+export const RACK_INLINE_OBJECT_DEFAULT = 4096;
+
+/**
+ * The largest object a source serves inline: a segment of a collection is
+ * some KiB, so a reply carries one whole in the round trip that asked for it.
+ */
+export const RACK_INLINE_OBJECT_MAX = 64 * 1024;
+
+/**
+ * Reads a storage request's {@link RACK_INLINE_MAX_HEADER}.
+ *
+ * @param value - The header's value, or null when the request had none
+ * @returns The largest object to serve the request inline, in bytes: what it
+ *   names, at most {@link RACK_INLINE_OBJECT_MAX}; and
+ *   {@link RACK_INLINE_OBJECT_DEFAULT} for a request that names none, or
+ *   names what is not a decimal count of bytes
+ *
+ * @example
+ * ```ts
+ * const most = readRackInlineMax(c.req.header(RACK_INLINE_MAX_HEADER) ?? null);
+ * ```
+ */
+export function readRackInlineMax(value: string | null): number {
+  if (value === null || !/^\d{1,16}$/.test(value.trim())) return RACK_INLINE_OBJECT_DEFAULT;
+  const bytes = Number(value.trim());
+  return Number.isSafeInteger(bytes) ? Math.min(bytes, RACK_INLINE_OBJECT_MAX) : RACK_INLINE_OBJECT_DEFAULT;
+}
+
+/**
  * The report's feature by which a rack says it composes an environment built
  * over the tier it boots it over: it unpacks the environment's layers over
  * that tier's image, and links the environment to what the image holds
@@ -196,7 +258,7 @@ export interface RackHello {
   };
   /**
    * What the source takes beyond the protocol: {@link RACK_CALL_VALUE_OBJECTS},
-   * {@link RACK_TIER_MANIFESTS}. An agent uses a feature only with a source
+   * {@link RACK_TIER_MANIFESTS}, {@link RACK_INLINE_OBJECTS}. An agent uses a feature only with a source
    * that names it; a source that names none takes none.
    */
   readonly features: readonly string[];

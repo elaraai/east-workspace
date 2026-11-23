@@ -68,6 +68,8 @@ import {
   RackStorageResponseType,
   RackLogsRequestType,
   RACK_CALL_VALUE_OBJECTS,
+  RACK_INLINE_MAX_HEADER,
+  RACK_INLINE_OBJECTS,
   RACK_TIER_MANIFESTS,
   RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
@@ -75,6 +77,7 @@ import {
   RACK_TRANSFERS_AT_ONCE,
   RACK_WAITING_HEADER,
   RACK_MANIFESTS_WANTED_HEADER,
+  readRackInlineMax,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
@@ -98,7 +101,7 @@ import { E3_RACK_VERSION } from '../version.js';
 import { updateRack, type RackRegistry } from '../registry/rack-registry.js';
 import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
-import type { RackStorageBridge } from './storage-bridge.js';
+import type { RackInlineRoom, RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
 import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
@@ -215,6 +218,15 @@ export interface RackRouteOptions {
    */
   tierManifests?: boolean;
   /**
+   * Whether the source serves a storage request's objects inline up to the
+   * size the request names ({@link RACK_INLINE_MAX_HEADER}): its hello names
+   * {@link RACK_INLINE_OBJECTS}, and a rack names the size, and asks for the
+   * small objects of a lease's closure as the lease starts. Set it where the
+   * bridge holds objects' bytes at hand. Absent, the hello names none and no
+   * rack names a size; one that does is served as it asks all the same.
+   */
+  inlineObjects?: boolean;
+  /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
    * waker. Absent, only the park's backstop wakes it.
@@ -249,6 +261,14 @@ export interface RackAttemptStore {
 
 /** The most objects one `/rack/storage` request declares or commits. */
 export const MAX_STORAGE_OBJECTS = 256;
+
+/**
+ * The most bytes of objects one `/rack/storage` reply carries inline: the
+ * rest of its objects are URLs. A reply is held whole in memory as it is
+ * built and read; 2 MiB is some hundreds of segments, and some 140 ms of a
+ * link of 15 MB/s, against a round trip of tens of milliseconds.
+ */
+export const RACK_INLINE_REPLY_BYTES = 2 * 1024 * 1024;
 
 /** The largest object a write target is issued for: one checksum-bound PUT. */
 export const MAX_RACK_OBJECT_BYTES = 5 * 1024 ** 3;
@@ -417,7 +437,8 @@ export function createRackRoutes(
     protocol: RACK_PROTOCOL,
     e3: e3Version ?? E3_RACK_VERSION,
     limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
-    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : [])],
+    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : []),
+      ...(options?.inlineObjects === true ? [RACK_INLINE_OBJECTS] : [])],
   };
   app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 
@@ -930,8 +951,12 @@ export function createRackRoutes(
       }
     }
 
+    // Inline as far as the request asks (RACK_INLINE_MAX_HEADER; a request that
+    // names nothing as every request did before), the reply's inline bytes held
+    // to its bound: past it, its objects are URLs
+    const room: RackInlineRoom = { objectBytes: readRackInlineMax(c.req.header(RACK_INLINE_MAX_HEADER) ?? null), left: RACK_INLINE_REPLY_BYTES };
     const objects = await mapBounded(request.need, STORAGE_READS_AT_ONCE, async (hash): Promise<RackObjectDescriptor> => {
-      const descriptor = await bridge.readDescriptor(request.repo, hash);
+      const descriptor = await bridge.readDescriptor(request.repo, hash, room);
       return descriptor.kind === 'inline'
         ? variant('inline', { hash, data: descriptor.data })
         : variant('url', { hash, url: descriptor.url });

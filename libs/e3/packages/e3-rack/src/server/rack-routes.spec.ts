@@ -17,13 +17,14 @@ import { InMemoryRackRegistry } from '../registry/rack-registry.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import { InMemoryLeaseCoordinator } from '../lease/coordinator.js';
 import { StoreRackDispatch, bundledE3Version } from './dispatch.js';
-import { createRackRoutes, type RackAttemptStore, type RackRouteOptions } from './rack-routes.js';
-import type { RackStorageBridge } from './storage-bridge.js';
+import { RACK_INLINE_REPLY_BYTES, createRackRoutes, type RackAttemptStore, type RackRouteOptions } from './rack-routes.js';
+import { takeInline, type RackStorageBridge } from './storage-bridge.js';
 import {
   RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType,
   RackLeaseRequestType, RackLeaseGrantType, RackCompleteRequestType, RackCompleteResponseType,
   RackStorageRequestType, RackStorageResponseType, RackLogsRequestType,
-  RACK_CALL_VALUE_OBJECTS, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal,
+  RACK_CALL_VALUE_OBJECTS, RACK_INLINE_MAX_HEADER, RACK_INLINE_OBJECT_DEFAULT, RACK_INLINE_OBJECT_MAX, RACK_INLINE_OBJECTS,
+  RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal,
   type RackLeaseEvent, type RackLeaseResult, type RackOffer, type RackReport,
 } from '../protocol/index.js';
 
@@ -121,8 +122,9 @@ async function fixture(options: RackRouteOptions = {}) {
   assert(address !== null && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`;
   let token = '';
-  const raw = async <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, bearer = token, protocol: string | null = String(RACK_PROTOCOL)) => fetch(`${origin}/api/rack/${path}`, {
-    method: 'POST', headers: { 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${bearer}`, ...(protocol === null ? {} : { [RACK_PROTOCOL_HEADER]: protocol }) },
+  const raw = async <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, bearer = token, protocol: string | null = String(RACK_PROTOCOL),
+    headers: Readonly<Record<string, string>> = {}) => fetch(`${origin}/api/rack/${path}`, {
+    method: 'POST', headers: { ...headers, 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${bearer}`, ...(protocol === null ? {} : { [RACK_PROTOCOL_HEADER]: protocol }) },
     body: encodeBeast2For(type)(value), signal: AbortSignal.timeout(5000),
   });
   /** A refusal: its status, and its code in the JSON body. */
@@ -464,6 +466,35 @@ it('reads a closure with bounded concurrency and preserves descriptor order', as
   const result = await f.success(await response, RackStorageResponseType);
   assert.deepEqual(result.objects.map(object => object.value.hash), hashes);
   assert.equal(reads, hashes.length);
+});
+
+it('serves a storage request\'s objects inline as far as it asks, at most the source\'s own most, and as many as a reply holds; a host that sets it says so in its hello', async () => {
+  const f = await fixture({ inlineObjects: true });
+  assert.ok(readRackHello(await (await fetch(`${f.origin}/api/rack/hello`)).text()).features.includes(RACK_INLINE_OBJECTS));
+  await f.enroll();
+  const lease = await f.create();
+  await f.success(await f.claim(), RackLeaseGrantType);
+  // Objects of 60 KiB, more of them than one reply holds inline
+  const size = 60 * 1024;
+  const hashes = Array.from({ length: 40 }, (_, i) => i.toString(16).padStart(64, '0'));
+  f.attempts.closure = async () => hashes;
+  const asked: number[] = [];
+  f.bridge.readDescriptor = async (_repo, hash, room) => {
+    assert(room !== undefined, 'the route gives the bridge the reply\'s room');
+    asked.push(room.objectBytes);
+    return takeInline(room, size) ? { kind: 'inline', data: new Uint8Array(size) } : { kind: 'url', url: `https://objects.invalid/${hash}` };
+  };
+  const request = { repo: 'repo', leaseId: lease.leaseId, need: hashes, output: none, envManifest: none, outputs: [], commits: [] };
+  const served = async (headers: Record<string, string>) => {
+    asked.length = 0;
+    const reply = await f.success(await f.raw('storage', RackStorageRequestType, request, undefined, undefined, headers), RackStorageResponseType);
+    return { inline: reply.objects.filter((object) => object.type === 'inline').length, objectBytes: [...new Set(asked)] };
+  };
+  assert.deepEqual(await served({}), { inline: 0, objectBytes: [RACK_INLINE_OBJECT_DEFAULT] }, 'a request that names nothing is served as every request was before');
+  assert.deepEqual(await served({ [RACK_INLINE_MAX_HEADER]: String(RACK_INLINE_OBJECT_MAX) }), { inline: Math.floor(RACK_INLINE_REPLY_BYTES / size), objectBytes: [RACK_INLINE_OBJECT_MAX] },
+    'one that names the most is served each object inline that its reply holds, and the rest by URL');
+  assert.deepEqual((await served({ [RACK_INLINE_MAX_HEADER]: String(16 * 1024 * 1024) })).objectBytes, [RACK_INLINE_OBJECT_MAX], 'one that names more is held to the source\'s most');
+  assert.deepEqual(await served({ [RACK_INLINE_MAX_HEADER]: 'lots' }), { inline: 0, objectBytes: [RACK_INLINE_OBJECT_DEFAULT] }, 'and one that names no size is served as one that names none');
 });
 
 it('holds the lease fence until every started target operation settles after a failure', async () => {

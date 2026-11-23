@@ -13,13 +13,13 @@ import { InMemoryLeaseCoordinator, type LeaseCoordinator } from '../lease/coordi
 import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
 import { refuse } from '../server/beast2.js';
 import type { RackAttemptStore } from '../server/rack-routes.js';
-import type { RackPutTarget, RackStorageBridge } from '../server/storage-bridge.js';
+import { takeInline, type RackInlineRoom, type RackPutTarget, type RackStorageBridge } from '../server/storage-bridge.js';
 import { envLayerDigest, envManifestName } from '../server/env-publication.js';
 import { RackHubError, socketRequest, socketStream } from '../client/local-http.js';
 import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, SessionLogsType,
   SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import type { RackLogChunk } from '../protocol/rack-wire.js';
-import { RACK_TRANSFERS_AT_ONCE } from '../protocol/rack-json.js';
+import { RACK_INLINE_OBJECT_DEFAULT, RACK_TRANSFERS_AT_ONCE } from '../protocol/rack-json.js';
 
 /** Identifies the session that currently owns repository I/O for a lease. */
 export interface SessionEndpoint {
@@ -265,7 +265,15 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     return `${origin}/api/rack/data/${cap.id}`;
   }
 
-  async readDescriptor(repo: string, hash: string) {
+  /**
+   * An object's bytes inline, when they fit the reply's room, else a data URL
+   * for it: its size asked of its session first.
+   *
+   * @param room - What the reply has room for inline (absent: objects of at
+   *   most {@link RACK_INLINE_OBJECT_DEFAULT} bytes, as before a request could
+   *   name more)
+   */
+  async readDescriptor(repo: string, hash: string, room: RackInlineRoom = { objectBytes: RACK_INLINE_OBJECT_DEFAULT, left: Number.MAX_SAFE_INTEGER }) {
     const context = this.options.coordinator.current(repo);
     const session = this.options.session(repo, context.leaseId);
     const head = await socketStream(session.dataSocket, 'HEAD', `/v1/objects/${hash}`, { bearer: session.dataToken });
@@ -273,13 +281,13 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     if (head.statusCode !== 200) throw new Error(`Rack input ${hash} is unavailable`);
     const size = Number(head.headers['content-length']);
     if (!Number.isSafeInteger(size) || size < 0) throw new Error('Invalid input object length');
-    if (size > 4096) return { kind: 'url' as const, url: this.url(await this.mint(context, hash)) };
+    if (!takeInline(room, size)) return { kind: 'url' as const, url: this.url(await this.mint(context, hash)) };
     const response = await socketStream(session.dataSocket, 'GET', `/v1/objects/${hash}`, { bearer: session.dataToken });
     const chunks: Buffer[] = [];
     let length = 0;
     for await (const chunk of response) {
       length += (chunk as Buffer).length;
-      if (length > 4096) { response.destroy(); throw new Error('Inline input exceeds 4096 bytes'); }
+      if (length > size) { response.destroy(); throw new Error(`Inline input exceeds its ${size} bytes`); }
       chunks.push(chunk as Buffer);
     }
     if (response.statusCode !== 200 || length !== size) throw new Error('Input object read failed');

@@ -5,6 +5,7 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,7 @@ import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
 import { hubSocketPath } from '../paths.js';
 import { envManifestKey } from '../server/env-publication.js';
 import { E3_RACK_VERSION } from '../version.js';
+import { RACK_INLINE_OBJECT_MAX } from '../protocol/rack-json.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge } from './session-bridge.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -80,4 +82,49 @@ it('serves a rack the first build of a lease\'s environment its sessions keep, a
   assert.equal(await f.bridge.discardWrites('r-repo', 'L1', []), 0);
   assert.equal(await f.bridge.envManifestKeyOf('r-repo', 'L1', 'rack-a'), over);
   assert.deepEqual(f.asked, [], 'no session was asked anything');
+});
+
+it('serves an object inline when it fits the reply\'s room, taking its bytes from it, and by a data URL otherwise; a read given no room is served as before', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'e3sb-'));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  // A session that keeps three objects: 3 KiB, 10 KiB and 100 KiB
+  const objects = new Map([3, 10, 100].map((kib) => {
+    const bytes = new Uint8Array(kib * 1024).fill(kib);
+    return [createHash('sha256').update(bytes).digest('hex'), bytes] as const;
+  }));
+  const [small, segment, large] = [...objects.keys()] as [string, string, string];
+  const reads: string[] = [];
+  const app = new Hono();
+  app.on(['HEAD', 'GET'], '/v1/objects/:hash', (c) => {
+    const bytes = objects.get(c.req.param('hash'));
+    if (bytes === undefined) return c.body(null, 404);
+    reads.push(`${c.req.method} ${c.req.param('hash')}`);
+    return new Response(c.req.method === 'HEAD' ? null : bytes, { headers: { 'content-length': String(bytes.length) } });
+  });
+  const socket = hubSocketPath(home);
+  const server = await serveOnSocket(app, socket);
+  cleanup.push(() => closeSocketServer(server, socket));
+  const lease: RackLeaseRecord = { ...leaseOf('L1', 'e'.repeat(64)), status: 'claimed', claimedBy: 'rack-a', attempt: { executionId: uuidv7(), startedAtMs: 0 } };
+  const coordinator = new SessionLeaseCoordinator();
+  const bridge = new SessionProxyStorageBridge({ leases: { get: () => Promise.resolve(lease) } as unknown as RackLeaseStore, coordinator,
+    session: () => ({ dataSocket: socket, dataToken: 'a session credential' }), owner: await processOwner(), advertiseOrigin: () => 'https://hub.invalid' });
+  cleanup.push(() => { bridge.close(); return Promise.resolve(); });
+  const read = (hash: string, room?: { objectBytes: number; left: number }) => coordinator.run('r-repo', 'L1', () => bridge.readDescriptor('r-repo', hash, room));
+  const inline = (descriptor: Awaited<ReturnType<typeof read>>): Uint8Array | undefined => descriptor.kind === 'inline' ? new Uint8Array(descriptor.data) : undefined;
+
+  // Given no room, as every read was before a request could name one: at most 4 KiB inline
+  assert.deepEqual(inline(await read(small)), objects.get(small));
+  assert.equal((await read(segment)).kind, 'url');
+
+  // Given room for objects of 64 KiB, and 12 KiB of the reply's left
+  const room = { objectBytes: RACK_INLINE_OBJECT_MAX, left: 12 * 1024 };
+  reads.length = 0;
+  assert.deepEqual(inline(await read(segment, room)), objects.get(segment), 'a segment of 10 KiB rides the reply');
+  assert.equal(room.left, 2 * 1024, 'its bytes taken from the reply\'s room');
+  assert.deepEqual(reads, [`HEAD ${segment}`, `GET ${segment}`]);
+  const past = await read(small, room);
+  assert(past.kind === 'url' && past.url.startsWith('https://hub.invalid/api/rack/data/'), 'one the reply has no room left for is a data URL');
+  assert.equal(room.left, 2 * 1024);
+  assert.equal((await read(large, { objectBytes: RACK_INLINE_OBJECT_MAX, left: Number.MAX_SAFE_INTEGER })).kind, 'url', 'one past the largest the request takes is a data URL');
+  assert.deepEqual(reads.filter((line) => line.startsWith('GET')), [`GET ${segment}`], 'and the session is asked for no bytes of those');
 });

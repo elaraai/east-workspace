@@ -189,9 +189,12 @@ run waits up to 10 seconds for an enrolled rack to report healthy (with none
 enrolled, or a policy that selects no task for a rack, it starts at once): run
 `e3 rack hub` as a service, or set `--idle-exit 0`, for a hub racks can always
 reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
-at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
+at most 5 GiB. The hub serves one rack 32 transfers at once (one more is told
 to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
-link cut short resumes; it keeps a rack's idle connection for 75 seconds.
+link cut short resumes; it keeps a rack's idle connection for 75 seconds. It
+sends an object of up to 64 KiB in the reply that asks for it, rather than a URL
+to be read in another round trip, to an agent that names the size it takes
+(`x-e3-rack-inline-max`; its hello names `inline-objects`).
 A hub and the e3 that calls it speak control protocol 5 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
