@@ -205,7 +205,8 @@ test("a record Slice reads its series and summary indexes back, and offers the r
     assert.deepEqual([index("jobs_by_press_week").series, index("jobs_by_press_week").summary], [some({ ...filed, tile: variant("week", null) }), none]);
     // An index's fields are the row fields it is led by alone, its key's `on`; its kind's parts are its `series` (#1432).
     assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state"], "some"]);
-    assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some({ ...filed, tile: variant("month", null) })]);
+    // A summary filed by key keeps a resource's totals (#1732): the `keyed` case of its filing, never the record's `totals`.
+    assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some(variant("keyed", { ...filed, tile: variant("month", null) }))]);
     assert.deepEqual([index("jobs_by_time").series, index("jobs_by_time").summary], [none, none]);
     runtime.clear();
 });
