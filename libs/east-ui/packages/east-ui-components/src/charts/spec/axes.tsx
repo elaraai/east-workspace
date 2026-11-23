@@ -43,7 +43,7 @@ function ticksOf(scale: TickScale, count: number): unknown[] {
  * The ticks an axis beside the plot labels (the chart rules; #1671, #1692): its own tick values, else its scale's for
  * its count — every category of a band given none — and of them, those whose labels clear one another, each a line of
  * its size centred on its tick, its own line's leading and 2 between it and the next (`LINE_GAP`): as many as fit keep
- * theirs, the first and the last among them. A bar chart's bands 16 apart or more each keep their name.
+ * theirs, a steady step apart from the first (`ticksThatFit`). A bar chart's bands 16 apart or more each keep their name.
  *
  * @param scale - The axis's scale
  * @param own - The author's own tick values; `undefined` for none
@@ -95,10 +95,11 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
         : numTicks !== undefined ? ticksOf(scale, Number(numTicks))
             : xTickValues ?? scale.domain();
     // The chart rules (#1671): no two labels overlap — as many as fit side by
-    // side keep theirs, the first and the last among them, whatever their
-    // length and the plot's width (#354 thinned only compact plots, by a fixed
-    // 64px a label) — the author's own tick values too, where the plot is too
-    // narrow for every one of them (#1692).
+    // side keep theirs, a steady step apart from the first, the last among
+    // them where a step that lands on it keeps as many (`ticksThatFit`),
+    // whatever their length and the plot's width (#354 thinned only compact
+    // plots, by a fixed 64px a label) — the author's own tick values too,
+    // where the plot is too narrow for every one of them (#1692).
     // A label that would cross the chart's edge is drawn from that edge in:
     // the first from its tick on, the last up to its tick. So is a date at
     // the plot's own edge — a time axis that runs edge to edge — whose label

@@ -45,11 +45,39 @@ describe("ticksThatFit", () => {
     /** Ticks a steady step apart, each label an extent about its tick. */
     const steady = (count: number, step: number, extent: number) => Array.from({ length: count }, (_, i) => ({ value: i, at: i * step, from: i * step - extent / 2, to: i * step + extent / 2 }));
 
-    test("labels side by side keep 8 between them: as many as fit, the first and the last among them", () => {
+    test("labels side by side keep 8 between them: as many as fit, a steady step apart from the first", () => {
         // Five labels 40 wide, 50 apart: 10 between them.
         expect(ticksThatFit(steady(5, 50, 40))).toEqual([0, 1, 2, 3, 4]);
         // 44 apart, 4 between them: every other one.
         expect(ticksThatFit(steady(5, 44, 40))).toEqual([0, 2, 4]);
+    });
+
+    test("two years of months with room for every fifth label keep 0, 5, 10, 15, 20 — every two the same step apart, never a step that drifts to reach the last (the manual test of 23 Nov read 6, 6, 5 and 6 months apart)", () => {
+        expect(ticksThatFit(steady(24, 20, 80))).toEqual([0, 5, 10, 15, 20]);
+    });
+
+    test("where a longer step lands on the last and keeps as many labels, it is taken: both ends labelled", () => {
+        // Two years of weeks, 105 of them: every 22nd would keep five; so does every 26th, which ends on the last.
+        expect(ticksThatFit(steady(105, 4, 80))).toEqual([0, 26, 52, 78, 104]);
+        // Room for two alone: the first and the last.
+        expect(ticksThatFit(steady(105, 1, 80))).toEqual([0, 104]);
+    });
+
+    test("a time axis's months, 28 to 31 days apart, are a steady step: a label every six months where five do not clear the first, drawn from the plot's edge in", () => {
+        // October 2024 to September 2026, a pixel a day; each label 100 wide — the first from its tick on, the last up to it.
+        const days = [31, 30, 31, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 28, 31, 30, 31, 30, 31, 31];
+        const at = days.reduce<number[]>((held, n) => [...held, held[held.length - 1]! + n], [0]);
+        const months = at.map((x, i) => ({
+            value: i, at: x,
+            from: i === 0 ? x : i === at.length - 1 ? x - 100 : x - 50,
+            to: i === 0 ? x + 100 : i === at.length - 1 ? x : x + 50,
+        }));
+        expect(ticksThatFit(months)).toEqual([0, 6, 12, 18]);
+    });
+
+    test("ticks at uneven positions keep each one, from the start, that clears the one kept before it", () => {
+        const points = [0, 10, 50, 60, 200].map((x, i) => ({ value: i, at: x, from: x - 15, to: x + 15 }));
+        expect(ticksThatFit(points)).toEqual([0, 2, 4]);
     });
 
     test("labels one over another, each on its own line, stand 2 clear: five bars 21 apart keep every name — side by side they would keep three", () => {

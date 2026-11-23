@@ -191,6 +191,21 @@ export function labelWidth(text: string, px: number): number {
     return text.length * Math.ceil(px * MONO_ADVANCE);
 }
 
+/** A tick along an axis: its value, its position and its label's extent about it, in px. */
+interface PlacedTick<V> {
+    readonly value: V;
+    readonly at: number;
+    readonly from: number;
+    readonly to: number;
+}
+
+/**
+ * How far a step may stray from an axis's mean step, as a share of it, and
+ * its ticks still stand a steady step apart: as far as one month's days stray
+ * from another's (28 to 31) on a time axis.
+ */
+const STEADY_SHARE = 0.1;
+
 /**
  * The ticks of an axis that keep their labels, so that no two labels overlap
  * whatever their length (the chart rules; #1671).
@@ -201,16 +216,22 @@ export function labelWidth(text: string, px: number): number {
  *
  * @remarks
  * - Ticks a steady step apart — a band's categories, a date axis's points, a
- *   scale's own ticks — keep every one where they fit; else the first, the
- *   last and those evenly between, as far apart as the widest label needs.
+ *   scale's own ticks, a time axis's months, 28 to 31 days apart — keep every
+ *   one where they fit; else every second, third or more from the first, the
+ *   fewest skipped whose labels clear one another, so every two kept stand
+ *   the same step apart. Where a longer step lands on the last and keeps as
+ *   many, it is taken, so both ends are labelled. (Spread from the first to
+ *   the last, they had stood a step apart that drifted to reach it: two
+ *   years of months 6, 6, 5 and 6 apart, in the manual test of 23 Nov.)
  * - Ticks at uneven positions — a numeric axis pinned to its points — keep
  *   each one, from the start, that clears the one kept before it.
  */
-export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at: number; readonly from: number; readonly to: number }[], gap: number = LABEL_GAP): V[] {
+export function ticksThatFit<V>(ticks: readonly PlacedTick<V>[], gap: number = LABEL_GAP): V[] {
     if (ticks.length < 2) return ticks.map(tick => tick.value);
+    const last = ticks.length - 1;
     const steps = ticks.slice(1).map((tick, i) => tick.at - ticks[i]!.at);
-    const step = steps[0]!;
-    const steady = step > 0 && steps.every(s => Math.abs(s - step) < 0.5);
+    const mean = (ticks[last]!.at - ticks[0]!.at) / last;
+    const steady = mean > 0 && steps.every(s => Math.abs(s - mean) <= Math.max(0.5, mean * STEADY_SHARE));
     if (!steady) {
         // By position: each label that starts clear of the last one kept.
         const along = [...ticks].sort((a, b) => a.at - b.at);
@@ -223,11 +244,20 @@ export function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at
         }
         return ticks.filter(tick => kept.has(tick.value)).map(tick => tick.value);
     }
-    // The most ticks, evenly spread from the first to the last, whose labels clear one another.
-    const last = ticks.length - 1;
-    for (let spans = last; spans >= 1; spans--) {
-        const kept = Array.from({ length: spans + 1 }, (_, i) => ticks[Math.round((i * last) / spans)]!);
-        if (kept.every((tick, i) => i === 0 || tick.from >= kept[i - 1]!.to + gap)) return kept.map(tick => tick.value);
+    // Every k-th from the first, and whether their labels clear one another.
+    const every = (k: number): PlacedTick<V>[] => Array.from({ length: Math.floor(last / k) + 1 }, (_, i) => ticks[i * k]!);
+    const clear = (kept: readonly PlacedTick<V>[]): boolean => kept.every((tick, i) => i === 0 || tick.from >= kept[i - 1]!.to + gap);
+    for (let k = 1; k <= last; k++) {
+        const kept = every(k);
+        if (!clear(kept)) continue;
+        if (last % k === 0) return kept.map(tick => tick.value);
+        // As many labels a longer step apart, one that lands on the last: both ends labelled.
+        for (let d = k + 1; d <= last && Math.floor(last / d) === Math.floor(last / k); d++) {
+            if (last % d !== 0) continue;
+            const ends = every(d);
+            if (clear(ends)) return ends.map(tick => tick.value);
+        }
+        return kept.map(tick => tick.value);
     }
     return [ticks[0]!.value];
 }
