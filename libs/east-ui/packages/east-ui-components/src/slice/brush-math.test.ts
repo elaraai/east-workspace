@@ -336,6 +336,17 @@ describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
         expect(clipped.map((b) => [b.x, b.width])).toEqual([[0, 3], [5, 48], [55, 43]]);
     });
 
+    test("with no bucket between the two ends, an end the horizon clips to a sliver sets no bar's width: the wider end's slot does (#1732)", () => {
+        // Four weeks from 5 October on 280px, by the month: October's 27 days, and the 1st of November.
+        const month = brushBars([{ from: 0, to: 27 / 28, count: 46 }, { from: 27 / 28, to: 1, count: 0 }], 280, 28);
+        expect(month.map((b) => [b.x, b.width])).toEqual([[0, 268]]);
+        // Both counted: the sliver's bar keeps inside its own slot.
+        const both = brushBars([{ from: 0, to: 27 / 28, count: 46 }, { from: 27 / 28, to: 1, count: 3 }], 280, 28);
+        expect(both.map((b) => [b.x, b.width])).toEqual([[0, 268], [270, 8]]);
+        // One bucket alone: its slot, less the gap.
+        expect(brushBars([{ from: 0, to: 1, count: 16 }], 320, 28).map((b) => [b.x, b.width])).toEqual([[0, 318]]);
+    });
+
     test("no bars on a track with no width, or with nothing counted", () => {
         expect(brushBars(equal([1, 2]), 0, 28)).toEqual([]);
         expect(brushBars(equal([0, 0]), 100, 28)).toEqual([]);
