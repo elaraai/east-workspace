@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1394,
-    "totalFiles": 228,
+    "totalEntries": 1395,
+    "totalFiles": 229,
     "packages": {
       "east": 595,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 229,
+      "e3-ui": 230,
       "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -45702,6 +45702,41 @@
         "tsx"
       ],
       "source": "// recordBuiltKeysSliced over a key that is no text: the same stock locations, under the same rail, keyed by a struct of their aisle and their bin, which `rowKey` builds from the row as a struct. A record keyed by any type a Dict takes is a source of the rail: it pages through its indexes, filters by zone and by aisle and searches by what its rows hold as a text-keyed one does; a bin typed over moves its location under the struct it then builds, a Save writes it there, and a bin another location has is refused. The grid holds a key as East prints it, and reads it back at its own type\n// inputs: []\n/** A stock location: what it holds, the aisle and the bin its key is built from, and the zone its aisle is in. */\nexport const StockSlot = StructType({ item: StringType, aisle: StringType, bin: IntegerType, zone: StringType });\n\n/** A location's key as a struct: its aisle and its bin. */\nexport const StockSlotKey = StructType({ aisle: StringType, bin: IntegerType });\n\n/** What the bins of an aisle hold, bin by bin. */\nconst HELD = [\"Pallet wrap\", \"Strapping\", \"Corner boards\", \"Labels\", \"Tape\", \"Void fill\", \"Cartons\", \"Dividers\"] as const;\n\n/** The aisles, each with the zone it is in. */\nconst AISLES = [[\"A\", \"Dry\"], [\"B\", \"Dry\"], [\"C\", \"Chilled\"], [\"D\", \"Chilled\"]] as const;\n\n/** Four aisles of eight bins: aisles A and B in the dry zone, C and D in the chilled one. */\nfunction stockSlots(): ValueTypeOf<typeof StockSlot>[] {\n    return AISLES.flatMap(([aisle, zone]) => HELD.map((item, at) => ({ item: `${item} ${aisle}${at + 1}`, aisle, bin: BigInt(at + 1), zone })));\n}\n\n/** The same locations keyed by a struct: their aisle and their bin. A Dict over struct keys is a SortedMap, in East's order. */\nexport const recordSlotsByStruct = e3.record(\"record_slots_by_struct\", DictType(StockSlotKey, StockSlot), {\n    initial: new SortedMap<ValueTypeOf<typeof StockSlotKey>, ValueTypeOf<typeof StockSlot>>(\n        stockSlots().map((slot) => [{ aisle: slot.aisle, bin: slot.bin }, slot] as const), compareFor(StockSlotKey)),\n    indexes: (index) => ({\n        // What the rail filters and searches by.\n        record_slots_by_struct_zone: index.on([\"zone\"]),\n        record_slots_by_struct_aisle: index.on([\"aisle\"]),\n        record_slots_by_struct_item: index.on([\"item\"]),\n    }),\n    mutations: (mutation) => ({\n        // The locations' patch door — every Save commits through it, each location by its struct key.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const locations = $.let(Record.bind(recordSlotsByStruct));\n            // The rail's `rows` source, as the text-keyed locations': the indexes are of the rows' fields, whatever keys them.\n            const slice = $.let(Slice.bindRecords(\"record.slots.struct\", {\n                rows: {\n                    source: Data.bindPaged(recordSlotsByStruct, { indexes: [\"record_slots_by_struct_zone\", \"record_slots_by_struct_aisle\", \"record_slots_by_struct_item\"] }),\n                    label: \"Locations\",\n                    fields: { zone: { label: \"Zone\", hints: [\"Dry\", \"Chilled\"] }, aisle: { label: \"Aisle\", hints: [\"A\", \"B\", \"C\", \"D\"] }, item: { label: \"Holds\" } },\n                    search: [\"item\"],\n                },\n            }));\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockSlot), (_$) => Record.patch(StockSlot, { zone: \"Dry\" })));\n            return (\n                <Box height=\"520px\">\n                    <Record\n                        slice={{ slice }}\n                        record={locations}\n                        // A location's key, built from its row at the record's key type: a struct of its aisle and its bin.\n                        rowKey={(location) => ({ aisle: location.aisle, bin: location.bin })}\n                        title=\"Stock locations\"\n                        noun={{ singular: \"location\", plural: \"locations\" }}\n                        columns={{\n                            item:  Record.column.title(StockSlot, { header: \"Holds\", width: \"200px\" }),\n                            aisle: Record.column.text(StockSlot, { header: \"Aisle\", width: \"96px\" }),\n                            bin:   Record.column.integer(StockSlot, { header: \"Bin\", width: \"96px\" }),\n                            zone:  Record.column.text(StockSlot, { header: \"Zone\", width: \"120px\" }),\n                        }}\n                        newRow={newRow}\n                        name=\"recordStructKeysSliced\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record-ticks.examples.tsx:recordTicks",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record-ticks.examples.tsx",
+      "suite": "",
+      "test": "A Record whose ticked rows the page hears: Add and Delete are off (`edits`), and `onTick` — an East function over a Set of the record's keys, called after each change of the ticks — keeps the ticked presses in the page's state, which a line over the Record counts and lists. The tick boxes show because `onTick` is given; with Delete off and no `onTick` there would be none",
+      "keywords": [
+        "Record",
+        "onTick",
+        "tick",
+        "ticked",
+        "select column",
+        "tick boxes",
+        "selected rows",
+        "SetType",
+        "bulk",
+        "edits",
+        "insertRows",
+        "removeRows",
+        "State",
+        "State.bind",
+        "panel"
+      ],
+      "imports": [
+        "import { DictType, East, FloatType, NullType, SetType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Reactive, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A Record whose ticked rows the page hears: Add and Delete are off (`edits`), and `onTick` — an East function over a Set of the record's keys, called after each change of the ticks — keeps the ticked presses in the page's state, which a line over the Record counts and lists. The tick boxes show because `onTick` is given; with Delete off and no `onTick` there would be none\n// inputs: []\n/** A press: its name, the hall it stands in and the hours booked on it this week. */\nexport const TickedPress = StructType({ name: StringType, hall: StringType, booked: FloatType });\n\n/** The presses, keyed by their code. */\nexport const recordTicksPresses = e3.record(\"record_ticks_presses\", DictType(StringType, TickedPress), {\n    initial: new Map([\n        [\"P-01\", { name: \"Offset press 1\", hall: \"Hall A\", booked: 31.5 }],\n        [\"P-02\", { name: \"Offset press 2\", hall: \"Hall A\", booked: 38.0 }],\n        [\"P-03\", { name: \"Digital press\", hall: \"Hall B\", booked: 12.5 }],\n        [\"P-04\", { name: \"Flexo line\", hall: \"Hall B\", booked: 40.0 }],\n    ]),\n    mutations: (mutation) => ({\n        // The presses' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const presses = $.let(Record.bind(recordTicksPresses));\n            const ticked = $.let(State.bind([SetType(StringType)], \"record_ticks_ticked\", new Set<string>()));\n            const shown = $.let(ticked.read());\n            const count = $.let(shown.size());\n            const codes = $.let(shown.toArray(($2, key) => key).stringJoin(\", \"));\n            // Every ticked press, by its key as the record holds it, after each change of the ticks.\n            const onTick = $.const(East.function([SetType(StringType)], NullType, ($2, keys) => {\n                $2(ticked.write(keys));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Text>{count.equal(0n).ifElse(\n                        (_$2) => \"No press ticked\",\n                        (_$2) => count.equal(1n).ifElse((_$3) => East.str`1 press ticked: ${codes}`, (_$3) => East.str`${count} presses ticked: ${codes}`),\n                    )}</Text>\n                    <Box height=\"420px\">\n                        <Record\n                            record={presses}\n                            title=\"Presses\"\n                            noun={{ singular: \"press\", plural: \"presses\" }}\n                            edits={{ insertRows: false, removeRows: false }}\n                            onTick={onTick}\n                            columns={{\n                                name:   Record.column.title(TickedPress, { header: \"Press\", width: \"200px\" }),\n                                hall:   Record.column.text(TickedPress, { header: \"Hall\", width: \"120px\" }),\n                                booked: Record.column.quantity(TickedPress, { header: \"Booked\", unit: \"h\", width: \"112px\" }),\n                            }}\n                            name=\"recordTicks\"\n                        />\n                    </Box>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordBasic",

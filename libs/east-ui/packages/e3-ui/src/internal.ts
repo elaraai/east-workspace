@@ -87,6 +87,7 @@ export {
     type RecordColumnGroupInput,
     type RecordNounInput,
     type RecordCommon,
+    type RecordTickOptions,
 } from './record/index.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';

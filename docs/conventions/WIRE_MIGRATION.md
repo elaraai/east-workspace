@@ -1663,3 +1663,15 @@ Each wire changed under this rule, with the kind it is.
   The wires it uses are the lease scope above and hub control protocol 6's
   `fetch-costs`, whose `scope` this release brings with the protocol: no
   further step of either.
+- **e3-ui's `Record` tells the app which rows are ticked (#1736, #1737)** —
+  package-borne. The Sheet's root (`SheetRootType`) gains `onTick`, after
+  `selection`: a function over the ticked rows' ids (`Set<String>`), which
+  the Record's renderer calls after each change of its ticks, made from the
+  app's `onTick` over a Set of the record's keys, each read back from its id
+  at the record's key type — `none` where the Record is given none, and on
+  every Sheet. The Record's payload holds the Sheet's root, so it carries it.
+  They travel in the `Sheet` and `Record` extensions' payloads, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and an application's
+  records keep their types, so no repository upgrade step ships with it.

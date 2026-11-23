@@ -1312,6 +1312,7 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection when `some`
+ * @property onTick - A Record's ticked rows, after each change of its ticks (east-workspace#1737): their ids, which the app's `onTick` hears read back as the record's keys; `none` where the Record is given no `onTick`, and on every Sheet
  * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; with none, an Integer key's one past the largest (#1549); `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
  * @property readOnly - The whole sheet is read-only
@@ -1336,6 +1337,7 @@ export const SheetRootType = StructType({
     onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
+    onTick:        OptionType(FunctionType([SetType(StringType)], NullType)),
     newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
     readOnly:      OptionType(BooleanType),

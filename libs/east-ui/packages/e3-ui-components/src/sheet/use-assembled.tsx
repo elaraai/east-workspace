@@ -239,6 +239,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         add: addRow,
         remove: removeRowsById,
         hold: holdRow,
+        moved: editingState.moved,
     };
     const root: SheetRootFacts = {
         partial: pagedSource !== undefined && !exhausted,
