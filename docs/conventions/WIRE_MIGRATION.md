@@ -1501,41 +1501,22 @@ Each wire changed under this rule, with the kind it is.
   held to `RackPolicyType` by the rack package's own test, over the policy
   release 1.0.107 stored, carried through every step. An earlier release
   refuses a repository that has had the step, naming this release.
-- **e3-rack's hub control protocol 6 answers what work would fetch (#1722)**
-  — neither package-borne nor stored: what a hub and the e3 processes of its
-  sessions exchange over its socket. A session asks, of the objects a task or
-  a unit reads, each rack's link rate as the hub measures it from the data
-  URLs it serves (`FetchCostRequestType`, `FetchCostResultType`, `POST
-  /v1/sessions/:id/fetch-costs`), and which of those objects it served that
-  rack whole. The protocol is negotiated exactly (`HUB_PROTOCOL`), so an e3
-  that finds a hub of protocol 5 asks it to drain and runs locally that
-  time, as for any older number.
-  The hub keeps what it measures in memory; no form is stored, so no
-  repository upgrade step ships.
-- **e3-rack's `RackPolicyType` gains `defaultMerges`, and `RackRuleType`
-  `merges`** — stored state, of a local repository's own layout: its rack
-  policy, `rack/policy.beast2`. The policy gains `defaultMerges`, a variant
-  `rack | local` after `weighFetch`, and a rule `merges`, an `Option` of it
-  after `gpu`: where the merge and combine units of a split task the rule
-  sends to a rack run, the rule's own else the policy's. The policy's header
-  names the whole policy type, so one an earlier release stored does not
-  decode under the new type, and the release ships the local backend's third
-  step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
-  `storage/local/rack-policy-merges.ts`): `rack-policy-merges` rewrites the
-  file in the form `rack-policy-weigh-fetch` writes, which runs before it
-  (after `rack-policy-limits`), into the new one, everything as it was,
-  `weighFetch` among it, no rule naming merges of its own, and
-  `defaultMerges` `rack`: every merge runs where it ran before. Both fields
-  ship in the one release, so a repository an earlier release wrote takes
-  the three steps in order on its next open. A repository with no policy
-  file is left without one; a file in no form the steps know is left as it
-  is, and a read refuses it as before, naming its reset. The step's written
-  form is frozen in e3-core and held to `RackPolicyType` by the rack
-  package's own test, over the policy release 1.0.107 stored, carried
-  through every step. An earlier release refuses a repository that has had
-  the step, naming this release. No wire between e3, a hub and a rack
-  changes: a merge its policy keeps here is never leased, nor weighed for
-  what it would fetch.
+- **e3-rack's hub control protocol 6: a session asks what work would fetch
+  (#1722), and ends a split scope** — neither package-borne nor stored: what a
+  hub and the e3 processes of its sessions exchange over its socket. One
+  release moves the protocol from 5 to 6 for two routes, one step:
+  - `POST /v1/sessions/:id/fetch-costs` (`FetchCostRequestType`,
+    `FetchCostResultType`): of the objects a task or a unit reads, each rack's
+    link rate as the hub measures it from the data URLs it serves, and which
+    of those objects it served that rack whole.
+  - `POST /v1/sessions/:id/scopes/end` (`EndScopeType`): the split task's
+    execution a session's units named has ended, so the racks it was granted
+    to let what they kept of it go (below).
+
+  The protocol is negotiated exactly (`HUB_PROTOCOL`), so an e3 that finds a
+  hub of protocol 5 asks it to drain and runs locally that once, as for any
+  older number. The hub keeps what it measures and the scopes it was told of
+  in memory; no form is stored, so no repository upgrade step ships.
 - **e3-rack's storage replies carry larger objects inline, and a hub serves a
   rack more transfers at once** — neither package-borne nor stored: what a
   rack's agent and its source exchange (`/api/rack/storage`, `GET
@@ -1553,3 +1534,19 @@ Each wire changed under this rule, with the kind it is.
   (`RACK_TRANSFERS_AT_ONCE`): an agent takes what the hello says, and one that
   asks for more is told to ask again (`429 busy`), as before. No form is stored
   in these, so no repository upgrade step ships.
+- **A unit's rack lease names its split task's execution** — neither
+  package-borne nor stored. e3-core gives each unit of a split task the
+  execution it runs in, `SplitScope` (a random id, whether a later unit reads
+  what the unit writes, and a signal that ends with the execution),
+  runtime-only, never hashed or recorded. A unit's lease event, JSON already,
+  gains an optional `scope` (`{ "id", "feeds" }`); a rack's report names the
+  feature `split-scopes`; and a heartbeat's answer may carry the header
+  `x-e3-rack-scopes-ended`, a JSON array of ids. No BEAST2 struct of rack
+  protocol 3 changes, so the rack protocol keeps its number: the hub grants a
+  lease with its scope only to a rack whose report names the feature, and
+  sends the header only to such a rack, so an agent from before it is granted
+  the same lease without one, and an agent that names it, under a hub from
+  before it, is never told a scope and keeps nothing. A session ends a scope
+  through the control route `POST /v1/sessions/:id/scopes/end`, which is part
+  of hub control protocol 6 (above), the one step that also brings
+  `fetch-costs`. Nothing is stored, so no repository upgrade step ships.

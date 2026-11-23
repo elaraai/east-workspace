@@ -423,6 +423,18 @@ ever hold is not queued, and runs locally. Split-task
 planning and final assembly stay local; both pieces and merge bodies delegate,
 unless the rule's `merges`, else the policy's `defaultMerges`, keeps merges
 local.
+Each unit's lease names the split task's execution it runs in, its scope
+(e3-core's `SplitScope`: a random id, and whether a later unit reads what it
+writes). The hub grants it with the lease only to a rack whose report names
+`split-scopes`, which may keep what the scope's leases wrote for the later
+ones, so a merge reads its pieces where they were made rather than over the
+link; every output still comes back whole before its unit succeeds. As the
+execution ends, however it ends, its session ends the scope (control route
+`/v1/sessions/:id/scopes/end`, hub protocol 6), and a session that closes ends
+all of its scopes; each rack granted a lease of one is told with its next
+heartbeat (`x-e3-rack-scopes-ended`). A unit of a scope waits up to
+`SCOPE_AFFINITY_MS` for a rack that holds some of it before another may take
+it.
 
 | Outcome | Record and action |
 | --- | --- |

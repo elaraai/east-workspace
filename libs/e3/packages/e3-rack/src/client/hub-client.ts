@@ -5,7 +5,8 @@
 
 import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, FetchCostRequestType, FetchCostResultType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
+  FetchCostResultType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
   type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
@@ -133,6 +134,10 @@ export class HubClient {
    */
   fetchCosts(id: string, hashes: readonly string[]): Promise<ValueTypeOf<typeof FetchCostResultType>> {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType, body: { hashes: [...hashes] }, responseType: FetchCostResultType });
+  }
+  /** Ends a split scope the session's leases named: the racks it was granted to let what they kept of it go. */
+  async endScope(id: string, scope: string): Promise<void> {
+    await socketRequest(this.socketPath, 'POST', `${this.path(id)}/scopes/end`, { requestType: EndScopeType, body: { scope }, responseType: EmptyType });
   }
   /** Polls ordered updates and refreshes the session's liveness. */
   events(id: string, after: bigint, waitMs = 20000, signal?: AbortSignal): Promise<ValueTypeOf<typeof SessionPollResultType>> {

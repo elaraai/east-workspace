@@ -7,10 +7,10 @@ import { randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { IntegerType, compareFor, type ValueTypeOf } from '@elaraai/east';
-import { processOwner, readTierManifest, tierManifestDigest, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
+import { processOwner, readTierManifest, tierManifestDigest, type SplitScope, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { CreateLeaseResultType, HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
-import type { RackLeaseResult } from '../protocol/task-envelope.js';
+import type { RackLeaseResult, RackLeaseScope } from '../protocol/task-envelope.js';
 import { startSessionDataServer } from './session-data-server.js';
 import { RackHubUnavailableError } from './connect.js';
 import type { HubClient } from './hub-client.js';
@@ -116,6 +116,9 @@ export class RackSession {
   private refreshing?: Promise<CapacitySnapshot>;
   /** When the last refresh was answered, by this process's clock */
   private refreshedAt = -Infinity;
+  /** The split scopes the session's leases named that have not ended: each
+   *  one's end is told to the hub once */
+  private readonly scopes = new Set<string>();
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
     /** The e3 release the session's work is built with, which its leases name. */
@@ -218,6 +221,34 @@ export class RackSession {
       void asked.then((manifest) => { if (manifest === null) this.tiers.delete(digest); });
     }
     return asked;
+  }
+
+  /**
+   * The scope a unit's lease names: the split task's execution it runs in,
+   * and whether it feeds a later unit (`RackLeaseEvent.scope`).
+   *
+   * @remarks
+   * The hub grants the lease with it to a rack that keeps what a scope's
+   * leases wrote for its later ones. The execution's end is told to the hub
+   * once, as it ends, and the hub tells each rack it granted a lease of the
+   * scope; a session that closes ends every scope its leases named.
+   *
+   * @param scope - The execution the unit runs in, as e3-core gives it
+   * @returns The lease's scope; none once the execution has ended, or the
+   *   session has
+   */
+  scope(scope: SplitScope): RackLeaseScope | undefined {
+    if (scope.ended.aborted || this.lost || this.closing !== undefined) return undefined;
+    if (!this.scopes.has(scope.id)) {
+      this.scopes.add(scope.id);
+      scope.ended.addEventListener('abort', () => {
+        this.scopes.delete(scope.id);
+        // A session that closes ends every scope its leases named
+        if (this.lost || this.closing !== undefined) return;
+        void this.client.endScope(this.sessionId, scope.id).catch(() => {});
+      }, { once: true });
+    }
+    return { id: scope.id, feeds: scope.feeds };
   }
 
   /**

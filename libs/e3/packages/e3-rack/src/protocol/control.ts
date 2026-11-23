@@ -39,6 +39,13 @@ export const OpenSessionResultType = StructType({ sessionId: StringType, repoAli
  * that declares none.
  */
 export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringType, computeSize: StringType, envManifests: ArrayType(StringType) });
+/**
+ * Ends a split scope a session's leases named (`RackLeaseEvent.scope`): its
+ * split task's execution ended, and no lease of it is submitted again. The
+ * racks it was granted to are told so with their next heartbeat. A session
+ * that ends ends every scope its leases named.
+ */
+export const EndScopeType = StructType({ scope: StringType });
 /** Names a claim-time attempt, which changes on reclaim. */
 export const HubAttemptType = StructType({ executionId: StringType, startedAt: DateTimeType });
 /** Attaches to a lease, replaying its current attempt through the event stream. */

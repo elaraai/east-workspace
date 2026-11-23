@@ -662,6 +662,35 @@ budget and guard do, so a split task then runs on a rack as it does locally:
 So a rack is filled as a local run fills its machine, and its guard, not the
 sum of its caps, keeps e3 work from running its host out of memory.
 
+#### What a rack keeps of a split task
+
+Every output a rack makes comes here, whole, before its unit succeeds: this
+machine's cache of each unit, a resumed run's stages, `e3 repo gc` and a unit
+that runs locally all read it here. Without more, a merge then fetches every
+piece it merges back from here, over the same link. So each unit's lease
+names the split task's **execution** it runs in, its scope: a random id, one
+for each execution, and whether a later unit reads what this one writes (a
+piece of a set, a dict or a fold does; an array's pieces, which are
+concatenated here, and the last level of merges do not). A rack whose agent
+says it keeps them (`split-scopes`) keeps what such a lease wrote, once it is
+here, and gives it to the later leases of the same execution that read it,
+which then fetch nothing of it; an agent that does not is granted the same
+lease without its scope, and fetches as before.
+
+The execution's end ends the scope however it ends: its task succeeds,
+fails, is cancelled or yields, or the run's session closes. The hub tells
+each rack it granted a lease of the scope with its next heartbeat, and the
+rack lets what it kept go; the agent's own bound on how much and how long it
+keeps applies besides. A unit of a scope goes first, for five seconds
+(`SCOPE_AFFINITY_MS`), to a rack that holds some of the scope, so a merge
+runs where its pieces are when that rack has room for it; after that any
+rack may take it.
+
+| Pieces | Merge levels | What a merge fetches back without a scope | With one, on the rack that made the pieces |
+| --- | --- | --- | --- |
+| 7 | 1 | every piece's output, once (P bytes) | nothing |
+| 100 | 2 | every piece's output, then every first-level merge's output (about 2P for a dict or set whose keys do not collapse) | nothing |
+
 A unit always runs where something stops it when it outgrows its share: on a
 rack that admits by its resources, or here, under the run's own budget and
 guard. So a stage starts its units together, as a run without `--rack` does,
@@ -884,6 +913,18 @@ and the call runs there. Such a source stages nothing of a call, which writes
 nothing to its store: it refuses a call's lease the staging of an output
 (`403 forbidden`), and a completion that names a value by hash
 (`400 invalid-request`).
+
+A unit's lease names its split task's execution (`event.scope`: `{ "id",
+"feeds" }`, `RackLeaseScope`) only to an agent whose report names
+`split-scopes` (`RACK_SPLIT_SCOPES`): every other is granted the lease
+without it. Such an agent may keep what a lease of a scope wrote, once its
+source holds it, for the later leases of the scope (those `feeds` says read
+it), and lets it go when a heartbeat's answer names the scope in
+`x-e3-rack-scopes-ended` (`RACK_SCOPES_ENDED_HEADER`, a JSON array of ids,
+read with `readRackScopesEnded`): each scope is named once, to the racks
+granted a lease of it, when its session ends it or ends. An answer lost on
+its way is not sent again, so an agent bounds what it keeps by its own time
+too.
 
 An agent that composes environments reports the feature `environments` and its
 `target`, the platform it runs them on as e3-core names one

@@ -15,14 +15,16 @@
  * - the workspace and the task's name, for the activity view;
  * - the runtime version the work was built with, which the agent boots (#189);
  * - the environment the guest's rootfs is composed from;
- * - the lease's closure: every object its guest may read, and no other.
+ * - the lease's closure: every object its guest may read, and no other;
+ * - for a unit of a split task, the task's execution it is part of (its
+ *   scope), to a rack that keeps a stage's outputs for the next.
  *
  * A function lease names its program by hash, staged with the closure, so a
  * lease's row stays small.
  */
 
 import type { RunnerDetachedEvent, RunnerRun, RunnerTaskEvent, RunnerUnitEvent } from '../runner-event.js';
-import type { RackResources } from './rack-json.js';
+import { isRackScopeId, type RackResources } from './rack-json.js';
 
 /** The version of the lease event this build writes and reads. */
 export const RACK_LEASE_VERSION = 2;
@@ -165,6 +167,56 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
 }
 
 /**
+ * The execution of a split task a unit's lease is part of: its split scope
+ * (e3-core's `SplitScope`), as a rack is told it.
+ *
+ * @remarks
+ * A rack whose report names `split-scopes` (`RACK_SPLIT_SCOPES`) may keep what a lease
+ * of a scope wrote, once its source holds it, and give it to a later lease of
+ * the same scope that reads it, rather than fetch it back from its source:
+ * a merge reads the pieces it merges where they were made. It keeps nothing
+ * of a scope once its source says the scope ended
+ * (`RACK_SCOPES_ENDED_HEADER`), and a rack's own bound on what it keeps
+ * and on how long applies, after which a lease fetches as any does. Only a
+ * rack that names the feature is told a scope; a lease is the same work
+ * without one.
+ */
+export interface RackLeaseScope {
+  /** The scope's id: random, of nothing the task runs over, one for each
+   *  execution of a split task. Words of at most 64 letters, digits and
+   *  hyphens. */
+  readonly id: string;
+  /** Whether a later lease of the scope reads what this one writes: its
+   *  outputs are worth keeping. A lease that feeds none still reads what the
+   *  scope keeps. */
+  readonly feeds: boolean;
+}
+
+/**
+ * Reads a lease event's scope, for what this build knows of it.
+ *
+ * @remarks
+ * A scope is what a lease says beside its work, and the work is the same
+ * without it: so one that does not read is none, and the lease is never
+ * refused for it.
+ *
+ * @param value - The event's `scope`, as its JSON holds it
+ * @returns The scope, or undefined when the event names none or one that does
+ *   not read
+ * @example
+ * ```ts
+ * const scope = readRackLeaseScope(event.scope);
+ * if (scope?.feeds === true) keepOutputs(scope.id);
+ * ```
+ */
+export function readRackLeaseScope(value: unknown): RackLeaseScope | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { id, feeds } = value as Record<string, unknown>;
+  if (!isRackScopeId(id) || typeof feeds !== 'boolean') return undefined;
+  return { id, feeds };
+}
+
+/**
  * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
  * function call.
  */
@@ -201,6 +253,13 @@ export interface RackLeaseEvent {
    * its leases, whose work a rack admits as it did before.
    */
   readonly resources?: RackLeaseResources;
+  /**
+   * The split task's execution a unit is part of, to a rack that keeps a
+   * stage's outputs for the next ({@link RackLeaseScope}). Read with
+   * {@link readRackLeaseScope}; a source leaves it out of the lease a rack
+   * that does not name `split-scopes` (`RACK_SPLIT_SCOPES`) is granted.
+   */
+  readonly scope?: RackLeaseScope;
 }
 
 /**

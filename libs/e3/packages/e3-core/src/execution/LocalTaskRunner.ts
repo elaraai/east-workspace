@@ -323,6 +323,7 @@ export class LocalTaskRunner implements TaskRunner {
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
       anyRuntime: options?.anyRuntime,
+      splitScope: options?.splitScope,
       eastCUnusable: this.eastCUnusable,
       ...this.settings,
     }));
@@ -450,10 +451,10 @@ export async function taskExecute(
     // Its stages start every unit at once, each reserving an estimate, where
     // the budget's guard stops a unit that outgrows its share.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, { ...options, firstWave: options.firstWave ?? localFirstWave(options) },
-      (unitInputs, unitIds, merge, expectedPeakBytes, own, guessed) =>
+      (unitInputs, unitIds, merge, expectedPeakBytes, own, guessed, scope) =>
         runBody({ storage, repo, taskHash, task, inputHashes: unitInputs, ids: unitIds,
-          options: { ...options, expectedPeakBytes, expectedPeakGuessed: guessed === true }, role: 'unit', logicalTaskHash: taskHash,
-          unit: { inputs: unitInputs, merge, own } }),
+          options: { ...options, expectedPeakBytes, expectedPeakGuessed: guessed === true, ...(scope !== undefined && { splitScope: scope }) },
+          role: 'unit', logicalTaskHash: taskHash, unit: { inputs: unitInputs, merge, own } }),
       {
         width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
         owner: options.owner === undefined ? await processOwner() : options.owner,

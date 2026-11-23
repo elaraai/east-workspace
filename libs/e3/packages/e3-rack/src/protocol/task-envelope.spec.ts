@@ -5,9 +5,9 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RACK_PHASE_MARKS, RACK_REASON_CODES, describeRackPhases, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackPhases,
-  readRackReason, readRackRetries } from './task-envelope.js';
-import { readRackWaiting } from './rack-json.js';
+import { RACK_PHASE_MARKS, RACK_REASON_CODES, describeRackPhases, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackLeaseScope,
+  readRackPhases, readRackReason, readRackRetries } from './task-envelope.js';
+import { RACK_SCOPES_ENDED_MAX, readRackScopesEnded, readRackWaiting } from './rack-json.js';
 
 it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and leaves out what it cannot read, refusing nothing', () => {
   assert.equal(readRackReason(undefined), undefined);
@@ -106,4 +106,18 @@ it('says where a lease\'s time went as a run prints it, leaving out what its rac
   assert.equal(describeRackPhases({ marks: {} }), '', 'nothing to say');
   assert.equal(describeRackPhases({ marks: { 'outputs-sent': 5 }, sentBytes: 2 * 1024 ** 3 }, undefined, (bytes) => `${bytes} bytes`), 'sent 2147483648 bytes',
     'a size as its caller prints one');
+});
+
+it('reads a lease\'s split scope and a heartbeat answer\'s ended scopes for what it knows, refusing nothing', () => {
+  const id = '0193b1c2-7f00-7abc-8def-0123456789ab';
+  assert.deepEqual(readRackLeaseScope({ id, feeds: true, later: 1 }), { id, feeds: true });
+  assert.deepEqual(readRackLeaseScope({ id: 'a', feeds: false }), { id: 'a', feeds: false });
+  // A scope that does not read is none: the lease is the same work without it
+  for (const none of [undefined, null, id, [], {}, { id }, { feeds: true }, { id, feeds: 'yes' }, { id: '', feeds: true }, { id: '-a', feeds: true },
+    { id: 'a/b', feeds: true }, { id: 'x'.repeat(65), feeds: true }, { id: 7, feeds: true }]) {
+    assert.equal(readRackLeaseScope(none), undefined, JSON.stringify(none));
+  }
+  assert.deepEqual(readRackScopesEnded(JSON.stringify([id, 7, 'a/b', 'b'])), [id, 'b']);
+  for (const none of [null, 'not json', '{"id":"a"}', '"a"']) assert.deepEqual(readRackScopesEnded(none), [], String(none));
+  assert.equal(readRackScopesEnded(JSON.stringify(Array.from({ length: 2000 }, (_, i) => `s${i}`))).length, RACK_SCOPES_ENDED_MAX);
 });

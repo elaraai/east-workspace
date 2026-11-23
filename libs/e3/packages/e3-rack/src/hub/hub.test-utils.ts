@@ -67,7 +67,7 @@ export interface HubSession {
 }
 
 /** What enrolls a test's rack: the agent's options, and the release its version names. */
-export type HubAgentOptions = Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label' | 'manifestEveryHeartbeat'>
+export type HubAgentOptions = Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label' | 'manifestEveryHeartbeat' | 'splitScopes'>
   & { version?: string };
 
 /** A hub of a test's own, and how the test reaches it. */

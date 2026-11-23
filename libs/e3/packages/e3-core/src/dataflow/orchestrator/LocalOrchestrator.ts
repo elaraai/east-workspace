@@ -28,7 +28,7 @@ import type {
 } from '@elaraai/e3-types';
 import { WorkspaceRecordType, decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
-import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
+import type { SplitScope, SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
@@ -1656,6 +1656,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): void {
     const { state, options } = execution;
     const startTime = Date.now();
+    // The task once opened: a launch that throws after it lets it go
+    let opened: SplitTask | undefined;
     const planned = (async () => {
       const taskState = state.tasks.get(taskName);
       const split = await SplitTask.open(
@@ -1679,6 +1681,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));
         return;
       }
+      opened = split;
       if (execution.yielded || execution.stoppedBy === 'refused') {
         // The run yielded while the task was planned, or another process took
         // it up: a run that takes the run up takes the task up too.
@@ -1698,6 +1701,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     })()
       .catch(async (err) => {
         execution.splits.delete(taskName);
+        // No unit of it runs again: its execution's scope ends
+        opened?.endScope();
         await this.failTask(execution, taskName, err);
       })
       .finally(() => {
@@ -1710,8 +1715,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
   /**
    * Launches the next unit of a split task's stage, expecting to need the
-   * largest peak a unit of the stage has reached. The unit that ends the
-   * stage — the last in flight, once no more will start — advances the task.
+   * largest peak a unit of the stage has reached, in the task's execution
+   * (`SplitTask.scope`). The unit that ends the stage — the last in flight,
+   * once no more will start — advances the task.
    */
   private launchUnit(
     storage: StorageBackend,
@@ -1731,12 +1737,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     };
     const expectedPeakBytes = run.split.stagePeak;
     const guessed = run.split.stagePeakGuessed;
+    const scope = run.split.scope;
     const key = `${taskName}\u0000${execution.unitSeq++}`;
     run.inFlight++;
     run.split.unitStarted(index);
     const launched = (async () => {
       try {
-        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place);
+        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place, scope);
         run.results[index] = result;
         run.split.unitSettled(index, result);
         // A unit e3 stopped because the run was aborted is not a failure.
@@ -1754,6 +1761,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     })()
       .catch(async (err) => {
         execution.splits.delete(taskName);
+        // Advancing it threw: no unit of it runs again, and its scope ends
+        run.split.endScope();
         await this.failTask(execution, taskName, err);
       })
       .finally(() => {
@@ -1848,7 +1857,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   /**
    * Execute one unit of a split task, through the run's runner or the host's:
    * its wait for room is kept, under the key it is tracked by, while it lasts,
-   * and a requeue is recorded as an event of the run, naming its place.
+   * a requeue is recorded as an event of the run, naming its place, and the
+   * runner is told the task's execution it runs in (`splitScope`).
    */
   private async executeUnit(
     storage: StorageBackend,
@@ -1860,11 +1870,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     expectedPeakBytes: number | undefined,
     guessed: boolean,
     key: string,
-    place: StageUnit
+    place: StageUnit,
+    scope: SplitScope | undefined
   ): Promise<ExecutionResult> {
     const { options } = execution;
     const execOptions: TaskExecuteOptions = {
       taskName,
+      ...(scope !== undefined && { splitScope: scope }),
       // Scoped as the task's own cache bypass is: under a filter, only the
       // target's units re-run.
       force: stepTaskForced(execution.state, taskName),
