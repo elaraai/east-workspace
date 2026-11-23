@@ -17,12 +17,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { StringType, printFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-grouped";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { el, entry, planHarness, rowAt, settle, slot, zoomTo } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-grouped": ex });
 
@@ -98,5 +98,54 @@ describe("the grouped example on e3 (#1710)", () => {
             expect(h.requests("read", dataset)).toEqual([]);
             expect(h.requests("rows", dataset)).toEqual([]);
         }
+    });
+
+    test("planSeriesAll zoomed out past its kinds' series tiles shades its rows from their summaries and reads no event; zoomed back in, draws them (#1706, #1710)", async () => {
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const drawn = () => main.querySelectorAll("[data-plan-row] [data-run], [data-plan-row] [data-chip], [data-plan-row] [data-event], [data-plan-row] [data-mark]").length;
+        await waitFor(() => expect(drawn()).toBeGreaterThan(0));
+        // Each kind's series searches, so far.
+        const searched = () => KINDS.map(({ record, series }) =>
+            h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index") === series).length);
+        // A month: past every kind's series tile, a week's. No event drawn, the rows shaded from the month summaries — a
+        // folder's cells named by the share of each month its runs book — and no series index searched again: each
+        // kind's month summary read instead.
+        await zoomTo(c, "month");
+        const atMonth = searched();
+        const folder = () => [...main.querySelectorAll<HTMLElement>(`${rowAt(entry("folders", "H-101", "F-101-1"))} [data-cell]`)];
+        await waitFor(() => expect(folder().length).toBeGreaterThan(0), { timeout: 10_000 });
+        expect(folder().some((cell) => /% booked/.test(cell.getAttribute("aria-label") ?? ""))).toBe(true);
+        expect(drawn()).toBe(0);
+        await settle();
+        expect(searched()).toEqual(atMonth);
+        for (const { record } of KINDS) {
+            const summaries = h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_month") === true);
+            expect(summaries.length, pathText(record.path as TreePath)).toBeGreaterThan(0);
+        }
+        // Back to the week, the series tile: the events read and drawn again.
+        await zoomTo(c, "week");
+        await waitFor(() => expect(drawn()).toBeGreaterThan(0));
+    });
+
+    test("planSeriesAll: a kind whose cells e3 cannot read is said so on the footer, with Retry — never loading for ever, nor the canvas busy; Retry reads them once e3 answers again (#1710)", async () => {
+        // The inspections' series searches answered as e3 answers a failure.
+        const dataset = pathText(ex.planSeriesInspections.path as TreePath);
+        const stop = h.e3.fail((request) => request.dataset === dataset && request.query.get("index") === "plan_series_inspections_by_hall_week",
+            { status: 500, type: "internal", message: "the store is down" });
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const main = slot(c, "main") ?? c;
+        const footer = () => slot(c, "footer")?.textContent ?? "";
+        await waitFor(() => expect(footer()).toContain("Couldn't read"), { timeout: 10_000 });
+        expect(footer()).not.toMatch(/Loading/);
+        expect(c.querySelector("[data-builder-frame][aria-busy='true'], [data-plan-body][aria-busy='true']")).toBeNull();
+        // e3 answers again: Retry reads the inspections, and the first hall's draws.
+        stop();
+        fireEvent.click(within(slot(c, "footer")!).getByRole("button", { name: /Retry/ }));
+        await waitFor(() => expect(main.querySelector(`${rowAt(entry("halls", "H-101"))} ${el("data-chip", "inspection", "H-101-I1")}`)).not.toBeNull(),
+            { timeout: 10_000 });
+        expect(footer()).not.toContain("Couldn't read");
     });
 });

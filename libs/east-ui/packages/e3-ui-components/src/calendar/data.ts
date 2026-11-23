@@ -264,9 +264,9 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     const windowReading = cells.windowed.size > 0 && (cells.view === "rereading" || cells.view === "filtering");
     const loading = result.ok && (result.value.loading || windowReading);
     const filtering = cells.view === "filtering";
-    // Why the period could not be read: the window's own read, or the reader's of a kind's window. A read of the paged
-    // kind's blocks that failed is said where those rows are, never as the period's.
-    const error = result.ok ? (cells.error?.window === true ? cells.error.reason : undefined) : reasonOf(result.error);
+    // Why the period could not be read: the window's own read, or the reader's of a kind — its window, its count, or its
+    // cells over the paged resources (#1710), which nothing else says: their rows would wait on cells no read brings.
+    const error = result.ok ? cells.error?.reason : reasonOf(result.error);
     const heldApart = useRef<readonly CalendarItem[] | undefined>(undefined);
     if (apartResult.ok && !apartResult.value.loading) heldApart.current = apartResult.value.items;
     const apartItems = heldApart.current;

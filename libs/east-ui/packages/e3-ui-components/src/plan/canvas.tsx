@@ -810,7 +810,10 @@ export function usePlanCanvas({
     // in view is on the desktop — so the line says so and the cards' wash shows on the reveal clock, never a card with
     // nothing drawn and nothing said.
     const narrowAwaits = narrow && nestedWaiting.size > 0 && narrowShown.some((row) => nestedWaiting.has(row.key));
-    const awaits = narrow ? narrowAwaits : viewAwaits.run || viewAwaits.cells;
+    // A read of the cells that failed is no read in flight (#1710): the rows it left unread wait on nothing — the line says
+    // the failure, with Retry — so neither the line nor main is busy for them.
+    const cellsFailed = cellsRead?.error !== undefined;
+    const awaits = narrow ? narrowAwaits : viewAwaits.run || (viewAwaits.cells && !cellsFailed);
     // What the rail counts each source in (#1344): the rows in the Plan's word for them, an event kind's events, `print job events`.
     const rowsWord = words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const nouns = useMemo(() => planNouns(kinds, tabs, rowsWord, words.locale), [kinds, tabs, rowsWord, words.locale]);

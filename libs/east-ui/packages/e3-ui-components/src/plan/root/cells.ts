@@ -312,9 +312,10 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
+    // Zoomed out past a kind's series tile, the kind shades from its summary and reads none of its events (#1706).
     return useScheduleCells({
-        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, buckets, resolution: scale?.resolution, drafts, span,
-        landed: editing?.landed, shown: editing?.shown,
+        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, buckets, resolution: scale?.resolution, zoomShades: true,
+        drafts, span, landed: editing?.landed, shown: editing?.shown,
     });
 }
 

@@ -203,6 +203,7 @@ import {
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
+import { coarserThan } from "../time/zoom.js";
 import { sameView, viewState, type ReadView, type ViewState } from "../view-read.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import {
@@ -503,6 +504,12 @@ export interface ScheduleCellsArgs {
     readonly buckets: readonly ScheduleCellBucket[] | undefined;
     /** The host's resolution, which a summary's tile must divide; `undefined` on an axis of no time. */
     readonly resolution: TimeResolution | undefined;
+    /**
+     * Whether a kind read by its cells shades from its summary at a resolution coarser than its series index's tile,
+     * reading none of its events (#1706): a Plan's zoom, a month past a week's tile. Left out, a kind shades only past
+     * the cap — a Calendar's period draws its events however long.
+     */
+    readonly zoomShades?: boolean | undefined;
     /** Every kind's drafts — the same object while they hold. */
     readonly drafts: ScheduleEventDraftsValue;
     /** The paged kind's rows in view, as the host last reported them; `undefined` before it has. */
@@ -539,19 +546,19 @@ export interface ScheduleCellNotice {
 /** The rows a kind's cells hold, by the event's key's text, each its row's bytes. */
 type HeldRows = ScheduleKindRows;
 
-/** A read of the event kinds that failed: why, and the kinds whose own read threw. */
+/**
+ * A read of the event kinds that failed: why, and the kinds whose own read
+ * threw — a kind's window, its count over the range, what its narrowing holds
+ * of its drafts, or its cells over the paged kind's blocks (#1599, #1710). Its
+ * host says it as its period's read failed, with Retry: a read that threw is
+ * no read in flight, and nothing waits on it — the rows whose cells it could
+ * not read draw no "loading" for it.
+ */
 export interface ScheduleCellsFailure {
     /** Why it failed, in the read's own words. */
     readonly reason: string;
     /** The slots of the kinds whose own read threw, in the kinds' order; none where the failure was no one kind's. */
     readonly kinds: readonly string[];
-    /**
-     * Whether it was a kind's window that could not be read — its count over the range, its window's own rows, or what
-     * its narrowing holds of its drafts: what its host says its period's read failed by, with Retry. `false` for a read
-     * over the paged kind's blocks — a block's cells, the paged kind's own windows — which its host says where those
-     * rows are.
-     */
-    readonly window: boolean;
 }
 
 /** What the reader read: what its host's seams draw the kinds from, and what a gesture finds an event's row in. */
@@ -1028,10 +1035,8 @@ class KindReadFailure extends Error {
     /**
      * @param thrown - What the kind's read threw
      * @param kind - The kind's slot
-     * @param window - Whether it was the kind's window that threw: its count over the range, its window's own rows, or
-     *   what its narrowing holds of its drafts
      */
-    constructor(readonly thrown: unknown, readonly kind: string, readonly window: boolean) {
+    constructor(readonly thrown: unknown, readonly kind: string) {
         super(thrown instanceof Error ? thrown.message : String(thrown));
         this.name = "KindReadFailure";
     }
@@ -1176,17 +1181,6 @@ class CellsReader {
         return { mode: "cells", cells: kept.bytes, held: kept.held, dropped: NO_IDS, revision: revision.value, paged: false };
     }
 
-    /**
-     * A read of a kind's own window — its count over the range, its window's rows, what its narrowing holds of its
-     * drafts: one that throws is named the kind's window's ({@link ScheduleCellsFailure.window}).
-     */
-    private own<T>(kind: ScheduleCellKind, read: () => T): T {
-        try {
-            return read();
-        } catch (thrown) {
-            throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key, true);
-        }
-    }
 
     /** A kind's codec, made once per kind's cells' type. */
     codecOf(kind: ScheduleCellKind): KindCodec {
@@ -1398,7 +1392,7 @@ class CellsReader {
      * @returns What it read; {@link READING} while a count, or a cell's count or entries, are in flight
      */
     read(args: Omit<ScheduleCellsArgs, "host">): Read | typeof READING {
-        const { kinds, resources, paged, range, period, buckets, resolution, drafts, span } = args;
+        const { kinds, resources, paged, range, period, buckets, resolution, drafts, span, zoomShades } = args;
         // The revision each kind read by its cells, or its window's rows, reads at now, before anything of the read is in
         // flight: what cells standing from an earlier read are told from, as from before a Save or holding it. And each
         // narrowed kind's choices: what the read is asked under.
@@ -1470,7 +1464,7 @@ class CellsReader {
                         const blocks = blocksOfPaged();
                         read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where,
                             blocks.filter((block) => kind.takes.some((slot) => stringEqual(slot, block.slot))), paged?.unassigned === true, range, buckets,
-                            resolution, drafts, totals);
+                            resolution, drafts, totals, zoomShades === true);
                     }
                 } else {
                     read = this.countedKind(kind, range, buckets, resolution, totals, blocksOf);
@@ -1480,7 +1474,7 @@ class CellsReader {
                     if (read !== READING && kind.windowField !== undefined && kind.part !== undefined && !kind.hidden) {
                         const { part, windowField } = kind;
                         const held = read.mode === "cells" ? read.held : undefined;
-                        outside = this.own(kind, () => this.draftsOutside(kind, part, windowField, drafts, held));
+                        outside = this.draftsOutside(kind, part, windowField, drafts, held);
                     } else if (read !== READING && read.mode === "cells" && kind.isNew !== undefined) {
                         // A kind whose window draws a draft only of an event it holds, or of a new one (#1343): the
                         // drafts of the other events left out, told by the rows held and where each draft began — but
@@ -1489,7 +1483,7 @@ class CellsReader {
                     }
                 }
             } catch (thrown) {
-                throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key, false);
+                throw thrown instanceof KindReadFailure ? thrown : new KindReadFailure(thrown, kind.key);
             }
             if (read === READING || outside === READING) return READING;
             if (outside.size > 0) dropped.set(kind.key, outside);
@@ -1542,11 +1536,11 @@ class CellsReader {
         kind: ScheduleCellKind, range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined,
         totals: Totals, blocksOf: (kind: ScheduleCellKind) => ScheduleCellBlock[] | typeof READING,
     ): KindRead | typeof READING {
-        const within = this.own(kind, () => scheduleWithinCap(kind.count, range.from, range.to));
+        const within = scheduleWithinCap(kind.count, range.from, range.to);
         if (within.type !== "some") return READING;
         // Within the cap: a kind read a window at a time is given its window's rows; one read whole, or hidden, is left
         // to its host.
-        if (within.value) return kind.stored === undefined || kind.hidden ? { mode: "window" } : this.own(kind, () => this.windowKind(kind, range));
+        if (within.value) return kind.stored === undefined || kind.hidden ? { mode: "window" } : this.windowKind(kind, range);
         // Past the cap: none of its events is read or drawn.
         if (kind.hidden) return { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
         const blocks = blocksOf(kind);
@@ -1607,11 +1601,14 @@ class CellsReader {
      * events while the cells hold at most the cap, its summary's shading past
      * it (see the module docs). `unassigned` says whether the paged rows draw
      * an Unassigned row, whose events — those on no resource — are read too.
+     * Where its host's zoom shades (`zoomShades`, #1706), a resolution coarser
+     * than its series index's tile shades from its summary too, and reads none
+     * of its events.
      */
     private cellsKind(
         kind: ScheduleCellKind, part: ScheduleCellPart, where: Where, blocks: readonly ScheduleCellBlock[], unassigned: boolean,
         range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined, drafts: ScheduleEventDraftsValue,
-        totals: Totals,
+        totals: Totals, zoomShades: boolean,
     ): KindRead | typeof READING {
         const codec = this.codecOf(kind);
         const indexes = part.config.indexes;
@@ -1653,6 +1650,11 @@ class CellsReader {
         const standing = plans.values().next().value?.series ?? seriesIndexFor(indexes, where, [])?.index
             ?? indexes.find((index) => index.series.type === "some" && index.series.value.order.type === "time");
         const tiled = standing === undefined ? undefined : tilingOf(standing);
+        // Zoomed out past its series index's tile (#1706): a month's, a quarter's or a year's buckets hold more than a
+        // week's events can draw, so its summary shades them, and none of its events is read.
+        if (zoomShades && resolution !== undefined && tiled !== undefined && coarserThan(resolution, tiled.tile.type)) {
+            return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
+        }
         // No series index serves a group, or its narrowing: more than one batch, as many events as the summary is for.
         if (!served || tiled === undefined || searches > MAX_RECORD_SLICE_BATCH) {
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
@@ -1755,9 +1757,9 @@ class CellsReader {
         let events = counted;
         if (windowed) {
             // Its count over the range it reads: the count its window's read asks first.
-            const within = this.own(kind, () => scheduleWithinCap(kind.count, range.from, range.to));
+            const within = scheduleWithinCap(kind.count, range.from, range.to);
             if (within.type !== "some") return READING;
-            if (within.value) return kind.stored === undefined ? { mode: "window" } : this.own(kind, () => this.windowKind(kind, range));
+            if (within.value) return kind.stored === undefined ? { mode: "window" } : this.windowKind(kind, range);
             events = this.eventsOf(kind, range);
         }
         // The notice: the rows hatched, and the resolution the smallest summary shades at.
@@ -2008,13 +2010,13 @@ export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: Sch
  */
 export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     const [reader] = useState(() => new CellsReader());
-    const { host, kinds, resources, paged, range, period, buckets, resolution, drafts, span, landed, shown } = args;
+    const { host, kinds, resources, paged, range, period, buckets, resolution, zoomShades, drafts, span, landed, shown } = args;
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const read = useCallback(() => reader.read({
-        kinds, resources, paged, buckets, resolution, drafts, span, period,
+        kinds, resources, paged, buckets, resolution, zoomShades, drafts, span, period,
         range: from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) },
-    }), [reader, kinds, resources, paged, buckets, resolution, from, to, period, drafts, span]);
+    }), [reader, kinds, resources, paged, buckets, resolution, zoomShades, from, to, period, drafts, span]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<Read | undefined>(undefined);
     // The revision each kind's record reads at now, as the read just made found it — in flight or not.
@@ -2062,10 +2064,9 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             console.error(`[${host}] the event kinds' cells could not be read:`, thrown);
             const reason = thrown instanceof Error ? thrown.message : String(thrown);
             const was = failed.current;
-            const window = failure?.window === true;
-            error = was !== undefined && stringEqual(was.reason, reason) && was.window === window
+            error = was !== undefined && stringEqual(was.reason, reason)
                 && (failure === undefined ? was.kinds.length === 0 : was.kinds.length === 1 && stringEqual(was.kinds[0]!, failure.kind))
-                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind], window };
+                ? was : { reason, kinds: failure === undefined ? [] : [failure.kind] };
             failed.current = error;
         }
         const inFlight = !result.ok || result.value === READING;

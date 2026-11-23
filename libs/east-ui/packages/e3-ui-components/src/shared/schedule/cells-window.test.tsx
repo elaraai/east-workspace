@@ -195,15 +195,15 @@ describe("its rows are kept while its record, and the range, hold — and stand 
     });
 });
 
-describe("a read that fails names the kind, and its window (#1599)", () => {
-    test("the kind's window's read throwing: why, the kind, and that it was its window — the last rows standing; the same failure is the same object", () => {
+describe("a read that fails names the kind (#1599, #1710)", () => {
+    test("the kind's window's read throwing: why, and the kind — the last rows standing; the same failure is the same object", () => {
         const jobs = record([["J1", BROCHURES]]);
         const { result, rerender } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: asked(jobs) });
         jobs.revision = "r2";
         jobs.fails = new Error("the store is down");
         rerender(asked(jobs));
         const failure = result.current.error;
-        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"], window: true });
+        expect(failure).toEqual({ reason: "the store is down", kinds: ["job"] });
         expect([titles(result.current.reads.get("job")), result.current.view]).toEqual([[["J1", BROCHURES]], "current"]);
         rerender(asked(jobs));
         expect(result.current.error).toBe(failure);
@@ -213,11 +213,11 @@ describe("a read that fails names the kind, and its window (#1599)", () => {
         expect([result.current.error, result.current.view]).toEqual([undefined, "current"]);
     });
 
-    test("its count throwing is its window's failure too", () => {
+    test("its count throwing names the kind too", () => {
         const jobs = record([["J1", BROCHURES]]);
         const failing = kindOver(jobs, { count: () => { throw new Error("no count"); } });
         const { result } = renderHook((props: ScheduleCellsArgs) => useScheduleCells(props), { initialProps: { ...asked(jobs), kinds: [failing] } });
-        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"], window: true });
+        expect(result.current.error).toEqual({ reason: "no count", kinds: ["job"] });
     });
 });
 

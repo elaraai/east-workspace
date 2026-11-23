@@ -142,6 +142,25 @@ export async function toggleSeries(container: HTMLElement, name: string): Promis
     await settle();
 }
 
+/**
+ * Zooms the canvas to a resolution through the toolbar's segment, as a planner does — its option found by its label —
+ * then lets what it starts settle.
+ *
+ * @param container - The render's container
+ * @param resolution - The resolution
+ * @throws {Error} When the toolbar's segment offers no such zoom
+ */
+export async function zoomTo(container: HTMLElement, resolution: "day" | "week" | "month" | "quarter" | "year"): Promise<void> {
+    const seg = slot(container, "toolbar")?.querySelector<HTMLElement>("[data-plan-seg='resolution']");
+    const option = [...(seg?.querySelectorAll<HTMLElement>("[role='radio']") ?? [])].find((o) => sameText(o.textContent?.trim().toLowerCase() ?? "", resolution));
+    if (option === undefined) throw new Error(`the toolbar offers no ${resolution} zoom`);
+    await act(async () => {
+        fireEvent.mouseDown(option, { button: 0 });
+        fireEvent.click(option);
+    });
+    await settle();
+}
+
 /** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
 export { entry };
 
