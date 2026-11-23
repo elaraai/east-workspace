@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
+import { none, readBeast2Type, some, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, EndScopeType, FetchCostRequestType,
   FetchCostResultType,
@@ -126,16 +126,20 @@ export class HubClient {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases/${encodeURIComponent(leaseId)}/cancel`, { responseType: CancelLeaseResultType });
   }
   /**
-   * Of each rack the hub has served: its link's rate, and which of these
-   * objects of the session's repository it holds.
+   * Of each rack the hub has served, or a lease of the scope wrote on: its
+   * link's rate, and which of these objects of the session's repository it
+   * holds.
    * @param id - The session
    * @param hashes - The objects
+   * @param scope - The scope the work's lease names, whose leases' outputs
+   *   the racks that wrote them hold; none unless given
    * @returns Each rack's link and holdings
    */
-  fetchCosts(id: string, hashes: readonly string[]): Promise<ValueTypeOf<typeof FetchCostResultType>> {
-    return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType, body: { hashes: [...hashes] }, responseType: FetchCostResultType });
+  fetchCosts(id: string, hashes: readonly string[], scope?: string): Promise<ValueTypeOf<typeof FetchCostResultType>> {
+    return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType,
+      body: { hashes: [...hashes], scope: scope === undefined ? none : some(scope) }, responseType: FetchCostResultType });
   }
-  /** Ends a split scope the session's leases named: the racks it was granted to let what they kept of it go. */
+  /** Ends a split task's scope the session's leases named: the racks it was granted to let what they kept of it go. */
   async endScope(id: string, scope: string): Promise<void> {
     await socketRequest(this.socketPath, 'POST', `${this.path(id)}/scopes/end`, { requestType: EndScopeType, body: { scope }, responseType: EmptyType });
   }

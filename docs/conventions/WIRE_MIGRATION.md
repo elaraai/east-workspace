@@ -1508,15 +1508,45 @@ Each wire changed under this rule, with the kind it is.
   - `POST /v1/sessions/:id/fetch-costs` (`FetchCostRequestType`,
     `FetchCostResultType`): of the objects a task or a unit reads, each rack's
     link rate as the hub measures it from the data URLs it serves, and which
-    of those objects it served that rack whole.
+    of those objects it served that rack whole; the request names the scope
+    the work's lease names (`scope`, an `Option` of its id), and a rack a
+    lease of that scope wrote an object on holds it too, which the answer
+    lists among its racks.
   - `POST /v1/sessions/:id/scopes/end` (`EndScopeType`): the split task's
     execution a session's units named has ended, so the racks it was granted
-    to let what they kept of it go (below).
+    to let what they kept of it go (below). A session's own scope, under a
+    policy that keeps what work wrote for the session, is ended by no request:
+    the session's end ends it.
 
   The protocol is negotiated exactly (`HUB_PROTOCOL`), so an e3 that finds a
   hub of protocol 5 asks it to drain and runs locally that once, as for any
   older number. The hub keeps what it measures and the scopes it was told of
   in memory; no form is stored, so no repository upgrade step ships.
+- **e3-rack's `RackPolicyType` gains `defaultMerges`, and `RackRuleType`
+  `merges`** — stored state, of a local repository's own layout: its rack
+  policy, `rack/policy.beast2`. The policy gains `defaultMerges`, a variant
+  `rack | local` after `weighFetch`, and a rule `merges`, an `Option` of it
+  after `gpu`: where the merge and combine units of a split task the rule
+  sends to a rack run, the rule's own else the policy's. The policy's header
+  names the whole policy type, so one an earlier release stored does not
+  decode under the new type, and the release ships the local backend's third
+  step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+  `storage/local/rack-policy-merges.ts`): `rack-policy-merges` rewrites the
+  file in the form `rack-policy-weigh-fetch` writes, which runs before it
+  (after `rack-policy-limits`), into the new one, everything as it was,
+  `weighFetch` among it, no rule naming merges of its own, and
+  `defaultMerges` `rack`: every merge runs where it ran before. Both fields
+  ship in the one release, so a repository an earlier release wrote takes
+  the steps in order on its next open (`rack-policy-keep` after it, below).
+  A repository with no policy
+  file is left without one; a file in no form the steps know is left as it
+  is, and a read refuses it as before, naming its reset. The step's written
+  form is frozen in e3-core and held to `RackPolicyType` by the rack
+  package's own test, over the policy release 1.0.107 stored, carried
+  through every step. An earlier release refuses a repository that has had
+  the step, naming this release. No wire between e3, a hub and a rack
+  changes: a merge its policy keeps here is never leased, nor weighed for
+  what it would fetch.
 - **e3-rack's storage replies carry larger objects inline, and a hub serves a
   rack more transfers at once** — neither package-borne nor stored: what a
   rack's agent and its source exchange (`/api/rack/storage`, `GET
@@ -1550,3 +1580,34 @@ Each wire changed under this rule, with the kind it is.
   through the control route `POST /v1/sessions/:id/scopes/end`, which is part
   of hub control protocol 6 (above), the one step that also brings
   `fetch-costs`. Nothing is stored, so no repository upgrade step ships.
+  Under a policy that keeps what work wrote for the session (below), a whole
+  task's lease names a scope too, the session's own, in the same field and to
+  the same racks; a call's names none. The feature keeps its name: a rack
+  that names it keeps any lease scope's objects, a split task's or a
+  session's. Both ship in the one release, so no agent that names the feature
+  knew it as a split task's alone.
+- **e3-rack's `RackPolicyType` gains `keep`** — stored state, of a local
+  repository's own layout: its rack policy, `rack/policy.beast2`. The policy
+  gains `keep`, a variant `split | session` after `defaultMerges`: how long a
+  rack that keeps a scope's objects keeps what the policy's leases wrote
+  there, for a split task's later units (`split`, as before), or for every
+  later task and unit of the rack session (`session`: one `e3 dataflow run`,
+  or one `e3 watch --start --rack` across its re-runs), whose every task's and
+  unit's lease then names the session's own scope. The policy's header names
+  the whole policy type, so one an earlier release stored does not decode
+  under the new type, and the release ships the local backend's fourth step
+  (`LOCAL_REPOSITORY_UPGRADES`, e3-core's `storage/local/rack-policy-keep.ts`):
+  `rack-policy-keep` rewrites the file in the form `rack-policy-merges`
+  writes, which runs before it (after `rack-policy-limits` and
+  `rack-policy-weigh-fetch`), into the new one, everything as it was and
+  `keep` `split`: a rack keeps what it kept before. All four steps ship in
+  the one release, so a repository an earlier release wrote takes them in
+  order on its next open. A repository with no policy file is left without
+  one; a file in no form the steps know is left as it is, and a read refuses
+  it as before, naming its reset. The step's written form is frozen in
+  e3-core and held to `RackPolicyType` by the rack package's own test, over
+  the policy release 1.0.107 stored, carried through every step. An earlier
+  release refuses a repository that has had the step, naming this release.
+  The wires it uses are the lease scope above and hub control protocol 6's
+  `fetch-costs`, whose `scope` this release brings with the protocol: no
+  further step of either.

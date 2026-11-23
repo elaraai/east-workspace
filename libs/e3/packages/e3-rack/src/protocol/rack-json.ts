@@ -194,16 +194,19 @@ export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
 
 /**
  * The report's feature by which a rack says it keeps what the leases of a
- * split task's execution wrote for its later leases, until its source says
- * the execution ended: a lease of a unit is then granted it with its scope
- * (`RackLeaseEvent.scope`), and the heartbeat's answer names the scopes that
- * ended ({@link RACK_SCOPES_ENDED_HEADER}). A rack that does not name it is
- * granted the same lease without one.
+ * scope wrote for its later leases, until its source says the scope ended: a
+ * lease is then granted it with its scope (`RackLeaseEvent.scope`), and the
+ * heartbeat's answer names the scopes that ended
+ * ({@link RACK_SCOPES_ENDED_HEADER}). A scope is a split task's execution,
+ * whose units' leases name it, or, under a policy that keeps what work wrote
+ * for the session, a whole rack session, whose every task's and unit's lease
+ * names it. A rack that does not name the feature is granted the same lease
+ * without one.
  */
 export const RACK_SPLIT_SCOPES = 'split-scopes';
 
 /**
- * The header of a heartbeat's answer that names the split scopes that ended
+ * The header of a heartbeat's answer that names the scopes that ended
  * of those the rack was granted a lease of: a JSON array of their ids. Each is
  * named once, to a rack whose report names {@link RACK_SPLIT_SCOPES}; an
  * answer lost on its way is not sent again, so a rack bounds what it keeps of
@@ -212,7 +215,7 @@ export const RACK_SPLIT_SCOPES = 'split-scopes';
 export const RACK_SCOPES_ENDED_HEADER = 'x-e3-rack-scopes-ended';
 
 /**
- * Whether a text is a split scope's id, as a lease or a heartbeat's answer
+ * Whether a text is a scope's id, as a lease or a heartbeat's answer
  * names one: a word of at most 64 letters, digits and hyphens.
  *
  * @param value - The text
@@ -338,7 +341,7 @@ export interface RackReport {
    * the newest unit it holds when its host runs short), `environments` (it
    * composes a lease's environment from layers),
    * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier),
-   * {@link RACK_SPLIT_SCOPES} (it keeps a split task's outputs for its later
+   * {@link RACK_SPLIT_SCOPES} (it keeps a scope's outputs for its later
    * leases).
    */
   readonly features: readonly string[];

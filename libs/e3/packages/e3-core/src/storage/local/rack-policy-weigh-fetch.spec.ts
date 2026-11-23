@@ -24,7 +24,8 @@ import { LocalStorage } from './LocalBackend.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './LocalRefStore.js';
 import { repoInit } from './repository.js';
 import { RACK_POLICY_LIMITS, RackPolicyWithLimitsType, rackPolicyFile } from './rack-policy-limits.js';
-import { RACK_POLICY_MERGES, RackPolicyWithMergesType } from './rack-policy-merges.js';
+import { RACK_POLICY_KEEP, RackPolicyWithKeepType } from './rack-policy-keep.js';
+import { RACK_POLICY_MERGES } from './rack-policy-merges.js';
 import { RACK_POLICY_WEIGH_FETCH, RackPolicyWithWeighFetchType, rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
 
 /** The policy release 1.0.107 stored, as `rack-policy-limits.spec.ts` holds
@@ -90,11 +91,11 @@ describe('rack-policy-weigh-fetch', () => {
     assert.deepEqual(new Uint8Array(readFileSync(rackPolicyFile(repo))), damaged, 'a read refuses it as it did before, naming its reset');
   });
 
-  it('is applied between rack-policy-limits and rack-policy-merges when a repository a release before all three wrote is opened, once each, and recorded', async () => {
+  it('is applied between rack-policy-limits and rack-policy-merges, then rack-policy-keep, when a repository a release before every rack-policy step wrote is opened, once each, and recorded', async () => {
     write(POLICY_1_0_107);
     const record = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_RECORD_FILE)));
     assert.ok(record.upgrades.some(({ name }) => name === RACK_POLICY_WEIGH_FETCH), 'a new repository is in the form the step writes');
-    const steps = [RACK_POLICY_LIMITS, RACK_POLICY_WEIGH_FETCH, RACK_POLICY_MERGES];
+    const steps = [RACK_POLICY_LIMITS, RACK_POLICY_WEIGH_FETCH, RACK_POLICY_MERGES, RACK_POLICY_KEEP];
     writeFileSync(join(repo, REPOSITORY_RECORD_FILE), encodeRepositoryRecord({ release: '1.0.107',
       upgrades: record.upgrades.filter(({ name }) => !steps.includes(name)) }));
 
@@ -102,12 +103,13 @@ describe('rack-policy-weigh-fetch', () => {
     const names = opened.upgrades.map(({ name }) => name);
     assert.ok(names.indexOf(RACK_POLICY_LIMITS) < names.indexOf(RACK_POLICY_WEIGH_FETCH), 'the limits first');
     assert.ok(names.indexOf(RACK_POLICY_WEIGH_FETCH) < names.indexOf(RACK_POLICY_MERGES), 'the merges after it');
+    assert.ok(names.indexOf(RACK_POLICY_MERGES) < names.indexOf(RACK_POLICY_KEEP), 'and the keep last');
     assert.deepEqual(opened.upgrades.find(({ name }) => name === RACK_POLICY_WEIGH_FETCH), { name: RACK_POLICY_WEIGH_FETCH, release: E3_RELEASE });
-    // What the step wrote, as the merges step after it carries it on
-    const after = decodeBeast2For(RackPolicyWithMergesType)(readFileSync(rackPolicyFile(repo)));
-    const expected = { ...limited, weighFetch: true, defaultMerges: variant('rack', null),
+    // What the step wrote, as the merges and keep steps after it carry it on
+    const after = decodeBeast2For(RackPolicyWithKeepType)(readFileSync(rackPolicyFile(repo)));
+    const expected = { ...limited, weighFetch: true, defaultMerges: variant('rack', null), keep: variant('split', null),
       rules: limited.rules.map((rule) => ({ ...rule, memoryLimit: none, gpu: false, merges: none })) };
-    assert.ok(equalFor(RackPolicyWithMergesType)(after, expected), printFor(RackPolicyWithMergesType)(after));
-    assert.deepEqual(await repositoryOpen(storage, repo), opened, 'a second open finds all three applied');
+    assert.ok(equalFor(RackPolicyWithKeepType)(after, expected), printFor(RackPolicyWithKeepType)(after));
+    assert.deepEqual(await repositoryOpen(storage, repo), opened, 'a second open finds every step applied');
   });
 });

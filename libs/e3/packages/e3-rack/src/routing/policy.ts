@@ -19,6 +19,21 @@ export const RackComputeSizeType = VariantType({ serverless: NullType, small: Nu
  */
 export const RackMergesType = VariantType({ rack: NullType, local: NullType });
 /**
+ * How long a rack that keeps a lease scope's objects keeps what a lease of
+ * the policy's work wrote there, for later leases to read there rather than
+ * fetch back over the link:
+ * - `split`: for the later units of the same split task's execution alone (a
+ *   merge reads its pieces where they were made), as before;
+ * - `session`: for every later task and unit of the same rack session, one
+ *   `e3 dataflow run` or one `e3 watch --start --rack` across its re-runs. A
+ *   task's output made on a rack is read there by the run's later tasks.
+ *
+ * `session` keeps a task's data on a rack longer: until the session ends, or
+ * no lease of it has used the rack's copies for an hour, within the rack's
+ * own bound on what it keeps.
+ */
+export const RackKeepType = VariantType({ split: NullType, session: NullType });
+/**
  * A whole-task-name glob and its execution policy; first match wins.
  *
  * `memoryLimit` is a ceiling, in bytes, on what one piece of the rule's work
@@ -46,9 +61,10 @@ export const RackRuleType = StructType({
  * `rack-policy-limits` carries a policy an earlier release stored into the
  * form with them when the repository is opened. `weighFetch` came with the
  * next, `rack-policy-weigh-fetch`, on by default; `defaultMerges`, and a
- * rule's `merges`, with the one after it, `rack-policy-merges`, which carries
- * the weigh-fetch step's form into this one, every merge on a rack as before;
- * its frozen form is this type's.
+ * rule's `merges`, with the one after it, `rack-policy-merges`, every merge
+ * on a rack as before; and `keep` with the fourth, `rack-policy-keep`, which
+ * carries the merges step's form into this one, kept for a split task alone
+ * as before; its frozen form is this type's.
  *
  * `weighFetch` weighs what a task or a unit would fetch against how long it
  * last ran: one that would spend longer fetching its inputs over the link to
@@ -59,6 +75,11 @@ export const RackRuleType = StructType({
  * Merges run `local` take no transfer, since a piece's output comes back
  * here whichever rack ran it, and run under the run's local budget; they are
  * never weighed for what they would fetch.
+ *
+ * `keep` says how long a rack keeps what the policy's work wrote there for
+ * later work ({@link RackKeepType}): a split task's execution (`split`, the
+ * default), or the whole rack session (`session`). It is the policy's, and
+ * no rule's: a task's output is kept for whichever later work reads it.
  */
 export const RackPolicyType = StructType({
   enabled: BooleanType,
@@ -71,6 +92,7 @@ export const RackPolicyType = StructType({
   retryTaskFailuresLocally: BooleanType,
   weighFetch: BooleanType,
   defaultMerges: RackMergesType,
+  keep: RackKeepType,
 });
 /** A repository's rack policy. */
 export type RackPolicy = ValueTypeOf<typeof RackPolicyType>;
@@ -80,6 +102,8 @@ export type RackRule = ValueTypeOf<typeof RackRuleType>;
 export type RackComputeSize = ValueTypeOf<typeof RackComputeSizeType>['type'];
 /** Where a split task's merge units run. */
 export type RackMerges = ValueTypeOf<typeof RackMergesType>['type'];
+/** How long a rack keeps what work wrote there for later work. */
+export type RackKeep = ValueTypeOf<typeof RackKeepType>['type'];
 
 /**
  * What each size stands for: the cores a task of that size is given on a
@@ -104,11 +128,11 @@ export const RACK_SIZES: Readonly<Record<RackComputeSize, { readonly cores: numb
 
 /** Conservative defaults: disabled, with explicit task selection required;
  *  a fetch-bound unit runs here; a split task's merges run where its pieces
- *  do. */
+ *  do; a rack keeps what work wrote for a split task's later units alone. */
 export const DEFAULT_RACK_POLICY: RackPolicy = {
   enabled: false, mode: variant('optIn', null), rules: [], defaultSize: variant('large', null),
   defaultTimeoutMinutes: 1440n, spill: true, claimTimeoutSeconds: 30n, retryTaskFailuresLocally: false, weighFetch: true,
-  defaultMerges: variant('rack', null),
+  defaultMerges: variant('rack', null), keep: variant('split', null),
 };
 const encode = encodeBeast2For(RackPolicyType);
 const decode = decodeBeast2For(RackPolicyType);

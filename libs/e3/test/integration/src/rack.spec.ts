@@ -191,13 +191,20 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   const refused = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--memory-limit', 'plenty');
   assert.notEqual(refused.exitCode, 0); assert.match(refused.stderr, /--memory-limit must be a memory size, such as 8G or 512M/);
   // Where a split task's merges run: its rule's, else the policy's default, a rack's unless set
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, merges=rack$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, merges=rack, keep=split$/m);
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--merges', 'local'));
   assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^1\. train_\* → rack, size=default, timeout=default, allow-host-access=false, merges=local$/m);
   const nowhere = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--merges', 'elsewhere');
   assert.notEqual(nowhere.exitCode, 0); assert.match(nowhere.stderr, /--merges must be rack or local, not 'elsewhere'/);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--merges', 'local')), /^Defaults: .*, merges=local$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--merges', 'local')), /^Defaults: .*, merges=local, keep=split$/m);
   ok(await f.cli('rack', 'policy', '.', 'defaults', '--merges', 'rack'));
+  // How long a rack keeps what work wrote there: a split task's, unless the policy keeps it for the session
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'session')), /^Defaults: .*, merges=rack, keep=session$/m);
+  const ruled = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--keep', 'session');
+  assert.notEqual(ruled.exitCode, 0); assert.match(ruled.stderr, /--keep is the policy's, not a rule's/);
+  const forever = await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'forever');
+  assert.notEqual(forever.exitCode, 0); assert.match(forever.stderr, /--keep must be split or session, not 'forever'/);
+  ok(await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'split'));
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'large'));
   const policy = ok(await f.cli('rack', 'policy', '.', 'show'));
   assert.match(policy, /1\. train_\* → rack, size=large/); assert(!policy.includes('2. train_'));
@@ -217,9 +224,9 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   ok(await f.cli('rack', 'policy', '.', 'unset', 'train_*'));
   assert(!ok(await f.cli('rack', 'policy', '.', 'show')).includes('1. train_'));
   // A policy weighs what work would fetch unless told not to
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=true, merges=rack$/m);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false, merges=rack$/m);
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=false, merges=rack$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, weigh-fetch=true, merges=rack, keep=split$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--no-weigh-fetch')), /^Defaults: .*, weigh-fetch=false, merges=rack, keep=split$/m);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, spill=true, .*, weigh-fetch=false, merges=rack, keep=split$/m);
   ok(await f.cli('rack', 'stop'));
   assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
 });

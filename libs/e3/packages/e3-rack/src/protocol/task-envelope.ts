@@ -17,7 +17,9 @@
  * - the environment the guest's rootfs is composed from;
  * - the lease's closure: every object its guest may read, and no other;
  * - for a unit of a split task, the task's execution it is part of (its
- *   scope), to a rack that keeps a stage's outputs for the next.
+ *   scope), to a rack that keeps a stage's outputs for the next; or, under a
+ *   policy that keeps what work wrote for the session, the session's own
+ *   scope, which every task's and unit's lease of the session names.
  *
  * A function lease names its program by hash, staged with the closure, so a
  * lease's row stays small.
@@ -167,8 +169,10 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
 }
 
 /**
- * The execution of a split task a unit's lease is part of: its split scope
- * (e3-core's `SplitScope`), as a rack is told it.
+ * The scope a lease is part of, as a rack is told it: the execution of a
+ * split task a unit's lease is part of (e3-core's `SplitScope`), or, under a
+ * policy that keeps what work wrote for the session (`keep` `session`), the
+ * rack session every task's and unit's lease of it is part of.
  *
  * @remarks
  * A rack whose report names `split-scopes` (`RACK_SPLIT_SCOPES`) may keep what a lease
@@ -183,8 +187,8 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
  */
 export interface RackLeaseScope {
   /** The scope's id: random, of nothing the task runs over, one for each
-   *  execution of a split task. Words of at most 64 letters, digits and
-   *  hyphens. */
+   *  execution of a split task, or for each session. Words of at most 64
+   *  letters, digits and hyphens. */
   readonly id: string;
   /** Whether a later lease of the scope reads what this one writes: its
    *  outputs are worth keeping. A lease that feeds none still reads what the
@@ -254,8 +258,9 @@ export interface RackLeaseEvent {
    */
   readonly resources?: RackLeaseResources;
   /**
-   * The split task's execution a unit is part of, to a rack that keeps a
-   * stage's outputs for the next ({@link RackLeaseScope}). Read with
+   * The split task's execution a unit is part of, or the session a task or a
+   * unit is part of, to a rack that keeps a scope's outputs for its later
+   * leases ({@link RackLeaseScope}). A call's lease names none. Read with
    * {@link readRackLeaseScope}; a source leaves it out of the lease a rack
    * that does not name `split-scopes` (`RACK_SPLIT_SCOPES`) is granted.
    */

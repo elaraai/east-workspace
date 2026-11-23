@@ -39,9 +39,9 @@
  *   whether to send the request again, the code why;
  * - a heartbeat carries what the rack is and has (its report), and a poll
  *   what it may be answered with (its offer);
- * - a unit's lease is granted with its split scope only to a rack whose report
- *   names the feature, and the heartbeat's answer names the scopes of the
- *   rack's that ended.
+ * - a lease is granted with its scope (a split task's execution, or a whole
+ *   session's) only to a rack whose report names the feature, and the
+ *   heartbeat's answer names the scopes of the rack's that ended.
  *
  * A rack token authenticates ONLY these routes — it is invisible to the
  * human `jwtAuthorizer`, so it can never reach the human/admin API.
@@ -239,7 +239,7 @@ export interface RackRouteOptions {
    */
   wake?: (repo: string, run: RunnerRun) => Promise<boolean>;
   /**
-   * The split scopes of the source's leases (`RackLeaseEvent.scope`): which
+   * The scopes of the source's leases (`RackLeaseEvent.scope`): which
    * rack is granted a lease with its scope, and the scopes that ended of
    * those a rack holds. Absent, every lease is granted without its scope, and
    * no answer names one.
@@ -248,8 +248,9 @@ export interface RackRouteOptions {
 }
 
 /**
- * Where the rack routes keep a source's split scopes: which rack holds a
- * scope, and which of a rack's scopes have ended.
+ * Where the rack routes keep a source's scopes — a split task's execution, or
+ * a whole session's: which rack holds a scope, and which of a rack's scopes
+ * have ended.
  */
 export interface RackSplitScopes {
   /**

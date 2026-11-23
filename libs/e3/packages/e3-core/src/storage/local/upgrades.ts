@@ -4,6 +4,7 @@
  */
 
 import type { RepositoryUpgrade } from '../interfaces.js';
+import { rackPolicyKeep } from './rack-policy-keep.js';
 import { rackPolicyLimits } from './rack-policy-limits.js';
 import { rackPolicyMerges } from './rack-policy-merges.js';
 import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
@@ -19,6 +20,9 @@ import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
  *   longer to fetch its inputs than to run runs here ({@link rackPolicyWeighFetch}).
  * - `rack-policy-merges`: the policy says where a split task's merge units
  *   run, and a rule may say it for its own ({@link rackPolicyMerges}).
+ * - `rack-policy-keep`: the policy says how long a rack keeps what work wrote
+ *   there for later work to read: a split task's units, or a whole rack
+ *   session's work ({@link rackPolicyKeep}).
  *
  * A release that changes the local layout appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -26,4 +30,4 @@ import { rackPolicyWeighFetch } from './rack-policy-weigh-fetch.js';
  *
  * @internal
  */
-export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits, rackPolicyWeighFetch, rackPolicyMerges];
+export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits, rackPolicyWeighFetch, rackPolicyMerges, rackPolicyKeep];

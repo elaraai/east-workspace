@@ -203,6 +203,11 @@ export interface RackDelegation {
   /** The run times e3 recorded of the run's tasks, and their objects' sizes,
    *  read once */
   readonly runTimes: RecordedRunTimes;
+  /** Whether every task and unit the session leases names the session's own
+   *  scope, so a rack keeps what it wrote for the session's later work: the
+   *  policy's `keep` is `session`. Else a unit names its split task's
+   *  execution, and a whole task no scope. */
+  readonly keepsSession: boolean;
   /**
    * Whether work may run here now rather than wait for a rack: the policy
    * spills, the run does not keep its work for a rack, and this machine could
@@ -232,6 +237,7 @@ export function readDelegation(options: Pick<RackDelegationOptions, 'policy' | '
     unreachableWaitMs: options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS,
     weighsFetch: options.policy.weighFetch && !rackOnly,
     runTimes: new RecordedRunTimes(),
+    keepsSession: options.policy.keep.type === 'session',
     spills: (budget, expectedBytes = 0) => options.policy.spill && !rackOnly && localIdle(budget, expectedBytes),
   };
 }

@@ -432,9 +432,24 @@ link; every output still comes back whole before its unit succeeds. As the
 execution ends, however it ends, its session ends the scope (control route
 `/v1/sessions/:id/scopes/end`, hub protocol 6), and a session that closes ends
 all of its scopes; each rack granted a lease of one is told with its next
-heartbeat (`x-e3-rack-scopes-ended`). A unit of a scope waits up to
-`SCOPE_AFFINITY_MS` for a rack that holds some of it before another may take
-it.
+heartbeat (`x-e3-rack-scopes-ended`). The hub notes which rack each
+completed lease of a scope that feeds it wrote its output and targets on
+(`ScopeWrites`, bounded at 200,000 objects, let go as the scope ends), and a
+lease of a scope waits up to `SCOPE_AFFINITY_MS` for a rack that wrote some
+of what it reads before another may take it; `fetch-costs`, asked with the
+scope, counts those objects held there.
+
+The policy's `keep` widens the scope: `split` (the default) is the above;
+`session` names one scope, the session's own (`RackSession.sessionScope`), on
+every task's and unit's lease of the rack session — one `e3 dataflow run`, or
+one `e3 watch --start --rack` across its re-runs — feeding it but for a piece
+whose merges run here. A task's output a rack made is then read there by the
+session's later work, which goes to it input by input, not pile onto one
+rack. No split task's end ends it; the hub ends it as the session ends:
+closed, or swept as gone or silent. It keeps a task's data on a rack until
+then, or an hour unused, within the rack's bound. It came with the local
+repository's fourth step (`rack-policy-keep`), which carries the merges
+step's form into this one, kept for a split task alone.
 
 | Outcome | Record and action |
 | --- | --- |

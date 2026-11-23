@@ -7,7 +7,7 @@ import { unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Command } from 'commander';
 import { DateTimeType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, variant } from '@elaraai/east';
-import type { HubClient, HubConfig, RackComputeSize, RackMerges, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
+import type { HubClient, HubConfig, RackComputeSize, RackKeep, RackMerges, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
 import { parseMemory } from '@elaraai/e3-core';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
@@ -21,7 +21,7 @@ const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 type Status = Awaited<ReturnType<HubClient['status']>>;
 interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
 interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
-  merges?: string }
+  merges?: string; keep?: string }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -32,6 +32,11 @@ function sizeOf(text: string): RackComputeSize {
 /** Where `--merges` sends a split task's merge units: `rack` or `local`. */
 function mergesOf(text: string): RackMerges {
   if (text !== 'rack' && text !== 'local') throw new Error(`--merges must be rack or local, not '${text}'`);
+  return text;
+}
+/** How long `--keep` has a rack keep what work wrote there: `split` or `session`. */
+function keepOf(text: string): RackKeep {
+  if (text !== 'split' && text !== 'session') throw new Error(`--keep must be split or session, not '${text}'`);
   return text;
 }
 function integer(text: string, name: string, min = 1, max = Number.MAX_SAFE_INTEGER): number {
@@ -122,7 +127,7 @@ function printFleet(lib: RackLib, status: Status): void {
 
 function printPolicy(policy: RackPolicy): void {
   console.log(`Enabled: ${policy.enabled}\nMode: ${policy.mode.type === 'optIn' ? 'opt-in' : 'auto'}`);
-  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}, merges=${policy.defaultMerges.type}`);
+  console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}, weigh-fetch=${policy.weighFetch}, merges=${policy.defaultMerges.type}, keep=${policy.keep.type}`);
   policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}` +
     `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}` +
     `${rule.merges.type === 'some' ? `, merges=${rule.merges.value.type}` : ''}`));
@@ -262,9 +267,13 @@ export function createRackCommand(): Command {
     .option('--merges <where>', 'Where a split task\'s merge and combine units run when its pieces run on a rack: rack (the default) or local, ' +
       'which fetches no piece back to a rack and runs them under this machine\'s -j/--memory budget. ' +
       'With set, for the rule\'s tasks; with defaults, for every rule that names none')
+    .option('--keep <scope>', 'With defaults: how long a rack keeps what a rack lease wrote there, for later work to read there rather than fetch it back: ' +
+      'split (the default), for the later units of the same split task; or session, for every later task of the same e3 dataflow run, ' +
+      'or of an e3 watch --start --rack across its re-runs')
     .addHelpText('after', '\nA merge kept local stays local under --rack-only and run --rack too: those keep for a rack only the work the policy sends to one.' +
+      '\n\n--keep session keeps task data on a rack longer: until the run or watch ends, or an hour unused, within the rack\'s own bound on what it keeps.' +
       '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . set "rollup_*" rack --merges local' +
-      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . show')
+      '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . defaults --no-weigh-fetch\n  e3 rack policy . defaults --merges local\n  e3 rack policy . defaults --keep session\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
@@ -278,6 +287,7 @@ export function createRackCommand(): Command {
         console.log('Rack policy reset.'); return;
       }
       let policy = await lib.loadPolicy(repo);
+      if (flags.keep !== undefined && action !== 'defaults') throw new Error('--keep is the policy\'s, not a rule\'s: use e3 rack policy defaults --keep');
       if (action === 'set') {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
         policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
@@ -298,6 +308,7 @@ export function createRackCommand(): Command {
           ...(flags.retryTaskFailuresLocally === undefined ? {} : { retryTaskFailuresLocally: flags.retryTaskFailuresLocally }),
           ...(flags.weighFetch === undefined ? {} : { weighFetch: flags.weighFetch }),
           ...(flags.merges === undefined ? {} : { defaultMerges: variant(mergesOf(flags.merges), null) }),
+          ...(flags.keep === undefined ? {} : { keep: variant(keepOf(flags.keep), null) }),
         };
       }
       if (action !== 'show') await lib.savePolicy(repo, policy);

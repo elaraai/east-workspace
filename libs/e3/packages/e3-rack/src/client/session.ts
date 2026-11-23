@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { IntegerType, compareFor, type ValueTypeOf } from '@elaraai/east';
-import { processOwner, readTierManifest, tierManifestDigest, type SplitScope, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
+import { processOwner, readTierManifest, tierManifestDigest, uuidv7, type SplitScope, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { CreateLeaseResultType, HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
 import type { RackLeaseResult, RackLeaseScope } from '../protocol/task-envelope.js';
@@ -119,6 +119,9 @@ export class RackSession {
   /** The split scopes the session's leases named that have not ended: each
    *  one's end is told to the hub once */
   private readonly scopes = new Set<string>();
+  /** The session's own scope's id ({@link sessionScope}): one for the
+   *  session, which the hub ends as the session ends */
+  private readonly sessionScopeId = uuidv7();
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
     /** The e3 release the session's work is built with, which its leases name. */
@@ -252,6 +255,29 @@ export class RackSession {
   }
 
   /**
+   * The session's own scope, which a lease names under a policy that keeps
+   * what work wrote on a rack for the whole session (`keep` `session`): one
+   * id for every task and unit the session leases, whatever split task it is
+   * of, so a task's output a rack made is read there by the session's later
+   * work.
+   *
+   * @remarks
+   * No split task's end ends it: the hub ends it as the session ends — it is
+   * closed, or the hub finds its process gone or silent — and tells each rack
+   * granted a lease of it with its next heartbeat. A session is one
+   * `e3 dataflow run`, or one `e3 watch --start --rack` across its re-runs.
+   *
+   * @param feeds - Whether a later lease reads what this one writes: false
+   *   for a piece whose merges run here
+   * @returns The lease's scope; none once the session has closed, or lost its
+   *   hub
+   */
+  sessionScope(feeds: boolean): RackLeaseScope | undefined {
+    if (this.lost || this.closing !== undefined) return undefined;
+    return { id: this.sessionScopeId, feeds };
+  }
+
+  /**
    * Submits work or attaches to an existing lease, handling events that race
    * the create response. Attempt identity is assigned at claim, never locally.
    * @param request - Current task/unit event and rack shape
@@ -264,18 +290,20 @@ export class RackSession {
   /**
    * What work reading these objects would fetch from each rack the hub has
    * served: the rack's link rate, as the hub measured it, and which of the
-   * objects of this session's repository it was served whole.
+   * objects of this session's repository it was served whole, or, of work
+   * whose lease names a scope, a lease of the scope that feeds it wrote there.
    *
    * @param hashes - The objects the work reads
+   * @param scope - The scope the work's lease names; none unless given
    * @returns Each rack's link, by its id: its rate in bytes a second, null
    *   while unmeasured, and of each object, in the order given, whether the
    *   rack holds it; null when the session is closed, or the hub does not
    *   answer
    */
-  async fetchCosts(hashes: readonly string[]): Promise<Map<string, { bytesPerSecond: number | null; held: boolean[] }> | null> {
+  async fetchCosts(hashes: readonly string[], scope?: string): Promise<Map<string, { bytesPerSecond: number | null; held: boolean[] }> | null> {
     if (this.lost || this.closing !== undefined) return null;
     try {
-      const links = await this.client.fetchCosts(this.sessionId, hashes);
+      const links = await this.client.fetchCosts(this.sessionId, hashes, scope);
       return new Map(links.map((link) => [link.rackId, { bytesPerSecond: link.bytesPerSecond.type === 'some' ? link.bytesPerSecond.value : null, held: link.held }]));
     } catch {
       return null;

@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { none, some } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import { Budget, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import type { RackSession } from '../client/session.js';
 import { DEFAULT_RACK_POLICY } from '../routing/policy.js';
@@ -34,6 +34,10 @@ it('reads a run\'s delegation options once: its defaults, the layer builds it is
   assert.equal(defaults.weighsFetch, true);
   assert.equal(kept.weighsFetch, false, 'work kept for a rack is not weighed');
   assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, weighFetch: false } }).weighsFetch, false);
+  // A rack keeps what work wrote for a split task alone, unless the policy keeps it for the session
+  assert.equal(defaults.keepsSession, false);
+  assert.equal(kept.keepsSession, false);
+  assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, keep: variant('session', null) } }).keepsSession, true);
 
   // A budget with no core free does not take the work
   const budget = new Budget({ cores: 1, memory: GiB }, { sampler: null });

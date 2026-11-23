@@ -232,10 +232,14 @@ and combine units of a split task the rule sends to a rack here, beside its
 planning, while its pieces run on the rack: each piece's output is here
 already, so such a merge fetches nothing over the link, and runs under the
 run's local budget (`--merges rack`, the default, leases it as its pieces are).
-`defaults --merges local` sets it for every rule that names none. Setting a
-rule again replaces it whole. A policy an earlier release stored is carried
-into this release's form when its repository is next opened, every rule as it
-was and its merges on a rack.
+`defaults --merges local` sets it for every rule that names none.
+`defaults --keep session` has a rack keep what every lease of the session
+wrote for the session's later tasks, not only a split task's pieces for its
+merges ([below](#what-a-rack-keeps-for-the-session)); it is the policy's, and
+no rule's. Setting a rule again replaces it whole. A policy an earlier release
+stored is carried into this release's form when its repository is next
+opened, every rule as it was, its merges on a rack, and what a rack keeps kept
+for a split task alone.
 
 ```sh
 e3 rack policy . show
@@ -247,6 +251,7 @@ e3 rack policy . set 'embed_*' rack --size xlarge --gpu
 e3 rack policy . set 'rollup_*' rack --merges local   # pieces on a rack, merges here
 e3 rack policy . defaults --no-spill --claim-timeout 30
 e3 rack policy . defaults --no-weigh-fetch # place by the rules alone
+e3 rack policy . defaults --keep session  # a rack keeps a run's outputs for its later tasks
 e3 dataflow run . dev --no-rack           # override the saved opt-in
 e3 dataflow run . dev --rack-only         # wait when compatible racks are busy
 e3 rack policy . unset 'train_*'
@@ -256,7 +261,8 @@ e3 rack policy . reset
 Defaults are disabled, opt-in selection, `large`, a 1440-minute timeout,
 capacity spill enabled, a 30-second claim recheck, no local retry of task
 failures, fetch-bound work run here ([below](#work-that-would-fetch-longer-than-it-runs)),
-and a split task's merges on a rack with its pieces. `--rack-only` disables
+a split task's merges on a rack with its pieces, and a rack keeping what it
+wrote for a split task's later units alone (`--keep split`). `--rack-only` disables
 capacity spill and the weighing of fetches; infrastructure failures can still
 fall back locally, after a wait: work whose racks are not healthy waits
 two minutes for one to come back, and work whose transfer failed its tries is
@@ -299,7 +305,12 @@ Work that would spend longer fetching than it ran runs here, and says so:
   link.
 - **What a rack holds** is each object the hub served it whole, by
   repository, since the hub started: what the next unit over the same
-  collection does not fetch again. An output a rack wrote is not counted.
+  collection does not fetch again. An output a rack wrote is not counted,
+  but for work whose lease names a scope: what a lease of the same scope
+  that feeds it wrote on a rack, which that rack keeps, is held there
+  (`fetch-costs` is asked with the scope). So under `--keep session` a task
+  whose input a rack made earlier in the run is weighed as fetching none of
+  it there.
 - **How long the work ran** is its execution records': the latest success of
   the same inputs, else the task's latest success, and for a unit the median
   of its task's units. Work that has not succeeded before follows its policy.
@@ -684,15 +695,44 @@ The execution's end ends the scope however it ends: its task succeeds,
 fails, is cancelled or yields, or the run's session closes. The hub tells
 each rack it granted a lease of the scope with its next heartbeat, and the
 rack lets what it kept go; the agent's own bound on how much and how long it
-keeps applies besides. A unit of a scope goes first, for five seconds
-(`SCOPE_AFFINITY_MS`), to a rack that holds some of the scope, so a merge
+keeps applies besides. The hub notes, as each lease of a scope that feeds it
+completes, which rack wrote its output and the objects it was given targets
+for (`ScopeWrites`, at most 200,000 objects of every scope, let go as the
+scope ends). A unit of a scope goes first, for five seconds
+(`SCOPE_AFFINITY_MS`), to a rack that wrote some of what it reads, so a merge
 runs where its pieces are when that rack has room for it; after that any
-rack may take it.
+rack may take it. A piece, which reads nothing the scope wrote, waits for no
+rack.
 
 | Pieces | Merge levels | What a merge fetches back without a scope | With one, on the rack that made the pieces |
 | --- | --- | --- | --- |
 | 7 | 1 | every piece's output, once (P bytes) | nothing |
 | 100 | 2 | every piece's output, then every first-level merge's output (about 2P for a dict or set whose keys do not collapse) | nothing |
+
+#### What a rack keeps for the session
+
+`e3 rack policy . defaults --keep session` widens the scope from a split
+task's execution to the whole **rack session**: one `e3 dataflow run`, or one
+`e3 watch --start --rack` across its re-runs. Every task's and unit's lease of
+the session names one scope (`RackSession.sessionScope`), and feeds it, but a
+piece of a task whose merges its policy keeps here. So a task's output a rack
+made is read there by the session's later tasks, which go first, for five
+seconds, to the rack that wrote some of their inputs, input by input: a
+session's work is not piled onto one rack, and a task that reads nothing
+the session wrote on a rack waits for none. Such a task is weighed as
+fetching none of what its rack wrote. A split task's units name the session's
+scope too, which is all its own would have been; its end does not end the
+session's. The session's scope ends as the session does: closed at the run's
+end, however it ends — a Ctrl-C among them — or when the watch stops, or when
+the hub finds its process gone or silent for 45 seconds. A call's lease names
+no scope.
+
+The default stays `split`. `session` keeps a task's data on a rack longer:
+until the session ends, or no lease of it has used the rack's copies for an
+hour (a watch idle that long between edits loses them, and its next run
+fetches as before), within the agent's own bound on what it keeps. A rack's
+agent is trusted, and keeps them on a disk keyed for its boot. An agent that
+keeps no scopes is granted every lease without one.
 
 A unit always runs where something stops it when it outgrows its share: on a
 rack that admits by its resources, or here, under the run's own budget and
@@ -918,14 +958,16 @@ nothing to its store: it refuses a call's lease the staging of an output
 (`400 invalid-request`).
 
 A unit's lease names its split task's execution (`event.scope`: `{ "id",
-"feeds" }`, `RackLeaseScope`) only to an agent whose report names
-`split-scopes` (`RACK_SPLIT_SCOPES`): every other is granted the lease
-without it. Such an agent may keep what a lease of a scope wrote, once its
+"feeds" }`, `RackLeaseScope`), and under `--keep session` a task's or a
+unit's lease names its session's scope, in the same field, only to an agent
+whose report names `split-scopes` (`RACK_SPLIT_SCOPES`): every other is
+granted the lease without it. A call's lease names none. Such an agent may keep what a lease of a scope wrote, once its
 source holds it, for the later leases of the scope (those `feeds` says read
 it), and lets it go when a heartbeat's answer names the scope in
 `x-e3-rack-scopes-ended` (`RACK_SCOPES_ENDED_HEADER`, a JSON array of ids,
 read with `readRackScopesEnded`): each scope is named once, to the racks
-granted a lease of it, when its session ends it or ends. An answer lost on
+granted a lease of it, when its session ends it (a split task's) or ends
+(every scope its leases named, its own among them). An answer lost on
 its way is not sent again, so an agent bounds what it keeps by its own time
 too.
 

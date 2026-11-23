@@ -876,6 +876,7 @@ e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 \
 e3 rack policy . set 'train_*' rack --size large --gpu
 e3 rack policy . set 'score_*' rack --memory-limit 8G
 e3 rack policy . set 'rollup_*' rack --merges local
+e3 rack policy . defaults --keep session
 e3 dataflow run . dev --rack
 e3 watch src/index.ts . dev --start --rack
 e3 rack list
@@ -925,6 +926,17 @@ budget, as a spilled unit does. Keep `--merges rack` for a task whose merges
 need more memory or cores than this machine has. A merge kept here is never a
 rack's work: `--rack-only` and `e3 run --rack` leave it here too, and the run's
 summary does not count it among the work that ran locally.
+A rack that keeps a scope's objects keeps what a split task's pieces made for
+its merges, until the task ends. `e3 rack policy . defaults --keep session`
+keeps what every rack lease of the session made, for the session's later
+tasks: a session is one `e3 dataflow run`, or one `e3 watch --start --rack`
+across its re-runs. A task whose input a rack made earlier in the session is
+offered first to that rack (for up to 5 s), reads its input there rather than
+over the link, and is weighed as fetching none of it. The default is `split`.
+`session` keeps task data on a rack longer: until the run or the watch ends,
+or no lease has used it for an hour (a watch idle that long between edits
+loses the copies, and later work fetches as it would), within the rack's own
+bound on what it keeps; a rack's agent that keeps no scopes is given none.
 `e3 rack list` shows each rack's cores, memory and GPUs, and what is free. A
 run says what happens, and sums its rack work up as it ends:
 

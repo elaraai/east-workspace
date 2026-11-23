@@ -6,7 +6,8 @@
 import { ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
-import { RACK_LEASE_VERSION, describeRackPhases, leaseReserve, readRackPhases, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
+import { RACK_LEASE_VERSION, describeRackPhases, leaseReserve, readRackPhases, type RackLeaseEvent, type RackLeaseResources, type RackLeaseScope,
+  type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import type { RackFetchCost } from '../protocol/placement.js';
 import { rackRanMs, weighFetch } from './fetch-cost.js';
@@ -64,9 +65,15 @@ function unitResources(reserve: number, verdict: RackVerdict): RackLeaseResource
  * A unit of a split task names the task's execution it runs in, its scope
  * (`TaskBodyRequest.options.splitScope`), which the hub grants to a rack that
  * keeps what the scope's leases wrote for its later ones: a merge then reads
- * its pieces there rather than over the link. Every output still comes here,
- * whole, before its unit succeeds. A piece of a task whose merges its policy
- * keeps here feeds no later lease, so no rack keeps its output for them.
+ * its pieces there rather than over the link. Under a policy that keeps it
+ * for the session (`keep` `session`), every task and unit names the
+ * session's own scope instead (`RackSession.sessionScope`), which feeds the
+ * session's later work: a task's output a rack made is read there by the
+ * run's later tasks, and by a watch's later runs. Every output still comes
+ * here, whole, before its unit succeeds. A piece of a task whose merges its
+ * policy keeps here feeds no later lease, so no rack keeps its output for
+ * them. Work that names a scope is weighed for what it would fetch knowing
+ * what the scope's leases wrote where.
  *
  * A unit of a split task is leased only to a rack that caps it at what its
  * lease asks (`rackCapsUnits`), which is the hub's rule for granting one
@@ -135,15 +142,27 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     // When a rack last claimed the work, by this machine's clock: how long it
     // waited for its grant, from its hand-over, which its line says
     let claimedAt: number | undefined;
+    // The scope its lease names, while it has not ended: the session's own
+    // under a policy that keeps it for the session, else, of a unit, the
+    // split task's execution it runs in; a whole task then names none. A
+    // piece whose merges its policy keeps here feeds no later lease: no rack
+    // keeps its output for a merge that runs here
+    const unitScope = request.unit === undefined ? undefined : request.options.splitScope;
+    const feedsNoRack = unitScope?.feeds === true && request.unit?.merge === null && request.options.taskName !== undefined
+      && delegation.evaluator.keepsMergesHere(request.options.taskName);
+    const leaseScope = (): RackLeaseScope | undefined => delegation.keepsSession ? session.sessionScope(!feedsNoRack)
+      : unitScope === undefined ? undefined : session.scope(feedsNoRack ? { ...unitScope, feeds: false } : unitScope);
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
       // Work that would spend longer fetching what the racks do not hold of
-      // its closure than it last ran runs here; a first run follows its policy
+      // its closure than it last ran runs here; a first run follows its policy.
+      // What its scope's leases wrote is held by the rack that wrote it
       if (delegation.weighsFetch) {
         const ranMs = await delegation.runTimes.ranMs(request.storage, request.repo, request.taskHash, request.ids.inHash,
           request.unit !== undefined && !request.unit.own);
-        const cost = ranMs === null ? null : await weighFetch({ links: (closed) => session.fetchCosts(closed), racks: fleet.racks().map((rack) => rack.rackId),
+        const scopeId = leaseScope()?.id;
+        const cost = ranMs === null ? null : await weighFetch({ links: (closed) => session.fetchCosts(closed, scopeId), racks: fleet.racks().map((rack) => rack.rackId),
           storage: request.storage, repo: request.repo, hashes, ranMs, times: delegation.runTimes });
         if (cost !== null) return await runLocal('fetch-bound', undefined, undefined, cost);
       }
@@ -153,13 +172,7 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       // unit its cap stopped is leased again asking for more.
       leases: for (;;) {
       handle = undefined;
-      // The split task's execution the unit runs in, while it has not ended.
-      // A piece whose merges its policy keeps here feeds no later lease: no
-      // rack keeps its output for a merge that runs here
-      const unitScope = request.unit === undefined ? undefined : request.options.splitScope;
-      const feedsNoRack = unitScope?.feeds === true && request.unit?.merge === null && request.options.taskName !== undefined
-        && delegation.evaluator.keepsMergesHere(request.options.taskName);
-      const splitScope = unitScope === undefined ? undefined : session.scope(feedsNoRack ? { ...unitScope, feeds: false } : unitScope);
+      const scope = leaseScope();
       const common = { launchId: uuidv7(), repo: session.repoAlias, timeoutMs,
         taskHash: request.taskHash, force: true, verbose: request.options.verbose === true,
         ...(request.options.expectedPeakBytes !== undefined && { expectedPeakBytes: request.options.expectedPeakBytes }) };
@@ -167,7 +180,7 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
         runnerEvent: request.unit === undefined ? { ...common, mode: 'task', inputHashes: request.inputHashes }
           : { ...common, mode: 'unit', unit: splitUnitToWire(request.unit) },
         workspace: options.workspace, taskName, e3Version: session.e3Version, closure, resources,
-        ...(verdict.environment !== null && { environment: verdict.environment }), ...(splitScope !== undefined && { scope: splitScope }) };
+        ...(verdict.environment !== null && { environment: verdict.environment }), ...(scope !== undefined && { scope }) };
       if (signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
       const needs = resources;
       const submitted = await fleet.submit({ eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size }, needs,
