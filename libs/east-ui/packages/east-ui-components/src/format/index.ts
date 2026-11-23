@@ -33,6 +33,12 @@
  * printed as written by East's printer ({@link formatPattern}): the locale
  * decides only the defaults.
  *
+ * One kind of date is the reader's own: an instant they lived through, which
+ * they read against their own clock — when an alert fired (ruled 23 November
+ * 2026). {@link Formatters.localDateTime} prints it in the reader's time zone,
+ * the runtime's unless {@link formatters} is given one; it is never a data
+ * value's.
+ *
  * This module is the only place a renderer builds an `Intl` formatter or asks
  * a `Date` for its local fields — a lint rule holds every other file to it.
  *
@@ -113,6 +119,11 @@ export interface Formatters {
     numericDate(d: Date): string;
     /** A date and 24-hour time — `Jun 29, 2026, 14:00`. */
     dateTime(d: Date): string;
+    /**
+     * A date and 24-hour time on the reader's own clock — `Jun 30, 2026, 00:00` in Sydney for `Jun 29, 2026, 14:00`
+     * UTC: an instant the reader lived through, when an alert fired, never a data value's (see the module docs).
+     */
+    localDateTime(d: Date): string;
     /** A 24-hour time — `14:00`. */
     time(d: Date): string;
     /** A short weekday — `Mon`. */
@@ -321,13 +332,18 @@ function utcFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.Da
     return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" });
 }
 
+/** But an instant the reader lived through: on their clock, in the zone given, else the runtime's own. */
+function readerFormat(locale: string, zone: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+    return new Intl.DateTimeFormat(locale, zone === undefined ? options : { ...options, timeZone: zone });
+}
+
 /** A date arm: `""` for an invalid date rather than `Intl`'s RangeError. */
 function dateArm(format: Intl.DateTimeFormat): (d: Date) => string {
     return (d) => (Number.isNaN(d.getTime()) ? "" : format.format(d));
 }
 
-/** Build the formatters for one locale. */
-function build(locale: string): Formatters {
+/** Build the formatters for one locale, and the reader's zone, the runtime's when `undefined`. */
+function build(locale: string, zone: string | undefined): Formatters {
     // Number formats are built on first use and kept, keyed by their
     // options: a Table formats thousands of cells through a handful of specs.
     const numberFormats = new Map<string, Intl.NumberFormat>();
@@ -409,6 +425,7 @@ function build(locale: string): Formatters {
         date,
         numericDate: dateArm(utcFormat(locale, { day: "numeric", month: "numeric", year: "numeric" })),
         dateTime: dateArm(utcFormat(locale, { ...dmy, ...hm })),
+        localDateTime: dateArm(readerFormat(locale, zone, { ...dmy, ...hm })),
         time: dateArm(utcFormat(locale, hm)),
         weekday: dateArm(utcFormat(locale, { weekday: "short" })),
         weekdayDate: dateArm(utcFormat(locale, { weekday: "short", ...dmy })),
@@ -435,17 +452,20 @@ function build(locale: string): Formatters {
 const BY_LOCALE = new Map<string, Formatters>();
 
 /**
- * The formatters for a locale — one object per locale, built once, so its
- * identity is stable (a memo can depend on it).
+ * The formatters for a locale — one object per locale and reader's zone,
+ * built once, so its identity is stable (a memo can depend on it).
  *
  * @param locale - The BCP 47 locale; the runtime's default when omitted
+ * @param zone - The reader's IANA time zone, which {@link Formatters.localDateTime} prints in — every other arm is
+ *   UTC; the runtime's own when omitted
  * @returns The formatters
  */
-export function formatters(locale: string = DEFAULT_LOCALE): Formatters {
-    let f = BY_LOCALE.get(locale);
+export function formatters(locale: string = DEFAULT_LOCALE, zone?: string): Formatters {
+    const key = zone === undefined ? locale : `${locale} ${zone}`;
+    let f = BY_LOCALE.get(key);
     if (f === undefined) {
-        f = build(locale);
-        BY_LOCALE.set(locale, f);
+        f = build(locale, zone);
+        BY_LOCALE.set(key, f);
     }
     return f;
 }

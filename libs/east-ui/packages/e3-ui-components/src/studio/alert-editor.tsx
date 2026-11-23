@@ -9,7 +9,9 @@
  * (`alert-section.tsx`) both draw.
  *
  * - **The list** ({@link AlertList}): each alert by its name and where it
- *   stands (`alert-row.tsx`: the row every flush popover's list draws).
+ *   stands (`alert-row.tsx`: the row every flush popover's list draws) —
+ *   firing or cleared since when, on the reader's own clock (`localDateTime`,
+ *   ruled 23 November 2026).
  * - **The editor** ({@link AlertEditor}): its name; its condition, the query
  *   builder's condition rows over the visual's rows, as its check reads them
  *   under its filters — its groups, then its values (`filter-editor.tsx`), their
@@ -108,7 +110,7 @@ export function AlertList({ alerts, onOpen }: AlertListProps) {
     return (
         <Box css={styles.alerts} data-studio-alerts="">
             {alerts.map((held) => {
-                const status = statusOf(held.alert, m, (at) => f.dateTime(at));
+                const status = statusOf(held.alert, m, (at) => f.localDateTime(at));
                 return <AlertRow key={held.name} name={held.name} status={status.kind} words={status.words} onOpen={() => onOpen(held)} />;
             })}
         </Box>

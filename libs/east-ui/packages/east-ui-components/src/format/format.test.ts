@@ -214,6 +214,28 @@ describe.each([
     });
 });
 
+// ── The reader's own clock ──────────────────────────────────────────────────
+
+describe("an instant the reader lived through prints on their own clock (ruled 23 Nov 2026)", () => {
+    test("in the zone the formatters are given — every other date arm stays UTC", () => {
+        const sydney = formatters("en-US", "Australia/Sydney");
+        const newYork = formatters("en-US", "America/New_York");
+        // 22:30 UTC on 29 June: half past eight the next morning in Sydney (UTC+10), half past six that evening in New York (UTC-4).
+        expect([sydney.localDateTime(LATE), newYork.localDateTime(LATE)]).toEqual(["Jun 30, 2026, 08:30", "Jun 29, 2026, 18:30"]);
+        expect(formatters("de-DE", "Australia/Sydney").localDateTime(LATE)).toBe("30. Juni 2026, 08:30");
+        // The zone is the reader's own clock's alone: the arms of every other date are UTC, as everywhere.
+        expect([sydney.dateTime(LATE), sydney.date(LATE), sydney.time(LATE)]).toEqual(["Jun 29, 2026, 22:30", "Jun 29, 2026", "22:30"]);
+        expect(sydney.localDateTime(new Date(Number.NaN))).toBe("");
+    });
+
+    test("one object per locale and zone, built once; with no zone, the runtime's own", () => {
+        expect(formatters("en-US", "Australia/Sydney")).toBe(formatters("en-US", "Australia/Sydney"));
+        expect(formatters("en-US", "Australia/Sydney")).not.toBe(formatters("en-US"));
+        expect(formatters("en-US", "Australia/Sydney")).not.toBe(formatters("de-DE", "Australia/Sydney"));
+        expect(formatters("en-US", "Australia/Sydney").locale).toBe("en-US");
+    });
+});
+
 // ── The edges ───────────────────────────────────────────────────────────────
 
 describe("the edges", () => {

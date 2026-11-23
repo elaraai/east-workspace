@@ -7,7 +7,8 @@
  * `EastChakraStudioAlertBell` — the renderer of the `StudioAlertBell`
  * extension declared in `@elaraai/e3-ui` (#1674): the bell a host puts in its
  * bar, how many of its alerts are firing, and the list of them, newest
- * first — each its name, its page and when it fired. Opening one sets the
+ * first — each its name, its page and when it fired, on the reader's own
+ * clock (`localDateTime`, ruled 23 November 2026). Opening one sets the
  * page's filters, as its reader's, to the alert's, marks the page opened for
  * it, and tells the host's `onOpen` the page's key; the page draws a banner
  * naming the alert and when it fired ({@link AlertOpenedBanner}), whose Show
@@ -109,7 +110,7 @@ export const EastChakraStudioAlertBell = memo(function EastChakraStudioAlertBell
             ) : (
                 <Box css={styles.alerts} data-studio-alerts-firing="">
                     {firing.map(([name, alert]) => (
-                        <AlertRow key={name} name={name} status="firing" words={m.alertWhere({ page: alert.page.page, at: f.dateTime(firedAt(alert)!) })}
+                        <AlertRow key={name} name={name} status="firing" words={m.alertWhere({ page: alert.page.page, at: f.localDateTime(firedAt(alert)!) })}
                             onOpen={() => {
                                 openAlertPage(name, alert);
                                 setOpen(false);
@@ -175,7 +176,7 @@ export function AlertOpenedBanner({ page }: AlertOpenedBannerProps) {
         </SliceEditPopover>
     );
     return (
-        <BannerView status="warning" title={m.alertBanner({ name: opened, at: f.dateTime(firing.at) })} description={m.alertBannerRows({ n: count, count: f.number(count) })}
+        <BannerView status="warning" title={m.alertBanner({ name: opened, at: f.localDateTime(firing.at) })} description={m.alertBannerRows({ n: count, count: f.number(count) })}
             actions={<>{rows}<ChakraButton type="button" size="xs" variant="outline" onClick={() => forgetStoredValue(key)}>{m.dismiss()}</ChakraButton></>} />
     );
 }
