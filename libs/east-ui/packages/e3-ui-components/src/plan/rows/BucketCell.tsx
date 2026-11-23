@@ -26,17 +26,19 @@
  * cell does not rest on. While it measures again the chip keeps the last fold,
  * so an open menu stays open (#1235). A context strip's cell (R2) never folds.
  *
- * A cell with no room for one tile, its padding given way (#1276), draws none
- * of them: its chip alone, across the whole cell (`data-no-room`), lists every
- * tile, and a pick does what the tile's click does — its popover, the tile
- * having no box, hangs from the chip.
+ * A cell with no room for one tile, its padding given way (#1276), draws a lone
+ * tile as a mark across itself (#1710) — the tile, its own fill and none of its
+ * parts, its click its own — and several none of them: its chip alone, across
+ * the whole cell (`data-no-room`), lists every tile, and a pick does what the
+ * tile's click does — its popover, the tile having no box, hangs from the chip.
  *
  * The renderer sets data attributes and nothing else: `data-tile-measure` on
  * the tiles' box while it measures, `data-folded` on a folded tile,
  * `data-tile-more` on the chip, `data-tile-more-count` on its count,
  * `data-cramped` on a chip wider than the room, which shrinks to it and draws
  * no count, and `data-no-room` on a chip a cell with no room for a tile draws
- * across itself. Its styles are the Plan recipe's.
+ * across itself, or on the tiles' box whose lone tile draws as a mark across
+ * the cell. Its styles are the Plan recipe's.
  *
  * @packageDocumentation
  */
@@ -189,6 +191,8 @@ export function BucketCell(props: BucketCellProps) {
     // still saying what it holds — as a tile's parts go (#1266). Drawn across a cell with no room for a tile, its
     // room is the cell's (#1276).
     const noRoom = measured?.noRoom === true;
+    // A lone tile in a cell with no room for it draws as a mark across the cell (#1710): the tile itself, out of its box.
+    const mark = noRoom && !measuring && folded.length === 0;
     const cramped = measure !== undefined && measure.more - measure.gap > (noRoom ? measure.cell : measure.room) + 0.01;
 
     // A focused tile that folds hands the focus to the chip, which holds it now.
@@ -229,7 +233,8 @@ export function BucketCell(props: BucketCellProps) {
         >
             {/* The tiles, in the room the cell gives them: a tile's floor is that room's (#1266). */}
             <Box ref={boxRef} css={styles.cellTiles} data-plan-cell-tiles=""
-                data-tile-measure={folds && measuring ? "" : undefined}>
+                data-tile-measure={folds && measuring ? "" : undefined}
+                data-no-room={mark ? "" : undefined}>
                 {tiles.map((tile, i) => tile.draw(shown !== undefined && !shown.has(i)))}
                 {folds && measuring && (
                     // The chip's stand-in, measured beside the tiles drawn whole: beside the

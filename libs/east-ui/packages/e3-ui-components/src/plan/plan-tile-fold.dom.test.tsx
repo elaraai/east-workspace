@@ -11,9 +11,10 @@
  * is out of the row's walk, which reaches the chip in its place. The fold is
  * measured again as the room changes, and an open menu stays open through it.
  * A cell with no room beside the chip for a kept tile's floor shows the kept
- * tile alone until it is let go. A cell with no room for one tile draws none:
- * its chip alone, across the cell, lists every tile, and a pick opens the
- * tile's popover hung from the chip (#1276). jsdom lays nothing out: the
+ * tile alone until it is let go. A cell with no room for one of its several
+ * tiles draws none: its chip alone, across the cell, lists every tile, and a
+ * pick opens the tile's popover hung from the chip (#1276); a lone tile there
+ * draws as a mark across the cell, its click its own (#1710). jsdom lays nothing out: the
  * tiles, the chip's stand-in and the room measure as the stand-in layout below
  * says.
  */
@@ -290,25 +291,30 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         expect(menu()).toEqual({ open: "true", items });
     });
 
-    test("a cell with no room for one tile draws none: its chip alone, across the cell, lists every tile; a pick opens the tile's popover, hung from the chip (#1276)", async () => {
+    test("a cell with no room for one tile: several fold into its chip alone, across the cell, which lists every tile and a pick opens the tile's popover hung from the chip (#1276); a lone tile draws as a mark across its cell — the tile itself, never a count of one, its click its popover (#1710)", async () => {
         room = 0;
         const { container } = renderPlan("plan-1276-no-room");
-        // Jul 6's three tiles, and DELTA alone in Jul 20's cell: every one folds, kept or not.
+        // Jul 6's three tiles: every one folds into the chip, the cell's one part, kept or not.
         expect(cellOf(container)).toEqual({
             shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"], measuring: false,
         });
-        const lone = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="3:0"]`)!;
-        const chip = lone.querySelector<HTMLElement>("[data-tile-more]")!;
-        // The cell's one event: its chip names it as one event, never one more (#1680's review).
-        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["+1", "1 event, Week of Jul 20, 2026"]);
-        expect([chip.hasAttribute("data-no-room"), tileOf(container, "d").hasAttribute("data-folded")]).toEqual([true, true]);
-        await act(async () => { fireEvent.click(chip); });
-        expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["DELTA, Week of Jul 20, 2026, confirmed"]);
-        await pick(/^DELTA/);
-        expect(await screen.findByText("POP · d")).toBeTruthy();
-        // DELTA, which cannot draw, stays folded; its popover watches the chip, which it hangs from.
-        expect(tileOf(container, "d").hasAttribute("data-folded")).toBe(true);
+        const chip = chipOf(container);
+        expect(chip.hasAttribute("data-no-room")).toBe(true);
+        await openMenu(container);
+        await pick(/^ALPHA/);
+        expect(await screen.findByText("POP · a")).toBeTruthy();
+        // ALPHA, which cannot draw beside the others, stays folded; its popover watches the chip, which it hangs from.
+        expect(tileOf(container, "a").hasAttribute("data-folded")).toBe(true);
         expect(watched.at(-1)).toBe(chip);
+        // DELTA alone in Jul 20's cell: no chip, the tile drawn as the cell's mark.
+        const lone = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="3:0"]`)!;
+        expect(lone.querySelector("[data-tile-more]")).toBeNull();
+        expect(lone.querySelector("[data-plan-cell-tiles]")!.hasAttribute("data-no-room")).toBe(true);
+        expect(tileOf(container, "d").hasAttribute("data-folded")).toBe(false);
+        // Its click is the tile's own: its popover, which watches the tile.
+        await act(async () => { fireEvent.click(tileOf(container, "d")); });
+        expect(await screen.findByText("POP · d")).toBeTruthy();
+        expect(watched.at(-1)).toBe(tileOf(container, "d"));
     });
 
     test("with no room beside the chip for a kept tile's floor, the kept tile shows alone; let go, it folds and hands the focus to the chip", async () => {

@@ -9,8 +9,9 @@
  * beside the `+n` chip, the rest folded; the chip alone when none fits; a lone
  * tile never folded, nor the tile the cell keeps — beside the chip, shrunk to
  * its floor at least, or alone while the chip waits — unless the cell has no
- * room for one tile at the least it draws: then every tile folds, and the chip
- * is the cell's one part (#1276).
+ * room for one tile at the least it draws: then a lone tile draws as a mark
+ * across it (#1710), and several fold into the chip, the cell's one part
+ * (#1276).
  */
 
 import { describe, test, expect } from "vitest";
@@ -51,10 +52,10 @@ describe("fitTiles (#1267)", () => {
         expect(fitTiles({ room: 12, tiles: [], gap: 5, more: 29, floor: 20, least: 3 }, undefined)).toEqual({ shown: [], folded: 0, chip: false, noRoom: false });
     });
 
-    test("a cell with no room for one tile — less than the least it draws — folds every tile into its chip, the cell's one part (#1276)", () => {
-        // A lone tile in a cell at its floor: no room at all.
-        expect(fitTiles({ room: 0, tiles: [45], gap: 5, more: 29, floor: 0, least: 3 }, undefined)).toEqual({ shown: [], folded: 1, chip: true, noRoom: true });
-        expect(fitTiles({ room: 2.98, tiles: [20], gap: 5, more: 29, floor: 2.98, least: 3 }, undefined)).toEqual({ shown: [], folded: 1, chip: true, noRoom: true });
+    test("a cell with no room for one tile — less than the least it draws: a lone tile draws as a mark across it, never a count of one; several fold into its chip, the cell's one part (#1276, #1710)", () => {
+        // A lone tile in a cell at its floor, no room at all: it shows, a mark, and no chip.
+        expect(fitTiles({ room: 0, tiles: [45], gap: 5, more: 29, floor: 0, least: 3 }, undefined)).toEqual({ shown: [0], folded: 0, chip: false, noRoom: true });
+        expect(fitTiles({ room: 2.98, tiles: [20], gap: 5, more: 29, floor: 2.98, least: 3 }, 0)).toEqual({ shown: [0], folded: 0, chip: false, noRoom: true });
         // Three tiles: the chip counts them all, and a kept tile, which could not draw, folds with them.
         expect(fitTiles(cell(2), undefined)).toEqual({ shown: [], folded: 3, chip: true, noRoom: true });
         expect(fitTiles(cell(2), 1)).toEqual({ shown: [], folded: 3, chip: true, noRoom: true });

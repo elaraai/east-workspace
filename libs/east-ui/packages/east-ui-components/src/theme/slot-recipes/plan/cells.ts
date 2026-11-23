@@ -249,7 +249,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // the cell leaves it, its 20px floor where the cell has that, and in a
     // room narrower than its padding the padding gives way, down to its rings
     // (`--plan-tile-least-w`, #1276) — a cell with less room than that draws
-    // no tile, and shows its `+n` alone. Its parts
+    // a lone tile as a mark across itself (#1710), and folds several into its
+    // `+n` alone. Its parts
     // sit on ONE line of its own height, which the strut before them holds,
     // and a part with no room on that line wraps below it, where the tile
     // clips it whole: its icon goes once the tile is narrower inside than
@@ -322,6 +323,20 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // (#1267); a tile it folds is out of the cell, counted in its `+n`.
         "[data-tile-measure] > &": { flexShrink: 0 },
         "&[data-folded]": { display: "none" },
+        // A lone tile in a cell with no room for it (#1710): a mark across the whole cell — its padding too — at its
+        // own height, in its state's fill and rings, none of its parts drawn; out of its tiles' box, so the room the
+        // cell measures never changes with it. Its ink goes `transparent`, as a strip's mark's does, which takes an FA
+        // icon with it.
+        "[data-no-room] > &": {
+            position: "absolute",
+            insetInline: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            minWidth: 0,
+            padding: 0,
+            color: "transparent",
+            "& > * + *": { marginInlineStart: 0 },
+        },
         // ── R1 GEOMETRY SHRINKS — the bucket case ──
         // A tile is already quantised to its cell; collapsing keeps the
         // cell and flattens the tile inside it. `minWidth` has to go with
@@ -363,9 +378,11 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // a tile squeezed beside it gives the room — but in a cell narrower than
     // the chip (`data-cramped`) it shrinks to the room and draws no count, its
     // name still saying what it holds. The stand-in a cell measures beside its
-    // tiles is never seen. A cell with no room for one tile (`data-no-room`,
-    // #1276) draws the chip alone across the whole cell — its padding too —
-    // so what the cell holds is never unseen; its menu lists every tile.
+    // tiles is never seen. A cell with no room for one of its several tiles
+    // (`data-no-room`, #1276) draws the chip alone across the whole cell — its
+    // padding too — a solid neutral mark, its count in the paper ink (#1710),
+    // so what the cell holds is never unseen: on paper it read as an empty
+    // cell. Its menu lists every tile.
     //
     // On a coarse pointer its tap target is its cell, less the tiles in it
     // (#346's halo, held to the cell): the halo lies beneath the tiles in their
@@ -405,6 +422,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             insetInline: 0,
             top: "50%",
             transform: "translateY(-50%)",
+            background: "fg.subtle",
+            color: "bg.surface",
+            _hover: { color: "bg.surface" },
         },
         "&[data-tile-more-measure]": { visibility: "hidden" },
         ...coarseHitArea(),

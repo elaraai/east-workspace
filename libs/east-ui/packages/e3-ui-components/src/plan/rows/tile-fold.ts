@@ -14,9 +14,10 @@
  * them all. A lone tile fits its cell as #1266 draws it, shrunk to the room.
  *
  * A cell with no room for one tile — less than the least a tile draws, its
- * padding given way — draws none of them: its chip alone counts them all,
- * across the cell, and lists every one (#1276). Nothing a cell holds goes
- * unseen.
+ * padding given way — draws a lone tile as a mark across the cell, its own
+ * fill and nothing of its parts (#1710): the tile, to act on, never a count of
+ * one. Several, it draws none of them: its chip alone counts them all, across
+ * the cell, and lists every one (#1276). Nothing a cell holds goes unseen.
  *
  * The tile the cell keeps — the selected one, the one whose popover is open,
  * or the one just picked from the chip's menu — never folds: it takes its
@@ -52,7 +53,8 @@ export interface TileCellFit {
     readonly folded: number;
     /** Whether the chip shows: tiles fold, and a kept tile left it the room. */
     readonly chip: boolean;
-    /** Whether the cell has no room for one tile (#1276): every tile folds, and the chip is the cell's one part. */
+    /** Whether the cell has no room for one tile (#1276): a lone tile draws as a mark across it (#1710); several fold, and
+     *  the chip is the cell's one part. */
     readonly noRoom: boolean;
 }
 
@@ -69,10 +71,11 @@ const SLACK = 0.01;
 export function fitTiles(measure: TileCellMeasure, kept: number | undefined): TileCellFit {
     const count = measure.tiles.length;
     const all = Array.from({ length: count }, (_, i) => i);
-    // No room for one tile, at the least it draws — or its whole width, were that less: the chip alone, kept tile or
-    // not, for a tile that cannot draw is no tile to act on.
+    // No room for one tile, at the least it draws — or its whole width, were that less. A lone tile draws as a mark
+    // across its cell (#1710), the tile itself — never a count of one; several, the chip alone, kept tile or not, for a
+    // tile that cannot draw beside others is no tile to act on.
     if (count > 0 && measure.tiles.every((w) => Math.min(w, measure.least) > measure.room + SLACK)) {
-        return { shown: [], folded: count, chip: true, noRoom: true };
+        return count === 1 ? { shown: [0], folded: 0, chip: false, noRoom: true } : { shown: [], folded: count, chip: true, noRoom: true };
     }
     const across = measure.tiles.reduce((sum, w) => sum + w, 0) + measure.gap * Math.max(0, count - 1);
     if (count <= 1 || across <= measure.room + SLACK) return { shown: all, folded: 0, chip: false, noRoom: false };
