@@ -70,10 +70,11 @@
  * - **A click on a row (east-workspace#1727)**: a press on a cell or on a
  *   row's number that did nothing but place the ring — the button's first
  *   press, no step of the cell, no ⇧ — is held until its release, and
- *   released inside what it pressed it reports a click (`emit.rowClick`). A
- *   drag of the range into another cell, a release elsewhere and a release
- *   never heard click nothing, and no key ever does; a pick of a row's box
- *   is no press.
+ *   released where it was pressed — inside the box of the cell or the number
+ *   it pressed, whatever the press drew over it — it reports a click
+ *   (`emit.rowClick`). A drag of the range into another cell, a release
+ *   elsewhere and a release never heard click nothing, and no key ever does; a
+ *   pick of a row's box is no press.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. A lens over a grouped sheet narrows its groups,
@@ -603,12 +604,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             // A cell that edits out of place opens where the host edits it (#1531).
             if (!e.shift && ctx.opensAt?.(e.r, e.c) === true) effects.push({ t: "open", r: e.r, c: e.c });
             // A press that did nothing but place the ring may be a click on its row (east-workspace#1727): its release
-            // inside the cell says. A step of the cell, or ⇧, is no click.
+            // where it was pressed says. A step of the cell, or ⇧, is no click.
             const press = e.click === true && !e.shift && !steps ? { r: e.r, c: e.c } : null;
             return { state: moved.gsel === null && moved.press === null && press === null ? moved : { ...moved, gsel: null, press }, effects };
         }
         case "cell.up": {
-            // The press in hand ends (east-workspace#1727): released inside what it pressed, a click on its row.
+            // The press in hand ends (east-workspace#1727): released where it was pressed, a click on its row.
             const press = s.press;
             if (press === null) return { state: s, effects: [] };
             return { state: { ...s, press: null }, effects: e.inside ? [{ t: "emit.rowClick", r: press.r, c: press.c }] : [] };
@@ -850,18 +851,33 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
 
 // ── The component-facing store (the Plan #610 pattern) ─────────────────────
 
-/** The one `useReducer` store: UI state + the effect batch. */
+/** One effectful event's effects, and its place among the effectful events: the component's drain runs each batch once. */
+export interface SheetFxBatch {
+    /** The event's place among the effectful events, the first 1. */
+    readonly seq: number;
+    /** Its effects, in order. */
+    readonly effects: readonly SheetEffect[];
+}
+
+/** The one `useReducer` store: UI state + the effect batches. */
 export interface SheetStore {
     ui: SheetUiState;
-    /** The latest effectful event's batch — replaced per such event. */
-    fx: readonly SheetEffect[];
-    /** Bumps when an event yields effects; the component's drain gates on it. */
+    /**
+     * Each effectful event's batch the drain may not have run yet, in order: two events dispatched before it runs — a
+     * press and its release in one task, as a script clicks — keep both, the first never lost to the second.
+     */
+    fx: readonly SheetFxBatch[];
+    /** Counts the effectful events — the last batch's `seq`; the component's drain gates on it. */
     fxSeq: number;
 }
 
 /** Everything the store reducer handles. */
 export type SheetAction =
-    | { t: "event"; e: SheetEvent; ctx: SheetMachineCtx }
+    | {
+        t: "event"; e: SheetEvent; ctx: SheetMachineCtx;
+        /** The last batch the drain had run as the event was dispatched: those up to it are let go. */
+        drained: number;
+    }
     /** A direct UI patch from the component (the range after a paste, a message). */
     | { t: "patch"; patch: Partial<SheetUiState> }
     /**
@@ -880,18 +896,20 @@ export function initialSheetStore(sel?: CellRef, active: string | null = null, f
 }
 
 /**
- * The store transition — pure: StrictMode double-invokes reducers, so the
+ * The store transition — pure: StrictMode double-invokes reducers, so each
  * effect batch rides the returned store and is run by the component's
- * seq-gated drain, never from inside a reducer.
+ * seq-gated drain, never from inside a reducer. A batch stands until an event
+ * dispatched after the drain ran it lets it go.
  */
 export function sheetStoreReducer(store: SheetStore, a: SheetAction): SheetStore {
     switch (a.t) {
         case "event": {
             const { state, effects } = sheetReducer(store.ui, a.e, a.ctx);
             if (state === store.ui && effects.length === 0) return store;
-            return effects.length === 0
-                ? { ...store, ui: state }
-                : { ...store, ui: state, fx: effects, fxSeq: store.fxSeq + 1 };
+            if (effects.length === 0) return { ...store, ui: state };
+            const seq = store.fxSeq + 1;
+            const pending = store.fx.filter((batch) => batch.seq > a.drained);
+            return { ...store, ui: state, fx: [...pending, { seq, effects }], fxSeq: seq };
         }
         case "patch":
             return { ...store, ui: { ...store.ui, ...a.patch } };

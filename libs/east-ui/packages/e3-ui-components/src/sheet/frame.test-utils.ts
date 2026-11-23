@@ -8,8 +8,9 @@
  * lays nothing out (#856). The Sheet renders in its frame and scrolls its own
  * rows in main (#1216), so a test that renders one needs that frame as tall
  * as the browser would lay it, and rows as tall as they draw; a test of a
- * folded gutter (#1215), a touch screen's narrow frame; and a test of a
- * desktop's frame too narrow to pin its panes, main narrower than it.
+ * folded gutter (#1215), a touch screen's narrow frame; a test of a
+ * desktop's frame too narrow to pin its panes, main narrower than it; and a
+ * test of a click's release (east-workspace#1727), the box of what it pressed.
  *
  * Test use only: the package build leaves `*.test-utils.ts` out.
  *
@@ -244,6 +245,22 @@ export function holdFrames(): { run: () => void; restore: () => void } {
             window.cancelAnimationFrame = saved.cancel;
         },
     };
+}
+
+/**
+ * An element laid out where a browser would lay it, so a test can tell a point
+ * inside its box from one outside it — a click's release where its press was
+ * (east-workspace#1727), whatever the press drew over it by then.
+ *
+ * @param el - The element
+ * @param box - Its box on the page (px): its left and top edges, its width and its height
+ * @returns The restore
+ */
+export function placeAt(el: Element, box: { left: number; top: number; width: number; height: number }): () => void {
+    const { left, top, width, height } = box;
+    const rect = { x: left, y: top, left, top, width, height, right: left + width, bottom: top + height, toJSON: () => ({}) } as DOMRect;
+    Object.defineProperty(el, "getBoundingClientRect", { configurable: true, value: () => rect });
+    return () => { delete (el as { getBoundingClientRect?: unknown }).getBoundingClientRect; };
 }
 
 /**

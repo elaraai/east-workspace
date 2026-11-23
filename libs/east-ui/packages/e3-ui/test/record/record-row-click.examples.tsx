@@ -42,7 +42,7 @@ export const recordRowClickPresses = e3.record("record_row_click_presses", DictT
 
 export const recordRowClick = example({
     keywords: ["Record", "onRowClick", "row click", "click", "Record.Types.RowClick", "RowClick", "key", "column", "State", "State.bind", "picked", "panel", "detail"],
-    description: "A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too — writes the press's code and the column clicked into the page's state, which a panel beside the Record reads. A click that ticks the row's box, a drag across the cells and a key never does",
+    description: "A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too, on its name, which opens its Details too — writes the press's code and the column clicked into the page's state, which a panel beside the Record reads. A click that ticks the row's box, a drag across the cells and a key never does",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(recordRowClickPresses));
@@ -61,6 +61,7 @@ export const recordRowClick = example({
                             title="Presses"
                             noun={{ singular: "press", plural: "presses" }}
                             onRowClick={onRowClick}
+                            inspector
                             columns={{
                                 name:   Record.column.title(RowClickPress, { header: "Press", width: "200px" }),
                                 hall:   Record.column.text(RowClickPress, { header: "Hall", width: "120px" }),

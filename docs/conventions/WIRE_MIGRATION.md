@@ -1663,3 +1663,16 @@ Each wire changed under this rule, with the kind it is.
   The wires it uses are the lease scope above and hub control protocol 6's
   `fetch-costs`, whose `scope` this release brings with the protocol: no
   further step of either.
+- **e3-ui's `Sheet` and `Record` hear a click on a row (#1726, #1727)** —
+  package-borne. The Sheet's root (`SheetRootType`) gains `onRowClick`, after
+  `onSelect`: a function over the grid's click on a row (`SheetRowClickType`:
+  the row's id, a line's place among its group's lines and the column
+  clicked), made from the app's `onRowClick` over `Sheet.Types.RowClick(K)`,
+  which hears the row's key read back from the id at the rows' key type —
+  `none` where the app gives none. The Record's payload holds the Sheet's
+  root, so it gains it too. They travel in the `Sheet` and `Record`
+  extensions' payloads, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, and an application's records keep their types, so no
+  repository upgrade step ships with it.

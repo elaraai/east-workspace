@@ -7,13 +7,18 @@
  * A click on a row (east-workspace#1727), as the grid reports it to the app's
  * `onRowClick`: a press and its release on a row's cell — on a row already
  * selected too — or on its number, the row by its id, a line's place among its
- * group's lines and the column clicked; a band's, its group's. And every press
- * that is none: a double click's second, ⇧, a drag across the cells, a release
- * elsewhere or never heard, a pick of the row's box, an action cell's controls,
- * a band's fold, a line's sub rows' chevron, a blank padding row — and every
- * key. A read-only sheet's rows click as any. What the app hears with the row's
- * key at its own type is e3-ui's (`sheet-row-click.spec.ts`); here the spy
- * hears the grid's click itself.
+ * group's lines and the column clicked; a band's, its group's. A release is
+ * judged where the press was: one there clicks whatever the press drew over the
+ * cell by then, and a press and its release in one task, as a script sends
+ * them, keep the press's own effects beside the click. And every press that is
+ * none: a double click's second, ⇧, a drag across the cells, a release
+ * elsewhere or never heard — the window losing the page, a move with no button
+ * held — a pick of the row's box, an action cell's controls, a band's fold, a
+ * line's sub rows' chevron, a blank padding row — and every key. A read-only
+ * sheet's rows click as any. What the app hears with the row's key at its own
+ * type is e3-ui's (`sheet-row-click.spec.ts`); here the spy hears the grid's
+ * click itself. jsdom lays nothing out: a test that tells a release inside the
+ * cell pressed from one outside it gives the cell its box.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -24,7 +29,7 @@ import { Sheet, SheetPayloadType, SheetRowClickType } from "@elaraai/e3-ui/inter
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
-import { boundFrame } from "./frame.test-utils.js";
+import { boundFrame, placeAt } from "./frame.test-utils.js";
 import { sheetJournal } from "./journal.test-utils.js";
 import type { SheetRowClickValue } from "./values.js";
 
@@ -173,9 +178,10 @@ describe("a click on a row (east-workspace#1727)", () => {
         fireEvent.mouseEnter(m.cell("j2", "task"));
         fireEvent.mouseUp(m.cell("j2", "task"), { button: 0 });
         await m.flush();
-        // Pressed on one cell, released on another.
-        fireEvent.mouseDown(m.cell("j1", "owner"), { button: 0, detail: 1 });
-        fireEvent.mouseUp(m.cell("j2", "owner"), { button: 0 });
+        // Pressed on one cell, released on another: below it, where the next row's cell lies.
+        placeAt(m.cell("j1", "owner"), { left: 200, top: 32, width: 100, height: 32 });
+        fireEvent.mouseDown(m.cell("j1", "owner"), { button: 0, detail: 1, clientX: 250, clientY: 48 });
+        fireEvent.mouseUp(m.cell("j2", "owner"), { button: 0, clientX: 250, clientY: 80 });
         await m.flush();
         // Pressed, and the window losing the page before the release.
         fireEvent.mouseDown(m.cell("j1", "owner"), { button: 0, detail: 1 });
@@ -183,6 +189,52 @@ describe("a click on a row (east-workspace#1727)", () => {
         fireEvent.mouseUp(m.cell("j1", "owner"), { button: 0 });
         await m.flush();
         m.expectHeard([clickOf("j0", "task")]);
+    });
+
+    test("a release where the press was clicks its row, whatever the press drew over the cell by then — the release lands on that — and one away from the cell clicks nothing (RC6)", async () => {
+        const m = mount(jobsSheet());
+        const task = m.cell("j1", "task");
+        placeAt(task, { left: 0, top: 32, width: 120, height: 32 });
+        // What a press may draw over its cell — Details' scrim, a phone's bottom editor, a sticky line's row revealed in
+        // its copy's place — takes the release.
+        const over = document.body.appendChild(document.createElement("div"));
+        try {
+            fireEvent.mouseDown(task, { button: 0, detail: 1, clientX: 60, clientY: 48 });
+            fireEvent.mouseUp(over, { button: 0, clientX: 60, clientY: 48 });
+            await m.flush();
+            m.expectHeard([clickOf("j1", "task")]);
+            fireEvent.mouseDown(task, { button: 0, detail: 1, clientX: 60, clientY: 48 });
+            fireEvent.mouseUp(over, { button: 0, clientX: 60, clientY: 200 });
+            await m.flush();
+            m.expectHeard([clickOf("j1", "task")]);
+        } finally {
+            over.remove();
+        }
+    });
+
+    test("a press whose lift is never heard — a move with the button no longer held, mid-press — clicks nothing (RC6)", async () => {
+        const m = mount(jobsSheet());
+        fireEvent.mouseDown(m.cell("j1", "owner"), { button: 0, detail: 1 });
+        fireEvent.mouseMove(window, { buttons: 0 });
+        fireEvent.mouseUp(m.cell("j1", "owner"), { button: 0 });
+        await m.flush();
+        m.expectHeard([]);
+    });
+
+    test("a press and its release in one task, as a script sends them: the press's own effects run beside the click — its commit of the open editor, and the grid's focus (RC6)", async () => {
+        const m = mount(jobsSheet());
+        await m.click(m.cell("j0", "task"));
+        fireEvent.keyDown(m.card, { key: "x" });
+        await m.flush();
+        expect(m.card.querySelector('[data-slot="editorInput"]')).not.toBeNull();
+        await act(async () => {
+            fireEvent.mouseDown(m.cell("j1", "owner"), { button: 0, detail: 1 });
+            fireEvent.mouseUp(m.cell("j1", "owner"), { button: 0, detail: 1 });
+        });
+        await m.flush();
+        expect(m.cell("j0", "task").textContent).toBe("x");
+        expect(document.activeElement).toBe(m.card);
+        m.expectHeard([clickOf("j0", "task"), clickOf("j1", "owner")]);
     });
 
     test("an action cell's controls take their own press, and report nothing; a press elsewhere in the cell clicks its row (RC9)", async () => {

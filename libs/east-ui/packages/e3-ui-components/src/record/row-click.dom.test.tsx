@@ -8,7 +8,8 @@
  * app's `onRowClick` hears each click on a row with the row's key at the
  * record's own type — an Integer-keyed bench's as an Integer, a row Add made
  * under the key Add gave it, a row an edit moved under the key it stands under
- * now — and the column clicked. A press on a title opens its Details and
+ * now, the press that commits the edit too, its row drawn again in another
+ * place — and the column clicked. A press on a title opens its Details and
  * clicks; a tick of the row's box and a press that steps a boolean do not, nor
  * does a key. `onSelect` hears the ring move, by a press or a key, as the
  * Sheet's does. Each app keeps what it hears in the page's state, which the
@@ -23,6 +24,7 @@ import { StateImpl } from "@elaraai/east-ui-components";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
+import { placeAt } from "../sheet/frame.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -228,6 +230,24 @@ describe("a click on a Record's row (east-workspace#1727)", () => {
         await settle();
         expect(ids(c)).toContain("R-9");
         await click(cellOf(c, "R-9", "bay"));
+        expectClicks([heard("R-1", "code"), heard("R-9", "bay")]);
+    });
+
+    test("a press that commits an edit moving its row under another key clicks the row there — drawn again in another place, another row's cell under the pointer as the button lifts (`rowKey`, east-workspace#1709)", async () => {
+        const { container: c } = await h.mount({ fn: racksHeard }, { storageKey: "record-row-click-rekeyed" });
+        // R-1's code typed over and left open: the next press commits it.
+        await click(cellOf(c, "R-1", "code"));
+        await press(c, "R");
+        fireEvent.input(c.querySelector('[data-slot="editorInput"]')!, { target: { value: "R-9" } });
+        await settle();
+        // A press on R-1's bay, the button held: the code is committed, and the rack moves under R-9, after R-2.
+        placeAt(cellOf(c, "R-1", "bay"), { left: 200, top: 40, width: 120, height: 32 });
+        fireEvent.mouseDown(cellOf(c, "R-1", "bay"), { button: 0, detail: 1, clientX: 260, clientY: 56 });
+        await settle();
+        expect(ids(c)).toEqual(["R-2", "R-9"]);
+        // The button lifts where it was pressed — over R-2's bay now.
+        fireEvent.mouseUp(cellOf(c, "R-2", "bay"), { button: 0, detail: 1, clientX: 260, clientY: 56 });
+        await settle();
         expectClicks([heard("R-1", "code"), heard("R-9", "bay")]);
     });
 });

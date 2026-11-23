@@ -215,7 +215,9 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
     uiRef.current = ui;
-    const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current }), [dispatchStore]);
+    // The last effect batch the drain has run (`use-effects.ts`): each event carries it, and the store lets those go.
+    const drainedFx = useRef(0);
+    const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current, drained: drainedFx.current }), [dispatchStore]);
 
     // The columns the grid draws changed underneath — a phone's frame putting
     // the column it pins first, or back in its place; a column hidden or
@@ -300,7 +302,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     }, [ui.folds, ui.tabs.active, persist, persistedRef]);
     const named: SheetMachineValues = { emptyNarrowing, expectedNarrowing, seenRows };
     return {
-        clearJump, ctx, ctxRef, dirty, dispatch, jumpTo, jumpToElement, keyIsText, lensJumpTo, rowSpaceSlots, uiRef,
+        clearJump, ctx, ctxRef, dirty, dispatch, drainedFx, jumpTo, jumpToElement, keyIsText, lensJumpTo, rowSpaceSlots, uiRef,
         viewportRef, ...named,
     };
 }
