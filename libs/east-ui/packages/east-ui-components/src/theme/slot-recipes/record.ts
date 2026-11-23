@@ -38,7 +38,9 @@
  *     mark look's pips and dots; an age mono 13/500, warn past its threshold
  *     with a dot; an audit's date mono 13/500 and its who in `fg.muted`, or
  *     PENDING in `brandPressed`; a trace's steps across the cell between its
- *     paddings (east-workspace#1728). A mark's note after the value at `body.sm`
+ *     paddings (east-workspace#1728), and a sparkline's line in `brand.solid`
+ *     across the cell's room less 6 at its top and its foot, which holds its 3:1
+ *     on every row's wash in both themes (east-workspace#1729). A mark's note after the value at `body.sm`
  *     in `fg.muted`, or in an empty cell in the absent face in its place; a
  *     lock the design system's Tag — 20 tall, padded 0 8, `bg.subtle` behind
  *     the subtle rule at radius `sm`, mono 10/500 in `fg.muted`, the paper on
@@ -371,12 +373,16 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
-        /* A display cell's part (east-workspace#1726) — a trace's steps — across the cell between its paddings, starting a whole
-           number of pixels under the row's edge: a compact trace's 22 in the 34 or 30 of a 36 or 32 row, a condensed one's 15 in
-           a 28 row's 26 a pixel under it, as any odd part stands (`data-density`, the trace's). In Details, across its field's line. */
+        /* A display cell's part (east-workspace#1726) — a trace's steps, a sparkline's line — across the cell between its
+           paddings, starting a whole number of pixels under the row's edge: a compact trace's 22 in the 34 or 30 of a 36 or 32
+           row, a condensed one's 15 in a 28 row's 26 a pixel under it, as any odd part stands (`data-density`, the trace's); a
+           sparkline the room's height less 6 at its top and its foot — 22, 18 or 14 — its line in the brand, the Sparkline's
+           own colour (`currentColor`). In Details, across its field's line, the Input's height. */
         display: {
             flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center",
             "&[data-density=condensed]": ODD_PART,
+            "&[data-kind=sparkline]": { alignSelf: "stretch", paddingBlock: "6px", color: "brand.solid" },
+            "&[data-place=details]": { height: fieldHeights.md, boxSizing: "border-box" },
         },
         /* A mark's note after the cell's value, one line, the value keeping its room. */
         note: {

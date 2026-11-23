@@ -62,7 +62,7 @@ import type {
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
 import type { SheetAnyActionConfig } from "./actions.js";
-import type { RecordTraceConfig } from "./display-columns.js";
+import type { RecordSparklineConfig, RecordTraceConfig } from "./display-columns.js";
 
 // ============================================================================
 // The column value and the spec map
@@ -732,6 +732,7 @@ export type SheetAnyColumnConfig =
     & Partial<Pick<RecordAuditConfig, "mode">>
     // A trace's `scale` names its colours, a cycle's whether it steps up the heat ramp: the trace's is read by its own name.
     & Partial<Omit<RecordTraceConfig<StructType>, "header" | "sub" | "width" | "detail" | "mark" | "scale">>
+    & Partial<Pick<RecordSparklineConfig<StructType>, "type">>
     // A column from data's `mark` is the member's, read by the build as the function it is given.
     & Partial<Omit<SheetFromDataInput<EastType>, "mark">>
     & { field?: string };
@@ -908,7 +909,7 @@ export function custom<R extends StructType>(rowType: R, config: object): SheetC
  *
  * @internal
  */
-export const RECORD_COLUMN_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["title", "person", "boolean", "toggle", "cycle", "age", "audit", "trace"]);
+export const RECORD_COLUMN_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["title", "person", "boolean", "toggle", "cycle", "age", "audit", "trace", "sparkline"]);
 
 /**
  * An age column — what `Record.column.age` returns. It shows no field, so it

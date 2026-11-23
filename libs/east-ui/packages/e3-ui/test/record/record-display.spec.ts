@@ -4,13 +4,14 @@
  */
 
 /**
- * The Record's display cells (east-workspace#1726): the examples, and a trace
+ * The Record's display cells (east-workspace#1726): the examples; a trace
  * column (east-workspace#1728) — its kind on the wire, Trace's own parts and
  * its words for no series; its cell a `Series` of the row's numbers, on the
  * field, derived through `value`, and on an Option of one; its field in
  * Details read only; an action's `updates` setting the series through its
  * cell, and the cell read back into the field; and every refusal, naming the
- * column — the Sheet's among them, which draws no trace.
+ * column — the Sheet's among them, which draws no trace. A sparkline column
+ * (east-workspace#1729) the same: its kind, its cells, Details, its refusals.
  */
 
 import { describe, test } from "node:test";
@@ -27,6 +28,7 @@ import * as ex from "./record-display.examples.js";
 describeEast("Record — display cells (east-workspace#1726)", test => {
     Assert.examples(test, {
         recordTrace: ex.recordTrace,
+        recordSparkline: ex.recordSparkline,
     });
 }, { platformFns: TestImpl });
 
@@ -106,9 +108,11 @@ function refusal(columns: Record<string, unknown>): string {
     }
 }
 
-describe("the trace example", () => {
-    test("declares the one record its Saves commit to", () => {
-        assert.deepEqual([...new Set(deriveManifest(ex.recordTrace.fn).records)], [ex.recordDisplayMachines.name]);
+describe("the display examples", () => {
+    test("each declares the one record its Saves commit to: the machines'", () => {
+        for (const example of [ex.recordTrace, ex.recordSparkline]) {
+            assert.deepEqual([...new Set(deriveManifest(example.fn).records)], [ex.recordDisplayMachines.name]);
+        }
     });
 });
 
@@ -271,5 +275,72 @@ describe("refusals, each naming the column", () => {
         const kind = (built(-1) as Root).columns.find((c) => equalFor(StringType)(c.key, "load"))!.kind;
         if (kind.type !== "trace") assert.fail(kind.type);
         assert.ok(equalFor(Sheet.Types.ColumnKind.cases.trace.fields.domain)(kind.value.domain, some({ min: 0, max: -1 })));
+    });
+});
+
+// ── Sparkline (east-workspace#1729) ──
+
+const SPARKLINES = {
+    name:    COLUMNS.name,
+    load:    Record.column.sparkline(Unit, { header: "Load", type: "area" }),
+    weeks:   Record.column.sparkline(Unit, { header: "Hours", value: (u) => u.weeks.map((_$, w) => w.hours) }),
+    history: Record.column.sparkline(Unit, { header: "Last year", domain: [0, 50], absent: "no history" }),
+};
+
+/** The units' root with the sparkline columns. */
+const SPARKLINE_ROOT: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+    const rows = $.const(UNITS, ArrayType(Unit));
+    return createSheetRootWith(rows, SPARKLINES, { id: "id" }, { recordKinds: true });
+}), [])();
+
+/** A sparkline column, by its key. */
+const sparklineColumn = (key: string) => SPARKLINE_ROOT.columns.find((c) => equalFor(StringType)(c.key, key)) ?? assert.fail(`no column ${key}`);
+
+/** A sparkline row's cell, by the row's id and the cell's key. */
+function sparklineCell(id: string, key: string): Cell {
+    if (SPARKLINE_ROOT.rows.type !== "inline") assert.fail(SPARKLINE_ROOT.rows.type);
+    const row = SPARKLINE_ROOT.rows.value.find((r) => equalFor(StringType)(r.id, id)) ?? assert.fail(`no row ${id}`);
+    return row.cells.get(key) ?? variant("Null", null);
+}
+
+describe("a sparkline column on the wire (east-workspace#1729)", () => {
+    test("its kind carries Sparkline's own type and the one vertical scale every row shares, and its words for no series", () => {
+        assert.ok(sameKind(sparklineColumn("load").kind, variant("sparkline", { type: variant("area", null), domain: none, absent: none })), printKind(sparklineColumn("load").kind));
+        assert.ok(sameKind(sparklineColumn("history").kind, variant("sparkline", { type: variant("line", null), domain: some({ min: 0, max: 50 }), absent: some("no history") })),
+            printKind(sparklineColumn("history").kind));
+    });
+
+    test("is read only, and its cell a Series: on the field, an Option's — none, the blank cell — and a `value`'s", () => {
+        for (const key of ["load", "weeks", "history"]) assert.equal(sparklineColumn(key).editable, false, key);
+        assert.ok(sameCell(sparklineCell("U-1", "load"), variant("Series", [32, 34, 36])), printCell(sparklineCell("U-1", "load")));
+        assert.ok(sameCell(sparklineCell("U-2", "history"), variant("Null", null)), printCell(sparklineCell("U-2", "history")));
+        assert.ok(sameCell(sparklineCell("U-1", "weeks"), variant("Series", [24, 25.5])), printCell(sparklineCell("U-1", "weeks")));
+    });
+
+    test("Details shows its field read only, through its column", () => {
+        const pane = East.compile(East.function([], OptionType(SheetInspectorPaneType), ($) => {
+            const rows = $.const(UNITS, ArrayType(Unit));
+            const built = createSheetBuild(rows, SPARKLINES, { id: "id" }, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: undefined, groupFields: undefined, id: "id" });
+        }), [])();
+        if (pane.type !== "some") assert.fail("no inspector pane");
+        const field = pane.value.forms.row.fields.find((f) => equalFor(ArrayType(StringType))(f.spec.path, ["load"]));
+        if (field === undefined) assert.fail("no load field");
+        assert.equal(field.spec.editor.type, "readonly");
+    });
+
+    test("refused, naming the column: an edit, columns from data, a backward domain, a field that holds no series, and the column on a Sheet", () => {
+        assert.match(refusal({ load: Record.column.sparkline(Unit, { editable: false } as never) }),
+            /^Sheet: column "load" is a sparkline column, which shows its series and is read only — it takes no `editable`$/);
+        assert.match(refusal({ load: Record.column.sparkline(Unit, { each: { mon: "Mon" } } as never) }),
+            /^Sheet: column "load" is a sparkline column, which draws one row's series — it makes no columns from data, so give it no `each`$/);
+        assert.match(refusal({ load: Record.column.sparkline(Unit, { domain: [5, 5] }) }),
+            /^Sheet: column "load" has the domain \[5, 5\] — one scale for every row runs from its min to a max past it$/);
+        assert.match(refusal({ name: Record.column.sparkline(Unit) as never }),
+            /^Sheet: sparkline column "name" must sit on an Array<Float> or Option<Array<Float>> field, or read one through `value` — got String$/);
+        assert.throws(() => East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(UNITS, ArrayType(Unit));
+            return Sheet.Root(rows, { name: Sheet.column.text(Unit), load: Record.column.sparkline(Unit) } as never, { id: "id" });
+        }), /^Error: Sheet: column "load" is a sparkline column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>$/);
     });
 });

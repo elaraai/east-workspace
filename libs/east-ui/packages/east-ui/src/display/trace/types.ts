@@ -19,6 +19,7 @@ import { DensityType } from "../../style.js";
 import type { DensityLiteral } from "../../style.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { NumberDomainType } from "../../charts/spec/types.js";
+import type { NumberDomainInput } from "../../charts/spec/number-domain.js";
 
 /**
  * Colour encoding for a Trace's heat fills.
@@ -143,7 +144,7 @@ export interface TraceOptions {
     /** Optional per-step labels (ruler at `comfortable`, step tooltips always). */
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
     /** One scale for every track, `[min, max]`, as a Chart axis's `domain` is written; omit for each track's own min and max. */
-    domain?: [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>];
+    domain?: NumberDomainInput;
     /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
     /** Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour. */

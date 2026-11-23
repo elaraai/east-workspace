@@ -15,6 +15,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { DensityType } from "../../style.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
+import { numberDomainOf } from "../../charts/spec/number-domain.js";
 import {
     TraceScaleType,
     TraceFutureType,
@@ -121,7 +122,7 @@ function createTrace(
         density: densityValue ? some(densityValue) : none,
         scale: scaleValue ? some(scaleValue) : none,
         future: futureValue ? some(futureValue) : none,
-        domain: options?.domain !== undefined ? some({ min: options.domain[0], max: options.domain[1] }) : none,
+        domain: numberDomainOf(options?.domain),
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

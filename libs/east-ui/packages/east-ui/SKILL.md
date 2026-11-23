@@ -157,7 +157,7 @@ Task → Which tag?
 │   │   ├─ Chart.refLine({ y, label?, dash? }|{ x, label?, dash? }) — its label inside the plot at the line's start, over it · Chart.refBand({ y: [lo, hi], label? }|{ x: [lo, hi], label? }) · Chart.refDot({ x, y, label? })
 │   │   ├─ axis options x / y / y2: { label?, format?, domain?, scale?, numTicks?, tickValues? }
 │   │   └─ Chart.Series(slice, { x, value, mark? }) — a slice-bound layer
-│   └─ <Sparkline data type? /> — inline trend beside a <Stat>
+│   └─ <Sparkline data type? /> — inline trend beside a <Stat>; domain={[min, max]} puts several on one vertical scale
 ├─ Display (show information)
 │   ├─ <Stat label value format? /> — metric tile: the raw value with a Format.* spec, plus change indicator
 │   ├─ <MetricChip> — compact inline delta chip

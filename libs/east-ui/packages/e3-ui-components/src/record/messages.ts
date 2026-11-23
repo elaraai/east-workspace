@@ -7,7 +7,7 @@
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
  * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2–IN4, IN7–IN9): its select column's,
  * a new row's required cell's, its empty state's, its cells' — their hovers,
- * an age's and an audit's, the words for no one and for no value where a
+ * an age's, an audit's and a sparkline's, the words for no one and for no value where a
  * column gives none, and a mark's after a cell's own — and its toolbar's, its status line's, its strip's, its
  * footer's and its inspector's, each in the Record's word for its rows. Every
  * other word it shows is the Sheet's, but the message of an empty field a new
@@ -89,6 +89,8 @@ export interface RecordMessages {
     pendingMeta: (p: { count: string; one: boolean; blame: boolean }) => string;
     /** A pending audit's hover. */
     pendingTitle: (p: { count: string }) => string;
+    /** A sparkline's hover (east-workspace#1729): its series' last value, and its range — each a number in the viewer's language. */
+    sparklineTitle: (p: { last: string; min: string; max: string }) => string;
     /** The rows, where the Record names them no other way: one and many. */
     rowNoun: () => { singular: string; plural: string };
     /** Add's words (FR6). */
@@ -197,6 +199,7 @@ export const recordMessages: RecordMessages = {
     pending: () => "Pending",
     pendingMeta: ({ count, one, blame }) => (blame ? `${count} ${one ? "change" : "changes"}` : count),
     pendingTitle: ({ count }) => `${count} pending`,
+    sparklineTitle: ({ last, min, max }) => `last ${last} · ${min} to ${max}`,
     rowNoun: () => ({ singular: "row", plural: "rows" }),
     add: () => "Add",
     addTip: ({ noun }) => `Add ${withArticle(noun)}`,

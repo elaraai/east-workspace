@@ -135,3 +135,20 @@ export const sparklineVariants = example({
     }),
     inputs: [],
 });
+
+// ============================================================================
+// Sparkline — one scale for several lines (east-workspace#1729)
+// ============================================================================
+
+export const sparklineDomain = example({
+    keywords: ["Sparkline", "domain", "one scale", "compare", "scale", "min", "max", "clamp", "#1729"],
+    description: "Three sparklines on one vertical scale, `domain={[0, 50]}`: each value drawn at its place in it, so the busy line stands higher than the quiet one, and the values past 50 are drawn at the top. Without a domain, each line runs over its own min and max",
+    fn: East.function([], UIComponentType, (_$) => (
+        <VStack gap="2" align="flex-start">
+            <Sparkline data={[30.0, 34.0, 38.0, 42.0, 40.0, 44.0]} domain={[0, 50]} width="160px" height="32px" />
+            <Sparkline data={[4.0, 6.0, 5.0, 8.0, 7.0, 9.0]} domain={[0, 50]} width="160px" height="32px" />
+            <Sparkline data={[20.0, 35.0, 55.0, 60.0, 45.0, 30.0]} domain={[0, 50]} width="160px" height="32px" />
+        </VStack>
+    )),
+    inputs: [],
+});

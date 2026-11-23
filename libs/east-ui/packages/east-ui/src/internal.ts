@@ -96,7 +96,7 @@ export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library
 // The chart layer builders' TS faces and the spec vocabulary a composite
 // consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
 export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
-export { ChartXType, ChartDomainType, ChartTickValuesType, NumberDomainType } from "./charts/spec/index.js";
+export { ChartXType, ChartDomainType, ChartTickValuesType, NumberDomainType, numberDomainOf, type NumberDomainInput } from "./charts/spec/index.js";
 export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";
 // A Tag's palette and variant — the look e3-ui's Flowchart gives each of a details row's tags (#1507).
 export { ColorSchemeType, StyleVariantType, type ColorSchemeLiteral, type StyleVariantLiteral } from "./style/scheme.js";

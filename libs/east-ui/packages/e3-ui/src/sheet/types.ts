@@ -50,7 +50,7 @@ import {
 import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
-import { DensityType, StatusValueType, Trace } from "@elaraai/east-ui";
+import { DensityType, Sparkline, StatusValueType, Trace } from "@elaraai/east-ui";
 import { CarriedRowSourceType, FieldOptionType, FieldSpecType, NumberDomainType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
@@ -944,6 +944,7 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the viewer's own day: `elapsed(since, at)` — `at` the clock's instant for hours, the viewer's day at UTC midnight for days and weeks — warning at `stale`; read only, a Record's
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
  * @property trace - A row's series as one track of value-coloured steps (east-workspace#1728), drawn with east-ui's Trace: its `now`, its steps' labels (`axis`), its `scale` and its `future`, Trace's own, `domain` one scale for every row, and the words for a row with no series (`absent`); read only, a Record's
+ * @property sparkline - A row's series as a line or an area across the cell (east-workspace#1729), drawn with east-ui's Sparkline: its `type`, Sparkline's own, `domain` one vertical scale for every row, and the words for a row with no series (`absent`); read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
@@ -1001,6 +1002,11 @@ export const SheetColumnKindType = VariantType({
         domain: OptionType(NumberDomainType),
         absent: OptionType(StringType),
     }),
+    sparkline: StructType({
+        type:   Sparkline.Types.ChartType,
+        domain: OptionType(NumberDomainType),
+        absent: OptionType(StringType),
+    }),
 });
 /** Type alias for {@link SheetColumnKindType}. */
 export type SheetColumnKindType = typeof SheetColumnKindType;
@@ -1009,7 +1015,7 @@ export type SheetColumnKindLiteral =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
     | "set" | "link" | "stamped" | "custom" | "action"
     | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit"
-    | "trace";
+    | "trace" | "sparkline";
 
 /**
  * The column from data and the member a wire column was made for, the field
