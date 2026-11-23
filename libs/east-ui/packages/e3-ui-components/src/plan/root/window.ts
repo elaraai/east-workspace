@@ -30,11 +30,11 @@
  * The resolution is the leading source's, written to each source holding the
  * window, else to every source (`controller/effects.ts`); a record's
  * resolution re-buckets the canvas, and is no part of a source's narrowing. A
- * zoom keeps the time its window showed within the periods the new resolution
- * shows (`zoomedWindow`, `shared/time/zoom.ts`, #1710): where that moves
- * the window, it is written as every window is, and the sources holding it
- * read the range it lands on; where the window already fits, a zoom reads
- * nothing.
+ * zoom keeps its window's start, and the time it showed within the periods the
+ * new resolution shows (`zoomedWindow`, `shared/time/zoom.ts`, #1710, ruled
+ * 23 Nov 2026): where that moves the window's end, it is written as every
+ * window is, and the sources holding it read the range it lands on; where the
+ * window already fits, a zoom reads nothing.
  *
  * @packageDocumentation
  */
@@ -77,7 +77,7 @@ export interface PlanWindowHold {
     /** How many times a gesture has moved the canvas's own window: what its render reads the hold by. */
     readonly moves: number;
     /** The span of what the canvas's series shown read through its rows' nested series index (#1438), `[from, to)`: what a zoom
-     *  keeps the canvas's own window inside; `undefined` where none is known. */
+     *  to a table cell's period keeps the canvas's own window inside; `undefined` where none is known. */
     span: readonly [number, number] | undefined;
     /** The zoom the canvas's own window was last kept at (#1438): the scale's while the slice holds none — a page's store
      *  may not outlive the page, where the canvas's storage keeps the window and its zoom; `undefined` before any. */
@@ -135,8 +135,8 @@ export type PlanWindowDomain = NonNullable<ReturnType<typeof recordSliceDomain>>
 /**
  * The domain of the sources holding the window (#1344): from the earliest to
  * the latest of their range fields' values, each of the axis's arm — where
- * their data is: what the horizon spans, and what a zoom keeps its window
- * inside (#1710).
+ * their data is: what the horizon spans, and what a zoom to a table cell's
+ * period keeps its window inside (#1710).
  *
  * @param parts - The sources holding the window
  * @returns Their domain; `undefined` while no source has one

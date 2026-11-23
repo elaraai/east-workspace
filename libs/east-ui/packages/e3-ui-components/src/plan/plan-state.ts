@@ -109,7 +109,7 @@ export type PlanEvent =
     /** A links focus's other rows' band opened, or folded again (#1680's review). */
     | { t: "focus.others" }
     /** A zoom to a resolution — about the middle given, in the axis's numbers: a coarser table cell's period, where a
-     *  double click on it zooms to edit it (#1438) — else about the window's own middle. */
+     *  double click on it zooms to edit it (#1438) — else from the window's own start, which stays (ruled 23 Nov 2026). */
     | { t: "resolution.set"; resolution: string; about?: number | undefined }
     /** A window pan of N whole periods — the narrow layout's two-finger
      *  horizontal drag (§10); the `[` / `]` keys are the one-period case. */

@@ -7,9 +7,10 @@
  * How much time a builder's window shows at each zoom (#1710): at least and at
  * most so many of the zoom's own periods — a week to six weeks of days, four
  * weeks to six months of weeks, a quarter to two years of months, a year to
- * five years of quarters, two years or more of years. A zoom keeps the time its
- * window showed within the periods of the zoom it goes to, so a zoom out never
- * shows a period alone and a zoom in never a year of days; a brush keeps the
+ * five years of quarters, two years or more of years. A zoom keeps its window's
+ * start (ruled 23 Nov 2026), and the time it showed within the periods of the
+ * zoom it goes to, so a zoom out never shows a period alone and a zoom in never
+ * a year of days; a brush keeps the
  * window it draws within the most of the zoom it draws at
  * ({@link brushPeriodsOf}, {@link limitWindow}), and narrows it to a period if
  * the reader asks. An hour, and an axis of numbers, are bounded by nothing.
@@ -145,21 +146,27 @@ export function windowFitsZoom(window: readonly [number, number], resolution: st
 }
 
 /**
- * The window a zoom shows (#1438, #1710): the time the window shown held, as
- * many of the new resolution's periods as it holds — at least and at most as
- * many as that resolution shows (`ZOOM_PERIODS`), so a zoom out never shows a
- * period alone and a zoom in never a year of days — the window of them whose
- * middle is nearest the window shown's, or the one given, inside the span of
- * what its series read where it is known, the whole span where they do not
- * fit, and over the window shown too where it lies outside the span.
+ * The window a zoom shows (#1438, #1710; its start ruled 23 Nov 2026): the
+ * window shown's start where it was — the start date never moves — and its end
+ * the edge of the new resolution's periods nearest the time the window showed,
+ * at least and at most as many of them as that resolution shows
+ * (`ZOOM_PERIODS`), counting the one the start falls in: so a zoom out never
+ * shows a period alone and a zoom in never a year of days. A zoom to a table
+ * cell's period (`about`, a double click on it, #1438) stands about the middle
+ * it names instead: the window of the new periods whose middle is nearest it,
+ * inside the span of what its series read where it is known, the whole span
+ * where they do not fit, and over the window shown too where it lies outside
+ * the span.
  *
  * @param shown - The window shown, `[from, to)` in ms
  * @param from - The resolution it shows at
  * @param to - The resolution zoomed to
- * @param span - The span of what the series read, `[from, to)` in ms; `undefined` where none is known
- * @param about - The middle it zooms about, in ms: the window shown's own unless given — a table cell's period, where a
- *   double click on it zooms to edit it (#1438)
- * @returns The window, `[from, to)` in ms, each end a bucket's edge; `undefined` for a resolution no calendar bucket names
+ * @param span - The span of what the series read, `[from, to)` in ms, which a zoom about a cell keeps within; `undefined`
+ *   where none is known
+ * @param about - The middle a zoom to a table cell's period stands about, in ms (#1438); `undefined` for a change of
+ *   resolution, which keeps the window's start
+ * @returns The window, `[from, to)` in ms, its end a bucket's edge — and its start too, about a cell; `undefined` for a
+ *   resolution no calendar bucket names
  */
 export function zoomedWindow(shown: readonly [number, number], from: string, to: string,
     span: readonly [number, number] | undefined, about?: number): readonly [number, number] | undefined {
@@ -167,7 +174,8 @@ export function zoomedWindow(shown: readonly [number, number], from: string, to:
     const tile = to as RecordTile;
     const periods = ZOOM_PERIODS[tile];
     const n = Math.max(periods.min, Math.min(periods.max ?? Number.POSITIVE_INFINITY, Math.round((shown[1] - shown[0]) / BUCKET_MS[tile])));
-    const middle = about ?? (shown[0] + shown[1]) / 2;
+    if (about === undefined) return keptStart(shown[0], tile, n, periods);
+    const middle = about;
     // The buckets the window can reach about the middle — inside the span and the window shown where a span is known — so
     // a span of decades at the day lists the weeks either side of the middle, not its first ten thousand days.
     const reach = (n + 1) * BUCKET_MS[tile];
@@ -185,4 +193,28 @@ export function zoomedWindow(shown: readonly [number, number], from: string, to:
     const last = Math.min(buckets.length, first + n);
     const end = last < buckets.length ? buckets[last]! : tileNext(tile, new Date(buckets[last - 1]!)).getTime();
     return [buckets[first]!, end];
+}
+
+/**
+ * A change of resolution's window (ruled 23 Nov 2026): from the window's own start, to the period edge nearest `n` of the
+ * tile's periods on — then a period in or out where that touches more than the zoom's most or fewer than its least,
+ * counting the period the start falls in.
+ *
+ * @param start - The window's start, in ms: it stays
+ * @param tile - The resolution zoomed to
+ * @param n - How many of its periods the time the window showed makes, within the zoom's least and most
+ * @param periods - The zoom's least and most periods
+ * @returns The window, `[start, end)` in ms, its end a period's edge
+ */
+function keptStart(start: number, tile: RecordTile, n: number, periods: ZoomPeriods): readonly [number, number] {
+    const target = start + n * BUCKET_MS[tile];
+    // The period edges either side of where the time the window showed ends: the nearer is its end.
+    const below = tileStart(tile, new Date(target)).getTime();
+    const above = below < target ? tileNext(tile, new Date(below)).getTime() : below;
+    let end = target - below <= above - target ? below : above;
+    if (end <= start) end = tileNext(tile, tileStart(tile, new Date(start))).getTime();
+    const touched = (to: number) => tileStartsOver(tile, start, to).length;
+    while (periods.max !== undefined && touched(end) > periods.max) end = tileStart(tile, new Date(end - 1)).getTime();
+    while (touched(end) < periods.min) end = tileNext(tile, new Date(end)).getTime();
+    return [start, end];
 }

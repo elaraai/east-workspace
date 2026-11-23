@@ -199,19 +199,19 @@ describe("the works on a Plan (#1438)", () => {
         expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual([...quarters].sort(([a], [b]) => a - b).map(([, n]) => n));
     });
 
-    test("a zoom keeps the time its window showed within the periods the new resolution shows: out to the year, the thirteen weeks are the least a year shows, two years about their middle — never the ten; back to the week, the most a week shows about the two years' middle (#1438, #1710)", async () => {
+    test("a zoom keeps the window's start, and its time within the periods the new resolution shows: out to the year, the thirteen weeks from 28 September are the least a year shows, two years' time — never the ten; back to the week, the most a week shows from the same start (#1438, #1710, ruled 23 Nov 2026)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((tick) => tick.textContent);
-        // Late September to late December 2026, its middle in November: that year and the next.
+        // From Monday 28 September 2026: two years' time ends at the year edge nearest, New Year 2029.
         await zoomTo(container, "year");
-        await waitFor(() => expect(ticks()).toEqual(["2026", "2027"]));
-        // Their middle, New Year 2027: twenty-six weeks from the week of 5 October 2026.
+        await waitFor(() => expect(ticks()).toEqual(["2026", "2027", "2028"]));
+        // The start stays: twenty-six weeks from the week of 28 September 2026, W40.
         await zoomTo(container, "week");
         await waitFor(() => expect(ticks()).toHaveLength(26));
-        expect(ticks()[0]).toBe("W41");
+        expect(ticks()[0]).toBe("W40");
     });
 
     test("a works' crew hours, folded, draw each week's sum of its crews' hours as e3 keeps it", async () => {

@@ -222,12 +222,13 @@ describe("the Plan's one window (#1344)", () => {
         await act(async () => { fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" }); });
         await settle();
         // The resolution, written to each source holding the window, and the window with it (#1710): the one week comes out
-        // to the least a week shows, four weeks about its middle, in both sources — never a week alone in one column.
+        // to the least a week shows, four weeks from its own start, the 12th, in both sources — never a week alone in one
+        // column, and never a start moved (ruled 23 Nov 2026).
         await press(toolbar(container).getByText("WEEK"));
         expect(state("job").resolution).toEqual(some(variant("week", null)));
         expect(state("shift").resolution).toEqual(some(variant("week", null)));
-        expect(narrowing("job").get("start")).toEqual(range(day("10-05"), day("11-02"), true));
-        expect(narrowing("shift").get("start")).toEqual(range(day("10-05"), day("11-02"), false));
+        expect(narrowing("job").get("start")).toEqual(range(day("10-12"), day("11-09"), true));
+        expect(narrowing("shift").get("start")).toEqual(range(day("10-12"), day("11-09"), false));
     });
 });
 

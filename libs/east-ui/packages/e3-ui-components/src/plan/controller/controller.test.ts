@@ -147,17 +147,17 @@ describe("actions run their own effects (#815)", () => {
         expect(calls).toEqual(["select r1", "grain group"]);
     });
 
-    test("a zoom writes the resolution, and the window where the new resolution's periods no longer hold it: twelve weeks come in to six weeks of days about their middle; back to the week the six weeks fit, and the resolution alone is written (#1344, #1710)", async () => {
+    test("a zoom writes the resolution, and the window where the new resolution's periods no longer hold it: twelve weeks come in to six weeks of days from the same start; back to the week the six weeks fit, and the resolution alone is written (#1344, #1710, ruled 23 Nov 2026)", async () => {
         const s = await windowSlice("c815-res");
         const { c, notified } = show(root(ROWS, { slice: s.chrome }));
         const store = c.getSnapshot().store;
         c.dispatch({ t: "resolution.set", resolution: "day" });
-        // Two writes: the resolution, which is presentation, and the window — the most a day shows, six weeks, about the
-        // twelve weeks' middle.
+        // Two writes: the resolution, which is presentation, and the window — the most a day shows, six weeks, from the
+        // twelve weeks' own start: the start date never moves.
         expect(s.writes()).toBe(2);
         expect(s.state().resolution).toEqual(some(variant("day", null)));
-        const middle = W27.getTime() + 6 * WEEK;
-        expect(s.window()).toEqual([middle - 21 * DAY, middle + 21 * DAY]);
+        const sixWeeks = [W27.getTime(), W27.getTime() + 42 * DAY];
+        expect(s.window()).toEqual(sixWeeks);
         // The machine's state did not move — the slice is the window's truth.
         // The one notification is the live region's (#819).
         expect(c.getSnapshot().store).toBe(store);
@@ -168,7 +168,23 @@ describe("actions run their own effects (#815)", () => {
         c.dispatch({ t: "resolution.set", resolution: "week" });
         expect(s.writes()).toBe(3);
         expect(s.state().where).toEqual(where);
-        expect(s.window()).toEqual([middle - 21 * DAY, middle + 21 * DAY]);
+        expect(s.window()).toEqual(sixWeeks);
+    });
+
+    test("a zoom from a coarser resolution starts where the sources' window does, never where the scale's whole periods do: twelve weeks out to the month stand, and in to the day are six weeks from W27 — never from 1 June, where the month's scale draws from (ruled 23 Nov 2026)", async () => {
+        const s = await windowSlice("c815-res-coarse");
+        const { c } = show(root(ROWS, {
+            slice: s.chrome,
+            axis: variant("time", {
+                window: some({ min: W27, max: W39 }), resolution: variant("week", null),
+                resolutions: [variant("day", null), variant("week", null), variant("month", null)], now: none, format: none,
+            }),
+        }));
+        // Twelve weeks touch four months, which a month's periods hold: the window stands, re-bucketed.
+        c.dispatch({ t: "resolution.set", resolution: "month" });
+        expect(s.window()).toEqual([W27.getTime(), W39.getTime()]);
+        c.dispatch({ t: "resolution.set", resolution: "day" });
+        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 42 * DAY]);
     });
 });
 
@@ -212,10 +228,9 @@ describe("the window a canvas holds itself (#1344)", () => {
         expect(s.state().resolution).toEqual(some(variant("day", null)));
         expect(s.state().where).toEqual(where);
         // The canvas's own window zooms with it (#1438, #1710): its twelve weeks come in to the most a day shows, six weeks,
-        // about the same middle.
-        const middle = W27.getTime() + 6 * WEEK;
+        // from the same start (ruled 23 Nov 2026).
         expect(moved()).toBe(1);
-        expect(hold.last).toEqual([middle - 21 * DAY, middle + 21 * DAY]);
+        expect(hold.last).toEqual([W27.getTime(), W27.getTime() + 42 * DAY]);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
     });
 

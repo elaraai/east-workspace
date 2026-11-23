@@ -134,7 +134,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 }
 
 describe("a zoom keeps its window's time within the new resolution's periods, and a window they already hold stands (§3, #1344, #1710)", () => {
-    test("WEEK → DAY: the twelve weeks the source holds come in to six weeks of days about their middle, the resolution and the window written; back to the week the six weeks fit — the resolution alone written", async () => {
+    test("WEEK → DAY: the twelve weeks the source holds come in to six weeks of days from the same start, the resolution and the window written; back to the week the six weeks fit — the resolution alone written", async () => {
         // The dated rows' window, twelve weeks from W27 — the source holds it, and it alone.
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom", {
             dated: {
@@ -153,9 +153,9 @@ describe("a zoom keeps its window's time within the new resolution's periods, an
         fireEvent.click(screen.getByText("DAY"));
         await settle();
         expect(part.read().resolution).toEqual(some(variant("day", null)));
-        // Six weeks about 10 August, the twelve weeks' middle — 20 July to 31 August, forty-two columns: two writes, the
-        // resolution and the window, which is what a reader of the source reads.
-        const sixWeeks = { kind: "datetime", min: Date.UTC(2026, 6, 20), max: Date.UTC(2026, 7, 31) };
+        // Six weeks from the twelve weeks' own start, W27 — 29 June to 10 August, forty-two columns: the start date never
+        // moves (ruled 23 Nov 2026). Two writes, the resolution and the window, which is what a reader of the source reads.
+        const sixWeeks = { kind: "datetime", min: Date.UTC(2026, 5, 29), max: Date.UTC(2026, 7, 10) };
         expect(recordSliceWindow(part)).toEqual(sixWeeks);
         expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(42);
         expect(rail.writes("dated") - before).toBe(2);

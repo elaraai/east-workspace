@@ -421,11 +421,13 @@ describe("the period a run is asked of (rule 1)", () => {
         expect(await asked()).toEqual(["day", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
         await zoomTo("week");
         expect(await asked()).toEqual(["week", "2026-10-05T00:00:00.000", "2026-11-02T00:00:00.000"]);
-        // Zoomed out, the window is whole units of the axis: the months it touches, then their quarter.
+        // Zoomed out, the window is whole units of the axis: the least a month shows from the 5th, three months — October
+        // to December — then the least a quarter shows, four quarters from October. The start never moves and the end
+        // gives way (ruled 23 Nov 2026), past the jobs' own dates.
         await zoomTo("month");
-        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", "2026-12-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", "2027-01-01T00:00:00.000"]);
         await zoomTo("quarter");
-        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", "2027-01-01T00:00:00.000"]);
+        expect(await asked()).toEqual(["quarter", "2026-10-01T00:00:00.000", "2027-10-01T00:00:00.000"]);
     });
 });
 

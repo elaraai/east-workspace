@@ -371,13 +371,18 @@ window shown, as long again either side, so its lens slides either way. It is
 kept under the canvas's storage key as its folds are
 (`persisted.ts`, #813), and a remount draws it from its first frame while the
 axis still allows it (`restoredWindow`), else the axis's stated window. A
-record's resolution
-only re-buckets — the window a source holds is its narrowing — and the brush
-commits once a gesture, with no histogram. A canvas holding its own window
-zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
-as it showed of the old, about the same middle, inside the span of what its
-series read where it reads a nested series index (`PlanWindowHold.span`), so
-the year shows the works' ten years. The
+record's resolution re-buckets the canvas and is no part of a source's
+narrowing. A zoom keeps the window's start (ruled 23 Nov 2026) and the time
+it showed, within the periods the new resolution shows
+(`shared/time/zoom.ts`' `zoomedWindow`, #1710: six weeks of days at most, two
+years at least): a window those periods already hold stands, re-bucketed, the
+resolution alone written; any other's end moves to the period edge nearest
+the time it showed, written into the sources holding the window, or into the
+canvas's own. A zoom to a table cell's period (#1438) stands about the middle
+the cell names instead, inside the sources' domain, or the span of what its
+series read where the canvas holds its own window over a nested series index
+(`PlanWindowHold.span`). The brush commits once a gesture, over the bars of
+the sources' totals (below, "The horizon's bars"). The
 Plan reads its event kinds' rows, counts and backlog and the selected events
 in components of their own (`PlanEventsReader`, `PlanKindsReader`,
 `PlanSelectionReader`). An event kind over rows read a page at a time (#1541),
@@ -2121,9 +2126,9 @@ window through the seam with what it read:
   the shown series' collections' alone. Switching a series asks nothing, and
   with every series off the strip still spans the data, its bars empty.
   Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
-  beside the window shown where no source holds the window, a zoom keeps the
-  window inside it, its row held while it is first read, and a read again
-  holds the last until it lands.
+  beside the window shown where no source holds the window, a zoom to a table
+  cell's period keeps the window inside it, its row held while it is first
+  read, and a read again holds the last until it lands.
 - **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
   `horizonDensity` buckets the months' counts in the finest of month, quarter
   and year that keeps 4px a bucket on the strip (the band measures its track,
@@ -2132,8 +2137,20 @@ window through the seam with what it read:
   e3 keeps no finer count. The strip draws them (east-ui-components'
   `BrushStrip`); the caption's meta line says the largest bucket and its
   period (`max 1,559 items / mo`), or `no data`, and a bar's hover its period
-  and count. A horizon over record sources has no counts yet, and draws the
-  baseline alone, with no meta line.
+  and count. A horizon over record sources (#1732) draws the totals e3 keeps
+  of each record a period, its binding naming them
+  (`Data.bindPaged(record, { indexes, totals })`): at the finest of a day, a
+  week, a month, a quarter and a year that every source lists and that keeps
+  4px a bucket (`horizonUnit` over `shared/time/horizon-totals.ts`'
+  `totalsUnits`), each source's read through its record Slice over the whole
+  years around the horizon, under its narrowing (`sourcesTotals` over
+  `recordSliceTotals`), and summed over the sources (`horizonTotalsDensity`) —
+  no event counted, and a pan, or a horizon widening within its years, reads
+  nothing. A week's bucket starts on its Monday, as e3's week tiles do. A
+  source that lists none, or whose totals do not serve its narrowing, leaves
+  the baseline alone. Every bar is one width, the narrowest bucket's between
+  the two ends, which the horizon may clip to a sliver — with none between
+  them, the wider end's (east-ui-components' `brushBars`).
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
 - **Drafting.** A gesture drafts each row it touches read whole by key

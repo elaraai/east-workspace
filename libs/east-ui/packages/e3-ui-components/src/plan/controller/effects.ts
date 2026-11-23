@@ -32,12 +32,14 @@
  *
  * A record's resolution is presentation, written to each source holding the
  * window, else to every source — a slice with no window holds it there. A zoom
- * moves the window with it (#1438, #1710): the time it showed, within the
- * periods the new resolution shows (`shared/time/zoom.ts` — six weeks of days
- * at most, two years at least), so zooming out never shows a period alone and
- * zooming in never a year of days; the sources holding the window read the
- * range it lands on, and a zoom whose window already fits writes the
- * resolution alone, and reads nothing.
+ * moves the window with it (#1438, #1710): from the same start — the start date
+ * never moves (ruled 23 Nov 2026) — the time it showed, within the periods the
+ * new resolution shows (`shared/time/zoom.ts` — six weeks of days at most, two
+ * years at least), so zooming out never shows a period alone and zooming in
+ * never a year of days; the sources holding the window read the range it lands
+ * on, and a zoom whose window already fits writes the resolution alone, and
+ * reads nothing. A zoom to a table cell's period stands about the middle the
+ * cell names instead.
  *
  * @packageDocumentation
  */
@@ -123,10 +125,11 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
             }
             case "slice.setResolution": {
                 // A resolution is a TIME-axis fact — the segment only mounts there (a number axis has `step`; an
-                // ordinal list no unit). The window zooms with it (#1438, #1710): the time it showed, within the
-                // periods the new resolution shows, about the same middle — or the middle the zoom names — inside the
-                // data: the sources' domain where they hold the window, the span of what its series read where the
-                // canvas holds its own. Written as every window is — into the sources holding it, or the canvas's own.
+                // ordinal list no unit). The window zooms with it (#1438, #1710): from the same start, the time it
+                // showed, within the periods the new resolution shows (ruled 23 Nov 2026) — or, a zoom to a cell's
+                // period, about the middle the cell names, inside the data: the sources' domain where they hold the
+                // window, the span of what its series read where the canvas holds its own. Written as every window is
+                // — into the sources holding it, or the canvas's own.
                 if (chrome === undefined || value.axis.type !== "time") break;
                 const holders = bound ? parts.map(({ part }) => part) : chrome.slice.parts.map(({ slice }) => slice);
                 // The window shown before the zoom, read before the new resolution is written.
@@ -140,8 +143,11 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                     const stands = eff.about === undefined && held !== undefined && windowFitsZoom(held, eff.resolution);
                     const domain = bound ? windowPartsDomain(parts) : undefined;
                     const span = domain !== undefined ? [domain.min, domain.max] as const : hold?.span;
-                    const zoomed = stands ? undefined
-                        : zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, span, eff.about);
+                    // The window as it is held, never the scale's whole periods around it: a month's scale draws from
+                    // the 1st, and a zoom from there moved the start date (ruled 23 Nov 2026). The scale's, while none
+                    // is held yet — the axis's stated window.
+                    const from = held ?? [shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)] as const;
+                    const zoomed = stands ? undefined : zoomedWindow(from, shown.resolution, eff.resolution, span, eff.about);
                     if (zoomed !== undefined && (held === undefined || held[0] !== zoomed[0] || held[1] !== zoomed[1])) {
                         writePlanWindow(parts, zoomed[0], zoomed[1], hold);
                     }
