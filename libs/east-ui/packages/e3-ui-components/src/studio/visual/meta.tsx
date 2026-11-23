@@ -16,7 +16,9 @@
 
 import { createContext, useContext, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
+import { Box } from "@chakra-ui/react";
 import { useFormatters } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useStudioMessages } from "../messages.js";
 import { visualMeta, type VisualShown, type VisualSource, type VisualView } from "./values.js";
 
@@ -27,21 +29,23 @@ const MetaSlot = createContext<HTMLElement | null>(null);
 export const TileMetaSlot = MetaSlot.Provider;
 
 /**
- * A tile's meta, drawn in its eyebrow: one line, cut with an ellipsis where
- * the strip is short, its whole on hover (#1692).
+ * A tile's meta, drawn in its eyebrow: one line in the room its name leaves,
+ * cut with an ellipsis where the strip is short, its whole on hover (#1692),
+ * and nothing where that room holds under four characters of it.
  *
  * @param props - What it says; nothing draws nothing
  * @returns The meta, in the eyebrow's slot
  */
 export function TileMeta({ children }: { readonly children: string | undefined }) {
     const slot = useContext(MetaSlot);
+    const styles = useSlotStyles("studioVisual");
     // Its whole on hover, on the slot that cuts it.
     useLayoutEffect(() => {
         if (slot === null || children === undefined) return undefined;
         slot.title = children;
         return () => { slot.removeAttribute("title"); };
     }, [slot, children]);
-    return slot === null || children === undefined ? null : createPortal(children, slot);
+    return slot === null || children === undefined ? null : createPortal(<Box as="span" css={styles.metaText}>{children}</Box>, slot);
 }
 
 /** Props of {@link VisualMeta}. */

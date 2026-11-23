@@ -206,6 +206,8 @@ export function StudioVisualTile({ content, names, storageKey, title, onEdit, pl
                 {/* Its name, cut with an ellipsis in a narrow tile: whole on hover (#1692). */}
                 <Box as="span" css={styles.name} data-studio-visual-name="" title={name}>{name}</Box>
                 <Box css={styles.end}>
+                    {/* Its meta, in the room its name leaves; a leader's tag after it, beside its controls. */}
+                    {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
                     {led > 0 && (
                         <Box as="span" css={styles.follow} data-studio-visual-leads={led} data-following="canvas">
                             <FontAwesomeIcon icon={faLink} />
@@ -220,7 +222,6 @@ export function StudioVisualTile({ content, names, storageKey, title, onEdit, pl
                             <span>{m.followRemoved()}</span>
                         </Box>
                     )}
-                    {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
                     {/* Its alerts (#1674): a bell beside its menu, where the page was given an alerts record. */}
                     {read !== undefined && <VisualAlerts visual={visual} name={name} read={read} placement={placement} />}
                     {source !== undefined && read !== undefined && (

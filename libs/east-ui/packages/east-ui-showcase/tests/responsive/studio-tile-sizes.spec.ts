@@ -33,7 +33,12 @@
  *  - C1 a chart's plot keeps a third of its chart's width at the least: its
  *    axes' labels never crowd it out;
  *  - D1 a donut's total and its caption lie inside its hole (#1692), as its
- *    plot says the hole's radius.
+ *    plot says the hole's radius;
+ *  - M1 an eyebrow's meta shows four characters of its words at the least —
+ *    all of them, when it has fewer — or none: never its ellipsis alone, which
+ *    the manual test of 22 Nov 2026 read as a stray mark after a pivot's cut
+ *    name; and its name is cut only once the meta shows nothing: the meta
+ *    gives its room up first (#1692).
  *
  * Every measurement is taken from the laid-out page; a failure names the
  * tile, the page width, the rule and the part.
@@ -437,6 +442,38 @@ function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]>
                 const room = Number(plot.getAttribute("data-chart-plot")!.split(" ")[2]);
                 const whole = plot.getBoundingClientRect().width;
                 if (room < whole / 3 - 0.5) bad.push(`${tile}: C1 the plot ${r(room)} wide in a ${r(whole)}px chart`);
+            }
+            // M1: the eyebrow's meta shows four characters of its words at the least — all of them, when it has fewer — or
+            // none; and while it shows any, its name is whole.
+            const name = cell.querySelector<HTMLElement>("[data-studio-visual-name]");
+            const meta = cell.querySelector<HTMLElement>("[data-studio-visual-meta]");
+            if (name !== null && meta !== null && (meta.textContent ?? "").trim() !== "") {
+                const four = document.createElement("span");
+                four.style.cssText = "position: absolute; visibility: hidden; width: 4ch";
+                meta.appendChild(four);
+                const least = four.getBoundingClientRect().width;
+                four.remove();
+                // What of its words shows — their boxes inside the meta's and inside the box that holds them — and all of them.
+                let words = 0;
+                let all = 0;
+                const walker = document.createTreeWalker(meta, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const holds = [meta.getBoundingClientRect(), node.parentElement!.getBoundingClientRect()];
+                    for (const rect of range.getClientRects()) {
+                        all += rect.width;
+                        const left = Math.max(rect.left, ...holds.map((h) => h.left));
+                        const right = Math.min(rect.right, ...holds.map((h) => h.right));
+                        const top = Math.max(rect.top, ...holds.map((h) => h.top));
+                        const bottom = Math.min(rect.bottom, ...holds.map((h) => h.bottom));
+                        if (right - left > 0 && bottom - top > 0) words += right - left;
+                    }
+                }
+                if (words > 0.5 && words < Math.min(least, all) - 0.5) {
+                    bad.push(`${tile}: M1 meta “${meta.textContent}” shows ${r(words)}px of its words, under four characters' ${r(least)}`);
+                }
+                if (words > 0.5 && name.scrollWidth > name.clientWidth + 0.5) bad.push(`${tile}: M1 name “${name.textContent}” cut while its meta shows ${r(words)}px`);
             }
             // D1: a donut's total and caption inside its hole, every corner of each within the radius its plot says.
             for (const plot of cell.querySelectorAll<SVGElement>("svg[data-chart-pie-hole]")) {

@@ -54,7 +54,7 @@ const KPI_AT_16 = "@container (max-width: 110.98px)";
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
-        "tile", "head", "name", "end", "meta", "follow", "body", "root", "caption", "note", "table",
+        "tile", "head", "name", "end", "meta", "metaText", "follow", "body", "root", "caption", "note", "table",
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValues", "listPair", "listValue", "listUnit", "listBar", "listBarFill",
@@ -86,7 +86,8 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         },
         /* Its meta and its menu, at the end, 4 apart. It draws no box of its own, so each of its parts is the strip's own:
            where the strip is short its words give way before its name (#1692) — its meta, or what it follows, cut first,
-           then its name — and its controls never. On a touch screen its bell and its menu are each a 44 × 44 tap target by
+           then its name — and its controls never. A leader's tag on the builder's canvas, `leads N`, stands after its
+           meta, beside its controls. On a touch screen its bell and its menu are each a 44 × 44 tap target by
            its halo: centred on its 24px box, each halo lay over 6px of the other's box, and the menu's, drawn later, took
            the bell's taps there. Each keeps to its own side of the middle of the 4 between them — the bell's from 18
            before its box to 2 past it, and the menu's after a bell from 2 before its box to 18 past it, inside the
@@ -98,11 +99,20 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
                 "& > [data-studio-alert-bell] + * [data-studio-visual-menu]::before": { left: "-2px", transform: "translateY(-50%)" },
             },
         },
-        /* Its meta: mono 9.5, `--ink-4`, on the name's line; cut with an ellipsis, its whole on hover. */
+        /* Its meta: mono 9.5, `--ink-4`, on the name's line, its words at its end. It takes only the room its name leaves,
+           so its name is cut only once the meta has given all of that up (#1692); its words are cut with an ellipsis, their
+           whole on hover, and where the room left holds under four characters of them, none show. An ellipsis alone, in
+           10px, read as a stray mark after a pivot's cut name (the manual test of 22 Nov 2026). One line: its words wrap
+           under it, out of sight, where they do not fit beside its empty first item — as tall as the line, so the line it
+           leaves them on starts under it. */
         meta: {
+            display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignContent: "flex-start", flex: "1 1 0", minWidth: "0",
+            height: "12px", overflow: "hidden",
             fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOMS, 12), color: "fg.subtle",
-            flexShrink: "100", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            "&::before": { content: '""', height: "12px" },
         },
+        /* Its words: four characters' room at the least, growing to their own width, cut with an ellipsis past it. */
+        metaText: { flex: "1 1 4ch", minWidth: "0", maxWidth: "max-content", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         /* What it follows (LNK-4): the 10px link icon, 6 before the selected value, as its meta is set — in `--brand-d`
            while it is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
         follow: {
