@@ -22,7 +22,7 @@ import { StringType, printFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-grouped";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
-import { el, entry, planHarness, rowAt, settle, slot, zoomTo } from "./harness.test-utils.js";
+import { el, entry, horizonLaidOut, planHarness, rowAt, settle, slot, zoomTo } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-grouped": ex });
 
@@ -127,6 +127,42 @@ describe("the grouped example on e3 (#1710)", () => {
         // Back to the week, the series tile: the events read and drawn again.
         await zoomTo(c, "week");
         await waitFor(() => expect(drawn()).toBeGreaterThan(0));
+    });
+
+    test("planSeriesAll's horizon draws each month's events of its kinds, counted through their sources' interval indexes — a kind's every month in one request, no event read (#1710)", async () => {
+        // The strip laid out 3,000px wide: the three years keep some 80px a month, a bar a month.
+        horizonLaidOut()(3000);
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const band = () => c.querySelector<HTMLElement>("[data-slot='horizon']")!;
+        const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
+        await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
+        // Each month from the first start's to the last start's — the horizon's — and every kind's events overlapping it:
+        // those starting in it, and those running into it.
+        const spans = [
+            ...[...ex.planSeriesInspections.default!.values()], ...[...ex.planSeriesFolding.default!.values()], ...[...ex.planSeriesJobs.default!.values()],
+        ].map((row) => [row.start.getTime(), row.end.getTime()] as const);
+        const instants = [...[...ex.planSeriesDeliveries.default!.values()], ...[...ex.planSeriesTrims.default!.values()]]
+            .map((row) => [row.at.getTime(), row.at.getTime()] as const);
+        const events = [...spans, ...instants];
+        const last = events.reduce((most, [start]) => Math.max(most, start), 0);
+        const expected: number[] = [];
+        for (let month = Date.UTC(2026, 9, 1); month <= last;) {
+            const at = new Date(month);
+            const next = Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1);
+            const n = events.filter(([start, end]) => (start >= month && start < next) || (start < month && end > month)).length;
+            if (n > 0) expected.push(n);
+            month = next;
+        }
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(expected);
+        // Each kind's months asked in one request of its interval index — more searches than one range's fifty-five — and a
+        // month the horizon gains as its sources' spans land asked alone, never every month again; no event read.
+        for (const { record } of KINDS) {
+            const dataset = pathText(record.path as TreePath);
+            const searched = h.requests("find", dataset).filter((request) => request.query.get("index")?.endsWith("_by_time") === true);
+            expect(searched.filter((request) => request.searches.length > 55).length, dataset).toBe(1);
+            expect(h.requests("read", dataset)).toEqual([]);
+        }
     });
 
     test("planSeriesAll: a kind whose cells e3 cannot read is said so on the footer, with Retry — never loading for ever, nor the canvas busy; Retry reads them once e3 answers again (#1710)", async () => {

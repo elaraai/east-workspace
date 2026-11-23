@@ -119,7 +119,7 @@ export { recordChoiceLabel, recordChoiceSummary } from "./slice/record/value.js"
 // A record source's count, handed to its builder as soon as it lands, before its pages (#1398, problem 23).
 export { useRecordSliceCount, type RecordSliceCount } from "./slice/record/count.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
-export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
+export { recordSliceWindow, recordSliceDomain, recordSliceWindowCounts, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
 // Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces;
 // and where its narrowing's rows sit in the record, which of some rows — or of the record's own, by position — it holds, and where
 // a key lands in the record's own order (#1349) — the Sheet's lens and its key search; and the cells of a series or a summary index its

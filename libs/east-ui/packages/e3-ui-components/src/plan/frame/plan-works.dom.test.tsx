@@ -23,7 +23,7 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, onTestFinished } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -35,7 +35,7 @@ import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
-import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, entry, horizonLaidOut, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { width } from "../../e3-web-mount.test-utils.js";
 import { periodText } from "../../shared/time/scale.js";
 
@@ -61,23 +61,6 @@ const askedOf = (index: { readonly name: string }) => h.requests().filter(throug
 /** A works' row of jobs. */
 const worksRow = (c: HTMLElement, key: string) => slot(c, "main")!.querySelector<HTMLElement>(rowAt(entry("works", key)));
 
-/**
- * Lays the horizon's strip out over jsdom's measures (#1438), which the
- * harness leaves to the test: its width is what the returned setter last set,
- * and a resize tells the strip it moved.
- *
- * @returns Sets the strip's width, px
- */
-function horizonLaidOut(): (px: number) => void {
-    let laid = 0;
-    const real = Element.prototype.getBoundingClientRect;
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-        return this.hasAttribute("data-plan-horizon-track") || this.hasAttribute("data-brush-track")
-            ? { x: 0, y: 0, top: 0, left: 0, right: laid, bottom: 32, width: laid, height: 32, toJSON() {} } as DOMRect
-            : real.call(this);
-    });
-    return (px) => { laid = px; };
-}
 /** How many works the stress run commits in one patch: each patch commits within e3's deadline for a mutation. */
 const PATCH_WORKS = 100;
 

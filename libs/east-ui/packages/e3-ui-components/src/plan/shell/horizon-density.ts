@@ -58,9 +58,9 @@ export interface HorizonDensity {
  * buckets keep 4px each on the track — a year where none does — from the
  * period the horizon begins in to the one it ends in, each clipped to the
  * horizon, as fractions of it. A bucket counts the items and values of every
- * month starting in it: a month the horizon clips counts whole, as e3 keeps
- * no finer count. Counts ignore the window, so the shape stays put as the
- * window moves.
+ * month starting in it: a month the horizon clips counts whole, at either end
+ * (#1710), as e3 keeps no finer count. Counts ignore the window, so the shape
+ * stays put as the window moves.
  *
  * @param lo - The horizon's start, ms
  * @param hi - Its end
@@ -82,12 +82,15 @@ export function horizonDensity(lo: number, hi: number, months: PlanNestedMonths,
         starts.push(start.getTime());
         buckets.push({ from: (Math.max(start.getTime(), lo) - lo) / span, to: (Math.min(end, hi) - lo) / span, start, count: 0 });
     }
-    // Each month in the bucket it starts in, the months in order; one outside the horizon in none.
+    // Each month in the bucket it starts in — one the horizon's start clips in the first, whole, as one its end clips counts
+    // whole (#1710): a source's horizon begins on its first event's day — the months in order; one outside the horizon in none.
+    const monthly = resolutionInterval("month");
     let at = 0;
     for (const [month, count] of months) {
-        if (month < lo || month >= hi) continue;
-        while (at + 1 < starts.length && starts[at + 1]! <= month) at += 1;
-        if (starts[at]! <= month) buckets[at]!.count += count;
+        if (month >= hi || monthly.offset(new Date(month), 1).getTime() <= lo) continue;
+        const from = Math.max(month, lo);
+        while (at + 1 < starts.length && starts[at + 1]! <= from) at += 1;
+        if (starts[at]! <= from) buckets[at]!.count += count;
     }
     const max = buckets.reduce((m, b) => Math.max(m, b.count), 0);
     return { unit, buckets, max };

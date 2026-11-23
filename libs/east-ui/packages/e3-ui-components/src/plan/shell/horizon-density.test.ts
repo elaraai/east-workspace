@@ -57,6 +57,13 @@ describe("horizonDensity (#1438)", () => {
         expect([d.buckets[0]!.count, d.buckets[1]!.count, d.buckets.at(-1)!.count]).toEqual([0, 1, 1]);
     });
 
+    test("a month the horizon's start clips counts whole in the first bucket, as one its end clips does — a source's horizon begins on its first event's day (#1710)", () => {
+        // From Wednesday 5 October 2022 to the year's end: October, clipped to its 5th, counts whole in the first bucket.
+        const d = horizonDensity(at("2022-10-05"), at("2023-01-01"), decade, 400)!;
+        expect(d.buckets.map((b) => b.count)).toEqual([10, 11, 12]);
+        expect([d.buckets[0]!.start.toISOString(), d.buckets[0]!.from]).toEqual(["2022-10-01T00:00:00.000Z", 0]);
+    });
+
     test("a month outside the horizon counts in no bucket, and no horizon or no track has no buckets", () => {
         const d = horizonDensity(at("2025-01-01"), at("2026-01-01"), decade, 400)!;
         expect(d.buckets.reduce((n, b) => n + b.count, 0)).toBe(78);

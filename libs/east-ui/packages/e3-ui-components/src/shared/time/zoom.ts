@@ -111,10 +111,16 @@ const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "mon
 const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
 
 /**
- * Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. The axis's domain
- * is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
+ * Each period of a calendar tile from the one holding an instant to the last starting before another, by its start, in
+ * ms: at most ten thousand — what a zoom's window is cut into, and a horizon's months (`horizon-months.ts`). The axis's
+ * domain is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
+ *
+ * @param tile - The tile
+ * @param from - The first instant, in ms: its period is the first
+ * @param to - The end, exclusive
+ * @returns Each period's start, in order
  */
-function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
+export function tileStartsOver(tile: RecordTile, from: number, to: number): number[] {
     const out: number[] = [];
     for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());
     return out;
@@ -148,8 +154,8 @@ export function zoomedWindow(shown: readonly [number, number], from: string, to:
     // a span of decades at the day lists the weeks either side of the middle, not its first ten thousand days.
     const reach = (n + 1) * BUCKET_MS[tile];
     const buckets = span === undefined
-        ? bucketsOver(tile, middle - reach, middle + reach)
-        : bucketsOver(tile, Math.max(Math.min(span[0], shown[0]), middle - reach), Math.min(Math.max(span[1], shown[1]), middle + reach));
+        ? tileStartsOver(tile, middle - reach, middle + reach)
+        : tileStartsOver(tile, Math.max(Math.min(span[0], shown[0]), middle - reach), Math.min(Math.max(span[1], shown[1]), middle + reach));
     if (buckets.length === 0) return undefined;
     // The bucket holding the middle, and how far into it the middle falls: the window is the one whose own middle is
     // nearest it — two years about November show that year and the next, not the year before.

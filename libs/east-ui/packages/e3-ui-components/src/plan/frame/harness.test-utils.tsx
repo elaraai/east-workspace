@@ -22,6 +22,7 @@
  * @packageDocumentation
  */
 
+import { vi } from "vitest";
 import { fireEvent, within, type RenderResult } from "@testing-library/react";
 import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
@@ -159,6 +160,24 @@ export async function zoomTo(container: HTMLElement, resolution: "day" | "week" 
         fireEvent.click(option);
     });
     await settle();
+}
+
+/**
+ * Lays the horizon's strip out over jsdom's measures (#1438), which the
+ * harness leaves to the test: its width is what the returned setter last set,
+ * and a resize tells the strip it moved.
+ *
+ * @returns Sets the strip's width, px
+ */
+export function horizonLaidOut(): (px: number) => void {
+    let laid = 0;
+    const real = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        return this.hasAttribute("data-plan-horizon-track") || this.hasAttribute("data-brush-track")
+            ? { x: 0, y: 0, top: 0, left: 0, right: laid, bottom: 32, width: laid, height: 32, toJSON() {} } as DOMRect
+            : real.call(this);
+    });
+    return (px) => { laid = px; };
 }
 
 /** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
