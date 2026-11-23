@@ -159,6 +159,10 @@ export { useSlotClass, useSlotStyles, type SlotStyle, type SlotStyles, type Slot
 // The theme colour tokens a Schematic's colour may name (D14): what its Issues tab holds a colour to (#1391).
 export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 
+// The display parts a Record draws in its own cells, from a payload it builds for each (east-workspace#1726): a series as a
+// Trace's one track.
+export { EastChakraTrace, type TraceValue } from "./display/trace/index.js";
+
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
 

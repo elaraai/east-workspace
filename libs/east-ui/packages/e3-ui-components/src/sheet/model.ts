@@ -26,11 +26,11 @@
  * @packageDocumentation
  */
 
-import { none, variant } from "@elaraai/east";
+import { FloatType, none, printFor, variant } from "@elaraai/east";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { type Formatters, type TickFormatOpt, getSomeorUndefined } from "@elaraai/east-ui-components";
 import type {
-    SheetCellValue, SheetColumnValue, SheetContextValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
+    SheetCellValue, SheetColumnKindValue, SheetColumnValue, SheetContextValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
     SheetNounValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSubRowValue,
 } from "./values.js";
 import type { SheetWords } from "./words.js";
@@ -40,17 +40,18 @@ import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
-/** The column kinds (the arms of `SheetColumnKindType`); the last seven only a Record draws (#1528). */
-export type SheetKind =
-    | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom" | "action"
-    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
+/**
+ * The column kinds: the arms of `SheetColumnKindType`, as the wire's column decodes them — title, person, boolean,
+ * toggle, cycle, age, audit and trace only a Record draws (#1528, east-workspace#1728).
+ */
+export type SheetKind = SheetColumnKindValue["type"];
 
 /** Default column widths per kind (px) when the author declares none. */
 const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
     title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
+    trace: 240,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -464,13 +465,14 @@ export const NULL_CELL: SheetCellValue = variant("Null", null);
 /** The empty link — both halves empty. */
 export const EMPTY_LINK: SheetLinkValue = { from: [], to: [] };
 
-/** Whether a cell is blank (`Null`, an empty string, or an empty link). */
+/** Whether a cell is blank (`Null`, an empty string, an empty link, or an empty series). */
 export function cellIsBlank(cell: SheetCellValue | undefined): boolean {
     if (cell === undefined) return true;
     switch (cell.type) {
         case "Null": return true;
         case "String": return cell.value === "";
         case "Link": return cell.value.from.length === 0 && cell.value.to.length === 0;
+        case "Series": return cell.value.length === 0;
         default: return false;
     }
 }
@@ -533,6 +535,22 @@ export function formatQuantity(n: number, format: TickFormatOpt, words: Formatte
     return words.value(n, format);
 }
 
+/**
+ * A series' numbers as text (east-workspace#1728) — what copy puts and a strip says: each as data, every digit and
+ * never grouped, in the viewer's language, between separators that are never its decimal one: `12, 14.5, 13`
+ * (`12; 14,5; 13` in `de-DE`).
+ *
+ * @param values - The series
+ * @param words - The viewer's formatters
+ * @returns The text; empty for an empty series
+ */
+export function seriesText(values: readonly number[], words: Formatters): string {
+    return values.map((n) => words.bare(n)).join(words.separators.decimal === "," ? "; " : ", ");
+}
+
+/** A Float as East prints it — a series' numbers where no viewer's language is to hand. */
+const printFloat = printFor(FloatType);
+
 /** A date's display text — the author's pattern, else `17 Nov 26`; East's own printer either way. */
 export function formatDateCell(d: Date, pattern: string | undefined): string {
     return formatDatePattern(pattern !== undefined && pattern !== "" ? pattern : DATE_DISPLAY_PATTERN, d);
@@ -572,6 +590,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "toggle":
             // A toggle reads as its state's word, the word typed back sets it.
             return cell.type === "Boolean" && meta.states !== undefined ? (cell.value ? meta.states.on : meta.states.off) : rawCellText(cell);
+        case "trace":
+            // A series reads as its numbers, in the viewer's language (east-workspace#1728).
+            return cell.type === "Series" ? seriesText(cell.value, words) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -589,6 +610,7 @@ export function rawCellText(cell: SheetCellValue): string {
         case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
         case "Link": return printLinkText(cell.value);
         case "Action": return cell.value.case;
+        case "Series": return cell.value.map((n) => printFloat(n)).join(", ");
     }
     return "";
 }

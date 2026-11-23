@@ -243,7 +243,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
-    const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
+    const grid = useMemo((): RecordGrid => ({ styles, density, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, density, ticks, value.columnGroups, noun, title, inspector]);
     const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (

@@ -18,6 +18,7 @@ import {
 import { DensityType } from "../../style.js";
 import type { DensityLiteral } from "../../style.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
+import { NumberDomainType } from "../../charts/spec/types.js";
 
 /**
  * Colour encoding for a Trace's heat fills.
@@ -55,7 +56,7 @@ export type TraceFutureLiteral = "ghost" | "hatch" | "fade";
  * value-encoded steps.
  *
  * @property name - Short stub label shown to the left of the row
- * @property values - One scalar per step; the heat fill normalises across this track's own min/max
+ * @property values - One scalar per step; the heat fill normalises across this track's own min/max, or across the Trace's `domain` where it has one
  */
 export const TraceTrackType = StructType({
     name: StringType,
@@ -90,6 +91,7 @@ export type TraceStyleType = typeof TraceStyleType;
  * @property density - Step + font sizing (shared cascade with `ChipRail`)
  * @property scale - Heat-fill colour encoding
  * @property future - How predicted steps are distinguished
+ * @property domain - One scale for every track (east-workspace#1728): each step's level is its value's place in `[min, max]`, a value past either end taking that end's, and the diverging scale's midpoint the domain's middle; `none`, each track runs over its own min and max. A domain whose `max` is not past its `min` places nothing on it: each track runs over its own
  * @property style - Optional visual escape hatches
  */
 export const TraceType = StructType({
@@ -99,6 +101,7 @@ export const TraceType = StructType({
     density: OptionType(DensityType),
     scale: OptionType(TraceScaleType),
     future: OptionType(TraceFutureType),
+    domain: OptionType(NumberDomainType),
     style: OptionType(TraceStyleType),
 });
 export type TraceType = typeof TraceType;
@@ -124,6 +127,7 @@ export interface TraceTrack {
  * @property scale - Heat-fill colour encoding
  * @property future - How predicted steps are distinguished
  * @property axis - Optional per-step labels (ruler at `comfortable`, step tooltips at every density)
+ * @property domain - One scale for every track, `[min, max]`, each bound a Float or an expression of one, as a Chart axis's `domain` is: the same value takes the same level on every track, a value past either end that end's. Omit for each track's own min and max
  * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour
  * @property nowLineColor - Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour
  */
@@ -138,6 +142,8 @@ export interface TraceOptions {
     future?: SubtypeExprOrValue<TraceFutureType> | TraceFutureLiteral;
     /** Optional per-step labels (ruler at `comfortable`, step tooltips always). */
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** One scale for every track, `[min, max]`, as a Chart axis's `domain` is written; omit for each track's own min and max. */
+    domain?: [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>];
     /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
     /** Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour. */

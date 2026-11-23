@@ -170,7 +170,7 @@ export interface SheetColumnMeta {
     /** The kind's payload type. */
     payloadType: EastType;
     /** The cell arm the payload lands in. */
-    cellTag: "String" | "DateTime" | "Float" | "Integer" | "Boolean" | "Link" | "Action";
+    cellTag: "String" | "DateTime" | "Float" | "Integer" | "Boolean" | "Link" | "Action" | "Series";
     /** Whether the sheet writes the column. */
     editable: boolean;
     /** A reified `value` projection — the column is a derived, read-only read. */
@@ -284,9 +284,13 @@ export function optionPayload(t: EastType): EastType | undefined {
     return v.cases["some"];
 }
 
+/** A series of numbers: a trace column's payload (east-workspace#1728), which a `Series` cell holds. */
+const SERIES_TYPE = ArrayType(FloatType);
+
 /** The cell arm a primitive payload lands in, or `undefined` for a type no cell holds. */
 export function cellTagOf(t: EastType): SheetColumnMeta["cellTag"] | undefined {
     if (isTypeEqual(t, SheetLinkType)) return "Link";
+    if (isTypeEqual(t, SERIES_TYPE)) return "Series";
     switch ((t as { type: string }).type) {
         case "String":   return "String";
         case "DateTime": return "DateTime";
@@ -301,6 +305,7 @@ const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
     text: StringType, lookup: StringType, reference: StringType, enum: StringType, stamped: StringType,
     date: DateTimeType, quantity: FloatType, integer: IntegerType,
     title: StringType, person: StringType, cycle: StringType, boolean: BooleanType, toggle: BooleanType,
+    trace: SERIES_TYPE,
 };
 
 /** Compile one rule accessor and check its payload — `String` or `DateTime`, or its Option. */
@@ -461,6 +466,9 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
     }
     if (kind === "lookup") {
         throw new Error(`${where} is a lookup column, the sheet's driver and one column of its own — it makes no columns from data, so give it no \`each\``);
+    }
+    if (kind === "trace") {
+        throw new Error(`${where} is a trace column, which draws one row's series — it makes no columns from data, so give it no \`each\``);
     }
     for (const option of ["fill", "options", "value"] as const) {
         if (cfg[option] !== undefined) {
@@ -820,6 +828,15 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         };
     }
 
+    // A trace (east-workspace#1728) shows its series and takes no edit: no `editable`, no `fill`, no `options`.
+    if (kind === "trace") {
+        for (const option of ["editable", "fill", "options"] as const) {
+            if (cfg[option] !== undefined) {
+                throw new Error(`Sheet: column "${key}" is a trace column, which shows its series and is read only — it takes no \`${option}\``);
+            }
+        }
+    }
+
     // A derived read — the projection decides the payload; the field is free.
     if (cfg.value !== undefined && kind !== "set" && kind !== "link" && kind !== "stamped" && kind !== "custom") {
         const payloadType = SCALAR_PAYLOAD[kind] as EastType;
@@ -828,7 +845,9 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         const outPayload = optionPayload(out);
         const outUnwrapped = outPayload ?? out;
         if (!isTypeEqual(outUnwrapped, payloadType)) {
-            throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${(outUnwrapped as { type: string }).type} — a ${kind} column's projection must return ${(payloadType as { type: string }).type} or its Option`);
+            // A series is named whole; a primitive by its kind, as ever.
+            const spelt = (t: EastType) => (kind === "trace" ? describeType(t) : (t as { type: string }).type);
+            throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${spelt(outUnwrapped)} — a ${kind} column's projection must return ${spelt(payloadType)} or its Option`);
         }
         return {
             key, field: key, kind, config: cfg, fieldType, optional, payloadType,
@@ -885,13 +904,17 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     }
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
+    if (kind === "trace" && !isTypeEqual(unwrapped, payloadType)) {
+        throw new Error(`Sheet: trace column "${key}" must sit on an Array<Float> or Option<Array<Float>> field, or read one through \`value\` — got ${describeType(fieldType)}`);
+    }
     if (!isTypeEqual(unwrapped, payloadType)) {
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
         key, field: key, kind, config: cfg, fieldType, optional, payloadType,
         cellTag: cellTagOf(payloadType)!,
-        editable: kind !== "stamped" && cfg.editable !== false,
+        // A stamped code and a trace's series are never written.
+        editable: kind !== "stamped" && kind !== "trace" && cfg.editable !== false,
         ...(col.register !== undefined ? { register: col.register } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
     };

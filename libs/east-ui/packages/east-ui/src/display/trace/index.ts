@@ -68,12 +68,14 @@ function buildStyle(options: TraceOptions | undefined): ExprType<TraceStyleType>
  * future.
  *
  * @param tracks - One row per measure, each `{ name, values }`
- * @param options - Optional config: `now`, `density`, `scale`, `future`, `axis`, colour overrides
+ * @param options - Optional config: `now`, `density`, `scale`, `future`, `axis`, `domain`, colour overrides
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
  * Read-only by construction — no events, no commit, no drag. Each track's heat
- * fill normalises across its own min/max; tracks share one step grid, so `now`
+ * fill normalises across its own min/max — or, given `domain: [min, max]`,
+ * every track's across the domain, so the same value takes the same level on
+ * each (east-workspace#1728); tracks share one step grid, so `now`
  * (a single index) draws one line spanning every row. `density` shares the
  * cascade with `ChipRail`, so a Trace cell and a ChipRail cell line up in
  * adjacent table columns.
@@ -119,6 +121,7 @@ function createTrace(
         density: densityValue ? some(densityValue) : none,
         scale: scaleValue ? some(scaleValue) : none,
         future: futureValue ? some(futureValue) : none,
+        domain: options?.domain !== undefined ? some({ min: options.domain[0], max: options.domain[1] }) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

@@ -802,6 +802,7 @@ const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
     quantity: "number", integer: "number",
     enum: "enum", set: "chip", link: "link", action: "enum",
     title: "text", person: "text", boolean: "boolean", toggle: "enum", cycle: "enum", age: "number", audit: "date",
+    trace: "text",
 };
 
 export interface SheetRunRowProps {

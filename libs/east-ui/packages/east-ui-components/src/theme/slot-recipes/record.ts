@@ -37,7 +37,8 @@
  *     step of the heat ramp or a valence's 6% wash, edge and text step; the
  *     mark look's pips and dots; an age mono 13/500, warn past its threshold
  *     with a dot; an audit's date mono 13/500 and its who in `fg.muted`, or
- *     PENDING in `brandPressed`. A mark's note after the value at `body.sm`
+ *     PENDING in `brandPressed`; a trace's steps across the cell between its
+ *     paddings (east-workspace#1728). A mark's note after the value at `body.sm`
  *     in `fg.muted`, or in an empty cell in the absent face in its place; a
  *     lock the design system's Tag — 20 tall, padded 0 8, `bg.subtle` behind
  *     the subtle rule at radius `sm`, mono 10/500 in `fg.muted`, the paper on
@@ -169,7 +170,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "row", "cell", "tick", "run", "runRow", "runGutter", "runCell", "runActionCell",
         "titleCell", "avatar", "nobody", "personLabel", "text",
         "chip", "pips", "pip", "mark", "markDot", "markWord", "box",
-        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock",
+        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock", "display",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
         "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
@@ -370,6 +371,13 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
+        /* A display cell's part (east-workspace#1726) — a trace's steps — across the cell between its paddings, starting a whole
+           number of pixels under the row's edge: a compact trace's 22 in the 34 or 30 of a 36 or 32 row, a condensed one's 15 in
+           a 28 row's 26 a pixel under it, as any odd part stands (`data-density`, the trace's). In Details, across its field's line. */
+        display: {
+            flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center",
+            "&[data-density=condensed]": ODD_PART,
+        },
         /* A mark's note after the cell's value, one line, the value keeping its room. */
         note: {
             flex: "0 1 auto", minWidth: "0", marginInlineStart: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

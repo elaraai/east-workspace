@@ -62,6 +62,7 @@ import type {
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
 import type { SheetAnyActionConfig } from "./actions.js";
+import type { RecordTraceConfig } from "./display-columns.js";
 
 // ============================================================================
 // The column value and the spec map
@@ -729,6 +730,8 @@ export type SheetAnyColumnConfig =
     // An age's `unit` names what it counts, a quantity's the unit it prints: the age's is read by its own name.
     & Partial<Omit<RecordAgeConfig<StructType>, "header" | "sub" | "width" | "unit">>
     & Partial<Pick<RecordAuditConfig, "mode">>
+    // A trace's `scale` names its colours, a cycle's whether it steps up the heat ramp: the trace's is read by its own name.
+    & Partial<Omit<RecordTraceConfig<StructType>, "header" | "sub" | "width" | "detail" | "mark" | "scale">>
     // A column from data's `mark` is the member's, read by the build as the function it is given.
     & Partial<Omit<SheetFromDataInput<EastType>, "mark">>
     & { field?: string };
@@ -737,8 +740,12 @@ export type SheetAnyColumnConfig =
 // Builders
 // ============================================================================
 
-/** Build one column value — a column from data keyed by a name of its own carrying the field it names. */
-function column<R extends StructType, A extends EastType>(
+/**
+ * Build one column value — a column from data keyed by a name of its own carrying the field it names.
+ *
+ * @internal
+ */
+export function column<R extends StructType, A extends EastType>(
     rowType: R,
     kind: SheetColumnKindLiteral,
     config: object,
@@ -901,7 +908,7 @@ export function custom<R extends StructType>(rowType: R, config: object): SheetC
  *
  * @internal
  */
-export const RECORD_COLUMN_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["title", "person", "boolean", "toggle", "cycle", "age", "audit"]);
+export const RECORD_COLUMN_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["title", "person", "boolean", "toggle", "cycle", "age", "audit", "trace"]);
 
 /**
  * An age column — what `Record.column.age` returns. It shows no field, so it

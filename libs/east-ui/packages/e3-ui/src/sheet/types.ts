@@ -50,8 +50,8 @@ import {
 import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
-import { DensityType, StatusValueType } from "@elaraai/east-ui";
-import { CarriedRowSourceType, FieldOptionType, FieldSpecType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
+import { DensityType, StatusValueType, Trace } from "@elaraai/east-ui";
+import { CarriedRowSourceType, FieldOptionType, FieldSpecType, NumberDomainType, RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // Links — members, the typed link value, the cell
@@ -132,6 +132,7 @@ export type SheetActionCellType = typeof SheetActionCellType;
  * @property DateTime - A UTC-midnight date (a `date` column's cell); the moment an `age` counts from, or an `audit`'s change was made
  * @property Link - A typed link (a `set` / `link` column's cell)
  * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
+ * @property Series - A series of numbers, read only (east-workspace#1728): a Record's trace column's cell
  */
 export const SheetCellType = VariantType({
     Invalid:  StringType,
@@ -143,6 +144,7 @@ export const SheetCellType = VariantType({
     DateTime: DateTimeType,
     Link:     SheetLinkType,
     Action:   SheetActionCellType,
+    Series:   ArrayType(FloatType),
 });
 /** Type alias for {@link SheetCellType}. */
 export type SheetCellType = typeof SheetCellType;
@@ -941,6 +943,7 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property cycle - A register's members, stepped by a click — a `scale` steps up the heat ramp, otherwise each member's tone; a Record's
  * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the viewer's own day: `elapsed(since, at)` — `at` the clock's instant for hours, the viewer's day at UTC midnight for days and weeks — warning at `stale`; read only, a Record's
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
+ * @property trace - A row's series as one track of value-coloured steps (east-workspace#1728), drawn with east-ui's Trace: its `now`, its steps' labels (`axis`), its `scale` and its `future`, Trace's own, `domain` one scale for every row, and the words for a row with no series (`absent`); read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
@@ -990,6 +993,14 @@ export const SheetColumnKindType = VariantType({
         elapsed: FunctionType([DateTimeType, DateTimeType], IntegerType),
     }),
     audit:     StructType({ mode: SheetAuditModeType, absent: OptionType(StringType), by: StringType, verb: StringType }),
+    trace:     StructType({
+        now:    OptionType(IntegerType),
+        axis:   OptionType(ArrayType(StringType)),
+        scale:  Trace.Types.Scale,
+        future: Trace.Types.Future,
+        domain: OptionType(NumberDomainType),
+        absent: OptionType(StringType),
+    }),
 });
 /** Type alias for {@link SheetColumnKindType}. */
 export type SheetColumnKindType = typeof SheetColumnKindType;
@@ -997,7 +1008,8 @@ export type SheetColumnKindType = typeof SheetColumnKindType;
 export type SheetColumnKindLiteral =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
     | "set" | "link" | "stamped" | "custom" | "action"
-    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit"
+    | "trace";
 
 /**
  * The column from data and the member a wire column was made for, the field
