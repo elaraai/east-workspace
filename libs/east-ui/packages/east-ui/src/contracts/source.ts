@@ -664,7 +664,7 @@ function windowedSource(t: EastType, fields: Record<string, EastType>): { collec
  * Recognise a record's indexed binding (`Data.bindPaged(record, { indexes })`)
  * by its East type, through East's own subtype relation: a subtype of
  * {@link IndexedSourceType} over the window its `page` serves, its indexes'
- * metadata, its nested part and its maintenance part.
+ * metadata, its nested part, its maintenance part and its copies part.
  *
  * @param t - The rows prop's East type
  * @param fields - Its struct fields
@@ -672,7 +672,8 @@ function windowedSource(t: EastType, fields: Record<string, EastType>): { collec
  */
 function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType<StructType> | undefined {
     const window = pagePayload(fields);
-    if (window?.type !== "Array" || fields["indexes"] === undefined || fields["nested"] === undefined || fields["maintenance"] === undefined) return undefined;
+    if (window?.type !== "Array" || fields["indexes"] === undefined || fields["nested"] === undefined || fields["maintenance"] === undefined
+        || fields["copies"] === undefined) return undefined;
     const entry = window.value as EastType;
     const entryFields = structFields(entry);
     const row = entryFields?.["row"];
@@ -681,7 +682,8 @@ function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType
     const rowType = (row.cases as Record<string, EastType>)["some"];
     const projection = (value.cases as Record<string, EastType>)["some"];
     if (rowType === undefined || projection === undefined) return undefined;
-    const contract = IndexedSourceType(entryFields["key"], rowType, projection, fields["indexes"], entryFields["ik"], fields["nested"], fields["maintenance"]);
+    const contract = IndexedSourceType(entryFields["key"], rowType, projection, fields["indexes"], entryFields["ik"], fields["nested"], fields["maintenance"],
+        fields["copies"]);
     return isSubtype(t, contract) ? window as ArrayType<StructType> : undefined;
 }
 

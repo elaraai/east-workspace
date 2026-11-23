@@ -98,6 +98,64 @@ function checkedSource(part: ScheduleKindPart, slot: string, key: EastType, row:
 }
 
 /**
+ * The copy of each event a kind's source carries (#1725): a series index of
+ * the kind's record declared with a `value`, whose entries are what the value
+ * gives of each row, in the row's place. A Plan draws the kind's stored
+ * events from them, and a drafted row through the index's value function, as
+ * the index will hold it once it is saved.
+ */
+export interface ScheduleCopy {
+    /** The series index, by its name in the source. */
+    readonly index: string;
+    /** What it holds of each event: the struct its `value` gives. */
+    readonly type: StructType;
+    /** Its value function, `(K, R) → the copy`, as the source's binding carries it. */
+    readonly of: ExprType<FunctionType<[EastType, EastType], EastType>>;
+    /** The other series indexes the source lists beside it, by name: none, for a kind drawn from the copies. */
+    readonly beside: readonly string[];
+}
+
+/**
+ * The copy of each event a kind's source carries, read from the source's
+ * type (#1725): the series index it lists whose metadata names a copy, and the
+ * value function its binding carries for it.
+ *
+ * @param part - The kind's source of its builder's slice
+ * @param slot - The kind's slot, which names its source
+ * @param key - The record's key type
+ * @param row - The record's row type
+ * @param label - The kind, as a refusal names it
+ * @returns The copy — the first such index the source lists — and the series indexes beside it; `undefined` for a
+ *   source listing no series index with a `value`
+ * @throws {Error} When its binding carries no value function of the copy's type for it
+ */
+export function scheduleCopyOf(part: ScheduleKindPart, slot: string, key: EastType, row: EastType, label: string): ScheduleCopy | undefined {
+    const fieldsOf = (type: EastType | undefined) => (type?.type === "Struct" ? type.fields as Record<string, EastType> : undefined);
+    const binding = fieldsOf(fieldsOf(Expr.type(part as unknown as Expr) as EastType)?.source);
+    const indexes = Object.entries(fieldsOf(binding?.indexes) ?? {});
+    // A series index is one whose kind's case is `series`; one with a `value` names its copy beside its fields and kind.
+    const series = indexes.filter(([, meta]) => {
+        const kind = fieldsOf(meta)?.kind;
+        return kind?.type === "Variant" && Object.hasOwn(kind.cases, "series");
+    });
+    const copied = series.filter(([, meta]) => fieldsOf(meta)?.copy !== undefined);
+    if (copied.length === 0) return undefined;
+    const [index, meta] = copied[0]!;
+    const beside = series.map(([name]) => name).filter((name) => name !== index);
+    const marker = fieldsOf(meta)!.copy!;
+    const type = marker.type === "Array" ? marker.value as EastType : undefined;
+    const copies = binding?.copies;
+    const carried = copies?.type === "Variant" ? fieldsOf((copies.cases as Record<string, EastType>).some)?.[index] : undefined;
+    if (type?.type !== "Struct" || carried === undefined || !isTypeEqual(carried, FunctionType([key, row], type))) {
+        throw new Error(`${label}: the builder's source "${slot}" lists the series index "${index}", whose entries are copies of its events, and its ` +
+            "binding carries no value function of the copy's type for it — bind it with Data.bindPaged(record, { indexes })");
+    }
+    const source = (part as unknown as ExprType<StructType<{ source: StructType<{ copies: OptionType<StructType> }> }>>).source;
+    const of = (source.copies.unwrap("some") as unknown as Record<string, ExprType<FunctionType<[EastType, EastType], EastType>>>)[index]!;
+    return { index, type, of, beside };
+}
+
+/**
  * The interval index a window is read through, scanned in a read's block:
  * one from `field` — to `end`, where one is given, a kind's end, which keeps
  * its overlapping events; none given, led by no field, as a read no choice

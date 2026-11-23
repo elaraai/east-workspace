@@ -305,12 +305,12 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  *   scope's fields — each naming the field, and the types or the index to declare
  */
 export function bindRecord<K extends EastType, R extends StructType, P extends EastType, M extends StructType, IK extends VariantType, N extends EastType,
-    Maint extends EastType>(
+    Maint extends EastType, C extends EastType>(
     key: SubtypeExprOrValue<StringType>,
-    source: IndexedSource<K, R, P, M, IK, N, Maint>,
+    source: IndexedSource<K, R, P, M, IK, N, Maint, C>,
     options: RecordSliceOptions<NoInfer<R>, NoInfer<M>> = {},
 ): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>, M, N,
-    ReturnType<typeof IndexedSourceType<K, R, P, M, IK, N, Maint>>, StructType>>> {
+    ReturnType<typeof IndexedSourceType<K, R, P, M, IK, N, Maint, C>>, StructType>>> {
     const sourceType = Expr.type(source);
     if (sourceType.type !== "Struct" || sourceType.fields.page?.type !== "Function" || sourceType.fields.indexes?.type !== "Struct") {
         throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
@@ -328,8 +328,11 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const fieldTypes = recordSliceFieldTypes(rowType, metadata);
     const nested = sourceType.fields.nested;
     const maintenance = sourceType.fields.maintenance;
-    if (nested === undefined || maintenance === undefined) throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
-    if (!isSubtype(sourceType, IndexedSourceType(entry.fields.key, rowType, projectionOption.cases.some!, metadata, entry.fields.ik, nested, maintenance))) {
+    const copies = sourceType.fields.copies;
+    if (nested === undefined || maintenance === undefined || copies === undefined) {
+        throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
+    }
+    if (!isSubtype(sourceType, IndexedSourceType(entry.fields.key, rowType, projectionOption.cases.some!, metadata, entry.fields.ik, nested, maintenance, copies))) {
         throw new Error("Slice.bindRecord needs an indexed record binding");
     }
     type Index = ValueTypeOf<RecordSliceConfigType>["indexes"][number];

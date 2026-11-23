@@ -62,6 +62,16 @@
  * seam — the events over a window, the backlog, one event by key — what it
  * read of the kind's series index's cells (`cellsType`, `seriesKey`).
  *
+ * A Plan whose source for a kind lists a series index declared with a `value`
+ * draws the kind's stored events from the copies that index holds of them
+ * (#1725), what the value gives of each row: its cells hold the copies, and a
+ * row read whole — a draft's, the backlog's, one read by its key — is drawn as
+ * its copy, made by the index's value function, which the source's binding
+ * carries. The kind's roles name the row's fields, as ever, which the copy
+ * holds under the same names, of the same types; its title may name a field
+ * the copy works out, which is drawn and not edited; its `title` and `locked`
+ * written as functions are given the copy. One event's row is read by its key.
+ *
  * A large record may also be read a window at a time (#1199, `window.ts`): given
  * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
  * events over a window are the rows the index files under the days in view,
@@ -118,7 +128,7 @@ import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
-import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
+import { SCHEDULE_EVENT_CAP, scheduleCopyOf, scheduleRecordCount, scheduleRecordWindow, type ScheduleCopy, type ScheduleKindPart } from "./record-window.js";
 import { keyFieldHints, scheduleRecordSession } from "./session.js";
 import type { RecordKeyField } from "../bind/record.js";
 import { checkEntries, checkIndexWindow, keyText, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
@@ -343,9 +353,11 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * An event's title, wherever one is drawn or read: the String field it is, edited in the inspector, or a function of
      * the row returning a String, for a row where no String field says what the event is (one holding its kind as a
      * variant) — the fields it reads are edited as any others. The Calendar and Plan, which draw it, require it; the
-     * Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it.
+     * Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it. On a Plan drawing the
+     * kind from the copies a series index holds (#1725), it may name a String field the copy works out, which no row
+     * holds: drawn, and not edited. A function is given the copy there, and reads only the fields it holds.
      */
-    title?: ScheduleStringField<R> | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>);
+    title?: ScheduleStringField<R> | (string & {}) | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>);
     /** The resource an event is on: a key field of one kind (`of: "people"`), or a variant field with a kind per case. Omitted, no resource. */
     resource?: { field: F; of: ScheduleResourceOf<R["fields"][F]> };
     /** A variant field shown as the event's status, a Status per case. On a Plan, a warning tone rings the element. */
@@ -382,7 +394,9 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /**
      * The app's own lock on one event (#1541, U9): `true` holds it where it is. In every builder no gesture moves,
      * resizes, changes or removes a locked event, and an optimiser's answer that changes it is refused, naming it. A
-     * Plan also draws it with a lock, shows its form read only, and says why a gesture on it is refused.
+     * Plan also draws it with a lock, shows its form read only, and says why a gesture on it is refused. On a Plan
+     * drawing the kind from the copies a series index holds (#1725), it is given each event's copy, as the event is
+     * drawn, and reads only the fields the copy holds.
      */
     locked?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
     /**
@@ -881,7 +895,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const titleOf = typeof config.title === "function" ? scheduleAccessor(rowType, keyType, StringType, config.title,
         (returns) => `${where}: \`title\` returns a String, the event's title — and this one returns ${returns}`) : undefined;
     const titleField = typeof config.title === "function" ? undefined : config.title;
-    if (titleField !== undefined && !isTypeEqual(fieldType("title", titleField), StringType)) {
+    // A field the row does not have may be one the copy a Plan draws the kind from works out (#1725): checked as the kind
+    // is built, against its rows or that copy.
+    const titleCopied = titleField !== undefined && !Object.hasOwn(fields, titleField);
+    if (titleField !== undefined && !titleCopied && !isTypeEqual(fields[titleField]!, StringType)) {
         throw new Error(`${where}: \`title\` names a String field — "${titleField}" holds ${typeText(fields[titleField]!)}`);
     }
     // The times: `start` and `end`, DateTime or Options of DateTime alike; or an instant kind's `at`, in their place.
@@ -1124,57 +1141,60 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.rowKey, keyField);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
-    // records draws its roles in its own sections, so its form leaves out the fields they name too.
+    // records draws its roles in its own sections, so its form leaves out the fields they name too — each a field of the
+    // row: a title only a copy holds is none of its fields (#1725).
     const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, keyFieldHints(config.fields ?? {}, keyField) as never,
-        [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
+        [...new Set(omitted.filter((name): name is string => name !== undefined && Object.hasOwn(fields, name)))] as never);
     const formSpecs = formOver([titleField, ...placed, config.status?.field]);
 
     // ── The East the seams share ─────────────────────────────────────────
     const draftType = EditingDraftFieldType(rowType);
     const EntryRowType = StructType({ id: StringType, key: keyType, row: rowType });
-    // The stored entries a reader read by a series index's cells (#1039), each its key and its row.
-    const CellsType = ArrayType(StructType({ key: keyType, row: rowType }));
-    // The entry a draft leaves: the drafted entry, none for one deleted, the held one for a draft it cannot read.
-    const drafted = East.function([BlobType, OptionType(rowType)], OptionType(rowType), (_$, bytes, held) =>
-        bytes.decodeBeast(draftType, "v2").match({
-            value: (_$2, row) => East.value(some(row), OptionType(rowType)),
-            missing: (_$2) => East.value(none, OptionType(rowType)),
-            invalid: (_$2) => held,
-        }));
-    // Every entry held — the record's, or a window's of it — with the drafts in place, then the drafted
-    // entries it does not hold: a draft moved into a window shows, and one moved out of it leaves by its times.
-    // Erased as the record's own read is, so the record whole and a window of it are one type.
-    const HeldType: DictType<EastType, EastType> = DictType(keyType, rowType as EastType);
-    const withDraftsFor = (narrowed: boolean) => East.function([HeldType, ScheduleDraftsType], ArrayType(EntryRowType), ($, held, drafts) => {
-        const idText = $.const(idOf);
-        const parse = $.const(keyOf);
-        const draft = $.const(drafted);
-        const out = $.let([], ArrayType(EntryRowType));
-        $.for(held, ($2, row, key) => {
-            const id = $2.const(idText(key));
-            $2.if(drafts.has(id), ($3) => {
-                $3.match(draft(drafts.get(id), East.value(some(row), OptionType(rowType))), {
-                    some: ($4, next) => { $4(out.pushLast({ id, key, row: next })); },
-                });
-            }).else(($3) => { $3(out.pushLast({ id, key, row })); });
-        });
-        $.for(drafts, ($2, bytes, id, label) => {
-            const key = $2.const(parse(id));
-            $2.if(held.has(key).not(), ($3) => {
-                // Existing drafts outside an indexed result stay in the session,
-                // but do not leak back into a different narrowing. New entries
-                // remain an explicit unsaved layer until their first Save.
-                if (narrowed && byKey !== undefined) {
-                    const find = $3.const(byKey);
-                    $3.if(find(id).hasTag("absent").not(), $4 => { $4.continue(label); });
-                }
-                $3.match(draft(bytes, East.value(none, OptionType(rowType))), {
-                    some: ($4, next) => { $4(out.pushLast({ id, key, row: next })); },
+    /** An entry of a held value or a drafted row, made in the block it is pushed in. */
+    type EntryOf = (id: ExprType<StringType>, key: ExprType<EastType>, value: ExprType<EastType>) => ExprType<EastType>;
+    /**
+     * Every value held by key — the record's rows, a window's of them, what a reader's cells hold — with the drafts in
+     * place, then the drafted entries it does not hold: a draft moved into a window shows, and one moved out of it leaves
+     * by its times. `fromHeld` makes an entry of a value held and `fromDraft` one of a drafted row: a draft deleted leaves
+     * none, and one the session cannot read leaves the value held.
+     */
+    const inPlaceOf = (heldType: EastType, entryType: StructType, fromHeld: EntryOf, fromDraft: EntryOf, narrowed: boolean) =>
+        East.function([DictType(keyType, heldType), ScheduleDraftsType], ArrayType(entryType), ($, held, drafts) => {
+            const idText = $.const(idOf);
+            const parse = $.const(keyOf);
+            const out = $.let([], ArrayType(entryType));
+            $.for(held, ($2, value, key) => {
+                const id = $2.const(idText(key));
+                $2.if(drafts.has(id), ($3) => {
+                    $3.match(drafts.get(id).decodeBeast(draftType, "v2"), {
+                        value: ($4, row) => { $4(out.pushLast(fromDraft(id, key, row as ExprType<EastType>) as never)); },
+                        invalid: ($4) => { $4(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); },
+                    });
+                }).else(($3) => { $3(out.pushLast(fromHeld(id, key, value as ExprType<EastType>) as never)); });
+            });
+            $.for(drafts, ($2, bytes, id, label) => {
+                const key = $2.const(parse(id));
+                $2.if(held.has(key as never).not(), ($3) => {
+                    // Existing drafts outside an indexed result stay in the session,
+                    // but do not leak back into a different narrowing. New entries
+                    // remain an explicit unsaved layer until their first Save.
+                    if (narrowed && byKey !== undefined) {
+                        const find = $3.const(byKey);
+                        $3.if(find(id).hasTag("absent").not(), $4 => { $4.continue(label); });
+                    }
+                    $3.match(bytes.decodeBeast(draftType, "v2"), {
+                        value: ($4, row) => { $4(out.pushLast(fromDraft(id, key as ExprType<EastType>, row as ExprType<EastType>) as never)); },
+                    });
                 });
             });
+            return out;
         });
-        return out;
-    });
+    // A row's entry, as it is.
+    const rowEntry: EntryOf = (id, key, row) => East.value({ id, key, row } as never, EntryRowType) as unknown as ExprType<EastType>;
+    // Every entry held — the record's, or a window's of it — with the drafts in place. Erased as the record's own read
+    // is, so the record whole and a window of it are one type.
+    const HeldType: DictType<EastType, EastType> = DictType(keyType, rowType as EastType);
+    const withDraftsFor = (narrowed: boolean) => inPlaceOf(rowType, EntryRowType, rowEntry, rowEntry, narrowed);
     // An instant field as an Option: a plain DateTime always has one.
     const instant = (row: unknown, name: string): ExprType<OptionType<DateTimeType>> => optional
         ? fieldOf(row, name) as unknown as ExprType<OptionType<DateTimeType>>
@@ -1474,25 +1494,107 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
 
     // ── A kind a reader reads by a series index's cells (#1039) ──────────
-    // The reader gives the entries it read as one beast2 of `CellsType`; an event past a year its cells repeat, year by
-    // year, is one entry, held once by its key. Every draft it gives shows: it gives a draft of an entry it did not read only
-    // where its narrowing holds the entry, or the record does not.
-    /** The entries a reader read by cells, as the record's rows by key. */
-    const cellsHeld = East.function([BlobType], HeldType, ($, bytes) => {
-        const entries = $.const(bytes.decodeBeast(CellsType, "v2"));
-        const held = $.let(new Map(), HeldType);
-        $.for(entries, ($2, entry) => {
-            $2(held.insertOrUpdate(entry.key, entry.row, (_$3, _was, now) => now));
-        });
-        return held;
-    });
-    /** Every draft given in place over the entries a reader read by cells, as `withDraftsFor` gives them. */
-    const cellsInPlace = withDraftsFor(false) as unknown as ExprType<FunctionType<[DictType<EastType, EastType>, typeof ScheduleDraftsType], ArrayType<typeof EntryRowType>>>;
+    // The reader gives the entries it read as one beast2 of the build's `cellsType`; an event past a year its cells
+    // repeat, year by year, is one entry, held once by its key. Every draft it gives shows: it gives a draft of an entry it
+    // did not read only where its narrowing holds the entry, or the record does not.
+    /**
+     * What a build draws its events from (#1039, #1725): each event's row — or, for a Plan whose source for the kind lists
+     * a series index declared with a `value`, the copy that index holds of each event, the row beside it where the row is
+     * read whole: a draft's, the backlog's. A reader encodes its cells at `cellsType`, and its items are made of entries.
+     */
+    interface Drawn {
+        /** The copy; `undefined` for a build drawing its events from their rows. */
+        readonly copy: ScheduleCopy | undefined;
+        /** An event as its item is made of it: `{ id, key, row }`, `row` its row or its copy, and a copy's `whole`, the row read whole or none. */
+        readonly entryType: StructType;
+        /** What a reader encodes the cells it read in: an Array of `{ key, row }`, `row` each event's row or its copy. */
+        readonly cellsType: ArrayType<StructType>;
+        /** The index's value function, `(K, R) → the copy`, held once in the build's block; `undefined` for a build drawing rows. */
+        readonly of: ExprType<FunctionType<[EastType, EastType], EastType>> | undefined;
+        /**
+         * An item function of a row read whole, made of `item`, the same item's function of an entry the build draws:
+         * `item` itself for a build drawing rows; else the row drawn as its copy first, the row beside it.
+         */
+        readonly overWhole: (itemType: EastType, item: ExprType<FunctionType<[EastType], EastType>>) => ExprType<FunctionType<[EastType], EastType>>;
+        /** The entries a reader read by cells, held by key: the rows, or each copy with no row beside it. */
+        readonly hold: ExprType<FunctionType<[BlobType], DictType<EastType, EastType>>>;
+        /** Rows read whole, held as the cells are, to stand beside them; `undefined` for a build drawing rows, whose cells are rows. */
+        readonly holdRows: ExprType<FunctionType<[DictType<EastType, EastType>], DictType<EastType, EastType>>> | undefined;
+        /** Every draft given in place over what is held, as entries. */
+        readonly inPlace: ExprType<FunctionType<[DictType<EastType, EastType>, typeof ScheduleDraftsType], ArrayType<EastType>>>;
+        /** Rows read whole, as cells: each its key, and its row or its copy. */
+        readonly asCells: ExprType<FunctionType<[DictType<EastType, EastType>], ArrayType<StructType>>>;
+    }
+    /**
+     * What a build draws its events from ({@link Drawn}), its functions held once in the build's block.
+     *
+     * @param once - What holds the build's shared functions
+     * @param copy - The copy its source's series index holds of each event; `undefined`, its rows
+     * @returns What it draws from
+     */
+    const drawnFor = (once: Once, copy: ScheduleCopy | undefined): Drawn => {
+        if (copy === undefined) {
+            const cellsType = ArrayType(StructType({ key: keyType, row: rowType }));
+            const hold = once(East.function([BlobType], HeldType, ($, bytes) => {
+                const entries = $.const(bytes.decodeBeast(cellsType, "v2"));
+                const held = $.let(new Map(), HeldType);
+                $.for(entries, ($2, entry) => {
+                    $2(held.insertOrUpdate(entry.key, entry.row, (_$3, _was, now) => now));
+                });
+                return held;
+            }));
+            const asCells = once(East.function([HeldType], cellsType, ($, rows) => {
+                const out = $.let([], cellsType);
+                $.for(rows, ($2, row, key) => { $2(out.pushLast({ key, row } as never)); });
+                return out;
+            }));
+            return {
+                copy, entryType: EntryRowType, cellsType, of: undefined, overWhole: (_itemType, item) => item, hold: hold as never, holdRows: undefined,
+                inPlace: once(withDraftsFor(false)) as never, asCells: asCells as never,
+            };
+        }
+        const make = once(copy.of);
+        const entryType = StructType({ id: StringType, key: keyType, row: copy.type, whole: OptionType(rowType) });
+        // A copy held, and the row beside it where the row was read whole.
+        const HeldCopy = StructType({ row: copy.type, whole: OptionType(rowType) });
+        const Held = DictType(keyType, HeldCopy);
+        const cellsType = ArrayType(StructType({ key: keyType, row: copy.type }));
+        const hold = once(East.function([BlobType], Held, ($, bytes) => {
+            const entries = $.const(bytes.decodeBeast(cellsType, "v2"));
+            const held = $.let(new Map(), Held);
+            $.for(entries, ($2, entry) => {
+                $2(held.insertOrUpdate(entry.key, { row: entry.row, whole: none } as never, (_$3, _was, now) => now));
+            });
+            return held;
+        }));
+        const holdRows = once(East.function([HeldType], Held, (_$, rows) => rows.map((_$2, row, key) => East.value({ row: make(key, row), whole: some(row) } as never, HeldCopy))));
+        // A drafted row is drawn as the copy its index will hold once it is saved.
+        const inPlace = once(inPlaceOf(HeldCopy, entryType,
+            (id, key, held) => East.value({ id, key, row: fieldOf(held, "row"), whole: fieldOf(held, "whole") } as never, entryType) as unknown as ExprType<EastType>,
+            (id, key, row) => East.value({ id, key, row: make(key, row), whole: some(row) } as never, entryType) as unknown as ExprType<EastType>, false));
+        const asCells = once(East.function([HeldType], cellsType, ($, rows) => {
+            const out = $.let([], cellsType);
+            $.for(rows, ($2, row, key) => { $2(out.pushLast({ key, row: make(key, row) } as never)); });
+            return out;
+        }));
+        // A whole row's entry as the build draws it: its copy, the row beside it.
+        const ofWhole = once(East.function([EntryRowType], entryType, (_$, entry) =>
+            East.value({ id: entry.id, key: entry.key, row: make(entry.key, entry.row), whole: some(entry.row) } as never, entryType)));
+        const overWhole = (itemType: EastType, item: ExprType<FunctionType<[EastType], EastType>>) =>
+            once(East.function([EntryRowType], itemType, ($, entry) => {
+                const draw = $.const(ofWhole);
+                const made = $.const(item);
+                return made(draw(entry) as never) as never;
+            })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
+        return {
+            copy, entryType, cellsType, of: make, overWhole, hold: hold as never, holdRows: holdRows as never, inPlace: inPlace as never, asCells: asCells as never,
+        };
+    };
     /** An item seam over the entries a reader read by cells: the events whose items `itemFn` makes that overlap `[from, to)`, by the views' rule. */
-    const cellsOf = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
+    const cellsOf = (drawn: Drawn, itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
         East.function([BlobType, DateTimeType, DateTimeType, ScheduleDraftsType], ArrayType(itemType), ($, bytes, from, to, drafts) => {
-            const hold = $.const(cellsHeld);
-            const inPlace = $.const(cellsInPlace);
+            const hold = $.const(drawn.hold);
+            const inPlace = $.const(drawn.inPlace);
             const item = $.const(itemFn);
             const out = $.let([], ArrayType(itemType));
             $.for(inPlace(hold(bytes), drafts), ($2, entry) => {
@@ -1516,13 +1618,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * entries held beside it — a draft moves an event between them by its times alone — the rows with no time, as
      * `itemFn` makes them.
      */
-    const backlogBeside = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>, reads: Reads) =>
+    const backlogBeside = (drawn: Drawn, itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>, reads: Reads) =>
         East.function([BlobType, DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(itemType)), ($, bytes, from, to, drafts) => {
             const result = $.let(East.value(some([]), OptionType(ArrayType(itemType))), OptionType(ArrayType(itemType)));
             if (optional) {
-                const hold = $.const(cellsHeld);
-                const inPlace = $.const(cellsInPlace);
+                const hold = $.const(drawn.hold);
+                const inPlace = $.const(drawn.inPlace);
                 const item = $.const(itemFn);
+                // The backlog's rows held as the cells are (#1725): drawn from a copy, each the copy its index would hold, its row beside it.
+                const holdRows = drawn.holdRows === undefined ? undefined : $.const(drawn.holdRows);
                 let read: ExprType<OptionType<DictType<EastType, EastType>>>;
                 if (reads.alone === undefined) {
                     read = $.let(East.value(some(readAll()), OptionType(HeldType)));
@@ -1534,7 +1638,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 $.match(read, {
                     some: ($2, rows) => {
                         const all = $2.let(hold(bytes));
-                        $2(all.unionInPlace(rows, (_$3, held) => held));
+                        $2(all.unionInPlace((holdRows === undefined ? rows : holdRows(rows)) as never, (_$3, held) => held));
                         const out = $2.let([], ArrayType(itemType));
                         $2.for(inPlace(all, drafts), ($3, entry) => {
                             const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
@@ -1549,9 +1653,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     /**
      * One event by its key's text, the drafts in place, of a kind a reader reads by cells: the drafts, then its row as
      * the reader holds it (`held`, none for one it does not), then the backlog read alone — but where its builder pages
-     * the backlog itself (#1424) — then its key; never the window.
+     * the backlog itself (#1424) — then its key; never the window. A build drawing its events from copies (#1725) reads
+     * none of `held`, which is a copy and no row: its row is a draft's, the backlog's, or the one read by its key.
      */
-    const readBeside = (makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) =>
+    const readBeside = (drawn: Drawn, makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) =>
         East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(BlobType)], OptionType(readType), ($, id, drafts, from, to, held) => {
             const parse = $.const(keyOf);
             const make = $.const(makeItem);
@@ -1568,7 +1673,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             });
             $.if(unread, ($2) => {
-                $2.match(held, { some: ($3, bytes) => { $3.assign(row, East.value(some(bytes.decodeBeast(rowType, "v2")), OptionType(rowType)) as never); } });
+                if (drawn.copy === undefined) {
+                    $2.match(held, { some: ($3, bytes) => { $3.assign(row, East.value(some(bytes.decodeBeast(rowType, "v2")), OptionType(rowType)) as never); } });
+                }
                 // A builder that pages the backlog itself never has it read whole (#1424): its key reads one event.
                 if (reads.alone !== undefined && !reads.pagedBacklog) {
                     const alone = $2.const(reads.alone);
@@ -1634,13 +1741,16 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     });
 
     /**
-     * A kind's three read seams over its events as `itemFn` makes them (#1039): its events over a window, its backlog,
+     * A kind's three read seams over its events as its items make them (#1039): its events over a window, its backlog,
      * and one event by its key — each from what a reader read by its series index's cells when it is given that, and
-     * never the window then; else over the window, as `reads` reads it.
+     * never the window then; else over the window, as `reads` reads it. `drawnItem` makes an item of an entry the build
+     * draws ({@link Drawn}), and `wholeItem` of a row read whole: one function, but for a build drawing its events from
+     * copies (#1725), whose whole rows are drawn as their copies.
      */
-    const readSeams = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) => {
-        const window = windowOf(itemType, itemFn, reads);
-        const cells = cellsOf(itemType, itemFn);
+    const readSeams = (drawn: Drawn, itemType: EastType, drawnItem: ExprType<FunctionType<[EastType], EastType>>,
+        wholeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) => {
+        const window = windowOf(itemType, wholeItem, reads);
+        const cells = cellsOf(drawn, itemType, drawnItem);
         const items = East.function(
             [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(itemType)),
             ($, from, to, drafts, read) => {
@@ -1651,8 +1761,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     some: (_$2, bytes) => East.value(some(fromCells(bytes, from, to, drafts)) as never, OptionType(ArrayType(itemType))),
                 });
             });
-        const backlog = backlogOf(itemType, itemFn, reads);
-        const besideCells = backlogBeside(itemType, itemFn, reads);
+        const backlog = backlogOf(itemType, wholeItem, reads);
+        const besideCells = backlogBeside(drawn, itemType, drawnItem, reads);
         const unscheduled = East.function(
             [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(itemType)),
             ($, from, to, drafts, read) => {
@@ -1663,8 +1773,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     some: (_$2, bytes) => beside(bytes, from, to, drafts),
                 });
             });
-        const windowed = readEvent(itemFn, readType, reads);
-        const besideRead = readBeside(itemFn, readType, reads);
+        const windowed = readEvent(wholeItem, readType, reads);
+        const besideRead = readBeside(drawn, wholeItem, readType, reads);
         const event = East.function(
             [StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(readType),
             ($, id, drafts, from, to, held) => {
@@ -1726,13 +1836,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     };
     /**
      * The stored rows a kind's window's read holds over `[from, to)`, as a reader holds a kind's cells (#1599): one
-     * beast2 of `CellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts over
-     * (`reads.days`: the window's, and, where the kind reads its backlog with its window as one, its backlog's). What a
-     * builder keeps standing while the window is read again: the rows its drafts draw over and a gesture begins from.
-     * `none` while a read is in flight, and past the cap its window is read under. A record read whole is every row it
-     * holds.
+     * beast2 of the build's `cellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts
+     * over (`reads.days`: the window's, and, where the kind reads its backlog with its window as one, its backlog's) —
+     * each as the build draws it: its row, or its copy (#1725). What a builder keeps standing while the window is read
+     * again: the rows its drafts draw over and a gesture begins from. `none` while a read is in flight, and past the cap
+     * its window is read under. A record read whole is every row it holds.
      */
-    const storedOver = (reads: Reads) => East.function([DateTimeType, DateTimeType], OptionType(BlobType), ($, from, to) => {
+    const storedOver = (drawn: Drawn, reads: Reads) => East.function([DateTimeType, DateTimeType], OptionType(BlobType), ($, from, to) => {
         const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
         let read: ExprType<OptionType<DictType<EastType, EastType>>>;
         if (reads.days === undefined) {
@@ -1743,9 +1853,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         }
         $.match(read, {
             some: ($2, rows) => {
-                const out = $2.let([], CellsType);
-                $2.for(rows, ($3, row, key) => { $3(out.pushLast({ key, row } as never)); });
-                $2.assign(result, East.value(some(East.Blob.encodeBeast(out, "v2")), OptionType(BlobType)));
+                const cells = $2.const(drawn.asCells);
+                $2.assign(result, East.value(some(East.Blob.encodeBeast(cells(rows), "v2")), OptionType(BlobType)));
             },
         });
         return result;
@@ -1762,6 +1871,59 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     });
 
     /**
+     * An accessor of the event — the author's `title` or `locked` — given the copy a Plan draws the kind from (#1725), and
+     * the event's key, held to the type it returns.
+     *
+     * @throws {Error} The accessor's own refusal, for one returning another type; naming the copy's fields, for one reading
+     *   a field the copy does not hold, or failing otherwise as it is built over the copy
+     */
+    const overCopy = <T extends EastType>(copy: ScheduleCopy, out: T, accessor: (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
+        prop: string, refusal: (returns: string) => string): ExprType<FunctionType<[EastType, EastType], T>> => {
+        try {
+            return scheduleAccessor(copy.type, keyType, out, accessor, refusal);
+        } catch (err) {
+            if (err instanceof Error && err.message.startsWith(`${where}:`)) throw err;
+            throw new Error(`${where}: \`${prop}\` is given each event's copy, what the series index "${copy.index}" holds of it ` +
+                `(${Object.keys(copy.type.fields).join(", ")}), and reading it failed — read only the fields the copy holds: ` +
+                `${err instanceof Error ? err.message : String(err)}`, { cause: err });
+        }
+    };
+    /** Refuses a title naming no field of the row, for a kind drawn from its rows: only a copy a Plan draws from holds one (#1725). */
+    const checkRowTitle = (): void => {
+        if (!titleCopied) return;
+        throw new Error(`${where}: \`title\` names "${titleField}", a field the row does not have (${Object.keys(fields).join(", ")}) — a field only ` +
+            "a copy of each event holds is drawn on a Plan whose source for the kind lists the series index declared with the `value` that makes it");
+    };
+    /**
+     * Holds the kind's roles to the copy its source's series index holds of each event, as a Plan draws it from them
+     * (#1725): each role's field the copy holds under its name, of the row's type — a drag writes `start`, `end`,
+     * `resource`, `child` and `lane` into the row, and the inspector edits the others — and a title only the copy holds,
+     * a String field of it.
+     *
+     * @throws {Error} Naming the role and the copy's fields
+     */
+    const checkCopyRoles = (copy: ScheduleCopy): void => {
+        const held = copy.type.fields as Record<string, EastType>;
+        const holds = `the copy the series index "${copy.index}" holds of each event (${Object.keys(held).join(", ")})`;
+        const roles: readonly RoleField[] = [...timeRoles, ["resource.field", resource?.field], ["child.field", child?.field], ["lane", laneField],
+            ["state", stateField], ["status.field", config.status?.field], ["quantity.field", quantityField], ["title", titleField]];
+        for (const [prop, name] of roles) {
+            if (name === undefined) continue;
+            const type = held[name];
+            const rows = Object.hasOwn(fields, name);
+            const wanted = rows ? fields[name]! : StringType;
+            if (type === undefined) {
+                throw new Error(`${where}: \`${prop}\` names "${name}", and ${holds} has no such field — give it "${name}" in the index's \`value\`` +
+                    (rows ? ", as the row holds it" : ""));
+            }
+            if (!isTypeEqual(type, wanted)) {
+                throw new Error(`${where}: \`${prop}\` names "${name}", which ${rows ? `the row holds as ${typeText(wanted)}` : "is the title, a String"}, ` +
+                    `and ${holds} holds it as ${typeText(type)}`);
+            }
+        }
+    };
+
+    /**
      * The Calendar's kind, part by part, under its slot and through its source's part, its form `form` — and the
      * function that makes one of its events. Given `cap`, its window — through its source, through its day index or in
      * memory, its record read whole — is counted first and read only within it (#1039, #1424): the Calendar's and the
@@ -1772,12 +1934,23 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * alone, its builder paging the backlog through the source itself.
      */
     const kindParts = (once: Once, slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false,
-        cardTemplates?: ExprType<ArrayType<ScheduleTemplateType>>) => {
+        cardTemplates?: ExprType<ArrayType<ScheduleTemplateType>>, copy?: ScheduleCopy) => {
         const reads = readsOf(once, slot, part, cap, pagedBacklog);
+        // What it draws its events from (#1725): their rows, or the copies its source's series index holds of them.
+        const drawn = drawnFor(once, copy);
+        // The event's functions, given what it is drawn from: the copy's resource field, and the author's title and lock
+        // given the copy (#1725).
+        const drawnRef = copy === undefined ? refOf : keyFieldRef(resource, copy.type);
+        const drawnTitle = copy === undefined || titleOf === undefined ? titleOf : overCopy(copy, StringType, config.title as never, "title",
+            (returns) => `${where}: \`title\` returns a String, the event's title — and this one returns ${returns}`);
+        const drawnLocked = copy === undefined || lockedOf === undefined ? lockedOf : overCopy(copy, BooleanType, config.locked as never, "locked",
+            (returns) => `${where}: \`locked\` answers whether the event is held where it is, a Boolean — and this one returns ${returns}`);
         // One event, as every view draws it.
-        const itemOf = once(East.function([EntryRowType], ScheduleItemType, ($, entry) => {
+        const itemOf = once(East.function([drawn.entryType as typeof EntryRowType], ScheduleItemType, ($, entry) => {
             const row = entry.row;
-            const ref = $.const(refOf);
+            // The row read whole beside a copy, where it was (#1725): a backlog row's duration and its due date are the row's.
+            const whole = copy === undefined ? undefined : $.const(fieldOf(entry, "whole")) as unknown as ExprType<OptionType<EastType>>;
+            const ref = $.const(drawnRef);
             const start = $.const(instant(row, startField));
             // An optional missing end is an instant at its scheduled start,
             // matching interval-index membership without rewriting the row.
@@ -1794,7 +1967,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     if (duration !== undefined) {
                         const length = $2.const(duration);
                         const toMinutes = $2.const(minutesOf);
-                        $2.assign(minutes, toMinutes(length(row, entry.key)));
+                        if (whole === undefined) {
+                            $2.assign(minutes, toMinutes(length(row, entry.key)));
+                        } else {
+                            $2.match(whole, { some: ($3, r) => { $3.assign(minutes, toMinutes(length(r, entry.key))); } });
+                        }
                     }
                 },
             });
@@ -1804,11 +1981,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     [c, (_$2: unknown) => East.value(some(fieldOf(statusTable, c)) as never, OptionType(ScheduleStatusType))])));
             const due = dueOf === undefined ? East.value(none, OptionType(DateTimeType)) : (() => {
                 const dueFn = $.const(dueOf);
-                return dueFn(row, entry.key);
+                return whole === undefined ? dueFn(row, entry.key) : whole.match({
+                    some: (_$2, r) => dueFn(r, entry.key),
+                    none: (_$2) => East.value(none, OptionType(DateTimeType)),
+                });
             })();
-            // Its title: worked out from the row, or its field's. A kind with no title titles its events with nothing (#1367): the Calendar and Plan refuse one.
-            const title = titleOf === undefined ? (titleField === undefined ? "" : fieldOf(row, titleField) as ExprType<StringType>) : (() => {
-                const titleFn = $.const(titleOf);
+            // Its title: worked out from the row, or its field's — a copy's, for a build drawing from copies (#1725). A kind
+            // with no title titles its events with nothing (#1367): the Calendar and Plan refuse one.
+            const title = drawnTitle === undefined ? (titleField === undefined ? "" : fieldOf(row, titleField) as ExprType<StringType>) : (() => {
+                const titleFn = $.const(drawnTitle);
                 return titleFn(row, entry.key);
             })();
             return East.value({
@@ -1823,7 +2004,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 due,
             } as never, ScheduleItemType);
         }));
-        const seams = readSeams(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, ScheduleReadType, reads);
+        // One event of a row read whole, as the build draws it: its copy's, for a build drawing from copies (#1725).
+        const itemOfDrawn = itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>;
+        const seams = readSeams(drawn, ScheduleItemType, itemOfDrawn, drawn.overWhole(ScheduleItemType, itemOfDrawn), ScheduleReadType, reads);
         // How many of its stored events overlap [from, to), counted before one is read (#1039): through its source's
         // interval index — the count its window's read asks first, so none of its own; through its day index, the days'
         // entries the search its window's read asks first answers — an event under each day it runs on, so an upper
@@ -1921,14 +2104,21 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             });
         })();
         // The author's lock (#1541, U9), one answer per entry, in order, over the row a gesture finds: every builder's
-        // recorder asks it. A rule that throws holds nothing: its event is taken as not locked.
-        const locked = lockedOf === undefined ? undefined : East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType), ($, batch) => {
-            const held = $.const(lockedOf);
+        // recorder asks it. A rule that throws holds nothing: its event is taken as not locked. A build drawing its events
+        // from copies asks it of the row's copy, as the event is drawn (#1725).
+        const locked = drawnLocked === undefined ? undefined : East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType), ($, batch) => {
+            const held = $.const(drawnLocked);
             const parse = $.const(keyOf);
+            const copyOf = drawn.of === undefined ? undefined : $.const(drawn.of);
             return batch.map(($2, item) => {
                 const result = $2.let(false, BooleanType);
                 $2.try(($3) => {
-                    $3.assign(result, held(item.entry.decodeBeast(rowType, "v2"), parse(item.id)));
+                    if (copyOf === undefined) {
+                        $3.assign(result, held(item.entry.decodeBeast(rowType, "v2"), parse(item.id)));
+                    } else {
+                        const key = $3.const(parse(item.id));
+                        $3.assign(result, held(copyOf(key, item.entry.decodeBeast(rowType, "v2")), key));
+                    }
                 }).catch(() => {});
                 return result;
             });
@@ -1958,8 +2148,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             history: session.history,
             event: seams.event,
             // A title worked out from the row names no field, its fields being the form's; nor does a kind with no title, which the
-            // Calendar and Plan, whose inspectors draw one, refuse.
-            schedule: { title: titleField ?? "", start: startField, end: endField,
+            // Calendar and Plan, whose inspectors draw one, refuse; nor one only a copy holds (#1725), which no edit writes.
+            schedule: { title: titleField !== undefined && !titleCopied ? titleField : "", start: startField, end: endField,
                 resource: resource === undefined ? none : some(resource.field),
                 status: config.status === undefined ? none : some(config.status.field),
                 quantity: quantityField === undefined ? none : some(quantityField),
@@ -1970,13 +2160,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             overlaps: variant(overlaps, null),
             inspector: inspector === undefined ? none : some(inspector),
             seriesKey,
-            cellsType: toEastTypeValue(CellsType),
-            stored: storedOver(reads),
+            cellsType: toEastTypeValue(drawn.cellsType),
+            stored: storedOver(drawn, reads),
             count,
             // Every count but a day index's counts the events themselves.
             countExact: part !== undefined || dayWindow === undefined,
         };
-        return { fields: fieldsOfKind, itemOf, reads };
+        return { fields: fieldsOfKind, itemOf, reads, drawn, locked: drawnLocked };
     };
 
     // ── The builders over the app's own records (#1367) ─────────────────────
@@ -2053,12 +2243,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         templateValues: valuesType,
         instant: instantKind,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
+            checkRowTitle();
+            // The Calendar draws a kind's events from their rows (#1725): a source listing a series index of copies is refused.
+            const copy = part === undefined ? undefined : scheduleCopyOf(part, slot, keyType, rowType, where);
+            if (copy !== undefined) {
+                throw new Error(`Calendar: events.${slot}'s source lists the series index "${copy.index}", whose entries are copies of its events, what its ` +
+                    "`value` gives of each row — the Calendar draws an event kind's events from their rows: list a series index declared with no `value` in its place");
+            }
             // Its window counted first, and read only within the cap (#1424): past it, no page is read. The Calendar pages
             // a narrowed kind's backlog through its source itself, so its window reads the window's rows alone.
             return heldKind((once) => East.value(kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, true).fields as never, ScheduleKindType));
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             return heldKind((once) => {
+                checkRowTitle();
                 // A duty runs from its start to its end, on its slot's shift and group, rostered to someone, under a key the
                 // Roster makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (instantKind) {
@@ -2185,6 +2383,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
             return heldKind((once) => {
+                checkRowTitle();
                 // A bin is one instant in one lane, booking an arrival, its quantity on its parts for its hold, under a key the
                 // Allocation makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (!instantKind) {
@@ -2275,17 +2474,28 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         },
         buildPlan(slot: string, part?: ScheduleKindPart, made?: ExprType<ArrayType<ScheduleTemplateType>>): ExprType<PlanEventKindType> {
             return heldKind((once) => {
+                // What it draws its events from (#1725): the copies its source's series index holds of them, where it lists
+                // one declared with a `value`; else their rows.
+                const copy = part === undefined ? undefined : scheduleCopyOf(part, slot, keyType, rowType, where);
+                if (copy !== undefined && copy.beside.length > 0) {
+                    // Its cells are of one type: the copies, every cell read through their index.
+                    throw new Error(`Plan: events.${slot}'s source lists the series index "${copy.index}", whose entries are copies of its events, beside ` +
+                        `${copy.beside.map((name) => `"${name}"`).join(", ")} — a kind drawn from copies reads every cell through their index: list "${copy.index}" alone`);
+                }
+                if (copy === undefined) checkRowTitle();
+                else checkCopyRoles(copy);
                 // Its window through its source counted first, and read only within the cap (#1039): past it, no page is read.
-                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made);
+                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made, copy);
                 const quantity = config.quantity;
                 const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
                 // A child row's key as its row's path ends in it: the key's text, as a Plan's rows' paths spell it.
                 const childSegment = child === undefined ? undefined : keyText(child.type);
-                // One event as Plan draws it: what every view draws, with its roles read from their fields.
-                const planItemOf = once(East.function([EntryRowType], PlanEventItemType, ($, entry) => {
+                // One event as Plan draws it: what every view draws, with its roles read from their fields — its row's, or its
+                // copy's (#1725).
+                const planItemOf = once(East.function([parts.drawn.entryType as typeof EntryRowType], PlanEventItemType, ($, entry) => {
                     const make = $.const(parts.itemOf);
                     const item = $.const(make(entry));
-                    const held = lockedOf === undefined ? undefined : $.const(lockedOf);
+                    const held = parts.locked === undefined ? undefined : $.const(parts.locked);
                     const row = entry.row;
                     const read = item as unknown as Record<string, ExprType<EastType>>;
                     return East.value({
@@ -2313,8 +2523,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
                 // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws
                 // them: the kind's three read seams over its own item (`readSeams`) — a kind a reader reads by its series
-                // index's cells (#1039) given what it read, and never reading the window.
-                const plan = readSeams(PlanEventItemType, planItemOf, PlanEventReadType, parts.reads);
+                // index's cells (#1039) given what it read, and never reading the window; a row read whole drawn as its copy,
+                // for a build drawing from copies (#1725).
+                const plan = readSeams(parts.drawn, PlanEventItemType, planItemOf, parts.drawn.overWhole(PlanEventItemType, planItemOf), PlanEventReadType, parts.reads);
                 const name = (field: string | undefined) => (field === undefined ? none : some(field));
                 return East.value({
                     ...parts.fields,

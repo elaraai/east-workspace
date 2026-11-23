@@ -267,6 +267,13 @@ test("a series index declared with a value carries a copy of each job: listed be
         [...first.runtime.indexed.platform(null), ...first.runtime.buildPrimitives()])();
     assert.throws(() => binding.page("job_tiles_by_press_week", 0n, 1n),
         /'job_tiles_by_press_week' is a series index whose entries are copies of its events, each of its own type: a reader reads its cells/);
+    // The binding carries the index's own value function: what a page draws a drafted job's tile with, the tile the index
+    // holds of the job once it is saved — every job's, filed or not.
+    assert.ok(binding.copies.type === "some", "a copy index listed: its value function");
+    const copy = binding.copies.value.job_tiles_by_press_week;
+    for (const [key, job] of stored) {
+        assert.ok(tileEqual(copy(key, job), { press: job.press, start: job.start, end: job.end }), `${key}'s tile`);
+    }
     first.runtime.clear();
     const second = bind(East.function([], Expr.type(alone), $ => $.return(alone)));
     await assertTiles(second.handle, stored);

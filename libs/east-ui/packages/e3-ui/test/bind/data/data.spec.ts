@@ -7,9 +7,9 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
     equalFor, isTypeEqual, printFor, some, variant,
-    type ExprType, type FunctionType, type VariantType,
+    type ExprType, type VariantType,
 } from "@elaraai/east";
 import { randomStream } from "@elaraai/east/internal";
 import {
@@ -559,6 +559,17 @@ describe("Data.bindPaged over a series and a summary index", () => {
         assert.equal(copyOf(source, "by_press_week"), undefined);
         // A record Slice lists it for a reader of its cells, and offers the rail no field of it.
         assert.doesNotThrow(() => bindRecord("tiles", source, { fields: { start: {} }, range: "start" }));
+    });
+
+    hostTest("carries each listed series index's value function by its name, typed as its declaration's, and none where it lists none (#1725)", () => {
+        // A Plan draws a drafted row as the copy its index would hold of it once saved: the binding carries the
+        // function that makes it, as it carries a summary's maintenance.
+        const copies = typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "tiles_by_press_week", "by_press_week", "by_press_month"] })).fields.copies as VariantType;
+        const carried = (copies.cases.some as StructType).fields;
+        assert.deepEqual(Object.keys(carried), ["tiles_by_press_week"], "the copy index's alone: a series index carrying its rows makes none");
+        assert.ok(isTypeEqual(carried.tiles_by_press_week!, FunctionType([StringType, Job], Tile)), "(key, row) → its copy");
+        assert.ok(isTypeEqual(typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })).fields.copies!, OptionType(StructType({}))),
+            "none listed: none");
     });
 
     hostTest("a series index in time order is listed as one in key order is, its marker naming its order, which a record Slice reads back (#1710)", () => {

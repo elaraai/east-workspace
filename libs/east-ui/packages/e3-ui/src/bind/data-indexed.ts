@@ -65,6 +65,13 @@ type CopyIndex = { series: { carries: "value" } };
 type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object } | { nested: object } | CopyIndex>;
 /** A series index's copy of each event, its type an empty Array of it in the index's metadata (#1725); nothing of any other index. */
 type CopyOf<D> = D extends CopyIndex & { valueType: infer V extends EastType } ? { copy: ArrayType<V> } : unknown;
+/**
+ * Each listed series index whose entries are copies of its events, its value function by its name (#1725):
+ * `(K, R) → V`, what the index holds of a row; none where the binding lists none.
+ */
+type CopiesOf<K extends EastType, R extends EastType, I extends FieldIndexes<EastType>> = OptionType<StructType<{
+    [D in Extract<I[number], CopyIndex> as D["name"]]: FunctionType<[K, R], D["valueType"]>
+}>>;
 /** The indexes a rail reads: every one but a nested series index, which a binding carries in a part of its own (#1435). */
 type RailIndexes<I extends FieldIndexes<EastType>> = readonly Exclude<I[number], { nested: object }>[];
 
@@ -181,7 +188,8 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * carry nothing, read with one; a series index declared with a `value`
  * carries a copy of each event, what the value gives of its row, in the row's
  * place, and is read without a join beside whatever the others carry (#1725):
- * a reader of its cells draws the copies. A summary index (`index.summary`) carries its
+ * a reader of its cells draws the copies, and the binding carries the value
+ * function, which a page makes the copy of a drafted row with. A summary index (`index.summary`) carries its
  * totals, whatever the others carry, and is never joined: its entries name no
  * row. An entries index (`index.entries`, #1522) offers the Dict field it
  * files to the rail, its keys picked as a Set's elements are, and carries each
@@ -230,7 +238,7 @@ export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object } | { entries: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
             IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
-            MaintenanceOf<K, R, I>>
+            MaintenanceOf<K, R, I>, CopiesOf<K, R, I>>
         : never;
 
 /**
@@ -262,14 +270,16 @@ export function NestedPartType<C extends EastType, I extends EastType, T extends
  * and the handle's type never names it. `Maintenance` is each listed nested
  * series and summary index's maintenance for one row (#1437), which the
  * handle carries, as it does the listed nested series index's fill of a page
- * (#1438), the last argument.
+ * (#1438). `Copies` is each listed series index's value function whose
+ * entries are copies of its events (#1725), which the handle carries too, the
+ * last argument.
  * @internal
  */
 export const bindIndexedPagedPlatformFn = East.genericPlatform(
-    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue", "Maintenance"],
+    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue", "Maintenance", "Copies"],
     [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType, "Maintenance",
-        OptionType(FunctionType([DictType("K", "R"), BlobType], DictType("K", "R")))],
-    IndexedSourceType("K", "R", "P", "Indexes", "IK", "N", "Maintenance"), { optional: true },
+        OptionType(FunctionType([DictType("K", "R"), BlobType], DictType("K", "R"))), "Copies"],
+    IndexedSourceType("K", "R", "P", "Indexes", "IK", "N", "Maintenance", "Copies"), { optional: true },
 );
 
 const descriptor = [TreePathType, "Indexes", "N", BooleanType] as const;
@@ -445,6 +455,10 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         .map((index) => [index.name, indexMaintenance(record, builtIndex(record, index))] as const);
     const maintenanceType = OptionType(StructType(maintained.map(([name, maintain]): readonly [string, EastType] =>
         [name, Expr.type(maintain as unknown as Expr) as EastType])));
+    // Each listed series index's value function whose entries are copies of its events (#1725): what the index holds of
+    // a row, which a page makes of a drafted row to draw it as the index will hold it once saved. A copy index declares one.
+    const copied = rail.filter(carriesCopy).map((index) => [index.name, index.valueFn as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>] as const);
+    const copiesType = OptionType(StructType(copied.map(([name, copy]): readonly [string, EastType] => [name, Expr.type(copy as unknown as Expr) as EastType])));
     // The listed nested series index's fill of a page (#1438): its lean rows filled with the entries read of it, by e3's own program.
     const fillType = OptionType(FunctionType([DictType(type.key, type.value), BlobType], DictType(type.key, type.value)));
     const rowPatchType = East.patchesFor(type.value).patchType;
@@ -482,10 +496,11 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         const keys = $.const(keyFunctions, keyFunctionsType);
         const entryKeys = East.function([StringType, type.key, type.value], ArrayType(StringType), (_$2, name, key, row) => keys.get(name)(key, row));
         return bindIndexedPagedPlatformFn(
-            [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType],
+            [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType, copiesType],
             East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
             East.value(held.size === 0 ? none : some(Object.fromEntries(held)), maintenanceType),
             East.value(nested === undefined ? none : some(nestedPageFill(type.key, type.value, nested)), fillType),
+            East.value(copied.length === 0 ? none : some(Object.fromEntries(copied)), copiesType),
         );
     }) as unknown as IndexedPagedValue<T, I>;
 }

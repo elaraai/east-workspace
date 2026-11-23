@@ -36,8 +36,8 @@ function same<A, B>(..._exact: Equal<A, B> extends true ? [] : [never]): void {
 }
 
 /** A binding's type arguments, from its expression. */
-type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N, infer Maint>
-    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint } : never;
+type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N, infer Maint, infer C>
+    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint; C: C } : never;
 
 /**
  * A binding's parts, held where it is written: `partsOf(source).are<U>()`
@@ -75,6 +75,8 @@ same<Machines["N"], NestedPart<StructType<{
 same<Machines["Maint"], OptionType<StructType<{
     machines_in_time: FunctionType<[StringType, OptionType<typeof ex.NestedMachine>, OptionType<typeof ex.NestedMachine>, EastType], EastType>;
 }>>>();
+// No series index listed whose entries are copies of its events (#1725): no value function to carry.
+same<Machines["C"], OptionType<StructType<Record<never, never>>>>();
 
 // A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates.
 partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] })).nested<NestedPart<StructType<{

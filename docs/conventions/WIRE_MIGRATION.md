@@ -1702,3 +1702,13 @@ Each wire changed under this rule, with the kind it is.
   under the earlier type reads as it did. No index changes its key or what it
   carries. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+  The binding (`IndexedSourceType`) gains `copies`, after `maintenance`: for
+  each such index it lists, the index's value function, `(K, R) → V`, by the
+  index's name — none where it lists none — which a Plan draws a drafted row's
+  copy through. The platform function a binding is made by
+  (`data_bind_indexed`) takes it as its last argument, typed by a new last
+  type parameter, so a UI task's output built by the earlier release calls it
+  with one argument fewer: packages are re-exported, and the dataflow computes
+  each UI task's output again. A Plan's event kind whose source lists such an
+  index reads its cells as copies (`cellsType`, each event's key beside its
+  copy); a kind over rows reads them as it did.

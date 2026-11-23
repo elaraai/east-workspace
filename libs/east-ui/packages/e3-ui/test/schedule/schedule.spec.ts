@@ -184,6 +184,16 @@ describe("Schedule.events — what it refuses at build", () => {
             /`start` and `end` are both DateTime fields, or both Options of one/);
     });
 
+    test("a title naming a field the row does not have is held until the kind is built, and refused by a builder drawing its rows (#1725)", () => {
+        // Only a copy of each event a Plan draws the kind from may hold it: its source is the builder's, known as it builds.
+        assert.doesNotThrow(() => shiftsWith({ title: "label" }));
+        assert.throws(() => East.function([], NullType, ($) => {
+            const bound = $.let(Record.bind(shiftsRecord, ["patch"]));
+            const shift = Schedule.events(bound as never, { name: "Shift", icon: "i", title: "label", start: "start", end: "end" } as never);
+            $(shift.build("shift"));
+        }), /`title` names "label", a field the row does not have \(.+\) — a field only a copy of each event holds is drawn on a Plan whose source for the kind lists the series index declared with the `value` that makes it$/);
+    });
+
     test("a resource field that holds no key, an `of` of the wrong form, cases that are not the variant's, and a kind named twice", () => {
         assert.throws(() => shiftsWith({ resource: { field: "crew", of: "people" } }), /`resource\.field` names a field holding a resource's key — a String, a variant of String cases, or an Option of either — and "crew" holds \.Integer/);
         assert.throws(() => shiftsWith({ resource: { field: "person", of: { a: "people" } } }), /`resource\.of` names the resource slot "person" holds keys of/);
@@ -235,8 +245,8 @@ export function scheduleTypeChecks(): void {
     const boundJobs = Record.bind(jobsRecord, ["patch"]);
     // @ts-expect-error — `start` is a DateTime field, and "title" is a String one
     Schedule.events(bound, { name: "Shift", icon: "i", title: "title", start: "title", end: "end" });
-    // @ts-expect-error — `title` is a String field, and "crew" is an Integer one
-    Schedule.events(bound, { name: "Shift", icon: "i", title: "crew", start: "start", end: "end" });
+    // A `title` naming a field of another type compiles: a title may name a field only a copy of each event holds
+    // (#1725), which the row's type cannot say. The build refuses it, naming the field's type.
     // @ts-expect-error — `resource.field` holds a resource's key, and "crew" holds none
     Schedule.events(bound, { name: "Shift", icon: "i", title: "title", start: "start", end: "end", resource: { field: "crew", of: "people" } });
     // @ts-expect-error — `backlog` takes Option times, and a shift's are plain
