@@ -20,8 +20,10 @@
  * shut, the rail its one row under its rule; its toggle shows the list over
  * the row and shuts it, and a narrower frame wraps the row, never wider than
  * the frame (E1, E3, ruled 20 November 2026); the page on its panel, 24 / 28px in, at
- * most each device's width — Desktop and Tablet laying the page out at its
- * declared spans, Mobile stacking its placements in row order at 390px (E2).
+ * each device's width — laid out at it and scaled down to a narrower panel
+ * (ruled 23 November 2026), every chart still its tile's width — Desktop and
+ * Tablet laying the page out at its declared spans, Mobile stacking its
+ * placements in row order at 390px (E2).
  * The canvas's Mobile does as the preview's: the canvas 390px wide, every tile
  * its rows' width in row order, no column ruler, and a selected tile with no
  * handles (B14). The design widths' icons and the preview's devices' stand at
@@ -69,9 +71,9 @@ const tenth = (n: number) => Math.round(n * 10) / 10;
 /** A box's place within another, to a tenth of a pixel. */
 const within = (box: Box, frame: Box): Box => ({ x: tenth(box.x - frame.x), y: tenth(box.y - frame.y), w: box.w, h: box.h });
 
-/** Open the builder's publish preview from its toolbar, and return it. */
-async function openPreview(page: Page): Promise<Locator> {
-    const builder = await openBuilder(page);
+/** Open the builder's publish preview from its toolbar, the builder `width` wide (the Studio's 1440px), and return it. */
+async function openPreview(page: Page, width = 1440): Promise<Locator> {
+    const builder = await openBuilder(page, width);
     await builder.getByRole("button", { name: "Preview", exact: true }).click();
     const preview = builder.locator("[data-studio-publish]");
     await expect(preview.locator("[data-snap-grid-cell]").first()).toBeVisible({ timeout: 20_000 });
@@ -87,12 +89,16 @@ function box(builder: Locator, selector: string): Promise<{ w: number; h: number
     }, selector);
 }
 
-/** Where the page sits in the preview's panel, and its placements — each box relative to the page frame, to the pixel. */
+/**
+ * Where the page sits in the preview's panel, and its placements — each box relative to the page frame, to the pixel.
+ * Its column is the room inside the panel: its paddings and its scrollbar's room aside, which it keeps whether it
+ * scrolls or not, since the page's scale follows that room.
+ */
 function measure(preview: Locator) {
     return preview.evaluate((root) => {
         const main = root.querySelector("[data-publish-main]")!;
+        const room = root.querySelector("[data-publish-room]")!.getBoundingClientRect();
         const pageFrame = root.querySelector("[data-publish-frame]")!;
-        const m = main.getBoundingClientRect();
         const f = pageFrame.getBoundingClientRect();
         const style = getComputedStyle(main);
         const cells = [...pageFrame.querySelectorAll("[data-snap-grid-cell]")].map((cell) => {
@@ -101,9 +107,9 @@ function measure(preview: Locator) {
         });
         return {
             padding: [Number.parseFloat(style.paddingTop), Number.parseFloat(style.paddingLeft)],
-            column: Math.round(m.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight)),
+            column: Math.round(room.width),
             frame: Math.round(f.width),
-            centred: Math.abs((f.left - m.left) - (m.right - f.right)) <= 1,
+            centred: Math.abs((f.left - room.left) - (room.right - f.right)) <= 1,
             cells,
         };
     });
@@ -225,7 +231,7 @@ test.describe("Studio builder (#1000)", () => {
         await expectWholeBoxWords(preview.locator("[data-publish-bar]"), "the preview's bar");
     });
 
-    test("E2: Desktop — the page 24 / 28px into its panel, as wide as the panel lets it be, at its declared spans", async ({ page }) => {
+    test("E2: Desktop — the page 24 / 28px into its panel, laid out 1440 wide and scaled to the panel's whole width, at its declared spans", async ({ page }) => {
         const preview = await openPreview(page);
         await expect.poll(async () => {
             const at = await measure(preview);
@@ -238,7 +244,7 @@ test.describe("Studio builder (#1000)", () => {
         }).toEqual({ padding: [24, 28], frameIsColumn: true, row2: ["a-orders", "a-bars"], oneLine: true, twice: true });
     });
 
-    test("E2: Tablet — the page at most 1024px, centred in its panel, still at its declared spans", async ({ page }) => {
+    test("E2: Tablet — the page 1024px, centred in its wider panel, still at its declared spans", async ({ page }) => {
         const preview = await openPreview(page);
         await preview.locator('[data-publish-device="tablet"]').click();
         await expect.poll(async () => {
@@ -261,6 +267,35 @@ test.describe("Studio builder (#1000)", () => {
                 stacked: ys.every((y, i) => i === 0 || y > ys[i - 1]!),
             };
         }).toEqual({ frame: 390, centred: true, keys: ["a-kpi", "a-orders", "a-bars", "a-trend"], full: true, stacked: true });
+    });
+
+    test("E2: Desktop and Tablet in a panel narrower than they are — the page laid out at the device's width and scaled down to the panel: at its declared spans, as the canvas draws them, every chart its tile's width", async ({ page }) => {
+        // The manual test of 22 Nov (5.10): laid out at the panel's own 844px, under the grid's 960, the orders took a row
+        // of their own, where the canvas drew them beside the bars.
+        const preview = await openPreview(page, 900);
+        for (const [device, width] of [["desktop", 1440], ["tablet", 1024]] as const) {
+            await preview.locator(`[data-publish-device="${device}"]`).click();
+            await settled(page);
+            await expect.poll(async () => {
+                const at = await measure(preview);
+                const row2 = at.cells.filter((c) => c.key === "a-orders" || c.key === "a-bars");
+                const laid = await preview.evaluate((root) => {
+                    const frame = root.querySelector<HTMLElement>("[data-publish-frame]")!;
+                    // Each chart against its tile: drawn at the width it is laid out at, never measured at its scaled width
+                    // and scaled again.
+                    const charts = [...frame.querySelectorAll<SVGElement>("[data-snap-grid-cell] svg[data-chart-plot]")].map((svg) => {
+                        const cell = svg.closest("[data-snap-grid-cell]")!.getBoundingClientRect();
+                        return svg.getBoundingClientRect().width / cell.width;
+                    });
+                    return { width: Number.parseFloat(getComputedStyle(frame).width), zoom: Number(getComputedStyle(frame).zoom), charts };
+                });
+                return {
+                    device, laidOut: laid.width, scaledToPanel: Math.abs(laid.zoom * width - at.column) <= 1, frameIsColumn: Math.abs(at.frame - at.column) <= 1,
+                    oneLine: new Set(row2.map((c) => c.y)).size === 1, twice: Math.abs(row2[0]!.w / row2[1]!.w - 2) < 0.1,
+                    chartsFill: laid.charts.length > 0 && laid.charts.every((share) => share > 0.8),
+                };
+            }, { message: device }).toEqual({ device, laidOut: width, scaledToPanel: true, frameIsColumn: true, oneLine: true, twice: true, chartsFill: true });
+        }
     });
 
     test("B14: the canvas's Mobile lays the page out as the preview's does — 390px wide, every tile its rows' width, in row order, no column ruler; a tile selected there wears no handles; Desktop puts it back on its columns", async ({ page }) => {

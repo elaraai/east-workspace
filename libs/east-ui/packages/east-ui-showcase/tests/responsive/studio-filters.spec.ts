@@ -29,7 +29,8 @@
  *  - F4 the chip's × takes the filter out, and the tiles are as they were.
  *  - F5 the builder's toolbar holds no filter rail — its canvas is the page as
  *    designed — and its Preview is the page as a reader sees it: the rail
- *    over its grid, measured as F1 measures a page's (ruled 19 November 2026).
+ *    over its grid, measured as F1 measures a page's (ruled 19 November 2026),
+ *    in the page's own pixels, the Preview scaling the page to its panel.
  *  - F6 as the page narrows the rail folds its chips one at a time into
  *    `+N more` — every filter a chip or counted, the row 28px and never wider
  *    than its page — and `+N more` opens one popover that holds the filters it
@@ -121,19 +122,24 @@ async function writeStartingFilter(page: Page, where: string): Promise<void> {
  * A rail at rest, over the grid it narrows: its height, how far above the grid
  * it stands and whether it starts where the grid does, its borders, its chips,
  * and its `+ FILTER` chip's height and whether it stands after the rail's icon.
+ * Its lengths are the page's own, to a tenth of a pixel: the Preview lays a page
+ * out at its device's width and scales it down to a narrower panel (F5), and
+ * the rail's rule is the page's.
  *
  * @param rail - The rail's row
  * @returns What it measures
  */
 const railAtRest = (rail: Locator) => rail.evaluate((el) => {
+    const zoom = (el as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ?? 1;
+    const own = (drawn: number) => Math.round((drawn / zoom) * 10) / 10;
     const box = el.getBoundingClientRect();
     const grid = el.parentElement!.querySelector("[data-snap-grid]")!.getBoundingClientRect();
     const style = getComputedStyle(el);
     const add = el.querySelector("[data-slice-add=filter]")!.getBoundingClientRect();
     return {
-        h: box.height, toGrid: grid.top - box.bottom, sameStart: box.left === grid.left,
+        h: own(box.height), toGrid: own(grid.top - box.bottom), sameStart: box.left === grid.left,
         borders: [style.borderTopWidth, style.borderBottomWidth, style.borderLeftWidth, style.borderRightWidth],
-        chips: el.querySelectorAll("[data-slice-clause]").length, add: [add.height, add.left > box.left],
+        chips: el.querySelectorAll("[data-slice-clause]").length, add: [own(add.height), add.left > box.left],
     };
 });
 

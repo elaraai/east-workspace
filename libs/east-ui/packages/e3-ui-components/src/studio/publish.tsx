@@ -8,11 +8,16 @@
  * canvas's place while it shows.
  *
  * - **The bar**, headerless, on the inverse ground: "● Preview"; Desktop ·
- *   Tablet · Mobile, which draw the page 1440, 1024 or 390 px wide at most;
- *   the Env pill; and Exit, back to the canvas.
+ *   Tablet · Mobile, which lay the page out 1440, 1024 or 390 px wide; the Env
+ *   pill; and Exit, back to the canvas.
  * - **The page**: its project, its title, and the page as it will publish —
- *   which the builder draws — together at most the device's width, the
- *   preview's whole width its own.
+ *   which the builder draws — together at the device's width, the preview's
+ *   whole width its own. Where the preview is narrower than the device, the
+ *   page is laid out at the device's width and scaled down to fit (ruled 23
+ *   November 2026): what a reader on that device sees, its tiles at the spans
+ *   that width gives them, as the canvas draws them. Laid out at the narrower
+ *   width, the grid's tiers had stacked a desktop's tiles (the manual test of
+ *   22 November, 5.10).
  * - **The rail**, along the preview's foot, across its width (ruled 20
  *   November 2026). Its row: where the page stands, the version it replaces
  *   and the one it becomes; how many changes — a toggle that shows the change
@@ -50,7 +55,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
-import { useFormatters } from "@elaraai/east-ui-components";
+import { useContainerWidth, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
 import { useStudioMessages, type StudioMessages } from "./messages.js";
@@ -72,7 +77,7 @@ function changeName(row: ChangeRow, m: StudioMessages): string {
     return row.change.type === "filters" ? m.startingFilters() : row.name;
 }
 
-/** The devices the bar offers, and the most each draws the page wide, in px. */
+/** The devices the bar offers, and the width each lays the page out at, in px. */
 const DEVICES = [
     { device: "desktop", icon: faDesktop, width: 1440 },
     { device: "tablet", icon: faTabletScreenButton, width: 1024 },
@@ -193,6 +198,11 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
     const exit = value.onExit.type === "some" ? value.onExit.value : undefined;
     const busy = phase.kind === "applying" || phase.kind === "publishing";
     const width = DEVICES.find((d) => d.device === device)!.width;
+    // The room the page has: where it is narrower than the device, the page is laid out at the device's width and
+    // scaled down to it. Until it is measured — and with no layout to measure, in a test's DOM — it is not scaled.
+    const roomRef = useRef<HTMLDivElement | null>(null);
+    const room = useContainerWidth(roomRef);
+    const scale = room > 0 && room < width ? room / width : 1;
 
     // The publish, from the payload as it stands when it runs.
     const publish = useCallback(async () => {
@@ -362,12 +372,14 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                 </chakra.button>
             </Box>
             <Box css={styles.main} data-publish-main="">
-                <Box css={styles.frame} style={{ maxWidth: `${width}px` }} data-publish-frame={device}>
-                    <Box css={styles.head}>
-                        <Box as="span" css={styles.eyebrow}>{value.project}</Box>
-                        <Box as="h2" css={styles.title}>{value.title}</Box>
+                <Box ref={roomRef} data-publish-room="">
+                    <Box css={styles.frame} style={{ width: `${width}px`, ...(scale === 1 ? {} : { zoom: scale }) }} data-publish-frame={device}>
+                        <Box css={styles.head}>
+                            <Box as="span" css={styles.eyebrow}>{value.project}</Box>
+                            <Box as="h2" css={styles.title}>{value.title}</Box>
+                        </Box>
+                        {page}
                     </Box>
-                    {page}
                 </Box>
             </Box>
             <Box as="aside" css={styles.rail} aria-label={head} data-publish-rail="">

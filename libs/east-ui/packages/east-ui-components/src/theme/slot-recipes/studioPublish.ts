@@ -7,7 +7,8 @@
  * Studio publish slot recipe — the publish preview: the bar on the inverse
  * ground, "● Preview", the device strip, the Env pill and Exit, as the Studio
  * spec draws it; the page on the quiet panel, its project and title over the
- * page at the device's width, the preview's whole width its own; and the rail
+ * page at the device's width — scaled down to a narrower panel by the renderer,
+ * which sets its width and its zoom — the preview's whole width its own; and the rail
  * along its foot, across it (ruled 20 November 2026) — its row: where the page
  * stands and its versions, how many changes, the Audience and Rollout, and
  * the actions; what refused a write over the row, and the change list, while
@@ -147,12 +148,15 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
             _disabled: { cursor: "not-allowed", opacity: "0.5", _hover: { borderColor: BAR_RULE } },
         },
-        /* The page, over the rail: the preview's whole width, and its height but the bar's and the rail's. */
+        /* The page, over the rail: the preview's whole width, and its height but the bar's and the rail's. Its scrollbar's
+           room is kept whether it scrolls or not: the page's scale follows the room beside it, and a bar that came and went
+           as the scaled page grew and shrank past the panel's height would change the room it is scaled to. */
         main: {
             flex: "1",
             minWidth: "0",
             minHeight: "0",
             overflowY: "auto",
+            scrollbarGutter: "stable",
             paddingX: "28px",
             paddingY: "{spacing.6}",
             background: "bg.panel",
@@ -167,8 +171,8 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             lineHeight: "1.1",
             color: "fg",
         },
-        /* The page's head and the page, together at most the device's width. */
-        frame: { display: "flex", flexDirection: "column", gap: "{spacing.4}", width: "100%", marginInline: "auto" },
+        /* The page's head and the page, together the device's width, centred in a wider panel. */
+        frame: { display: "flex", flexDirection: "column", gap: "{spacing.4}", marginInline: "auto" },
         /* The rail along the preview's foot, under its rule: its row, and over it what refused a write and the change list. */
         rail: {
             display: "flex",

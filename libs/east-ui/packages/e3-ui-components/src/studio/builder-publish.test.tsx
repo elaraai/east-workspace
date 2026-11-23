@@ -133,20 +133,22 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(container.querySelector<HTMLElement>("[data-studio-canvas]")!.hidden).toBe(false);
     });
 
-    test("E2: the page as it will publish — its project, its title, and its layout at most the device's width", async () => {
+    test("E2: the page as it will publish — its project, its title, and its layout at the device's width, unscaled where there is no room to measure", async () => {
         const { container } = await mountBuilder();
         await previewPage("f-regional");
         const frame = () => part(container, "frame")!;
         // The page's head sits in the frame with it.
         expect(frame().firstElementChild!.textContent).toBe("opsRegional");
         expect(frame().querySelector("h2")!.textContent).toBe("Regional");
-        expect(frame().style.maxWidth).toBe("1440px");
+        // A test's DOM lays nothing out, so the room is never measured and the page never scaled; a browser's is
+        // `studio-builder.spec.ts`'s E2.
+        expect([frame().style.width, frame().style.zoom]).toEqual(["1440px", ""]);
         expect([...frame().querySelectorAll("[data-snap-grid-cell]")].map((cell) => cell.getAttribute("data-snap-grid-cell")))
             .toEqual(["p-kpi", "p-trend", "p-bars"]);
         await act(async () => { fireEvent.click(part(container, 'device="tablet"')!); });
-        expect(frame().style.maxWidth).toBe("1024px");
+        expect(frame().style.width).toBe("1024px");
         await act(async () => { fireEvent.click(part(container, 'device="mobile"')!); });
-        expect(frame().style.maxWidth).toBe("390px");
+        expect(frame().style.width).toBe("390px");
         expect(frame().getAttribute("data-publish-frame")).toBe("mobile");
         expect(part(container, 'device="mobile"')!.getAttribute("aria-pressed")).toBe("true");
         // The builder's canvas keeps its own width.
