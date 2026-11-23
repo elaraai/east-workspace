@@ -44,10 +44,12 @@ import {
     none,
 } from "@elaraai/east";
 
-import { DensityType, StatusValueType, Trace, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
+import { DensityType, Sparkline, StatusValueType, Trace, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
 import {
     CarriedEntryType,
     NumberDomainType,
+    numberDomainOf,
+    type NumberDomainInput,
     RecordSlicesChromeType,
     TickFormatType,
     buildCarriedRowSource,
@@ -647,6 +649,11 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
                 absent: optionOf(cfg.absent, StringType),
             });
         }
+        case "sparkline": return kindOf("sparkline", {
+            type:   resolveTag(cfg.type ?? "line", Sparkline.Types.ChartType),
+            domain: domainOf(meta.key, cfg.domain),
+            absent: optionOf(cfg.absent, StringType),
+        });
     }
 }
 
@@ -661,13 +668,12 @@ const floatLess = lessFor(FloatType);
  * @returns The domain, or `none`
  * @throws {Error} When both bounds are written and the min is not below the max
  */
-function domainOf(key: string, domain: readonly [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>] | undefined): ExprType<OptionType<typeof NumberDomainType>> {
-    if (domain === undefined) return East.value(none, OptionType(NumberDomainType));
-    const [min, max] = domain;
+function domainOf(key: string, domain: NumberDomainInput | undefined): ExprType<OptionType<typeof NumberDomainType>> {
+    const [min, max] = domain ?? [];
     if (typeof min === "number" && typeof max === "number" && !floatLess(min, max)) {
         throw new Error(`Sheet: column "${key}" has the domain [${min}, ${max}] — one scale for every row runs from its min to a max past it`);
     }
-    return East.value(some({ min, max }), OptionType(NumberDomainType));
+    return numberDomainOf(domain);
 }
 
 /**

@@ -13,6 +13,16 @@ describeEast("Sparkline", (test) => {
     Assert.examples(test, {
         sparklineBasic: ex.sparklineBasic,
         sparklineVariants: ex.sparklineVariants,
+        sparklineDomain: ex.sparklineDomain,
+    });
+
+    test("stores one vertical scale given a domain, and none without it (east-workspace#1729)", $ => {
+        const shared = $.let(Sparkline.Root([4.0, 44.0], { domain: [0.0, 50.0] }));
+        const domain = $.let(shared.unwrap().unwrap("Sparkline").domain.unwrap("some"));
+        $(Assert.equal(domain.min, 0.0));
+        $(Assert.equal(domain.max, 50.0));
+        const own = $.let(Sparkline.Root([4.0, 44.0]));
+        $(Assert.equal(own.unwrap().unwrap("Sparkline").domain.hasTag("none"), true));
     });
 
     // =========================================================================

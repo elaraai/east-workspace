@@ -51,7 +51,7 @@ const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
     title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
-    trace: 240,
+    trace: 240, sparkline: 120,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -591,7 +591,8 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
             // A toggle reads as its state's word, the word typed back sets it.
             return cell.type === "Boolean" && meta.states !== undefined ? (cell.value ? meta.states.on : meta.states.off) : rawCellText(cell);
         case "trace":
-            // A series reads as its numbers, in the viewer's language (east-workspace#1728).
+        case "sparkline":
+            // A series reads as its numbers, in the viewer's language (east-workspace#1726).
             return cell.type === "Series" ? seriesText(cell.value, words) : rawCellText(cell);
         default:
             return rawCellText(cell);

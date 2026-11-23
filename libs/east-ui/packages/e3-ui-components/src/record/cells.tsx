@@ -22,6 +22,9 @@
  * - **trace** (east-workspace#1728) — the row's series as east-ui's Trace, one
  *   unnamed track across the cell, its steps as tall as the row fits: Trace's
  *   compact 22 in a 36 or 32 row, its condensed 15 in a 28 row;
+ * - **sparkline** (east-workspace#1729) — the row's series as east-ui's
+ *   Sparkline, a line or an area across the cell's room, in the record
+ *   recipe's colour, its hover its last value and its range;
  * - **an absent value** (C10) — in the column's words, else a dash.
  *
  * A row the record does not hold yet has no age and no audit to show. Every
@@ -34,10 +37,11 @@ import type { CSSProperties, ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck } from "@fortawesome/free-solid-svg-icons";
-import { IntegerType, StringType, defaultValue, equalFor, some, variant } from "@elaraai/east";
+import { IntegerType, StringType, defaultValue, equalFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { DensityLiteral } from "@elaraai/east-ui";
-import { Trace } from "@elaraai/east-ui/internal";
+import { Sparkline, Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { EastChakraSparkline } from "@elaraai/east-ui-components";
 import { EastChakraTrace, formatDatePattern, type SlotStyles, type TraceValue } from "@elaraai/east-ui-components/internal";
 import type { SheetRowChanges } from "../sheet/index.js";
 import { resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
@@ -49,12 +53,22 @@ import { recordMessages as m } from "./messages.js";
 const stringEqual = equalFor(StringType);
 const integerEqual = equalFor(IntegerType);
 
+/** A display column's kind, decoded (east-workspace#1726): a trace's or a sparkline's, each with its part's own options and its words for no series. */
+export type RecordDisplayKind = Extract<SheetColumnKindValue, { type: "trace" | "sparkline" }>;
+
 /** A trace column's kind, decoded: Trace's own parts, and its words for no series. */
-type RecordTraceKind = Extract<SheetColumnKindValue, { type: "trace" }>["value"];
+type RecordTraceKind = Extract<RecordDisplayKind, { type: "trace" }>["value"];
+
+/** A sparkline column's kind, decoded: Sparkline's own type and its scale, and its words for no series. */
+type RecordSparklineKind = Extract<RecordDisplayKind, { type: "sparkline" }>["value"];
 
 /** A Trace's payload and its style with nothing set: East's defaults for their types, which a cell sets its parts on. */
 const TRACE = defaultValue<typeof Trace.Types.Trace>(Trace.Types.Trace);
 const TRACE_STYLE = defaultValue<typeof Trace.Types.Style>(Trace.Types.Style);
+
+/** A Sparkline's payload with nothing set; its style, the box it fills — its colour none, the record recipe's (`currentColor`). */
+const SPARKLINE = defaultValue<typeof Sparkline.Types.Sparkline>(Sparkline.Types.Sparkline);
+const SPARKLINE_STYLE = some({ ...defaultValue<typeof Sparkline.Types.Style>(Sparkline.Types.Style), width: some("100%"), height: some("100%") });
 
 /** A cell's Trace spans its whole width: the plot gutter's mode, no room kept at either side for a name. */
 const NO_GUTTER = some({ left: some("0px"), right: some("0px") });
@@ -114,34 +128,50 @@ function traceOf(kind: RecordTraceKind, values: number[], density: "compact" | "
     };
 }
 
-/** What {@link RecordTrace} draws. */
-export interface RecordTraceProps {
+/**
+ * The Sparkline a sparkline column draws a series with (east-workspace#1729): a line or an area filling the box it is
+ * given, on the column's `domain` where it has one, in the record recipe's colour.
+ *
+ * @param kind - The column's kind
+ * @param values - The series
+ * @returns The Sparkline's payload
+ */
+function sparklineOf(kind: RecordSparklineKind, values: number[]): ValueTypeOf<typeof Sparkline.Types.Sparkline> {
+    return { ...SPARKLINE, data: values, type: some(kind.type), domain: kind.domain, style: SPARKLINE_STYLE };
+}
+
+/** What {@link RecordDisplay} draws. */
+export interface RecordDisplayProps {
     /** The record recipe's slot styles. */
     styles: SlotStyles;
-    /** The trace column's kind. */
-    kind: RecordTraceKind;
+    /** The display column's kind. */
+    kind: RecordDisplayKind;
     /** The cell: a series, or none. */
     cell: SheetCellValue | undefined;
-    /** Trace's density: the row's fit, or Details' compact. */
+    /** A Trace's density: the row's fit, or Details' compact. */
     density: "compact" | "condensed";
-    /** Where the Trace keeps its state. */
+    /** Where it is drawn: a row's cell, or Details' field. */
+    place: "cell" | "details";
+    /** Where the part keeps its state. */
     storageKey: string;
 }
 
 /**
- * A trace column's value (east-workspace#1728): its series as east-ui's Trace, read only — in a row's cell and in
- * Details' field alike — or, for none or an empty series, the column's words for it, else a dash (C10).
+ * A display column's value (east-workspace#1726): its series as east-ui's Trace or Sparkline, read only — in a row's
+ * cell and in Details' field alike — or, for none or an empty series, the column's words for it, else a dash (C10).
  *
- * @param props - The cell, its column's kind, and the density its steps stand at
- * @returns The Trace, or the absent words
+ * @param props - The cell, its column's kind, the density a Trace's steps stand at, and where it is drawn
+ * @returns The part, or the absent words
  */
-export function RecordTrace({ styles, kind, cell, density, storageKey }: RecordTraceProps) {
+export function RecordDisplay({ styles, kind, cell, density, place, storageKey }: RecordDisplayProps) {
     if (cell?.type !== "Series" || cell.value.length === 0) {
-        return <Box as="span" css={styles.absent} data-slot="absent">{getSomeorUndefined(kind.absent) ?? m.absent()}</Box>;
+        return <Box as="span" css={styles.absent} data-slot="absent">{getSomeorUndefined(kind.value.absent) ?? m.absent()}</Box>;
     }
     return (
-        <Box css={styles.display} data-slot="display" data-density={density}>
-            <EastChakraTrace value={traceOf(kind, cell.value, density)} storageKey={storageKey} />
+        <Box css={styles.display} data-slot="display" data-kind={kind.type} data-place={place} data-density={kind.type === "trace" ? density : undefined}>
+            {kind.type === "trace"
+                ? <EastChakraTrace value={traceOf(kind.value, cell.value, density)} storageKey={storageKey} />
+                : <EastChakraSparkline value={sparklineOf(kind.value, cell.value)} />}
         </Box>
     );
 }
@@ -377,14 +407,19 @@ export function recordCell(input: RecordCellInput): RecordCellView | undefined {
                 title: m.auditTitle({ when: formatDatePattern("YYYY-MM-DD HH:mm", cell.value), verb, by }),
             };
         }
-        case "trace": {
-            // Each step says its label, value and whether it is measured on hover, Trace's own words; no series, the
-            // column's words, said on hover too where a narrow column ends them in an ellipsis.
-            const shown = cell?.type === "Series" && cell.value.length > 0;
+        case "trace":
+        case "sparkline": {
+            // A trace's steps say their label, value and whether measured on hover, Trace's own words; a sparkline's
+            // cell its last value and its range. No series, the column's words, said on hover too where a narrow column
+            // ends them in an ellipsis.
+            const values = cell?.type === "Series" ? cell.value : [];
+            const said = values.length === 0 ? getSomeorUndefined(kind.value.absent)
+                : kind.type === "trace" ? undefined
+                    : m.sparklineTitle({ last: words.number(values[values.length - 1]!), min: words.number(Math.min(...values)), max: words.number(Math.max(...values)) });
             return {
-                content: <RecordTrace styles={styles} kind={kind.value} cell={cell} density={density === "condensed" ? "condensed" : "compact"}
-                    storageKey={`record.${meta.key}.trace`} />,
-                title: shown ? undefined : getSomeorUndefined(kind.value.absent),
+                content: <RecordDisplay styles={styles} kind={kind} cell={cell} density={density === "condensed" ? "condensed" : "compact"} place="cell"
+                    storageKey={`record.${meta.key}.${kind.type}`} />,
+                title: said,
             };
         }
         default:

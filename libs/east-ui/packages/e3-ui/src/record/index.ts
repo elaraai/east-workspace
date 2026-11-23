@@ -20,7 +20,7 @@ import {
     title, person, booleanColumn, toggle, cycle, age, audit,
 } from "../sheet/columns.js";
 import { action } from "../sheet/actions.js";
-import { trace } from "../sheet/display-columns.js";
+import { sparkline, trace } from "../sheet/display-columns.js";
 import { createMembers, concatMembers } from "../sheet/registers.js";
 import { SheetField } from "../sheet/fields.js";
 import { createPatch } from "../sheet/index.js";
@@ -91,6 +91,8 @@ export interface RecordNamespace extends RecordTagType {
         audit: typeof audit;
         /** A row's series as one track of value-coloured steps, with a now-line; read only (east-workspace#1728). */
         trace: typeof trace;
+        /** A row's series as a line or an area across the cell; read only (east-workspace#1729). */
+        sparkline: typeof sparkline;
     };
     /** Registers — the members the reference, enum, set, person and cycle columns name. */
     register: {
@@ -140,7 +142,7 @@ const RECORD_MEMBERS = {
     toDraft: RecordBinding.toDraft,
     column: {
         text, stamped, integer, quantity, date, enum: enumColumn, reference, set, action,
-        boolean: booleanColumn, title, person, toggle, cycle, age, audit, trace,
+        boolean: booleanColumn, title, person, toggle, cycle, age, audit, trace, sparkline,
     },
     register: { members: createMembers, concat: concatMembers },
     field: SheetField,

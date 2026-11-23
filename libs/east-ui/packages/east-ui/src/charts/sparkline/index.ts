@@ -15,6 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { numberDomainOf } from "../spec/number-domain.js";
 import {
     SparklineType,
     SparklineStyleType,
@@ -45,7 +46,9 @@ export {
  * @remarks
  * Sparkline is a compact inline chart for showing trends in data.
  * It's commonly used in tables, dashboards, and alongside statistics
- * to show historical values or trends without taking much space.
+ * to show historical values or trends without taking much space. Each line
+ * runs over its own min and max; given `domain: [min, max]`, over that one
+ * scale, so several sparklines' heights compare.
  *
  * @example
  * ```ts
@@ -94,6 +97,7 @@ function createSparkline(
     return East.value(variant("Sparkline", {
         data: data,
         type: typeValue ? some(typeValue) : none,
+        domain: numberDomainOf(style?.domain),
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -157,6 +161,7 @@ export const Sparkline = {
          *
          * @property data - Array of numeric values to plot (ArrayType<FloatType>)
          * @property type - Chart type line or area (OptionType<SparklineChartType>)
+         * @property domain - One vertical scale, `[min, max]`, or none for the line's own (OptionType<NumberDomainType>)
          * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Sparkline: SparklineType,
