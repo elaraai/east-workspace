@@ -11,11 +11,12 @@
  * records and logs, or a call's value.
  */
 
+import { availableParallelism, totalmem } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { EnvironmentTargetRefused, LONGEST_TIMER_MS, type Budget, type StorageBackend } from '@elaraai/e3-core';
 import type { CreateLease } from '../protocol/control.js';
 import type { LeaseAttempt, LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
-import type { RackPlacementEvent } from '../protocol/placement.js';
+import type { RackFetchCost, RackPlacementEvent } from '../protocol/placement.js';
 import { describeRackReason, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import type { RackResources } from '../protocol/rack-json.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
@@ -23,6 +24,7 @@ import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
 import { envManifestKey } from '../server/env-publication.js';
 import { compatibleRacks, rackCapsUnits, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
 import { publishEnvLayers, type EnvLayerTarget, type RackEnvironmentEvent } from './environment.js';
+import { RecordedRunTimes } from './fetch-cost.js';
 
 /**
  * How long work that keeps its work for a rack (`--rack-only`) waits for one
@@ -157,9 +159,11 @@ export interface RackDelegationOptions {
   policy: RackPolicy;
   /** Workspace named on the rack's activity view. */
   workspace: string;
-  /** Disables capacity spill, but still permits infrastructure fallback:
+  /** Disables capacity spill and the weighing of what work would fetch
+   *  against how long it ran, but still permits infrastructure fallback:
    *  after a wait for a rack to be healthy, and one further lease for work
-   *  whose transfer failed. */
+   *  whose transfer failed. It keeps no work for a rack that the policy
+   *  keeps here, a split task's merges under `merges` `local` among it. */
   rackOnly?: boolean;
   /** How long work waits, under {@link rackOnly}, for a rack that runs its
    *  tier to be healthy before it runs locally, in ms: two minutes
@@ -169,7 +173,8 @@ export interface RackDelegationOptions {
    * Whether all the run's work is a rack's, whatever the policy's rules
    * select: a command's `--rack`, which names its one piece of work. A rule
    * that matches the work's name still gives its size, its timeout, its
-   * memory limit, its GPU and its host-coupling override.
+   * memory limit, its GPU, its host-coupling override and where its merges
+   * run.
    */
   selected?: boolean;
   /** Receives placement and fallback notifications. */
@@ -192,6 +197,18 @@ export interface RackDelegation {
   readonly rackOnly: boolean;
   /** How long its work waits for a rack to be healthy, in ms */
   readonly unreachableWaitMs: number;
+  /** Whether a task or a unit whose fetch would take longer than it last ran
+   *  runs here: the policy weighs it, and the run does not keep its work for
+   *  a rack */
+  readonly weighsFetch: boolean;
+  /** The run times e3 recorded of the run's tasks, and their objects' sizes,
+   *  read once */
+  readonly runTimes: RecordedRunTimes;
+  /** Whether every task and unit the session leases names the session's own
+   *  scope, so a rack keeps what it wrote for the session's later work: the
+   *  policy's `keep` is `session`. Else a unit names its split task's
+   *  execution, and a whole task no scope. */
+  readonly keepsSession: boolean;
   /**
    * Whether work may run here now rather than wait for a rack: the policy
    * spills, the run does not keep its work for a rack, and this machine could
@@ -219,6 +236,9 @@ export function readDelegation(options: Pick<RackDelegationOptions, 'policy' | '
     builds: options.layerBuilds ?? new RackLayerBuilds(),
     rackOnly,
     unreachableWaitMs: options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS,
+    weighsFetch: options.policy.weighFetch && !rackOnly,
+    runTimes: new RecordedRunTimes(),
+    keepsSession: options.policy.keep.type === 'session',
     spills: (budget, expectedBytes = 0) => options.policy.spill && !rackOnly && localIdle(budget, expectedBytes),
   };
 }
@@ -331,9 +351,10 @@ export class RackPlacementReport {
    * The work runs here.
    * @param reason - Why
    * @param detail - The rack's reason, when a rack gave one
+   * @param fetch - What fetching its inputs would have cost, when that is why
    */
-  local(reason: string, detail?: RackReason): void {
-    this.sink?.({ kind: 'placed', ...this.work, where: 'local', reason, ...(detail !== undefined && { detail }) });
+  local(reason: string, detail?: RackReason, fetch?: RackFetchCost): void {
+    this.sink?.({ kind: 'placed', ...this.work, where: 'local', reason, ...(detail !== undefined && { detail }), ...(fetch !== undefined && { fetch }) });
   }
 
   /**
@@ -415,6 +436,9 @@ export interface LocalReason {
   readonly detail?: RackReason;
   /** An environment build's own words, when its build is why */
   readonly said?: string;
+  /** What fetching the work's inputs would have cost, when that is why
+   *  (`fetch-bound`) */
+  readonly fetch?: RackFetchCost;
 }
 
 /**
@@ -435,6 +459,43 @@ export interface LocalReason {
 export function wholeResources(verdict: Pick<RackVerdict, 'size' | 'memoryLimit' | 'gpu'>, mostCores = Infinity): RackLeaseResources {
   const size = RACK_SIZES[verdict.size];
   return { kind: 'task', cores: Math.max(1, Math.min(size.cores, mostCores)), memoryBytes: verdict.memoryLimit ?? size.memoryBytes, gpu: verdict.gpu };
+}
+
+/**
+ * Whether this machine could run work as its rack would, for its weighing:
+ * it takes no GPU, and expects to need no more memory than the run's budget
+ * has — this host's, for a run with none. What it expects is its expected
+ * peak, when one is known (a unit's stage's, a task's previous): never the
+ * memory its size books on a rack, which is a default, not a need. Work this
+ * machine could not run is kept on a rack however long its inputs take to
+ * fetch: it is never weighed to run here.
+ *
+ * @param work - Whether it takes a GPU, and the memory it expects to need
+ * @param budget - The run's budget; none, and this host's memory
+ * @returns Whether it could
+ * @example
+ * fitsHere({ gpu: false, expectedBytes: 12 * 1024 ** 3 }, budget); // false on a budget of 8 GiB
+ */
+export function fitsHere(work: { readonly gpu: boolean; readonly expectedBytes: number }, budget: Pick<Budget, 'memory'> | undefined): boolean {
+  return !work.gpu && work.expectedBytes <= (budget?.memory ?? totalmem());
+}
+
+/**
+ * How long work that ran this long on a rack, given that many cores, is taken
+ * to run here: as long, given no more cores than the run's budget runs at once
+ * (this host's, for a run with none), and that many times longer given more.
+ * The estimate errs long — a runner that uses one core runs as fast here —
+ * so work it moves here is work that would run here as fast as there.
+ *
+ * @param ranMs - How long it ran, in ms
+ * @param cores - The cores its lease asks of a rack
+ * @param budget - The run's budget; none, and this host's cores
+ * @returns The time in ms
+ * @example
+ * hereMs(19_000, 16, { cores: 8 }); // 38_000
+ */
+export function hereMs(ranMs: number, cores: number, budget: Pick<Budget, 'cores'> | undefined): number {
+  return ranMs * Math.max(1, cores / Math.max(1, budget?.cores ?? availableParallelism()));
 }
 
 /**
@@ -502,6 +563,11 @@ export interface RackPlaceOptions {
    *  each image of the work's tier a rack of the platform boots environments
    *  over */
   readonly layers: (envHash: string, platform: string, image?: RackTierImage) => Promise<RackLayerBuild>;
+  /** Weighs the work, once a rack could hold it and before any of its
+   *  environment's layers are built: why it runs here instead (`fetch-bound`),
+   *  or null when it goes on to a rack. Given what it asks, and the racks that
+   *  take it and could hold it. None weighs nothing */
+  readonly weigh?: (asked: RackLeaseResources, racks: readonly SnapshotRack[]) => Promise<LocalReason | null>;
 }
 
 /** How {@link RackFleet.submit} queues a lease. */
@@ -646,7 +712,9 @@ export class RackFleet {
    * @remarks
    * Work that keeps its work for a rack waits for one to be healthy before
    * it runs locally; any other runs it locally at once. Work no rack could
-   * hold runs locally, by name ({@link unheld}). Work that declares an
+   * hold runs locally, by name ({@link unheld}); so does work its weighing
+   * sends here ({@link RackPlaceOptions.weigh}), before anything is built for
+   * a rack. Work that declares an
    * environment is a rack's once the environment's layers are kept for the
    * platform of a rack that could hold it: they are built first, for each
    * such platform, over the tier image each such rack names and whole for a
@@ -682,6 +750,10 @@ export class RackFleet {
     if ('code' in asked) return { kind: 'local', why: { reason: asked.code, detail: asked } };
     const never = this.unheld(asked);
     if (never !== null) return { kind: 'local', why: never };
+    // Weighed before its layers are built: work that runs here builds none
+    const weighed = options.weigh === undefined ? null : await options.weigh(asked, this.racks().filter((rack) => rackCouldHold(rack, asked)));
+    if (weighed !== null) return { kind: 'local', why: weighed };
+    if (options.signal?.aborted) return { kind: 'aborted' };
     const environment = this.verdict.environment;
     if (environment !== null) {
       // For each platform a rack that could hold the work runs environments
@@ -795,6 +867,9 @@ export interface RackAdmitOptions {
   /** Told an environment's layers are being built for a rack's platform, and
    *  what the build came to */
   readonly onEnvironment?: (event: RackEnvironmentEvent) => void;
+  /** Weighs the work before its environment's layers are built
+   *  ({@link RackPlaceOptions.weigh}); none weighs nothing */
+  readonly weigh?: RackPlaceOptions['weigh'];
 }
 
 /**
@@ -806,8 +881,9 @@ export interface RackAdmitOptions {
  * lost, or that is given no repository, runs here; so does work its policy or
  * its program keeps here ({@link RackAdmitOptions.judge}), and work bound to
  * this machine's process settings. The rest is placed by the fleet as the
- * work sees it ({@link RackFleet.place}), its environment's layers built
- * first, once for an environment and a platform.
+ * work sees it ({@link RackFleet.place}): weighed, when its caller weighs it,
+ * and then its environment's layers built, once for an environment and a
+ * platform.
  *
  * @param options - The session, the run's delegation options, and the work
  * @returns Where the work goes
@@ -828,7 +904,7 @@ export async function admitWork(options: RackAdmitOptions): Promise<RackAdmissio
   if (options.hostBound) return { kind: 'local', why: { reason: 'host-process-settings' } };
   const fleet = new RackFleet(session, verdict, options.unit);
   const placed = await fleet.place({ rackOnly: delegation.rackOnly, unreachableWaitMs: delegation.unreachableWaitMs, signal,
-    asks: (mostCores) => options.asks(verdict, mostCores),
+    asks: (mostCores) => options.asks(verdict, mostCores), ...(options.weigh !== undefined && { weigh: options.weigh }),
     layers: async (envHash, platform, image) => {
       // The image's manifest, as the rack reported it: one the hub cannot
       // give is no image to build over, and the environment is built whole

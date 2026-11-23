@@ -37,6 +37,7 @@ import {
   type DataflowExecutionState,
 } from '@elaraai/e3-api-client';
 import { IntegerType, lessFor, type EastTypeValue } from '@elaraai/east';
+import type { PartitionProgress } from '@elaraai/e3-types';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
@@ -210,15 +211,8 @@ async function executeLocal(
         console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
       },
       onPartitionProgress: (task, progress) => {
-        if (progress.state !== 'completed') return;
-        const cached = progress.cached ? ' (cached)' : '';
-        const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
-        if (progress.phase === 'partition') {
-          console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
-        } else {
-          const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
-          console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
-        }
+        const line = partitionLine(task, progress);
+        if (line !== undefined) console.log(line);
       },
       onUnitRequeued: (task, unit, requeue) => {
         console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
@@ -422,31 +416,59 @@ function printEvent(event: DataflowEvent): void {
   }
 }
 
-function printTaskResult(result: TaskCompletedCallback): void {
-  if (result.cached) {
-    console.log(`  [CACHED] ${result.name}`);
-    return;
-  }
+/** A line with where its work's time went, when the host that ran it said so: a rack's phases. */
+function withTiming(line: string, timing: string | undefined): string {
+  return timing === undefined || timing === '' ? line : `${line} — ${timing}`;
+}
 
+/**
+ * The line a local run prints as a unit of a split task succeeds: `[PART]`
+ * for a piece, `[MERGE]` or `[COMBINE]` for a unit assembling their outputs,
+ * with its duration, and, for a unit a rack ran, where its time went
+ * (`[PART] scores 3/48 #3 [271204ms] — granted +12 s · fetched 903 MB (0 B
+ * cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s`).
+ *
+ * @param task - The split task's name
+ * @param progress - The unit's progress
+ * @returns The line, or undefined for a unit that started
+ */
+export function partitionLine(task: string, progress: PartitionProgress): string | undefined {
+  if (progress.state !== 'completed') return undefined;
+  const cached = progress.cached ? ' (cached)' : '';
+  const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
+  if (progress.phase === 'partition') {
+    return withTiming(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`, progress.timing);
+  }
+  const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
+  return withTiming(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`, progress.timing);
+}
+
+/**
+ * The line a local run prints as a task completes, with its duration, and,
+ * for a task a rack ran, where its time went (`[DONE] train [41870ms] —
+ * granted +2 s · fetched 1 GB (0 B cached) 156 s · …`).
+ *
+ * @param result - How the task completed
+ * @returns The line
+ */
+export function taskResultLine(result: TaskCompletedCallback): string {
+  if (result.cached) return `  [CACHED] ${result.name}`;
   switch (result.state) {
     case 'success':
-      console.log(`  [DONE] ${result.name} [${Math.round(result.duration)}ms]`);
-      break;
-    case 'failed': {
-      const exitCode = result.exitCode ?? -1;
-      console.log(`  [FAIL] ${result.name} [${Math.round(result.duration)}ms] (exit code ${exitCode})`);
-      break;
-    }
+      return withTiming(`  [DONE] ${result.name} [${Math.round(result.duration)}ms]`, result.timing);
+    case 'failed':
+      return withTiming(`  [FAIL] ${result.name} [${Math.round(result.duration)}ms] (exit code ${result.exitCode ?? -1})`, result.timing);
     case 'error':
-      console.log(`  [ERR] ${result.name}: ${result.error ?? 'Unknown error'}`);
-      break;
+      return `  [ERR] ${result.name}: ${result.error ?? 'Unknown error'}`;
     case 'skipped':
-      console.log(`  [SKIP] ${result.name}`);
-      break;
+      return `  [SKIP] ${result.name}`;
     case 'cancelled':
-      console.log(`  [CANCELLED] ${result.name}`);
-      break;
+      return `  [CANCELLED] ${result.name}`;
   }
+}
+
+function printTaskResult(result: TaskCompletedCallback): void {
+  console.log(taskResultLine(result));
 }
 
 interface Summary {

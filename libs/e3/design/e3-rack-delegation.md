@@ -171,9 +171,13 @@ bound to the repository alias, lease and attempt, restricted to the admitted
 closure or declared outputs, expire after fifteen minutes, and are revoked on
 lease termination or reclaim. A transfer may take the rest of its capability's
 lifetime. Every transfer streams through the launching process, so the hub
-serves one rack `limits.transfersAtOnce` (8) at once, counted from the request
+serves one rack `limits.transfersAtOnce` (32) at once, counted from the request
 to the last byte of its stream, and answers one more `429 busy` with
-`retryAfterMs` before it reads it. A read honours `Range: bytes=N-` with `206`,
+`retryAfterMs` before it reads it. An object a storage request asks for is
+read from the session and sent inline in the reply when it is at most the size
+the request names (`x-e3-rack-inline-max`, at most 64 KiB; 4 KiB for a request
+that names none) and the reply has room (2 MiB of inline bytes a reply), else
+as a capability URL: the hello names `inline-objects`. A read honours `Range: bytes=N-` with `206`,
 read by range from the store, so a transfer cut short is taken up from the byte
 it reached; a capability that ended is minted again by the next storage request
 for the same lease and object. A transfer whose rack went away, or whose
@@ -214,7 +218,30 @@ is a ceiling, in bytes, on what one piece of its work may be capped at, never a
 request, and its `gpu` asks for a rack's GPU. Both came with the local
 repository's first upgrade step of its own (`rack-policy-limits`, in e3-core,
 with both forms frozen there), which carries a policy an earlier release stored
-into this form when the repository is opened.
+into the form with them when the repository is opened.
+
+A rule's `merges`, else the policy's `defaultMerges`, says where the merge
+units of a split task it sends to a rack run: `rack`, the default, as its
+pieces do, or `local`. A merge unit is a set's or a dict's merge over a key
+range, or a step of a fold's combine; an array's concatenation and every
+output's final assembly are no unit, and run here always. A merge kept local
+is judged before the task's verdict, which its pieces share
+(`merges-local`), and runs through the ordinary local body under the run's
+budget and guard. It fetches nothing: every piece's output is verified into
+this store as its lease ends. It is not the default, since a merge on a rack
+uses the rack's cores and memory, which a wide fan-in or a large range may
+need, and the upgrade keeps every repository placing as it did. A merge kept
+local is no rack's work: rack-only, which keeps a rack's work for a rack,
+leaves it here, and `selected` (a command's `--rack`) takes it from the
+rule as it takes the rule's size. A merge kept local is never weighed for
+what it would fetch (the policy's `weighFetch`, off unless the policy turns
+it on: off, no fetch cost is asked and work is placed by the rules alone,
+as before #1722), since it is judged here
+first; a merge on a rack is weighed by its task's earlier merges, never its
+pieces, and follows its policy before one has run. Both came with the local
+repository's third step (`rack-policy-merges`), which carries the form the
+second (`rack-policy-weigh-fetch`) writes into this one, every merge on a
+rack.
 
 Eligibility checks task name/selection, the environment's kind, the
 runtime/platform configuration, East body and every executable program
@@ -396,7 +423,41 @@ Only a unit that expects nothing books its rule's limit, else its size's
 memory. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
 ever hold is not queued, and runs locally. Split-task
-planning and final assembly stay local; both pieces and merge bodies delegate.
+planning and final assembly stay local; both pieces and merge bodies delegate,
+unless the rule's `merges`, else the policy's `defaultMerges`, keeps merges
+local.
+Each unit's lease names the split task's execution it runs in, its scope
+(e3-core's `SplitScope`: a random id, and whether a later unit reads what it
+writes). The hub grants it with the lease only to a rack whose report names
+`split-scopes`, which may keep what the scope's leases wrote for the later
+ones, so a merge reads its pieces where they were made rather than over the
+link; every output still comes back whole before its unit succeeds. As the
+execution ends, however it ends, its session ends the scope (control route
+`/v1/sessions/:id/scopes/end`, hub protocol 6), and a session that closes ends
+all of its scopes (one whose end the hub did not take is told again, with a
+backoff, until it is); each rack granted a lease of one is told with its next
+heartbeat (`x-e3-rack-scopes-ended`, within 12 KiB an answer, the rest with
+the next). A session keeps at most 1,024 scopes open at the hub; a rack that
+reboots is taken to hold nothing of any scope. The hub notes which rack each
+completed lease of a scope that feeds it wrote its output and targets on
+(`ScopeWrites`, bounded at 200,000 objects, let go as the scope ends), and a
+lease of a scope waits up to `SCOPE_AFFINITY_MS` for a rack that wrote some
+of what it reads before another may take it — only for one that could be
+granted it (its tier, what its resources could ever hold, its approval and
+release, the work's environment), never for one that could not; `fetch-costs`,
+asked with the scope, counts those objects held there.
+
+The policy's `keep` widens the scope: `split` (the default) is the above;
+`session` names one scope, the session's own (`RackSession.sessionScope`), on
+every task's and unit's lease of the rack session — one `e3 dataflow run`, or
+one `e3 watch --start --rack` across its re-runs — feeding it but for a piece
+whose merges run here. A task's output a rack made is then read there by the
+session's later work, which goes to it input by input, not pile onto one
+rack. No split task's end ends it; the hub ends it as the session ends:
+closed, or swept as gone or silent. It keeps a task's data on a rack until
+then, or an hour unused, within the rack's bound. It came with the local
+repository's fourth step (`rack-policy-keep`), which carries the merges
+step's form into this one, kept for a split task alone.
 
 | Outcome | Record and action |
 | --- | --- |

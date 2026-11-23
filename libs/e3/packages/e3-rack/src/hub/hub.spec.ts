@@ -26,7 +26,7 @@ import { ApproveRackType, HubAttemptType, HubConfigType, HubEnrollResultType, Hu
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_INLINE_OBJECT_MAX, RACK_INLINE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { certificateSha256, createHubCertificate } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
@@ -306,8 +306,8 @@ it('says what it speaks to anyone who reaches its listener, what each rack repor
   const status = await f.status(); assert(status.rackListener.type === 'up');
   const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
   assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE },
-    features: [RACK_CALL_VALUE_OBJECTS, RACK_TIER_MANIFESTS] },
-  'a session reads a call\'s value from the object its completion commits, and builds an environment over the tier image a rack reports');
+    features: [RACK_CALL_VALUE_OBJECTS, RACK_TIER_MANIFESTS, RACK_INLINE_OBJECTS] },
+  'a session reads a call\'s value from the object its completion commits, builds an environment over the tier image a rack reports, and the hub serves small objects inline');
 
   const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
   const rack = async () => (await f.status()).capacity.racks[0]!;
@@ -350,7 +350,7 @@ it('never enrols an agent of another rack protocol, and keeps its token for the 
   assert.equal((await f.status()).racks.length, 1);
 });
 
-it('serves one rack eight transfers at once, tells it to ask again for a ninth, and serves another rack meanwhile', async () => {
+it('serves one rack its transfers at once, tells it to ask again for one more, and serves another rack meanwhile', async () => {
   const f = await fixture();
   const session = await f.session();
   const inputs = await f.objects(1, 8192); const [input] = [...inputs.keys()];
@@ -364,7 +364,7 @@ it('serves one rack eight transfers at once, tells it to ask again for a ninth, 
     return f.fetch(descriptor.value.url);
   };
 
-  // Eight uploads whose bodies have not ended are in flight for as long as the test holds them.
+  // As many uploads as a rack is served at once, whose bodies have not ended, are in flight for as long as the test holds them.
   // Each sends half its body at once: a request's head goes out with its first bytes.
   const stop = new AbortController();
   const held = await Promise.all(Array.from({ length: RACK_TRANSFERS_AT_ONCE }, async () => {
@@ -384,15 +384,15 @@ it('serves one rack eight transfers at once, tells it to ask again for a ninth, 
     if (response.status === 429) refused = response;
     else { assert.equal(response.status, 200); await response.arrayBuffer(); await delay(10); }
   }
-  assert(refused, 'a ninth transfer is refused while eight are in flight');
+  assert(refused, 'one more transfer is refused while the rack\'s are all in flight');
   assert.equal(refused.headers.get('retry-after'), '1');
-  assert.deepEqual(readRackRefusal(await refused.text()), { code: 'busy', message: '8 transfers are in flight for this rack', retryAfterMs: 500 });
+  assert.deepEqual(readRackRefusal(await refused.text()), { code: 'busy', message: `${RACK_TRANSFERS_AT_ONCE} transfers are in flight for this rack`, retryAfterMs: 500 });
 
   // The bound is each rack's own.
   const elsewhere = await read(second, otherGrant, other!);
   assert.equal(elsewhere.status, 200); assert.deepEqual(Buffer.from(await elsewhere.arrayBuffer()), others.get(other!));
 
-  // One of the eight ends, and the rack has a transfer free again.
+  // One of them ends, and the rack has a transfer free again.
   held[0]!.body.enqueue(held[0]!.bytes.subarray(32)); held[0]!.body.close();
   const put = await held[0]!.response; assert.equal(put.status, 200); await put.arrayBuffer();
   let served: Response | undefined;
@@ -400,7 +400,7 @@ it('serves one rack eight transfers at once, tells it to ask again for a ninth, 
     const response = await read(first, grant, input!);
     if (response.status === 200) served = response; else { assert.equal(response.status, 429); await response.arrayBuffer(); await delay(10); }
   }
-  assert(served, 'a transfer is served once one of the eight has ended');
+  assert(served, 'a transfer is served once one of them has ended');
   assert.deepEqual(Buffer.from(await served.arrayBuffer()), inputs.get(input!));
   stop.abort();
 });
@@ -469,14 +469,14 @@ it('keeps an idle connection of a rack for seventy-five seconds, and says so in 
   assert.equal(RACK_LISTENER_IDLE_MS, 75_000);
 });
 
-it('carries a burst of input transfers over a slow link with no failed transfer, never more than eight of a rack\'s in flight', async () => {
+it('carries a burst of input transfers over a slow link with no failed transfer, never more of a rack\'s in flight than its source serves at once', async () => {
   const f = await fixture();
   const session = await f.session();
-  // A link of 8 MiB/s that every connection shares, and three leases of eight inputs each, fetched at once.
+  // A link of 8 MiB/s that every connection shares, and five leases of eight inputs each, fetched at once: more than the rack is served at once.
   const { origin } = await f.link({ delayMs: 5, bytesPerSecond: 8 * 1024 * 1024 });
-  const agent = await f.agent({ capacity: 3 }, origin);
+  const agent = await f.agent({ capacity: 5 }, origin);
   const leases = [];
-  for (let n = 0; n < 3; n++) {
+  for (let n = 0; n < 5; n++) {
     const inputs = await f.objects(8, 192 * 1024);
     await session.create(event([...inputs.keys()]));
     const grant = await agent.claim(); assert(grant);
@@ -485,15 +485,29 @@ it('carries a burst of input transfers over a slow link with no failed transfer,
   await Promise.all(leases.map(({ grant, inputs }) => agent.fetch(grant, [...inputs.keys()])));
   for (const { inputs } of leases) for (const hash of inputs.keys()) assert(await agent.holds(hash));
   assert.equal(agent.transfers.peak, RACK_TRANSFERS_AT_ONCE, 'the agent has as many in flight as its source\'s hello allows, and no more');
-  assert.equal(agent.transfers.busy, 0, 'the hub never had a ninth to refuse');
+  assert.equal(agent.transfers.busy, 0, 'the hub never had one more to refuse');
   assert.equal(agent.transfers.retried, 0);
 
-  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it.
-  const greedy = await f.agent({ transfersAtOnce: 24 }, origin);
-  const inputs = await f.objects(24, 64 * 1024);
+  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it. Its
+  // objects are larger than any reply carries inline, so every one is a transfer; and the session holds each
+  // read the hub asks of it until the hub has refused the agent one, so the transfers the hub serves are all
+  // in flight together, whatever the link's buffers take at once.
+  const greedy = await f.agent({ transfersAtOnce: 2 * RACK_TRANSFERS_AT_ONCE }, origin);
+  const inputs = await f.objects(2 * RACK_TRANSFERS_AT_ONCE, RACK_INLINE_OBJECT_MAX + 32 * 1024);
   await session.create(event([...inputs.keys()]));
   const grant = await greedy.claim(); assert(grant);
+  const readRange = f.storage.objects.readRange.bind(f.storage.objects);
+  const read = new Set<string>();
+  const refused = (async () => {
+    for (const end = Date.now() + 30_000; greedy.transfers.busy === 0 && Date.now() < end; ) await delay(5);
+  })();
+  f.storage.objects.readRange = async (repo, hash, ...rest) => {
+    if (inputs.has(hash)) { read.add(hash); await refused; }
+    return readRange(repo, hash, ...rest);
+  };
   await greedy.fetch(grant, [...inputs.keys()]);
+  f.storage.objects.readRange = readRange;
+  assert.equal(read.size, inputs.size, 'every object was a transfer of its own');
   for (const hash of inputs.keys()) assert(await greedy.holds(hash));
   assert(greedy.transfers.peak > RACK_TRANSFERS_AT_ONCE, `the agent asked for ${greedy.transfers.peak} at once`);
   assert(greedy.transfers.busy > 0, 'the hub told it to ask again');

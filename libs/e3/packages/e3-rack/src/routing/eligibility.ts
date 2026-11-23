@@ -25,8 +25,8 @@ export interface EligibilityOptions {
    * Whether all the work it judges is a rack's, whatever the policy's rules
    * select: a command's `--rack`, which names its one piece of work. A rule
    * that matches the work's name still gives its size, its timeout, its
-   * memory limit, its GPU and its host-coupling override; otherwise the
-   * policy's defaults do. Fitness still applies.
+   * memory limit, its GPU, its host-coupling override and where its merges
+   * run; otherwise the policy's defaults do. Fitness still applies.
    */
   readonly selected?: boolean;
 }
@@ -97,12 +97,23 @@ export class EligibilityEvaluator {
 
   /**
    * Checks selection, runtime, environment and every executable IR bundle.
+   *
+   * @remarks
+   * A merge unit of a task its policy sends to a rack runs here when its rule's
+   * `merges`, else the policy's `defaultMerges`, is `local` (`merges-local`),
+   * under a command's flag too: the flag selects the task, and its rule still
+   * says where its merges run, as it says its size. Its pieces are judged as
+   * the task is. The task's verdict is reached once for all its units, so a
+   * merge is told apart before it.
    * @param request - A task or split unit after its cache miss
    * @returns Its eligibility, with a deterministic reason on refusal
    */
   evaluate(request: TaskBodyRequest): Promise<Eligibility> {
     const name = request.options.taskName;
     if (name === undefined) return Promise.resolve({ eligible: false, reason: 'no-task-name' });
+    if (request.unit !== undefined && request.unit.merge !== null && this.keepsMergesHere(name)) {
+      return Promise.resolve({ eligible: false, reason: 'merges-local' });
+    }
     const hash = request.logicalTaskHash ?? request.taskHash;
     const key = JSON.stringify([request.repo, hash, name]);
     let result = this.verdicts.get(key);
@@ -142,6 +153,17 @@ export class EligibilityEvaluator {
     } catch {
       return { eligible: false, reason: 'unscannable' };
     }
+  }
+
+  /**
+   * Whether the merge units of a split task its policy sends to a rack run
+   * here: its rule's `merges`, else the policy's `defaultMerges`, is `local`.
+   * A piece of such a task then feeds no later unit on a rack.
+   * @param name - The task's name
+   * @returns Whether its merges are kept here
+   */
+  keepsMergesHere(name: string): boolean {
+    return this.select(name)?.merges === 'local';
   }
 
   /** The work's selection by its name, or null when it is not a rack's. */

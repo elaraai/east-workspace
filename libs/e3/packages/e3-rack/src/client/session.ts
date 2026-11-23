@@ -7,10 +7,10 @@ import { randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { IntegerType, compareFor, type ValueTypeOf } from '@elaraai/east';
-import { processOwner, readTierManifest, tierManifestDigest, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
+import { processOwner, readTierManifest, tierManifestDigest, uuidv7, type SplitScope, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { CreateLeaseResultType, HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
-import type { RackLeaseResult } from '../protocol/task-envelope.js';
+import type { RackLeaseResult, RackLeaseScope } from '../protocol/task-envelope.js';
 import { startSessionDataServer } from './session-data-server.js';
 import { RackHubUnavailableError } from './connect.js';
 import type { HubClient } from './hub-client.js';
@@ -86,6 +86,11 @@ export interface RackSessionOptions {
   e3Version?: string;
 }
 
+/** How long a session waits before telling the hub again of a scope's end it
+ *  did not take, in ms: first, and at most, doubling between. */
+const END_RETRY_MIN_MS = 250;
+const END_RETRY_MAX_MS = 30_000;
+
 // One listener for every open session of this process, however many runs an
 // API server keeps attached: the sessions it closes as the process ends.
 const openSessions = new Set<RackSession>();
@@ -116,6 +121,21 @@ export class RackSession {
   private refreshing?: Promise<CapacitySnapshot>;
   /** When the last refresh was answered, by this process's clock */
   private refreshedAt = -Infinity;
+  /** The split scopes the session's leases named that have not ended: each
+   *  one's end is told to the hub once */
+  private readonly scopes = new Set<string>();
+  /** The split scopes that ended which the hub has not yet been told of, in
+   *  the order they ended */
+  private readonly endsPending = new Set<string>();
+  /** The telling in flight, which ends that come meanwhile join */
+  private ending?: Promise<void>;
+  /** The wait before the hub is asked again, once it did not take an end, in
+   *  ms; and the timer that asks it */
+  private endRetryMs = END_RETRY_MIN_MS;
+  private endRetry?: NodeJS.Timeout;
+  /** The session's own scope's id ({@link sessionScope}): one for the
+   *  session, which the hub ends as the session ends */
+  private readonly sessionScopeId = uuidv7();
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
     /** The e3 release the session's work is built with, which its leases name. */
@@ -221,6 +241,102 @@ export class RackSession {
   }
 
   /**
+   * The scope a unit's lease names: the split task's execution it runs in,
+   * and whether it feeds a later unit (`RackLeaseEvent.scope`).
+   *
+   * @remarks
+   * The hub grants the lease with it to a rack that keeps what a scope's
+   * leases wrote for its later ones. The execution's end is told to the hub
+   * as it ends, and again until the hub has taken it ({@link tellEnds}), and
+   * the hub tells each rack it granted a lease of the scope; a session that
+   * closes ends every scope its leases named.
+   *
+   * @param scope - The execution the unit runs in, as e3-core gives it
+   * @returns The lease's scope; none once the execution has ended, or the
+   *   session has
+   * @example
+   * ```ts
+   * const scope = request.options.splitScope === undefined ? undefined : session.scope(request.options.splitScope);
+   * ```
+   */
+  scope(scope: SplitScope): RackLeaseScope | undefined {
+    if (scope.ended.aborted || this.lost || this.closing !== undefined) return undefined;
+    if (!this.scopes.has(scope.id)) {
+      this.scopes.add(scope.id);
+      scope.ended.addEventListener('abort', () => {
+        this.scopes.delete(scope.id);
+        // A session that closes ends every scope its leases named
+        if (this.lost || this.closing !== undefined) return;
+        this.endsPending.add(scope.id);
+        void this.tellEnds();
+      }, { once: true });
+    }
+    return { id: scope.id, feeds: scope.feeds };
+  }
+
+  /**
+   * Tells the hub of the split scopes that ended, oldest first, until it has
+   * taken each: an end it does not take is told again after a wait that
+   * doubles from {@link END_RETRY_MIN_MS} to {@link END_RETRY_MAX_MS}, and as
+   * the session's next poll is answered, so a scope a hub did not hear the
+   * end of is not kept open, and counted among the session's, until the
+   * session ends. Ends that come while it tells join it. A session that is
+   * closed, or lost its hub, tells nothing more: the hub ends its scopes.
+   *
+   * @returns Once every end pending is told, or one was not taken
+   */
+  private tellEnds(): Promise<void> {
+    return this.ending ??= (async () => {
+      try {
+        for (const id of this.endsPending) {
+          if (this.lost || this.closing !== undefined) return;
+          try {
+            await this.client.endScope(this.sessionId, id);
+          } catch {
+            if (this.endRetry === undefined && !this.lost && this.closing === undefined) {
+              this.endRetry = setTimeout(() => { this.endRetry = undefined; void this.tellEnds(); }, this.endRetryMs);
+              this.endRetry.unref();
+              this.endRetryMs = Math.min(END_RETRY_MAX_MS, 2 * this.endRetryMs);
+            }
+            return;
+          }
+          this.endsPending.delete(id);
+          this.endRetryMs = END_RETRY_MIN_MS;
+        }
+      } finally {
+        this.ending = undefined;
+      }
+    })();
+  }
+
+  /**
+   * The session's own scope, which a lease names under a policy that keeps
+   * what work wrote on a rack for the whole session (`keep` `session`): one
+   * id for every task and unit the session leases, whatever split task it is
+   * of, so a task's output a rack made is read there by the session's later
+   * work.
+   *
+   * @remarks
+   * No split task's end ends it: the hub ends it as the session ends — it is
+   * closed, or the hub finds its process gone or silent — and tells each rack
+   * granted a lease of it with its next heartbeat. A session is one
+   * `e3 dataflow run`, or one `e3 watch --start --rack` across its re-runs.
+   *
+   * @param feeds - Whether a later lease reads what this one writes: false
+   *   for a piece whose merges run here
+   * @returns The lease's scope; none once the session has closed, or lost its
+   *   hub
+   * @example
+   * ```ts
+   * const scope = policy.keep.type === 'session' ? session.sessionScope(true) : undefined;
+   * ```
+   */
+  sessionScope(feeds: boolean): RackLeaseScope | undefined {
+    if (this.lost || this.closing !== undefined) return undefined;
+    return { id: this.sessionScopeId, feeds };
+  }
+
+  /**
    * Submits work or attaches to an existing lease, handling events that race
    * the create response. Attempt identity is assigned at claim, never locally.
    * @param request - Current task/unit event and rack shape
@@ -228,6 +344,33 @@ export class RackSession {
    */
   async createLease(request: LeaseRequest): Promise<LeaseHandle> {
     return (await this.subscribe((sessionId) => this.client.createLease(sessionId, request)))!;
+  }
+
+  /**
+   * What work reading these objects would fetch from each rack the hub has
+   * served: the rack's link rate, as the hub measured it, and which of the
+   * objects of this session's repository it was served whole, or, of work
+   * whose lease names a scope, a lease of the scope that feeds it wrote there.
+   *
+   * @param hashes - The objects the work reads
+   * @param scope - The scope the work's lease names; none unless given
+   * @returns Each rack's link, by its id: its rate in bytes a second, null
+   *   while unmeasured, and of each object, in the order given, whether the
+   *   rack holds it; null when the session is closed, or the hub does not
+   *   answer
+   * @example
+   * ```ts
+   * const links = await session.fetchCosts(closure, scope?.id);
+   * ```
+   */
+  async fetchCosts(hashes: readonly string[], scope?: string): Promise<Map<string, { bytesPerSecond: number | null; held: boolean[] }> | null> {
+    if (this.lost || this.closing !== undefined) return null;
+    try {
+      const links = await this.client.fetchCosts(this.sessionId, hashes, scope);
+      return new Map(links.map((link) => [link.rackId, { bytesPerSecond: link.bytesPerSecond.type === 'some' ? link.bytesPerSecond.value : null, held: link.held }]));
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -306,6 +449,8 @@ export class RackSession {
       try {
         const response = await this.client.events(this.sessionId, after, 20000, this.abort.signal);
         failures = 0; this.snapshot = response.capacity;
+        // The hub answers: what it did not take of the scopes' ends is told again
+        if (this.endsPending.size > 0) void this.tellEnds();
         for (const event of response.events) {
           if (compareFor(IntegerType)(event.seq, after) <= 0) continue;
           after = event.seq;
@@ -336,6 +481,9 @@ export class RackSession {
     return this.closing ??= (async () => {
       openSessions.delete(this);
       if (openSessions.size === 0) process.off('beforeExit', closeOpenSessions);
+      // Its end ends every scope its leases named: none is told again
+      if (this.endRetry !== undefined) clearTimeout(this.endRetry);
+      this.endsPending.clear();
       await this.client.closeSession(this.sessionId).catch(() => {});
       this.abort.abort();
       await this.loop;

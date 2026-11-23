@@ -328,3 +328,24 @@ it('keeps another handle subscribed when identical work is requested twice in on
   await f.agent.complete(grant, { taskName: 'task', status: 'failed' });
   assert.equal((await second.next()).kind, 'completed');
 });
+
+it('tells the hub of a split scope\'s end again until it takes it, and nothing more once it has', async () => {
+  const f = await fixture();
+  // The hub does not take the first two ends it is told of
+  const told: string[] = [];
+  let refuse = 2;
+  const endScope = f.client.endScope.bind(f.client);
+  f.client.endScope = async (id, scope) => {
+    told.push(scope);
+    if (refuse-- > 0) throw new RackHubError('timeout', 'Rack request POST /scopes/end timed out');
+    return endScope(id, scope);
+  };
+  const ended = new AbortController();
+  const scope = { id: uuidv7(), feeds: true, ended: ended.signal };
+  assert.deepEqual(f.session.scope(scope), { id: scope.id, feeds: true });
+  ended.abort();
+  for (const end = Date.now() + 10_000; told.length < 3 && Date.now() < end; ) await delay(20);
+  assert.deepEqual(told, [scope.id, scope.id, scope.id], 'told again after each it did not take, until it took one');
+  await delay(1200);
+  assert.equal(told.length, 3, 'and not again once it was taken');
+});

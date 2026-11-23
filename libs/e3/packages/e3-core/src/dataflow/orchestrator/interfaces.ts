@@ -199,6 +199,9 @@ export interface TaskCompletedCallback {
   exitCode?: number;
   /** Duration in milliseconds */
   duration: number;
+  /** Where its time went, as the host that ran it says it: a rack's phases
+   *  (`TaskResult.timing`); absent for a task that ran here */
+  timing?: string;
 }
 
 /**

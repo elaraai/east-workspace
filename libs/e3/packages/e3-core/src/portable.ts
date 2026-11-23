@@ -97,6 +97,7 @@ export type {
   ExecutionLiveness,
   MergeParts,
   SplitUnit,
+  SplitScope,
   UnitRequeue,
   IntakeSource,
   IntakeSpec,
@@ -493,6 +494,7 @@ export {
 // the driver that runs a task on its own
 export {
   SplitTask,
+  isMergeUnitInputs,
   isSplitTask,
   stageUnits,
   executeSplitTask,

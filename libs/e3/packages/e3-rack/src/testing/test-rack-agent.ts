@@ -22,8 +22,8 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TIER_MANIFESTS,
-  RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackWaiting,
+import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_SCOPES_ENDED_HEADER,
+  RACK_SPLIT_SCOPES, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackScopesEnded, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
 import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
   type RackTransferRetry } from '../protocol/task-envelope.js';
@@ -143,6 +143,11 @@ export interface TestRackAgentOptions {
    *  does not read which its source wants does
    *  ({@link RACK_MANIFESTS_WANTED_HEADER}). */
   manifestEveryHeartbeat?: boolean;
+  /** Says it keeps a split task's outputs for its later leases
+   *  ({@link RACK_SPLIT_SCOPES}), and notes the scopes each heartbeat's answer
+   *  says ended ({@link TestRackAgent.scopesEnded}). It keeps every object in
+   *  its store already, so a merge it runs reads its pieces there. */
+  splitScopes?: boolean;
 }
 
 /**
@@ -177,8 +182,9 @@ export interface TestRackAgentOptions {
 export class TestRackAgent {
   /** Stable identity assigned by enrollment. */
   rackId = '';
-  /** Boot identity reported in every poll and heartbeat. */
-  readonly bootId = randomUUID();
+  /** Boot identity reported in every poll and heartbeat: a new one after
+   *  {@link reboot}. */
+  bootId = randomUUID();
   /** Runs against a separate repository, like the guest's staged store. */
   readonly repo: string;
   /** Consumes deterministic faults before executing each claim. */
@@ -200,6 +206,11 @@ export class TestRackAgent {
   waitingFor: RackWaiting | undefined;
   /** The report the last heartbeat carried. */
   lastReport: RackReport | undefined;
+  /** The split scopes its heartbeats' answers said ended, in the order said. */
+  readonly scopesEnded: string[] = [];
+  /** The length of each ended-scopes header its heartbeats' answers carried,
+   *  in bytes, in the order they came. */
+  readonly scopesEndedHeaderBytes: number[] = [];
   /** The digests of the tier manifests whose text the next heartbeat carries:
    *  every one, for the first; then those its source's last answer asked for. */
   private manifestsWanted: 'all' | readonly string[] = 'all';
@@ -357,7 +368,8 @@ export class TestRackAgent {
     const image = target === null ? undefined : this.image;
     const tier = image === undefined ? undefined
       : { digest: image.digest, ...(this.sourceFeatures.includes(RACK_TIER_MANIFESTS) && { manifest: this.options.overTier! }) };
-    return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER])],
+    return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER]),
+      ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : [])],
       ...(target !== null && { target }), ...(tier !== undefined && { tiers: Object.fromEntries(this.tiers.map((name) => [name, tier])) }),
       ...(all !== undefined && { resources: all, free: this.free(all) }) };
   }
@@ -385,6 +397,16 @@ export class TestRackAgent {
       .map(([tier, said]) => [tier, wanted.includes(said.digest) ? said : { digest: said.digest }])) };
   }
 
+  /**
+   * Starts again under a new boot, as a rack whose host restarted: its next
+   * poll and heartbeat report the new boot.
+   * @example
+   * ```ts
+   * agent.reboot(); await agent.heartbeat();
+   * ```
+   */
+  reboot(): void { this.bootId = randomUUID(); }
+
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
     const report = this.reportSent();
@@ -393,6 +415,9 @@ export class TestRackAgent {
     if (sent.status !== 200) throw await this.refused('heartbeat', sent);
     this.lastReport = report;
     this.manifestsWanted = readRackManifestsWanted(sent.headers.get(RACK_MANIFESTS_WANTED_HEADER));
+    const ended = sent.headers.get(RACK_SCOPES_ENDED_HEADER);
+    if (ended !== null) this.scopesEndedHeaderBytes.push(Buffer.byteLength(ended));
+    this.scopesEnded.push(...readRackScopesEnded(ended));
     const response = decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await sent.arrayBuffer()));
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();

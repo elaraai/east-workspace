@@ -38,7 +38,10 @@
  *   refusal is a status and JSON (`protocol/rack-json.ts`): the status says
  *   whether to send the request again, the code why;
  * - a heartbeat carries what the rack is and has (its report), and a poll
- *   what it may be answered with (its offer).
+ *   what it may be answered with (its offer);
+ * - a lease is granted with its scope (a split task's execution, or a whole
+ *   session's) only to a rack whose report names the feature, and the
+ *   heartbeat's answer names the scopes of the rack's that ended.
  *
  * A rack token authenticates ONLY these routes — it is invisible to the
  * human `jwtAuthorizer`, so it can never reach the human/admin API.
@@ -68,6 +71,8 @@ import {
   RackStorageResponseType,
   RackLogsRequestType,
   RACK_CALL_VALUE_OBJECTS,
+  RACK_INLINE_MAX_HEADER,
+  RACK_INLINE_OBJECTS,
   RACK_TIER_MANIFESTS,
   RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
@@ -75,6 +80,9 @@ import {
   RACK_TRANSFERS_AT_ONCE,
   RACK_WAITING_HEADER,
   RACK_MANIFESTS_WANTED_HEADER,
+  readRackInlineMax,
+  RACK_SCOPES_ENDED_HEADER,
+  rackScopesEndedFitting,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
@@ -98,9 +106,10 @@ import { E3_RACK_VERSION } from '../version.js';
 import { updateRack, type RackRegistry } from '../registry/rack-registry.js';
 import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
-import type { RackStorageBridge } from './storage-bridge.js';
+import type { RackInlineRoom, RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackLeaseScope, readRackReason, readRackRetries,
+  type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
 import {
@@ -215,11 +224,55 @@ export interface RackRouteOptions {
    */
   tierManifests?: boolean;
   /**
+   * Whether the source serves a storage request's objects inline up to the
+   * size the request names ({@link RACK_INLINE_MAX_HEADER}): its hello names
+   * {@link RACK_INLINE_OBJECTS}, and a rack names the size, and asks for the
+   * small objects of a lease's closure as the lease starts. Set it where the
+   * bridge holds objects' bytes at hand. Absent, the hello names none and no
+   * rack names a size; one that does is served as it asks all the same.
+   */
+  inlineObjects?: boolean;
+  /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
    * waker. Absent, only the park's backstop wakes it.
    */
   wake?: (repo: string, run: RunnerRun) => Promise<boolean>;
+  /**
+   * The scopes of the source's leases (`RackLeaseEvent.scope`): which
+   * rack is granted a lease with its scope, and the scopes that ended of
+   * those a rack holds. Absent, every lease is granted without its scope, and
+   * no answer names one.
+   */
+  splitScopes?: RackSplitScopes;
+}
+
+/**
+ * Where the rack routes keep a source's scopes — a split task's execution, or
+ * a whole session's: which rack holds a scope, and which of a rack's scopes
+ * have ended.
+ */
+export interface RackSplitScopes {
+  /**
+   * Whether the rack is granted a lease with its scope: its report names
+   * `split-scopes`, and the scope has not ended. Told as the rack claims the
+   * lease, so a scope it answers true of is the rack's to be told the end of.
+   *
+   * @param rackId - The rack that claimed the lease
+   * @param scope - The lease's scope
+   * @returns Whether the grant carries the scope
+   */
+  granted(rackId: string, scope: RackLeaseScope): boolean;
+  /**
+   * The scopes the rack was granted a lease of that have ended since its last
+   * heartbeat, as many as one answer's header holds
+   * (`rackScopesEndedFitting`): each is answered once, and those past them
+   * with the next heartbeat, so they are let go only once taken here.
+   *
+   * @param rackId - The rack whose heartbeat it is
+   * @returns The scopes' ids
+   */
+  ended(rackId: string): readonly string[];
 }
 
 /** A committed route transition that waiters may observe. */
@@ -249,6 +302,14 @@ export interface RackAttemptStore {
 
 /** The most objects one `/rack/storage` request declares or commits. */
 export const MAX_STORAGE_OBJECTS = 256;
+
+/**
+ * The most bytes of objects one `/rack/storage` reply carries inline: the
+ * rest of its objects are URLs. A reply is held whole in memory as it is
+ * built and read; 2 MiB is some hundreds of segments, and some 140 ms of a
+ * link of 15 MB/s, against a round trip of tens of milliseconds.
+ */
+export const RACK_INLINE_REPLY_BYTES = 2 * 1024 * 1024;
 
 /** The largest object a write target is issued for: one checksum-bound PUT. */
 export const MAX_RACK_OBJECT_BYTES = 5 * 1024 ** 3;
@@ -381,6 +442,15 @@ export function createRackRoutes(
   const e3Version = options?.e3Version;
   const { logs } = attempts;
   const app = new Hono<RackEnv>();
+  /** A lease's event as the rack that claimed it is granted it: with its
+   *  split scope only where the source keeps the rack's scopes and the rack
+   *  takes them, so an agent that does not is never told one. */
+  const grantedEvent = (event: RackLeaseEvent, rackId: string): RackLeaseEvent => {
+    if (event.scope === undefined) return event;
+    const { scope: named, ...unscoped } = event;
+    const scope = readRackLeaseScope(named);
+    return scope !== undefined && options?.splitScopes?.granted(rackId, scope) === true ? { ...unscoped, scope } : unscoped;
+  };
 
   const auth = createRackAuth(identityStore, settingsStore, now);
   app.use('/api/rack/lease', auth);
@@ -417,7 +487,8 @@ export function createRackRoutes(
     protocol: RACK_PROTOCOL,
     e3: e3Version ?? E3_RACK_VERSION,
     limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
-    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : [])],
+    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : []),
+      ...(options?.inlineObjects === true ? [RACK_INLINE_OBJECTS] : [])],
   };
   app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 
@@ -622,7 +693,7 @@ export function createRackRoutes(
               leaseId: claimed.leaseId,
               tier: claimed.tier,
               computeSize: claimed.computeSize ?? 'serverless',
-              eventJson: JSON.stringify(claimed.event),
+              eventJson: JSON.stringify(grantedEvent(claimed.event, rackId)),
               visibilityDeadline: new Date(claimed.visibilityDeadlineMs!),
             });
             // Source wall-clock queue time only; never mix clocks across the network.
@@ -719,6 +790,11 @@ export function createRackRoutes(
     const response = answer(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
     // The tier manifests whose text the rack sends with its next heartbeat
     if (wanted !== undefined && wanted.length > 0) response.headers.set(RACK_MANIFESTS_WANTED_HEADER, JSON.stringify(wanted));
+    // The split scopes of the rack's that ended: what it kept of them goes
+    // A source's `ended` answers what fits one answer; one that answers more
+    // has the rest cut here, which it does not tell again
+    const ended = rackScopesEndedFitting(options?.splitScopes?.ended(rackId) ?? []);
+    if (ended.length > 0) response.headers.set(RACK_SCOPES_ENDED_HEADER, JSON.stringify(ended));
     return response;
   });
 
@@ -930,8 +1006,12 @@ export function createRackRoutes(
       }
     }
 
+    // Inline as far as the request asks (RACK_INLINE_MAX_HEADER; a request that
+    // names nothing as every request did before), the reply's inline bytes held
+    // to its bound: past it, its objects are URLs
+    const room: RackInlineRoom = { objectBytes: readRackInlineMax(c.req.header(RACK_INLINE_MAX_HEADER) ?? null), left: RACK_INLINE_REPLY_BYTES };
     const objects = await mapBounded(request.need, STORAGE_READS_AT_ONCE, async (hash): Promise<RackObjectDescriptor> => {
-      const descriptor = await bridge.readDescriptor(request.repo, hash);
+      const descriptor = await bridge.readDescriptor(request.repo, hash, room);
       return descriptor.kind === 'inline'
         ? variant('inline', { hash, data: descriptor.data })
         : variant('url', { hash, url: descriptor.url });

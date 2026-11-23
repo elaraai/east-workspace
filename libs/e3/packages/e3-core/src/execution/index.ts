@@ -16,6 +16,7 @@ export {
   type ExecutionLiveness,
   type MergeParts,
   type SplitUnit,
+  type SplitScope,
   type UnitRequeue,
   type IntakeSource,
   type IntakeSpec,
@@ -69,6 +70,7 @@ export {
 // is this machine's unless its caller gives its runner's
 export {
   SplitTask,
+  isMergeUnitInputs,
   isSplitTask,
   stageUnits,
   type SplitStage,

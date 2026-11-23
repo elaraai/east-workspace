@@ -15,14 +15,18 @@
  * - the workspace and the task's name, for the activity view;
  * - the runtime version the work was built with, which the agent boots (#189);
  * - the environment the guest's rootfs is composed from;
- * - the lease's closure: every object its guest may read, and no other.
+ * - the lease's closure: every object its guest may read, and no other;
+ * - for a unit of a split task, the task's execution it is part of (its
+ *   scope), to a rack that keeps a stage's outputs for the next; or, under a
+ *   policy that keeps what work wrote for the session, the session's own
+ *   scope, which every task's and unit's lease of the session names.
  *
  * A function lease names its program by hash, staged with the closure, so a
  * lease's row stays small.
  */
 
 import type { RunnerDetachedEvent, RunnerRun, RunnerTaskEvent, RunnerUnitEvent } from '../runner-event.js';
-import type { RackResources } from './rack-json.js';
+import { isRackScopeId, type RackResources } from './rack-json.js';
 
 /** The version of the lease event this build writes and reads. */
 export const RACK_LEASE_VERSION = 2;
@@ -165,6 +169,58 @@ export function rackEverHolds(needs: RackLeaseResources, all: RackResources | un
 }
 
 /**
+ * The scope a lease is part of, as a rack is told it: the execution of a
+ * split task a unit's lease is part of (e3-core's `SplitScope`), or, under a
+ * policy that keeps what work wrote for the session (`keep` `session`), the
+ * rack session every task's and unit's lease of it is part of.
+ *
+ * @remarks
+ * A rack whose report names `split-scopes` (`RACK_SPLIT_SCOPES`) may keep what a lease
+ * of a scope wrote, once its source holds it, and give it to a later lease of
+ * the same scope that reads it, rather than fetch it back from its source:
+ * a merge reads the pieces it merges where they were made. It keeps nothing
+ * of a scope once its source says the scope ended
+ * (`RACK_SCOPES_ENDED_HEADER`), and a rack's own bound on what it keeps
+ * and on how long applies, after which a lease fetches as any does. Only a
+ * rack that names the feature is told a scope; a lease is the same work
+ * without one.
+ */
+export interface RackLeaseScope {
+  /** The scope's id: random, of nothing the task runs over, one for each
+   *  execution of a split task, or for each session. Words of at most 64
+   *  letters, digits and hyphens. */
+  readonly id: string;
+  /** Whether a later lease of the scope reads what this one writes: its
+   *  outputs are worth keeping. A lease that feeds none still reads what the
+   *  scope keeps. */
+  readonly feeds: boolean;
+}
+
+/**
+ * Reads a lease event's scope, for what this build knows of it.
+ *
+ * @remarks
+ * A scope is what a lease says beside its work, and the work is the same
+ * without it: so one that does not read is none, and the lease is never
+ * refused for it.
+ *
+ * @param value - The event's `scope`, as its JSON holds it
+ * @returns The scope, or undefined when the event names none or one that does
+ *   not read
+ * @example
+ * ```ts
+ * const scope = readRackLeaseScope(event.scope);
+ * if (scope?.feeds === true) keepOutputs(scope.id);
+ * ```
+ */
+export function readRackLeaseScope(value: unknown): RackLeaseScope | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { id, feeds } = value as Record<string, unknown>;
+  if (!isRackScopeId(id) || typeof feeds !== 'boolean') return undefined;
+  return { id, feeds };
+}
+
+/**
  * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
  * function call.
  */
@@ -201,6 +257,14 @@ export interface RackLeaseEvent {
    * its leases, whose work a rack admits as it did before.
    */
   readonly resources?: RackLeaseResources;
+  /**
+   * The split task's execution a unit is part of, or the session a task or a
+   * unit is part of, to a rack that keeps a scope's outputs for its later
+   * leases ({@link RackLeaseScope}). A call's lease names none. Read with
+   * {@link readRackLeaseScope}; a source leaves it out of the lease a rack
+   * that does not name `split-scopes` (`RACK_SPLIT_SCOPES`) is granted.
+   */
+  readonly scope?: RackLeaseScope;
 }
 
 /**
@@ -360,6 +424,173 @@ export function describeRackReason(reason: RackReason): string {
 }
 
 /**
+ * The marks of a lease's time on its rack this build names
+ * (elaraai/e3-cloud#371), in the order a lease reaches them. Each is in ms
+ * after the rack received the lease's grant (its claim, which is 0):
+ *
+ * | Mark | When |
+ * |---|---|
+ * | `admitted` | the rack had room for the lease, and began on it |
+ * | `closure-resolved` | the names of the objects its guest may read were known (its inputs are fetched as its work reads them, after `booted`) |
+ * | `environment-ready` | its environment's disk or image was made, or found |
+ * | `image-ready` | its tier's image was built, or found |
+ * | `vm-acquired` | its VM was started, or a warm one taken |
+ * | `booted` | its guest asked for its lease |
+ * | `runner-started` | its execution started |
+ * | `runner-ended` | its guest answered its result |
+ * | `outputs-sent` | every object its work made was in the store |
+ */
+export const RACK_PHASE_MARKS = ['admitted', 'closure-resolved', 'environment-ready', 'image-ready', 'vm-acquired', 'booted',
+  'runner-started', 'runner-ended', 'outputs-sent'] as const;
+
+/**
+ * Where a lease's time went on its rack, and what it moved
+ * (elaraai/e3-cloud#371): each mark it reached ({@link RACK_PHASE_MARKS}), by
+ * the rack's own clock, which no reader compares with its own; and the bytes
+ * of its transfers. JSON: a reader takes the marks and counts it knows
+ * ({@link readRackPhases}).
+ */
+export interface RackLeasePhases {
+  /** Each mark the lease reached, by its word, in ms after the rack received its grant */
+  readonly marks: Readonly<Record<string, number>>;
+  /** The bytes fetched from its source for it: the objects its guest read that the rack's cache did not hold, its closure's listing, and its environment's layers */
+  readonly fetchedBytes?: number;
+  /** How long, in ms, at least one of those fetches was under way: a guest fetches its inputs as its work reads them, so this overlaps its run */
+  readonly fetchMs?: number;
+  /** The bytes of the objects its guest read that the rack's cache held already */
+  readonly cachedBytes?: number;
+  /** The bytes sent to its source: the objects its work made that the store did not hold, and a call's value staged as an object */
+  readonly sentBytes?: number;
+}
+
+/** The most marks of a result's phases that are kept. */
+const MOST_MARKS = 32;
+
+/** The most entries of a result's marks that are looked at, for the marks
+ *  kept: a rack that says more than this says nothing more that is read. */
+const MOST_MARK_ENTRIES = 8 * MOST_MARKS;
+
+const PHASE_COUNTS = ['fetchedBytes', 'fetchMs', 'cachedBytes', 'sentBytes'] as const;
+
+/**
+ * Reads a lease result's phases, for what this build knows of them.
+ *
+ * @remarks
+ * As a reason is, phases are read for what this build knows: a mark is kept
+ * where its name is a word and its time a whole number of ms, at most
+ * {@link MOST_MARKS} of them, of the first {@link MOST_MARK_ENTRIES} the
+ * result names, a mark a later release names among them; a
+ * count is kept where it is a whole number; the rest is left out, and a
+ * result is never refused for them. A rack from before them says none.
+ *
+ * @param value - The result's `phases`, as its JSON holds them
+ * @returns The phases this build reads; undefined when the result has none,
+ *   or none that read
+ *
+ * @example
+ * ```ts
+ * const phases = readRackPhases(result.phases);
+ * if (phases !== undefined) console.log(describeRackPhases(phases));
+ * ```
+ */
+export function readRackPhases(value: unknown): RackLeasePhases | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const fields = value as Record<string, unknown>;
+  const marks: Record<string, number> = {};
+  if (typeof fields.marks === 'object' && fields.marks !== null && !Array.isArray(fields.marks)) {
+    // The marks that read, up to the most kept: one that does not read takes
+    // no place of one after it that does
+    let kept = 0;
+    let looked = 0;
+    for (const mark in fields.marks as Record<string, unknown>) {
+      if (kept >= MOST_MARKS || looked++ >= MOST_MARK_ENTRIES) break;
+      if (!Object.hasOwn(fields.marks, mark)) continue;
+      const ms = (fields.marks as Record<string, unknown>)[mark];
+      if (WORD.test(mark) && typeof ms === 'number' && Number.isSafeInteger(ms) && ms >= 0) { marks[mark] = ms; kept++; }
+    }
+  }
+  const phases: { -readonly [K in keyof RackLeasePhases]: RackLeasePhases[K] } = { marks };
+  for (const name of PHASE_COUNTS) {
+    const field = fields[name];
+    if (typeof field === 'number' && Number.isSafeInteger(field) && field >= 0) phases[name] = field;
+  }
+  return Object.keys(marks).length === 0 && PHASE_COUNTS.every((name) => phases[name] === undefined) ? undefined : phases;
+}
+
+/** A span as a line says it: tenths of a second under ten, whole seconds past. */
+function seconds(ms: number): string {
+  return ms < 9_950 ? `${Math.round(ms / 100) / 10} s` : `${Math.round(ms / 1000)} s`;
+}
+
+/** A size as e3's lines say one: `42 B`, `1.5 KB`, `903 MB`. */
+function size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  let value = bytes;
+  for (const unit of ['KB', 'MB', 'GB']) {
+    value /= 1024;
+    if (value < 1024) return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+  }
+  value /= 1024;
+  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)} TB`;
+}
+
+/**
+ * Where a lease's time went on its rack, as a run prints it on the line of its
+ * work and its log says it (#1723):
+ * - `granted +12 s`: how long the lease waited for a rack to claim it, when
+ *   its caller measured it;
+ * - `admitted +2 s`: how long the rack took to have room for it, when that
+ *   was half a second or more;
+ * - `fetched 903 MB (0 B cached) 260 s`: the bytes fetched from its source,
+ *   those its guest read from the rack's cache, and how long a fetch was under
+ *   way, which overlaps the run (its inputs are fetched as its work reads
+ *   them);
+ * - `booted 3 s`: from its admission until its guest asked for its lease (its
+ *   environment and image made, its VM started);
+ * - `ran 19 s`: its execution, from its start until its guest answered;
+ * - `sent 4 MB 1 s`: the bytes sent to its source, and how long after its
+ *   result the last object was in the store (each object is sent as its work
+ *   makes it).
+ * A part whose marks or counts the rack did not say is left out.
+ *
+ * @param phases - What the rack said ({@link readRackPhases})
+ * @param grantedMs - How long the lease waited for its grant, in ms, by its
+ *   caller's clock; undefined when not measured
+ * @param formatSize - How a size is printed: by default as e3's lines print
+ *   one (`903 MB`)
+ * @returns The parts, joined by ` · `; empty when there are none
+ *
+ * @example
+ * ```ts
+ * describeRackPhases({ marks: { 'admitted': 0, 'booted': 3_000, 'runner-started': 3_200, 'runner-ended': 22_200, 'outputs-sent': 23_200 },
+ *   fetchedBytes: 903 * 1024 ** 2, fetchMs: 260_000, cachedBytes: 0, sentBytes: 4 * 1024 ** 2 }, 12_000);
+ * // 'granted +12 s · fetched 903 MB (0 B cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s'
+ * ```
+ */
+export function describeRackPhases(phases: RackLeasePhases, grantedMs?: number, formatSize: (bytes: number) => string = size): string {
+  const { marks } = phases;
+  const admitted = marks['admitted'];
+  const booted = marks['booted'];
+  const started = marks['runner-started'];
+  const ended = marks['runner-ended'];
+  const sent = marks['outputs-sent'];
+  const parts: string[] = [];
+  if (grantedMs !== undefined && Number.isFinite(grantedMs) && grantedMs >= 0) parts.push(`granted +${seconds(grantedMs)}`);
+  if (admitted !== undefined && admitted >= 500) parts.push(`admitted +${seconds(admitted)}`);
+  if (phases.fetchedBytes !== undefined || phases.cachedBytes !== undefined) {
+    const took = phases.fetchMs === undefined ? '' : ` ${seconds(phases.fetchMs)}`;
+    parts.push(`fetched ${formatSize(phases.fetchedBytes ?? 0)} (${formatSize(phases.cachedBytes ?? 0)} cached)${took}`);
+  }
+  if (booted !== undefined) parts.push(`booted ${seconds(Math.max(0, booted - (admitted ?? 0)))}`);
+  if (started !== undefined && ended !== undefined) parts.push(`ran ${seconds(Math.max(0, ended - started))}`);
+  if (phases.sentBytes !== undefined || sent !== undefined) {
+    const took = sent !== undefined && ended !== undefined ? ` ${seconds(Math.max(0, sent - ended))}` : '';
+    parts.push(`sent ${formatSize(phases.sentBytes ?? 0)}${took}`);
+  }
+  return parts.join(' · ');
+}
+
+/**
  * What a rack agent completes a lease with.
  */
 export interface RackLeaseResult {
@@ -389,6 +620,9 @@ export interface RackLeaseResult {
   /** The tries of its transfers that failed and were followed by another:
    *  read with {@link readRackRetries} */
   retries?: RackTransferRetry[];
+  /** Where its time went on its rack, and what it moved (elaraai/e3-cloud#371):
+   *  read with {@link readRackPhases}. Absent from a rack that says none */
+  phases?: RackLeasePhases;
   /** A function lease's detached call's outcome (#83). `status` mirrors it
    *  (`success` ⇔ kind 'success') so the lease store's validation applies
    *  unchanged. */

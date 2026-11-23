@@ -30,8 +30,20 @@ export const RACK_PROTOCOL = 3;
 /** The header every request of an agent names {@link RACK_PROTOCOL} in. */
 export const RACK_PROTOCOL_HEADER = 'x-e3-rack-protocol';
 
-/** The transfers a source serves one rack at once, unless it says otherwise. */
-export const RACK_TRANSFERS_AT_ONCE = 8;
+/**
+ * The transfers a source serves one rack at once, unless it says otherwise.
+ *
+ * @remarks
+ * A rack may reach its source over a link of tens of milliseconds and some
+ * MB/s (a tunnel to a developer's machine: 35 ms and 12 to 20 MB/s, measured).
+ * What one transfer moves in a round trip is one object, a segment of some
+ * KiB, so the link holds its rate only with its bytes in flight, its
+ * bandwidth-delay product, of half a MB: 8 transfers of 6 KB move 1.4 MB/s,
+ * a tenth of it; 32 move four times that, and whole objects past the inline
+ * limit ({@link RACK_INLINE_OBJECT_MAX}) fill it. Each transfer is a stream
+ * the hub relays with backpressure, some tens of KiB of buffer each.
+ */
+export const RACK_TRANSFERS_AT_ONCE = 32;
 
 /**
  * How long work that a rack's offer does not hold is passed over, in ms, by
@@ -119,6 +131,56 @@ export const RACK_CALL_VALUE_OBJECTS = 'call-value-objects';
 export const RACK_TIER_MANIFESTS = 'tier-manifests';
 
 /**
+ * The hello's feature by which a source says it serves an object of a
+ * storage request inline, in its reply, up to the size the request names in
+ * {@link RACK_INLINE_MAX_HEADER} (at most {@link RACK_INLINE_OBJECT_MAX}),
+ * within a bound on each reply's inline bytes past which the rest are URLs. So
+ * a request for many small objects is answered with their bytes, one round
+ * trip, rather than a URL for each to be read in another. A rack sends the
+ * header only to a source that names it, and asks such a source for the
+ * small objects of a lease's closure as the lease starts.
+ */
+export const RACK_INLINE_OBJECTS = 'inline-objects';
+
+/**
+ * The header of a storage request in which a rack names the largest object it
+ * takes inline in the reply, in bytes, as a decimal: a source that names
+ * {@link RACK_INLINE_OBJECTS} serves an object of at most that size inline, and
+ * at most its own {@link RACK_INLINE_OBJECT_MAX}. A request that names none
+ * takes {@link RACK_INLINE_OBJECT_DEFAULT}, as every request did before.
+ */
+export const RACK_INLINE_MAX_HEADER = 'x-e3-rack-inline-max';
+
+/** The largest object a storage request that names no {@link RACK_INLINE_MAX_HEADER} is served inline. */
+export const RACK_INLINE_OBJECT_DEFAULT = 4096;
+
+/**
+ * The largest object a source serves inline: a segment of a collection is
+ * some KiB, so a reply carries one whole in the round trip that asked for it.
+ */
+export const RACK_INLINE_OBJECT_MAX = 64 * 1024;
+
+/**
+ * Reads a storage request's {@link RACK_INLINE_MAX_HEADER}.
+ *
+ * @param value - The header's value, or null when the request had none
+ * @returns The largest object to serve the request inline, in bytes: what it
+ *   names, at most {@link RACK_INLINE_OBJECT_MAX}; and
+ *   {@link RACK_INLINE_OBJECT_DEFAULT} for a request that names none, or
+ *   names what is not a decimal count of bytes
+ *
+ * @example
+ * ```ts
+ * const most = readRackInlineMax(c.req.header(RACK_INLINE_MAX_HEADER) ?? null);
+ * ```
+ */
+export function readRackInlineMax(value: string | null): number {
+  if (value === null || !/^\d{1,16}$/.test(value.trim())) return RACK_INLINE_OBJECT_DEFAULT;
+  const bytes = Number(value.trim());
+  return Number.isSafeInteger(bytes) ? Math.min(bytes, RACK_INLINE_OBJECT_MAX) : RACK_INLINE_OBJECT_DEFAULT;
+}
+
+/**
  * The report's feature by which a rack says it composes an environment built
  * over the tier it boots it over: it unpacks the environment's layers over
  * that tier's image, and links the environment to what the image holds
@@ -129,6 +191,109 @@ export const RACK_TIER_MANIFESTS = 'tier-manifests';
  * reads: one of a form it does not read is no image it composes over.
  */
 export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
+
+/**
+ * The report's feature by which a rack says it keeps what the leases of a
+ * scope wrote for its later leases, until its source says the scope ended: a
+ * lease is then granted it with its scope (`RackLeaseEvent.scope`), and the
+ * heartbeat's answer names the scopes that ended
+ * ({@link RACK_SCOPES_ENDED_HEADER}). A scope is a split task's execution,
+ * whose units' leases name it, or, under a policy that keeps what work wrote
+ * for the session, a whole rack session, whose every task's and unit's lease
+ * names it. A rack that does not name the feature is granted the same lease
+ * without one.
+ */
+export const RACK_SPLIT_SCOPES = 'split-scopes';
+
+/**
+ * The header of a heartbeat's answer that names the scopes that ended
+ * of those the rack was granted a lease of: a JSON array of their ids. Each is
+ * named once, to a rack whose report names {@link RACK_SPLIT_SCOPES}; an
+ * answer lost on its way is not sent again, so a rack bounds what it keeps of
+ * a scope by its own time too.
+ */
+export const RACK_SCOPES_ENDED_HEADER = 'x-e3-rack-scopes-ended';
+
+/**
+ * Whether a text is a scope's id, as a lease or a heartbeat's answer
+ * names one: a word of at most 64 letters, digits and hyphens.
+ *
+ * @param value - The text
+ * @returns Whether it is one
+ * @example
+ * ```ts
+ * isRackScopeId('0193b1c2-7f00-7abc-8def-0123456789ab'); // true
+ * ```
+ */
+export function isRackScopeId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(value);
+}
+
+/** The most scopes one heartbeat's answer names as ended, as a reader takes
+ *  them; a source names no more than fit {@link RACK_SCOPES_ENDED_BYTES}
+ *  ({@link rackScopesEndedFitting}), and those past them with the next. */
+export const RACK_SCOPES_ENDED_MAX = 1024;
+
+/**
+ * The most bytes of the ended-scopes header's value one answer carries: well
+ * within the 16 KiB of headers an HTTP client of Node's takes of a response
+ * in all, which refuses the whole answer past it. About 300 scopes of a UUID
+ * each.
+ */
+export const RACK_SCOPES_ENDED_BYTES = 12 * 1024;
+
+/**
+ * The ended scopes one heartbeat's answer names, of those given in order: as
+ * many as the header's JSON holds within {@link RACK_SCOPES_ENDED_BYTES}, and
+ * at most {@link RACK_SCOPES_ENDED_MAX}. A source answers these, and keeps the
+ * rest for the next heartbeat.
+ *
+ * @param ids - The ended scopes' ids, oldest first, each a scope's id
+ *   ({@link isRackScopeId}): a word, a byte a character
+ * @returns The first of them that one answer carries
+ * @example
+ * ```ts
+ * const told = rackScopesEndedFitting(ended);
+ * if (told.length > 0) response.headers.set(RACK_SCOPES_ENDED_HEADER, JSON.stringify(told));
+ * ```
+ */
+export function rackScopesEndedFitting(ids: readonly string[]): string[] {
+  const told: string[] = [];
+  // The array's brackets, then each id quoted, after a comma but the first
+  let bytes = 2;
+  for (const id of ids) {
+    const more = id.length + 2 + (told.length > 0 ? 1 : 0);
+    if (told.length >= RACK_SCOPES_ENDED_MAX || bytes + more > RACK_SCOPES_ENDED_BYTES) break;
+    told.push(id);
+    bytes += more;
+  }
+  return told;
+}
+
+/**
+ * Reads a heartbeat answer's ended-scopes header.
+ *
+ * @param json - The header's value, or null when the answer had none
+ * @returns The ids of the scopes that ended, at most
+ *   {@link RACK_SCOPES_ENDED_MAX}; none when the header is absent or does not
+ *   read, and none of an entry that is no scope's id
+ *
+ * @example
+ * ```ts
+ * for (const scope of readRackScopesEnded(response.headers.get(RACK_SCOPES_ENDED_HEADER))) forget(scope);
+ * ```
+ */
+export function readRackScopesEnded(json: string | null): string[] {
+  if (json === null) return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, RACK_SCOPES_ENDED_MAX).filter(isRackScopeId);
+}
 
 /** What a rack says of a tier it boots environments over. */
 export interface RackReportedTier {
@@ -196,7 +361,7 @@ export interface RackHello {
   };
   /**
    * What the source takes beyond the protocol: {@link RACK_CALL_VALUE_OBJECTS},
-   * {@link RACK_TIER_MANIFESTS}. An agent uses a feature only with a source
+   * {@link RACK_TIER_MANIFESTS}, {@link RACK_INLINE_OBJECTS}. An agent uses a feature only with a source
    * that names it; a source that names none takes none.
    */
   readonly features: readonly string[];
@@ -212,7 +377,9 @@ export interface RackReport {
    * the work grow to the cap its lease names and stops it there, and stops
    * the newest unit it holds when its host runs short), `environments` (it
    * composes a lease's environment from layers),
-   * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier).
+   * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier),
+   * {@link RACK_SPLIT_SCOPES} (it keeps a scope's outputs for its later
+   * leases).
    */
   readonly features: readonly string[];
   /** The platform environments are installed for, as e3-core names one

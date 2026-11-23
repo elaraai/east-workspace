@@ -23,7 +23,7 @@
 import { variant } from '@elaraai/east';
 import type { ExecutionOwner, ExecutionStatus, PartitionProgress, StopReason } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { ExecutionLiveness, RunningExecution, UnitRequeue } from './interfaces.js';
+import type { ExecutionLiveness, RunningExecution, SplitScope, UnitRequeue } from './interfaces.js';
 
 /**
  * Options for task execution.
@@ -113,6 +113,11 @@ export interface ExecuteOptions {
    * another's behalf and judges its liveness itself. Runtime-only.
    */
   owner?: ExecutionOwner | null;
+  /** The execution of the split task a unit is part of ({@link SplitScope}):
+   *  the engine's, for each unit it runs, which a body that runs the unit
+   *  elsewhere reads (`TaskBodyRequest.options`). Runtime-only: never hashed,
+   *  never recorded. */
+  splitScope?: SplitScope;
 }
 
 /**
@@ -144,6 +149,11 @@ export interface ExecutionResult {
    *  units'. Absent when no runner reported one: a command body, or a runner
    *  that recorded no result. */
   peakBytes?: number;
+  /** Where its time went, as the host that ran it says it, for the line a
+   *  run prints of it: a rack's phases (`granted +12 s · fetched 903 MB (0 B
+   *  cached) 260 s · …`). Runtime-only, never recorded; absent from an
+   *  execution that ran here, or was served from the cache. */
+  timing?: string;
 }
 
 /** The identity of one execution attempt: the execution-cache key it is

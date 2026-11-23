@@ -5,14 +5,15 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { none, some } from '@elaraai/east';
+import { availableParallelism, totalmem } from 'node:os';
+import { none, some, variant } from '@elaraai/east';
 import { Budget, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import type { RackSession } from '../client/session.js';
 import { DEFAULT_RACK_POLICY } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
 import type { SnapshotRack } from './capacity.js';
 import type { RackPlacementEvent } from '../protocol/placement.js';
-import { RACK_ONLY_WAIT_MS, RackFleet, RackLayerBuilds, RackPlacementReport, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback,
+import { RACK_ONLY_WAIT_MS, RackFleet, RackLayerBuilds, RackPlacementReport, fallbackReason, fitsHere, hereMs, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback,
   transferFailed, wholeResources, type RackLayerBuild, type RackTierImage, type RackVerdict } from './rack-lease.js';
 
 const GiB = 1024 ** 3;
@@ -30,6 +31,15 @@ it('reads a run\'s delegation options once: its defaults, the layer builds it is
   assert.equal(kept.unreachableWaitMs, 5);
   assert.equal(kept.spills(undefined), false, 'work kept for a rack never spills');
   assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, spill: false } }).spills(undefined), false);
+  // Nothing is weighed for what it would fetch unless the policy turns it on; work kept for a rack never is
+  assert.equal(DEFAULT_RACK_POLICY.weighFetch, false);
+  assert.equal(defaults.weighsFetch, false, 'off by default');
+  assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, weighFetch: true } }).weighsFetch, true, 'a policy that turns it on');
+  assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, weighFetch: true }, rackOnly: true }).weighsFetch, false, 'work kept for a rack is not weighed');
+  // A rack keeps what work wrote for a split task alone, unless the policy keeps it for the session
+  assert.equal(defaults.keepsSession, false);
+  assert.equal(kept.keepsSession, false);
+  assert.equal(readDelegation({ policy: { ...DEFAULT_RACK_POLICY, keep: variant('session', null) } }).keepsSession, true);
 
   // A budget with no core free does not take the work
   const budget = new Budget({ cores: 1, memory: GiB }, { sampler: null });
@@ -170,4 +180,37 @@ it('tries an environment whole for a platform whose build over a rack\'s tier im
   built.length = 0;
   assert.equal((await place(() => ({ over: true }))).kind, 'rack');
   assert.deepEqual(built, [digest]);
+});
+
+it('weighs work once a rack could hold it and before any of its environment\'s layers are built, and builds none for work that runs here', async () => {
+  const resources = (cores: number, memoryBytes: number) => ({ cores: BigInt(cores), memoryBytes: BigInt(memoryBytes), gpus: 0n });
+  const rack = (rackId: string, memoryBytes: number): SnapshotRack => ({ rackId, label: rackId, tiers: ['py'], capacity: 4n, busy: 0n, healthy: true,
+    bundledE3: some(E3_RACK_VERSION), pendingApproval: false, reported: true, features: ['environments'], target: some('x86_64-manylinux_2_28'), problem: none,
+    resources: some(resources(8, memoryBytes)), free: some(resources(8, memoryBytes)), tierManifests: [] });
+  // One rack could hold the work, and one too small for it could not
+  const session = { capacity: () => ({ racks: [rack('large', 64 * GiB), rack('small', GiB)], queued: 0n, mine: { pending: 0n, claimed: 0n } }), hubLost: false } as unknown as RackSession;
+  const verdict: RackVerdict = { eligible: true, tier: 'py', size: 'small', timeoutMinutes: 60, memoryLimit: null, gpu: false, environment: 'e'.repeat(64) };
+  const built: string[] = [];
+  const weighed: string[][] = [];
+  const fetch = { bytes: 903 * 1024 ** 2, fetchMs: 90_300, ranMs: 19_000, measured: true };
+  const place = (bound: boolean) => new RackFleet(session, verdict, false).place({ rackOnly: false, unreachableWaitMs: 0, asks: (cores) => wholeResources(verdict, cores),
+    layers: (_environment, platform) => { built.push(platform); return Promise.resolve({}); },
+    weigh: (_asked, racks) => { weighed.push(racks.map((one) => one.rackId)); return Promise.resolve(bound ? { reason: 'fetch-bound', fetch } : null); } });
+
+  assert.deepEqual(await place(true), { kind: 'local', why: { reason: 'fetch-bound', fetch } });
+  assert.deepEqual(weighed, [['large']], 'weighed against the rack that could hold it');
+  assert.deepEqual(built, [], 'and nothing was built for a rack');
+  assert.equal((await place(false)).kind, 'rack');
+  assert.deepEqual(built, ['x86_64-manylinux_2_28'], 'work that goes on to a rack is built for then');
+});
+
+it('says this machine could run work only when it takes no GPU and expects no more memory than the run\'s budget has, and takes work given more cores there to run longer here', () => {
+  const budget = { cores: 8, memory: 16 * GiB };
+  assert.equal(fitsHere({ gpu: false, expectedBytes: 4 * GiB }, budget), true);
+  assert.equal(fitsHere({ gpu: true, expectedBytes: 4 * GiB }, budget), false, 'a GPU stays on its rack');
+  assert.equal(fitsHere({ gpu: false, expectedBytes: 24 * GiB }, budget), false, 'more memory than the budget');
+  assert.equal(fitsHere({ gpu: false, expectedBytes: totalmem() + 1 }, undefined), false, 'with no budget, this host\'s');
+  assert.equal(hereMs(19_000, 16, budget), 38_000, 'twice the cores there: twice as long here');
+  assert.equal(hereMs(19_000, 1, budget), 19_000, 'one core: as long');
+  assert.equal(hereMs(19_000, 2 * availableParallelism(), undefined), 38_000, 'with no budget, this host\'s cores');
 });

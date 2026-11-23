@@ -424,6 +424,9 @@ export function toTaskResult(result: ExecutionResult): TaskResult {
   if (result.peakBytes !== undefined) {
     taskResult.peakBytes = result.peakBytes;
   }
+  if (result.timing !== undefined) {
+    taskResult.timing = result.timing;
+  }
   if (result.state === 'success' && result.outputHash) {
     taskResult.outputHash = result.outputHash;
   } else if (result.state === 'failed') {

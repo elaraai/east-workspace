@@ -79,6 +79,39 @@ export interface TaskExecuteOptions {
    *  execution falls back. Runtime-only: never hashed, so the execution's
    *  identity does not depend on it. */
   anyRuntime?: boolean;
+  /** The execution of the split task a unit is part of ({@link SplitScope}),
+   *  which the dataflow gives each unit of a split task it runs.
+   *  Runtime-only: never hashed, never recorded. */
+  splitScope?: SplitScope;
+}
+
+/**
+ * One execution of a split task, as each of its units is run in it: what a
+ * runner whose units run elsewhere may keep there between the task's stages.
+ *
+ * @remarks
+ * A runner that runs a stage's units on another host may keep what they write
+ * there, for the next stage's units, which read it, so it does not travel back
+ * to be read; and may keep nothing once the task's execution has ended. This
+ * says which execution a unit is of, whether a later unit of it reads what
+ * this one writes, and when it has ended. It is the engine's, runtime-only:
+ * nothing of it is hashed or recorded, and a runner that ignores it runs every
+ * unit as before. The id is made afresh for each execution, of nothing the
+ * task runs over: a task resumed after a yield is another execution, with an
+ * id of its own.
+ */
+export interface SplitScope {
+  /** The execution's id: random, one for each execution of a split task. */
+  readonly id: string;
+  /** Whether a later unit of the execution reads what this one writes: a
+   *  piece of a task whose pieces may be merged, or a merge below the last
+   *  level. The pieces of an array, whose outputs are concatenated here, and
+   *  the last level of merges, feed none. */
+  readonly feeds: boolean;
+  /** Aborted once the execution has ended — succeeded, failed, cancelled,
+   *  left mid-stage, or dropped by its driver — after which none of its units
+   *  runs. */
+  readonly ended: AbortSignal;
 }
 
 /** A unit stopped and run again (see {@link TaskExecuteOptions.onRequeued}). */
@@ -117,6 +150,10 @@ export interface TaskResult {
    *  execution reached, as its execution records it — for a result served
    *  from the cache too. Absent when no runner reported one. */
   peakBytes?: number;
+  /** Where its time went, as the host that ran it says it: a rack's phases
+   *  (`ExecutionResult.timing`). Runtime-only; absent for work that ran
+   *  here. */
+  timing?: string;
 }
 
 /** An execution's record while it runs: the `running` case of its status. */
