@@ -1802,7 +1802,8 @@ class CellsReader {
             if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
             for (const key of block.keys) held.byKey.set(key, "hatch");
         }
-        const tiles = indexes.flatMap((index) => (index.summary.type === "some" ? [index.summary.value.tile.type] : []));
+        // A resource's summary shades; the record's totals (#1732) are a horizon's, and shade nothing.
+        const tiles = indexes.flatMap((index) => (index.summary.type === "some" && index.summary.value.type === "keyed" ? [index.summary.value.value.tile.type] : []));
         const smallest = (["day", "week", "month", "quarter", "year"] as const).find((t) => tiles.includes(t));
         return { mode: "shade", cells: codec.empty, notice: { kind: kind.key, name: kind.name, events, resolution: smallest }, paged };
     }

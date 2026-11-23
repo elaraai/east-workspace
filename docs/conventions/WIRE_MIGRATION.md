@@ -1712,3 +1712,23 @@ Each wire changed under this rule, with the kind it is.
   each UI task's output again. A Plan's event kind whose source lists such an
   index reads its cells as copies (`cellsType`, each event's key beside its
   copy); a kind over rows reads them as it did.
+- **east-ui's record Slice tells the record's totals from a resource's
+  summary (#1732)** — package-borne. A summary index's filing
+  (`RecordSliceIndexType`'s `summary`) is one of two
+  (`RecordSliceSummaryType`): `keyed`, the filing it was
+  (`RecordSliceTilingType`), for a summary filed by key, or `totals`, a
+  summary with no key — the record's totals a tile — its start and end fields
+  and its tile (`RecordSliceTotalsType`). A binding lists such summaries
+  apart from its indexes, in its `totals`, and marks each one's kind with
+  `__totals` beside its fields and tile, naming no key; a summary filed by key
+  is marked as it was. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, so a UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type.
+  The narrowing the store keeps (`RecordSliceStateType`) is unchanged, so a
+  narrowing kept or a view saved under the earlier type reads as it did. A
+  summary with no key is a new index of a record (`index.summary({ from, to,
+  tile })`), built as every index is when its package is deployed; no index a
+  record already has changes its key or what it carries. A UI task's output is
+  not stored state, so no repository upgrade step ships with it.

@@ -15,7 +15,7 @@ import { builtIndex, indexMaintenance } from "@elaraai/e3/browser";
 import { TreePathType, type RecordNestedDecl } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import {
-    IndexedEntryType, IndexedSourceType, areaMarkerFields, intervalMarkerFields, tileMarkerFields, type IndexedSource,
+    IndexedEntryType, IndexedSourceType, areaMarkerFields, intervalMarkerFields, tileMarkerFields, totalsMarkerFields, type IndexedSource,
 } from "@elaraai/east-ui/internal";
 
 /** Field and computed index declarations accepted by Slice. */
@@ -196,13 +196,23 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * entry's own value; beside it the record's other indexes carry each row with
  * that field emptied, read without a join, and one with a value of its own is
  * bound apart.
+ * @property totals - The record's totals a tile a horizon's bars read (#1732):
+ * the names of the record's summaries with no key, `index.summary({ from, to,
+ * tile })`, listed apart from the indexes rows are read through, as a source
+ * names what plays that part — never inferred from `indexes`. Each is read
+ * over the source's range, under its narrowing: a summary with a key, one
+ * listed among `indexes`, and two at one tile over the same leading fields are
+ * refused here, and totals over another field than the range, or led by a
+ * field no read of the source chooses, where the Slice binds the source.
  * @property join - Include record rows (default true). False requires a covering
  * index without Set fields so the unfiltered view still has one entry per row.
  * An index that carries the whole row is read without a join either way.
  */
-export interface BindPagedIndexesOptions<N extends readonly string[]> {
+export interface BindPagedIndexesOptions<N extends readonly string[], X extends readonly string[] = readonly []> {
     /** The indexes' names, each one the record declares, in the rail's order. */
     indexes: N;
+    /** The record's totals a tile, by the names of its summaries with no key (#1732). */
+    totals?: X;
     /** Include each entry's record row; true unless explicitly disabled. */
     join?: boolean;
 }
@@ -215,9 +225,11 @@ export interface BindPagedIndexesOptions<N extends readonly string[]> {
  * @typeParam I - The declarations, retaining their literal names and fields.
  * @internal
  */
-export interface IndexedBinding<T extends EastType, I extends FieldIndexes<T>> {
+export interface IndexedBinding<T extends EastType, I extends FieldIndexes<T>, X extends FieldIndexes<T> = readonly []> {
     /** The declarations, in the rail's order. */
     indexes: I;
+    /** The record's totals a tile, its summaries with no key, in their order (#1732). */
+    totals?: X;
     /** Include each entry's record row; true unless explicitly disabled. */
     join?: boolean;
 }
@@ -232,12 +244,15 @@ export interface IndexedBinding<T extends EastType, I extends FieldIndexes<T>> {
  *   binding's nested part, never among the rail's indexes. Beside an entries
  *   index (#1522), it is the record's row, each Dict field the record files
  *   entry by entry empty, and the entries index carries its own entries.
+ * @typeParam X - The record's totals a tile it lists (#1732): described
+ *   beside the rail's indexes as summaries, and searched by their own keys.
  */
-export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
+export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>, X extends FieldIndexes<T> = readonly []> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object } | { entries: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
-            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
+            IndexFields<readonly (RailIndexes<I>[number] | X[number])[]>, IndexKeys<K, readonly (I[number] | X[number])[]>,
+            NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
             MaintenanceOf<K, R, I>, CopiesOf<K, R, I>>
         : never;
 
@@ -340,21 +355,37 @@ function bindingProjection(indexes: FieldIndexes<EastType>): EastType {
  * Validate and assemble the indexed source. Query planning and read behavior
  * belong to the runtime, not this authoring adapter.
  * @param record - Owning Dict record.
- * @param options - Index declarations and whether to join record rows.
+ * @param options - Index declarations, the record's totals a tile (#1732), and whether to join record rows.
  * @returns A typed indexed source over this record.
+ * @throws {Error} Naming the index and what to write, for what {@link BindPagedIndexesOptions} refuses
  * @internal
  */
-export function bindDataIndexed<T extends EastType, const I extends FieldIndexes<T>>(
-    record: RecordDef<T>, options: IndexedBinding<T, I>,
-): IndexedPagedValue<T, I> {
+export function bindDataIndexed<T extends EastType, const I extends FieldIndexes<T>, const X extends FieldIndexes<T> = readonly []>(
+    record: RecordDef<T>, options: IndexedBinding<T, I, X>,
+): IndexedPagedValue<T, I, X> {
     const type = record.type;
     if (type.type !== "Dict" || type.value.type !== "Struct") {
         throw new Error("Data.bindPaged with indexes requires a Dict record with Struct rows");
     }
     if (options.indexes.length === 0) throw new Error("Data.bindPaged: indexes must list at least one field index");
-    for (const index of options.indexes) {
+    const totals: FieldIndexes<EastType> = options.totals ?? [];
+    for (const index of [...options.indexes, ...totals]) {
         if (index.record.name !== record.name || !isSubtype(index.record.type, type) || !isSubtype(type, index.record.type)) {
             throw new Error(`Data.bindPaged: index '${index.name}' belongs to a different record`);
+        }
+    }
+    // The record's totals a tile (#1732): its summaries with no key, which a horizon reads and nothing reads rows through,
+    // named apart in `totals` — never among the indexes rows are read through.
+    for (const index of options.indexes) {
+        if (index.summary !== undefined && index.summary.key === undefined) {
+            throw new Error(`Data.bindPaged: '${index.name}' keeps the record's totals a ${index.summary.tile}, which nothing reads rows through — list it in totals`);
+        }
+    }
+    for (const index of totals) {
+        if (index.summary === undefined || index.summary.key !== undefined) {
+            const is = index.summary === undefined ? "is no summary" : `is a summary by '${index.summary.key}'`;
+            throw new Error(`Data.bindPaged: '${index.name}' is listed in totals, and ${is} — the record's totals a tile are a summary with no key: ` +
+                "index.summary({ from, to, tile })");
         }
     }
     // Beside a record's nested series index, its other indexes carry each row without its collections (#1434, #1435);
@@ -370,7 +401,8 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const keyTypes: Record<string, EastType> = { primary: type.key };
     const projection = nested === undefined && entries.length === 0 ? bindingProjection(options.indexes) : type.value;
     let singleEntryIndex = false;
-    for (const index of rail) {
+    // The rail's indexes in their order, then the record's totals in theirs: each described as the binding's runtime reads it.
+    for (const index of [...rail, ...totals]) {
         // An entries index is led by the Dict field it files, whatever its key's type (#1522).
         const computed = index.on === undefined && index.entries === undefined;
         if (computed && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length === 0) {
@@ -390,11 +422,15 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         // index's box and its cell, a series or a summary index's key, times
         // and tile (#1039), a series index in time order's order (#1710), and
         // one's whose entries carry a copy of each event (#1725); an entries
-        // index's `entries`, its field its Dict field (#1522). Slice.bindRecord
-        // reads them back; e3's parts are never a field's name. A series index's
-        // copy is carried beside them too, as an empty Array of it, so the page's
-        // runtime reads its entries at the copy's type.
+        // index's `entries`, its field its Dict field (#1522); and the
+        // record's totals, a summary's kind marked as theirs, naming no key
+        // (#1732). Slice.bindRecord reads them back; e3's parts are never a
+        // field's name. A series index's copy is carried beside them too, as an
+        // empty Array of it, so the page's runtime reads its entries at the
+        // copy's type.
         const tiling = index.series ?? index.summary;
+        // A series index files by its key; a summary with none keeps the record's totals.
+        const key = index.series?.key ?? index.summary?.key;
         const copy = carriesCopy(index);
         const [kind, parts]: [string, readonly string[] | undefined] = index.entries !== undefined ? ["entries", undefined] : index.interval !== undefined
             ? ["interval", intervalMarkerFields({ from: index.interval.from, to: index.interval.to })]
@@ -403,9 +439,11 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                     ...(index.area.width !== undefined && index.area.height !== undefined && { width: index.area.width, height: index.area.height }),
                     centre: index.area.at === "centre", cell: index.area.cell })]
                 : tiling !== undefined
-                    ? [index.summary !== undefined ? "summary" : "series",
-                        tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined,
-                            order: index.series?.order ?? "key", copy })]
+                    ? (key === undefined
+                        ? ["summary", totalsMarkerFields({ from: tiling.from, to: tiling.to, tile: tiling.tile })]
+                        : [index.summary !== undefined ? "summary" : "series",
+                            tileMarkerFields({ key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined,
+                                order: index.series?.order ?? "key", copy })])
                     : ["plain", undefined];
         const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(parts.map(name => [name, NullType] as const)) });
         const kindValue = variant(kind, parts === undefined ? null : Object.fromEntries(parts.map(name => [name, null])));
@@ -426,7 +464,19 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
             metadata[index.name] = { fields: Object.fromEntries(index.on!.map(field => [field, null])), kind: kindValue, ...(copy && { copy: [] }) };
         }
         keyTypes[index.name] = index.keyType;
-        singleEntryIndex ||= !index.multi;
+        // The record's totals page no row: only an index rows are read through can hold each once.
+        if (!totals.includes(index)) singleEntryIndex ||= !index.multi;
+    }
+    // Two of the record's totals at one tile over the same leading fields are one (#1732): each is a narrowing's of its fields.
+    const totalsAt = new Map<string, string>();
+    for (const index of totals) {
+        const tile = index.summary!.tile;
+        const at = [tile, ...(index.on ?? [])].join("\u0000");
+        const was = totalsAt.get(at);
+        if (was !== undefined) {
+            throw new Error(`Data.bindPaged: '${was}' and '${index.name}' are each the record's totals a ${tile} over the same leading fields — list one`);
+        }
+        totalsAt.set(at, index.name);
     }
     if (nested !== undefined) keyTypes[nested.name] = nested.keyType;
     const joined = nested === undefined && options.join !== false;
@@ -502,7 +552,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
             East.value(nested === undefined ? none : some(nestedPageFill(type.key, type.value, nested)), fillType),
             East.value(copied.length === 0 ? none : some(Object.fromEntries(copied)), copiesType),
         );
-    }) as unknown as IndexedPagedValue<T, I>;
+    }) as unknown as IndexedPagedValue<T, I, X>;
 }
 
 /**

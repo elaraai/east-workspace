@@ -22,6 +22,9 @@
  *   body's `events` gives, and of a run of keys exactly what the index in key
  *   order holds of each of them;
  * - a summary's tiles that overlap the window are the body's `totals`;
+ * - the record's totals, a summary with no key (#1732): the tiles of the
+ *   page's range of whole tiles, under the narrowing's leading values, are
+ *   exactly the body's `totals`;
  * - a nested series index's runs of a node are read as a series' and a
  *   summary's are, a run a level and a run of tiles (e3-ui-components'
  *   `plan/root/nested.ts`): what they hold that the window does is exactly the
@@ -45,7 +48,7 @@ import { at, seededStream } from "@elaraai/e3-core/test";
 import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
     RecordSliceIndexType, areaQueries, inTimeCellQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun,
-    tileNext,
+    tileNext, totalsCellQueries, totalsRun,
 } from "@elaraai/east-ui/internal";
 
 type Index = ValueTypeOf<typeof RecordSliceIndexType>;
@@ -67,6 +70,9 @@ const jobs = e3.record("jobs", JobsType, {
         weeks: index.series({ key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         weeks_by_state: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         press_months: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+        // The record's totals a month, and a state's (#1732).
+        months: index.summary({ from: "start", to: "end", tile: "month" }),
+        months_by_state: index.summary({ on: ["state"], from: "start", to: "end", tile: "month" }),
     }),
 });
 
@@ -310,13 +316,17 @@ function keysOf<T extends KeyedByString>(entries: readonly EntryOf<T>[], once: s
 
 /** A page's index metadata, as `Data.bindPaged` gives a record Slice one. */
 function pageIndex(name: string, def: RecordIndexDef): Index {
-    // What a series and a summary index both file by: a series index says beside it what it carries, and its order.
-    const tiling = (t: NonNullable<RecordIndexDef["summary"]>, order: "key" | "time", copy: boolean) =>
-        ({ key: t.key, from: t.from, to: t.to, tile: variant(t.tile, null), order: variant(order, null), copy });
+    // What a series and a summary by key both file by: a series index says beside it what it carries, and its order.
+    const tiling = (t: Pick<NonNullable<RecordIndexDef["summary"]>, "from" | "to" | "tile">, key: string, order: "key" | "time", copy: boolean) =>
+        ({ key, from: t.from, to: t.to, tile: variant(t.tile, null), order: variant(order, null), copy });
+    const summary = def.summary;
     return decodeBeast2For(RecordSliceIndexType)(encodeBeast2For(RecordSliceIndexType)({
         name, fields: [...(def.on ?? [])], sets: new Set(), structured: true, interval: none, area: none,
-        series: def.series === undefined ? none : some(tiling(def.series, def.series.order, def.series.carries === "value")),
-        summary: def.summary === undefined ? none : some(tiling(def.summary, "key", false)),
+        series: def.series === undefined ? none : some(tiling(def.series, def.series.key, def.series.order, def.series.carries === "value")),
+        // A summary keeps a key's totals, filed by it, or with no key the record's (#1732).
+        summary: summary === undefined ? none : summary.key === undefined
+            ? some(variant("totals", { from: summary.from, to: summary.to, tile: variant(summary.tile, null) }))
+            : some(variant("keyed", tiling(summary, summary.key, "key", false))),
         entries: false,
     }));
 }
@@ -487,6 +497,42 @@ test("a summary index: the tiles of the page's run that overlap the window are t
         }
     }
     assert.ok(tiles > 100, `the windows hold tiles to read: ${tiles}`);
+});
+
+test("the record's totals: the tiles of the page's range of whole tiles, under the narrowing's leading values, are exactly the body's `totals` (#1732)", () => {
+    const Totals = DictType(DateTimeType, RecordSummaryTotalsType);
+    /** The entries of a summary of the jobs: each tile's totals. */
+    type TileTotals = DictType<StructType<{ ik: EastType; k: EastType }>, typeof RecordSummaryTotalsType>;
+    /** One summary with no key through both: the page's range over each window's whole tiles, and the body's read of it. */
+    const through = (
+        name: string, def: RecordIndexDef, held: Held<TileTotals>, state: string | undefined,
+        body: (entries: never, from: Date, to: Date) => Map<Date, RecordSummaryTotals>,
+    ): number => {
+        const index = pageIndex(name, def);
+        const where: Parameters<typeof totalsCellQueries>[1] = new Map(state === undefined ? [] : [["state", variant("values", [printString(state)])]]);
+        let tiles = 0;
+        for (const w of WINDOWS) {
+            // The page reads the whole tiles the window touches, no more: a tile's total is its own.
+            const queries = totalsCellQueries(index, where, totalsRun("month", w.from, w.to)).queries;
+            assert.equal(queries.length, 1, "one range under the narrowing's one combination of leading values");
+            const page = new SortedMap<Date, RecordSummaryTotals>(queries.flatMap((query) => searched(held, query))
+                .map(([entry, totals]): [Date, RecordSummaryTotals] => [(entry.ik as { readonly tile: Date }).tile, totals]), instantOrder);
+            tiles += page.size;
+            assert.ok(equalFor(Totals)(body(held.dict, w.from, w.to), page), `the ${state ?? "record's"} months in ${window(w)}`);
+        }
+        return tiles;
+    };
+    /** A summary's entries, its build filing a row's share of a tile at a time, merged as e3 merges them. */
+    const totalsHeld = (def: RecordIndexDef) => summaryMergeProgram(builtIndex(jobs, def)).compile([]);
+    const months = e3.index(jobs.indexes.months);
+    const all = through("months", jobs.indexes.months, heldOf(months, JOBS, totalsHeld(jobs.indexes.months)), undefined,
+        East.compile(East.function([months.type, DateTimeType, DateTimeType], Totals, ($, entries, from, to) =>
+            months.read(entries).totals({ from, to }).collect($)), []));
+    const byState = e3.index(jobs.indexes.months_by_state);
+    const confirmed = through("months_by_state", jobs.indexes.months_by_state, heldOf(byState, JOBS, totalsHeld(jobs.indexes.months_by_state)), "confirmed",
+        East.compile(East.function([byState.type, DateTimeType, DateTimeType], Totals, ($, entries, from, to) =>
+            byState.read(entries).totals({ on: { state: "confirmed" }, from, to }).collect($)), []));
+    assert.ok(all > 100 && confirmed > 100, `the windows hold tiles to read: ${all}, ${confirmed}`);
 });
 
 test("an area index: of what the page's searches of a viewport hold, the rows whose box meets it are exactly the body's `within`, each once", () => {

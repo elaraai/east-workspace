@@ -17,7 +17,7 @@ import {
 } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
-import { readTileMarker, tilingOf } from "./record-series.js";
+import { isTiledIndex, readTileMarker, readTotalsMarker, totalsOf } from "./record-series.js";
 import { recordOnPrinters } from "./record-on.js";
 import {
     RecordSliceConfigType, RecordSliceStateType, RecordSliceHandleType, recordSliceBindPlatform,
@@ -275,7 +275,12 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  * A series or a summary index (`index.series`, `index.summary`) offers no
  * field at all: it is listed for a reader of its cells (#1039), and its
  * metadata says how it files the record's events, and whether a series
- * index's entries carry a copy of each event in its row's place (#1725).
+ * index's entries carry a copy of each event in its row's place (#1725). The
+ * record's totals a tile — a summary with no key, which the binding lists in
+ * its `totals` (#1732) — are read by a horizon over the source's range, under
+ * its narrowing: they count the events from the range's field, and are led
+ * only by fields a read of the source chooses exactly, the rail's or the
+ * scope's, every one of the scope's among them.
  *
  * An entries index (`index.entries`, #1522) offers its Dict field: the rail
  * lists the Dict's keys as the field's values, from its hints, each counted by
@@ -302,7 +307,9 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  * @throws {Error} When the source is no indexed record binding; when a field, a narrowing, the range or a search field
  *   has no listed index to answer it; and when the scope names a field no listed index is led by, holds a value of
  *   another type than its field's or a list written empty, or leaves a field the rail offers with no index led by the
- *   scope's fields — each naming the field, and the types or the index to declare
+ *   scope's fields — each naming the field, and the types or the index to declare; and when the binding's totals are on a
+ *   source with no range, count the events from another field than its range, are led by a field no read of the source
+ *   chooses, or, on a scoped source, are not led by the scope's fields — each naming the totals and what to declare
  */
 export function bindRecord<K extends EastType, R extends StructType, P extends EastType, M extends StructType, IK extends VariantType, N extends EastType,
     Maint extends EastType, C extends EastType>(
@@ -365,13 +372,19 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
             entries = true;
         } else if (kind === "series" || kind === "summary") {
             const tiling = readTileMarker(names);
-            if (tiling === undefined || tiling.summary !== (kind === "summary") || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
-                throw unmarked(name, `${kind}`);
+            // The record's totals a tile, a summary with no key the binding's `totals` lists (#1732): a marker naming no key.
+            const totals = kind === "summary" && tiling === undefined ? readTotalsMarker(names) : undefined;
+            if (totals !== undefined) {
+                if ([totals.from, totals.to].some(field => rowType.fields[field] === undefined)) throw unmarked(name, "summary");
+                summary = some(variant("totals", { from: totals.from, to: totals.to, tile: variant(totals.tile, null) }));
+            } else {
+                if (tiling === undefined || tiling.summary !== (kind === "summary") || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
+                    throw unmarked(name, `${kind}`);
+                }
+                const filed = { key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null), order: variant(tiling.order, null), copy: tiling.copy };
+                if (tiling.summary) summary = some(variant("keyed", filed));
+                else series = some(filed);
             }
-            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null), order: variant(tiling.order, null),
-                copy: tiling.copy });
-            if (tiling.summary) summary = filed;
-            else series = filed;
         } else if (kind === "area") {
             const box = readAreaMarker(names);
             const xType = box === undefined ? undefined : rowType.fields[box.x];
@@ -391,8 +404,9 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
             structured, interval, area, series, summary, entries };
     });
     const weighing = recordEntriesFields(indexes);
-    // A series or a summary index offers nothing: a reader reads its cells. An interval's start is a range the rail reads.
-    const indexedFields = new Set(indexes.flatMap(index => tilingOf(index) !== undefined ? [] : recordIndexFields(index)));
+    // A series or a summary index — the record's totals among them (#1732) — offers nothing: a reader reads its cells. An
+    // interval's start is a range the rail reads.
+    const indexedFields = new Set(indexes.flatMap(index => isTiledIndex(index) ? [] : recordIndexFields(index)));
     const printOn = recordOnPrinters(entry.fields.ik.cases as Record<string, EastType>);
     // The page's scope (#1621): exact values of fields an index is led by, which every read of the source carries.
     const scope = new Map<string, variant<"values", SubtypeExprOrValue<ArrayType<StringType>>>>();
@@ -437,7 +451,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const offered = options.fields === undefined ? [...indexedFields].filter(field => !scope.has(field)) : Object.keys(options.fields);
     /** Whether a listed index is led by the scope's fields and takes the field after them: what answers a choice of it on this page. */
     const answered = (field: string) => indexes.some(index => {
-        if (tilingOf(index) !== undefined || index.entries) return false;
+        if (isTiledIndex(index) || index.entries) return false;
         const path = recordIndexFields(index);
         return scoped.every(name => path.indexOf(name) >= 0 && path.indexOf(name) < scoped.length) && path.indexOf(field) >= scoped.length;
     });
@@ -523,6 +537,33 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
                     `index.interval({ on: [${scoped.map(name => JSON.stringify(name)).join(", ")}], ` +
                     `from: "${range}", to: "${from.interval.value.to}" }) among the record's indexes, as '${from.name}' reads it, listed in Data.bindPaged's indexes`
                 : `Slice.bindRecord: the range of '${range}' beside the scope (${named}) needs one index led by the scope's fields, then it — ${declare([...scoped, range])}`);
+        }
+    }
+    // The record's totals the binding lists (#1732): what a horizon reads over the source's range, under its narrowing. Each
+    // counts the events from the range's field, and is led only by fields a read of the source chooses exactly — the rail's,
+    // or the scope's, every one of the scope's among them: totals that leave a choice of the narrowing hold rows it does not.
+    for (const index of indexes) {
+        const totals = totalsOf(index);
+        if (totals === undefined) continue;
+        const tile = totals.tile.type;
+        const named = `Slice.bindRecord: '${index.name}', the record's totals a ${tile},`;
+        if (range === undefined) {
+            throw new Error(`${named} is read by a horizon over the source's range, and the source has none — give it its range, range: "${totals.from}"`);
+        }
+        if (totals.from !== range) {
+            throw new Error(`${named} counts the events from '${totals.from}', and the source's range is '${range}' — a horizon counts what its window ` +
+                `shows: declare them from it, index.summary({ ${index.fields.length > 0 ? `on: [${index.fields.map(f => JSON.stringify(f)).join(", ")}], ` : ""}` +
+                `from: "${range}", to: "${totals.to}", tile: "${tile}" })`);
+        }
+        const unchosen = index.fields.find(field => !scope.has(field) && !offered.includes(field));
+        if (unchosen !== undefined) {
+            throw new Error(`${named} is led by '${unchosen}', which no read of the source chooses — the rail offers no control of it, and the scope ` +
+                "holds none: lead them by fields the rail offers or the scope holds, or by none");
+        }
+        const unled = scoped.filter(field => !index.fields.includes(field));
+        if (unled.length > 0) {
+            throw new Error(`${named} is not led by the scope's ${unled.map(f => `'${f}'`).join(", ")}, which every read of the source holds — lead them by ` +
+                `the scope's fields, index.summary({ on: [${scoped.map(f => JSON.stringify(f)).join(", ")}], from: "${totals.from}", to: "${totals.to}", tile: "${tile}" })`);
         }
     }
     const search = options.search === undefined ? fields.filter(field => field.kind === "string" && !weighing.has(field.fieldId)).map(field => field.fieldId)

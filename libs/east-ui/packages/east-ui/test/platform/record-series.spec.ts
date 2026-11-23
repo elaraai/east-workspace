@@ -18,6 +18,13 @@
  * narrowing's choices, one in time order under the group the block stands in.
  * A series index whose entries carry a copy of each event says so in its
  * marker too (#1725).
+ *
+ * And a summary with no key, the record's totals a tile (#1732): its marker
+ * reads back as itself, never as a tile marker; its cells are one range of
+ * whole tiles under each combination of the leading fields' chosen values; a
+ * narrowing reads through the totals led by the most of its exact choices that
+ * leave it nothing but the window; and no reader of a resource's summary, nor
+ * the rail, takes them for one.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,8 +35,9 @@ import { randomStream } from "@elaraai/east/internal";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere } from "../../src/platform/slice/record-plan.js";
 import {
-    RECORD_TILES, inTimeCellQueries, levelCellQueries, levelRuns, levelsOf, readTileMarker, seriesIndexFor, summaryCellQueries, summaryRun, tileIndexFor,
-    tileIndexServes, tileMarkerFields, tileNext, tileStart, tilingOf, type RecordTile,
+    RECORD_TILES, inTimeCellQueries, isTiledIndex, levelCellQueries, levelRuns, levelsOf, readTileMarker, readTotalsMarker, seriesIndexFor, summaryCellQueries,
+    summaryRun, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext, tileStart, tilingOf, totalsCellQueries, totalsIndexFor, totalsMarkerFields, totalsOf,
+    totalsRun, type RecordTile,
 } from "../../src/platform/slice/record-series.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
@@ -91,6 +99,30 @@ test("a tile marker names its fields by role, a series index's time order and it
         ["key=k", "from=f", "to=t", "tile=week", "__copy", "__copy"], ["key=k", "from=f", "to=t", "tile=week", "__copy", "__summary"],
     ]) {
         assert.equal(readTileMarker(names), undefined, names.join(", "));
+    }
+});
+
+test("the record's totals a tile name their fields by role and mark themselves, read back as themselves, and never as a tile marker (#1732)", () => {
+    for (const marker of [
+        { from: "start", to: "end", tile: "month" as const },
+        // A field named as the leaf, or as a role, is a field.
+        { from: "__totals", to: "tile=week", tile: "year" as const },
+        ...RECORD_TILES.map(tile => ({ from: "f", to: "t", tile })),
+    ]) {
+        assert.deepEqual(readTotalsMarker(totalsMarkerFields(marker)), marker);
+    }
+    assert.deepEqual(totalsMarkerFields({ from: "start", to: "end", tile: "quarter" }), ["from=start", "to=end", "tile=quarter", "__totals"]);
+    assert.equal(readTileMarker(totalsMarkerFields({ from: "start", to: "end", tile: "month" })), undefined, "the record's totals are no tile marker");
+    assert.equal(readTotalsMarker(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "month", summary: true, order: "key", copy: false })), undefined,
+        "a summary by key is no record's totals");
+    for (const names of [
+        ["from=f", "to=t", "tile=week"], ["from=f", "to=t", "__totals"], ["from=f", "tile=week", "__totals"],
+        ["key=k", "from=f", "to=t", "tile=week", "__totals"], ["from=f", "to=t", "tile=week", "__totals", "__totals"],
+        ["from=f", "to=t", "tile=hour", "__totals"], ["from=f", "from=g", "to=t", "tile=week", "__totals"],
+        ["from=f", "to=t", "tile=week", "order=time", "__totals"], ["from=f", "to=t", "tile=week", "__summary", "__totals"],
+        ["from=f", "to=t", "tile=week", "__copy", "__totals"], ["from=f", "to=t", "tile=week", "=x", "__totals"],
+    ]) {
+        assert.equal(readTotalsMarker(names), undefined, names.join(", "));
     }
 });
 
@@ -206,16 +238,24 @@ const indexType = ArrayType(RecordSliceIndexType);
 const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("key", null), copy: false };
 const month = { ...week, tile: variant("month", null) };
 const weekInTime = { ...week, order: variant("time", null) };
+/** The record's totals a month, and a quarter: a summary with no key (#1732). */
+const monthTotals = { from: "start", to: "end", tile: variant("month", null) };
+const quarterTotals = { ...monthTotals, tile: variant("quarter", null) };
 const plain = { interval: none, area: none, series: none, summary: none, entries: false };
 // A generated index's fields are the row fields it is led by alone (#1432): its key's `on`.
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
     { name: "jobs_by_time", fields: [], sets: new Set(), structured: true, ...plain, interval: some({ from: "start", to: "end", optional: false }) },
     { name: "by_press", fields: ["press"], sets: new Set(), structured: false, ...plain },
+    // The record's totals, listed first: a reader of a resource's summary passes them over.
+    { name: "jobs_month", fields: [], sets: new Set(), structured: true, ...plain, summary: some(variant("totals", monthTotals)) },
+    { name: "jobs_by_state_month", fields: ["state"], sets: new Set(), structured: true, ...plain, summary: some(variant("totals", monthTotals)) },
+    { name: "jobs_by_crew_month", fields: ["crews"], sets: new Set(["crews"]), structured: true, ...plain, summary: some(variant("totals", monthTotals)) },
+    { name: "jobs_quarter", fields: [], sets: new Set(), structured: true, ...plain, summary: some(variant("totals", quarterTotals)) },
     { name: "jobs_by_press_week", fields: [], sets: new Set(), structured: true, ...plain, series: some(week) },
     { name: "jobs_by_state_press_week", fields: ["state"], sets: new Set(), structured: true, ...plain, series: some(week) },
     { name: "jobs_by_crew_press_week", fields: ["crews"], sets: new Set(["crews"]), structured: true, ...plain, series: some(week) },
-    { name: "jobs_by_press_month", fields: [], sets: new Set(), structured: true, ...plain, summary: some(month) },
-    { name: "jobs_by_state_press_month", fields: ["state"], sets: new Set(), structured: true, ...plain, summary: some(month) },
+    { name: "jobs_by_press_month", fields: [], sets: new Set(), structured: true, ...plain, summary: some(variant("keyed", month)) },
+    { name: "jobs_by_state_press_month", fields: ["state"], sets: new Set(), structured: true, ...plain, summary: some(variant("keyed", month)) },
     { name: "jobs_by_hall_week", fields: ["hall"], sets: new Set(), structured: true, ...plain, series: some(weekInTime) },
     { name: "jobs_by_state_hall_week", fields: ["state", "hall"], sets: new Set(), structured: true, ...plain, series: some(weekInTime) },
     { name: "jobs_by_week", fields: [], sets: new Set(), structured: true, ...plain, series: some(weekInTime) },
@@ -279,7 +319,53 @@ test("a cell it cannot plan is refused, naming why", () => {
         /'jobs_by_press_week' files at week, month, quarter, year: no day run/);
     assert.throws(() => levelCellQueries(byName("jobs_by_press_month"), where([]), weekRun, presses), /'jobs_by_press_month' is none/);
     assert.throws(() => summaryCellQueries(byName("jobs_by_press_week"), where([]), october, presses), /'jobs_by_press_week' is none/);
+    assert.throws(() => summaryCellQueries(byName("jobs_month"), where([]), october, presses),
+        /'jobs_month' keeps the record's totals, under no key: its cells are a range of its tiles \(totalsCellQueries\)/);
     assert.throws(() => levelCellQueries(byName("by_press"), where([]), weekRun, presses), /'by_press' is none/);
+});
+
+test("the record's totals a tile are read as one range of whole tiles under each combination of the leading fields' chosen values (#1732)", () => {
+    const years = totalsRun("month", at("2026-01-01T00:00:00.000"), at("2028-01-01T00:00:00.000"));
+    assert.deepEqual([printInstant(years.from), printInstant(years.to)], ["2026-01-01T00:00:00.000", "2028-01-01T00:00:00.000"], "whole years are whole months");
+    const partial = totalsRun("quarter", at("2026-02-10T08:00:00.000"), at("2026-05-02T00:00:00.000"));
+    assert.deepEqual([printInstant(partial.from), printInstant(partial.to)], ["2026-01-01T00:00:00.000", "2026-07-01T00:00:00.000"],
+        "a range's run is the whole tiles it touches, no more");
+    assert.deepEqual(totalsCellQueries(byName("jobs_month"), where([["start", window]]), years), {
+        queries: [variant("range", { from: ["2026-01-01T00:00:00.000"], to: ["2028-01-01T00:00:00.000"] })], residual: [],
+    }, "one range: the window's own choice of the start is none the totals are read under");
+    assert.deepEqual(totalsCellQueries(byName("jobs_by_state_month"), where([["state", values(".late", ".held")]]), years).queries,
+        [".late", ".held"].map(state => variant("range", { from: [state, "2026-01-01T00:00:00.000"], to: [state, "2028-01-01T00:00:00.000"] })),
+        "a range under each state chosen, the leading values one by one");
+    assert.deepEqual(totalsCellQueries(byName("jobs_month"), where([["state", values(".late")]]), years).residual, ["state"],
+        "a choice it is not led by is left: such totals hold more than the narrowing");
+    assert.throws(() => totalsCellQueries(byName("jobs_month"), where([]), { from: at("2026-01-15T00:00:00.000"), to: years.to }),
+        /2026-01-15T00:00:00\.000 starts no month tile of 'jobs_month'/);
+    assert.throws(() => totalsCellQueries(byName("jobs_by_state_month"), where([]), years), /takes exact values of 'state', which leads it/);
+    assert.throws(() => totalsCellQueries(byName("jobs_by_press_month"), where([]), years),
+        /'jobs_by_press_month' keeps a resource's totals, filed by key: the record's totals are a summary with no key/);
+    assert.throws(() => totalsCellQueries(byName("by_press"), where([]), years), /'by_press' keeps no totals/);
+});
+
+test("the record's totals at a tile are read through those led by the most of the narrowing's exact choices that leave none of it but the window (#1732)", () => {
+    assert.equal(totalsIndexFor(indexes, where([]), "month")?.name, "jobs_month", "under no choice, the totals led by none");
+    assert.equal(totalsIndexFor(indexes, where([["start", window]]), "month")?.name, "jobs_month", "the window's own range is no choice they answer");
+    assert.equal(totalsIndexFor(indexes, where([["state", values(".late")], ["start", window]]), "month")?.name, "jobs_by_state_month", "led by the state chosen");
+    assert.equal(totalsIndexFor(indexes, where([["crews", values('"C-1"')]]), "month")?.name, "jobs_by_crew_month");
+    assert.equal(totalsIndexFor(indexes, where([["crews", values('"C-1"', '"C-2"')]]), "month"), undefined,
+        "a Set's field chosen twice would count an event on both twice, and the totals led by none leave it: none serves");
+    assert.equal(totalsIndexFor(indexes, where([["customer", values('"Acme"')]]), "month"), undefined, "a choice no totals are led by: none serves");
+    const many = Array.from({ length: MAX_RECORD_SLICE_RUNS + 1 }, (_, i) => `"s${i}"`);
+    assert.equal(totalsIndexFor(indexes, where([["state", values(...many)]]), "month"), undefined, "more states than a cell takes searches: none serves");
+    assert.equal(totalsIndexFor(indexes, where([["state", values(...many.slice(0, MAX_RECORD_SLICE_RUNS))]]), "month")?.name, "jobs_by_state_month",
+        "as many as it takes: the totals led by the state");
+    assert.equal(totalsIndexFor(indexes, where([]), "quarter")?.name, "jobs_quarter");
+    assert.equal(totalsIndexFor(indexes, where([["state", values(".late")]]), "quarter"), undefined, "the quarter's totals are led by none, and leave the state");
+    assert.equal(totalsIndexFor(indexes, where([]), "year"), undefined, "no totals at the tile");
+    assert.deepEqual(totalsOf(byName("jobs_month")), monthTotals);
+    assert.equal(totalsOf(byName("jobs_by_press_month")), undefined, "a summary by key keeps a resource's totals");
+    assert.equal(tilingOf(byName("jobs_month")), undefined, "the record's totals are no resource's tiling");
+    assert.deepEqual(["jobs_month", "jobs_by_press_month", "jobs_by_press_week", "by_press", "jobs_by_time"].map(name => isTiledIndex(byName(name))),
+        [true, true, true, false, false], "a series or a summary — the record's totals among them — files events by time, and offers the rail nothing");
 });
 
 test("a cell of a series index in time order is a range a tile, from its first key through its last (#1710)", () => {
@@ -380,8 +466,10 @@ test("a narrowing's cells are read through the index led by the most of its exac
 test("neither a series nor a summary index serves the rail's narrowing: an ordinary index does, or none", () => {
     assert.deepEqual(planRecordSlice(indexes, where([["press", values('"P-1005"')]]), "primary"),
         { index: "by_press", queries: [variant("key", '"P-1005"')] });
-    const tiled = indexes.filter(index => tilingOf(index) !== undefined);
+    const tiled = indexes.filter(index => isTiledIndex(index));
+    assert.ok(tiled.some(index => totalsOf(index) !== undefined), "the record's totals among them (#1732)");
     assert.equal(planRecordSlice(tiled, where([["press", values('"P-1005"')]]), "primary"), null);
     assert.equal(planRecordSlice(tiled, where([["state", values(".late")]]), "primary"), null);
+    assert.equal(planRecordSlice(tiled, where([["crews", values('"C-1"')]]), "primary"), null, "nor the record's totals, led by a field the rail chooses");
     assert.equal(recordChoiceWhere({ indexes: tiled, scope: new Map() }, where([]), "state", values(".late")), null, "no choice is offered through one");
 });

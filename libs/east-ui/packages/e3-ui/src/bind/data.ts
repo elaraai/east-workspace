@@ -400,6 +400,17 @@ export type IndexWindowType<T extends EastType, IK extends EastType, P extends E
 export type IndexNameOf<R> = R extends { readonly indexes: infer I } ? keyof I & string : never;
 
 /**
+ * The names of a record's summaries with no key (#1732), the record's totals a
+ * tile: what a binding's `totals` lists. A summary by key, and an index of any
+ * other kind, is none of them.
+ *
+ * @typeParam R - The record
+ */
+export type TotalsNameOf<R> = R extends { readonly indexes: infer I }
+    ? { [K in keyof I & string]: I[K] extends { readonly summary: { readonly key?: undefined } } ? K : never }[keyof I & string]
+    : never;
+
+/**
  * The indexes a list of a record's index names names, in its order: each the
  * declaration the record holds under the name.
  *
@@ -602,6 +613,14 @@ export const DataPagedPrimitives = {
  * — in its type, for a Plan's series to be held to. The nested index's own
  * entries are items, totals and subtotals, read a cell at a time, never paged.
  *
+ * The record's totals a tile — summaries with no key, `index.summary({ from,
+ * to, tile })` — are listed apart, in `totals` (#1732): a horizon's bars read
+ * them over the source's range, under its narrowing, while nothing reads rows
+ * through them. They are named, never inferred from `indexes`, so a source
+ * says which totals play that part: each one listed is described beside the
+ * indexes as the record's totals, searched by its own key, and has no
+ * maintenance of its own — the bars count what is saved.
+ *
  * @example
  * ```ts
  * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
@@ -628,10 +647,11 @@ export const DataPagedPrimitives = {
  * });
  * ```
  */
-function bindDataPaged<R extends RecordDef<EastType, TreePath, object, object>, const N extends readonly IndexNameOf<R>[]>(
+function bindDataPaged<R extends RecordDef<EastType, TreePath, object, object>, const N extends readonly IndexNameOf<R>[],
+    const X extends readonly TotalsNameOf<R>[] = readonly []>(
     record: R,
-    options: BindPagedIndexesOptions<N>,
-): IndexedPagedValue<R['type'], Extract<IndexesNamed<R, N>, FieldIndexes<R['type']>>>;
+    options: BindPagedIndexesOptions<N, X>,
+): IndexedPagedValue<R['type'], Extract<IndexesNamed<R, N>, FieldIndexes<R['type']>>, Extract<IndexesNamed<R, X>, FieldIndexes<R['type']>>>;
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
 ): PagedValue<T>;
@@ -644,14 +664,18 @@ function bindDataPaged<R extends RecordDef<EastType, TreePath, object, object>, 
 // an unbound `T`. The overloads above carry the precise types.
 function bindDataPaged(
     dataset: DatasetDef<EastType> | TaskDef<EastType>,
-    options?: BindPagedIndexOptions<string> | BindPagedIndexesOptions<readonly string[]>,
+    options?: BindPagedIndexOptions<string> | BindPagedIndexesOptions<readonly string[], readonly string[]>,
 ): any {
     if (options !== undefined && "indexes" in options) {
         if (!("recordKind" in dataset) || dataset.recordKind !== "record") throw new Error("Data.bindPaged with indexes requires an e3.record");
         const rec = dataset as RecordDef<EastType>;
         if (!Array.isArray(options.indexes)) throw new Error(`Data.bindPaged: indexes lists the names of record '${rec.name}''s indexes — ${indexNames(rec)}`);
+        if (options.totals !== undefined && !Array.isArray(options.totals)) {
+            throw new Error(`Data.bindPaged: totals lists the names of record '${rec.name}''s summaries with no key, the record's totals a tile — ${totalsNames(rec)}`);
+        }
         return bindDataIndexed(rec, {
             indexes: options.indexes.map((name) => indexNamed(rec, name)),
+            ...(options.totals !== undefined && { totals: options.totals.map((name) => indexNamed(rec, name)) }),
             ...(options.join !== undefined && { join: options.join }),
         });
     }
@@ -705,6 +729,13 @@ function bindDataPaged(
 /** A record's index names, for a refusal: each quoted, or none. */
 function indexNames(rec: RecordDef<EastType>): string {
     const names = Object.keys(rec.indexes);
+    return names.length === 0 ? "it declares none" : `it declares ${names.map((name) => `'${name}'`).join(", ")}`;
+}
+
+/** The names of a record's summaries with no key (#1732), for a refusal: each quoted, or none. */
+function totalsNames(rec: RecordDef<EastType>): string {
+    const names = Object.entries(rec.indexes as Readonly<Record<string, RecordIndexDef>>)
+        .filter(([, index]) => index.summary !== undefined && index.summary.key === undefined).map(([name]) => name);
     return names.length === 0 ? "it declares none" : `it declares ${names.map((name) => `'${name}'`).join(", ")}`;
 }
 

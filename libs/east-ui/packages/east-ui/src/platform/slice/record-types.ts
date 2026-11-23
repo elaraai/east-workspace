@@ -142,6 +142,31 @@ export const RecordSliceTilingType = StructType({
 export type RecordSliceTilingType = typeof RecordSliceTilingType;
 
 /**
+ * The record's totals a tile, which a summary index with no key keeps (#1732):
+ * how many of its events touch each tile and the milliseconds of it they
+ * cover, under its leading fields alone — what a source names in its
+ * binding's `totals`, and a horizon's bars read.
+ * @property from - The row field an event starts at.
+ * @property to - The row field it ends at.
+ * @property tile - The tile.
+ */
+export const RecordSliceTotalsType = StructType({ from: StringType, to: StringType, tile: RecordSliceTileType });
+export type RecordSliceTotalsType = typeof RecordSliceTotalsType;
+
+/**
+ * What a summary index keeps (#1039, #1732): a resource's totals a tile, filed
+ * by the key an event is on as a series index files its events (`keyed`), or
+ * the record's totals a tile, under no key (`totals`). A reader of a
+ * resource's totals reads the one; a horizon the other, so neither is taken
+ * for the other.
+ * @remarks Part of a record Slice's config, which beast2 reads at exactly its
+ * written type: one an earlier release wrote, a tiling where this holds one of
+ * two, does not decode under this type (docs/conventions/WIRE_MIGRATION.md).
+ */
+export const RecordSliceSummaryType = VariantType({ keyed: RecordSliceTilingType, totals: RecordSliceTotalsType });
+export type RecordSliceSummaryType = typeof RecordSliceSummaryType;
+
+/**
  * One available query path, invisible to users.
  * @remarks An index's metadata is part of a record Slice's config, which a
  * component's IR carries, and beast2 reads it at exactly its written type: a
@@ -163,8 +188,9 @@ export type RecordSliceTilingType = typeof RecordSliceTilingType;
  *   key, past }` (#1710) — carrying their rows, or a copy of each (`copy`, #1725). It never serves the rail's narrowing, which would count an event past
  *   a year once for each year it is filed under: a reader reads its cells (`levelCellQueries`, `inTimeCellQueries`).
  * @property summary - A summary index (#1039): under each key and tile, `{ on, key, tile }`, how many rows touch
- *   the tile and the milliseconds of it they cover. Its entries name no row, so it never serves the rail's
- *   narrowing either; a reader reads its cells (`summaryCellQueries`).
+ *   the tile and the milliseconds of it they cover (`keyed`) — or, with no key, the record's totals under each tile,
+ *   `{ on, tile }`, which a source names in its binding's `totals` (#1732). Its entries name no row, so it never serves
+ *   the rail's narrowing either; a reader reads its cells (`summaryCellQueries`, `totalsCellQueries`).
  * @property entries - An entries index (#1522): its one field a Dict field of the rows, which e3 files entry by entry,
  *   each under its own key, so a key's entries across the record are one range. The rail lists the Dict's keys as the
  *   field's values, each counted by its range alone, and takes several. Its picks weigh a reader's rows — the picked
@@ -179,7 +205,7 @@ export const RecordSliceIndexType = StructType({
         centre: BooleanType, cell: FloatType, optional: BooleanType,
     })),
     series: OptionType(RecordSliceTilingType),
-    summary: OptionType(RecordSliceTilingType),
+    summary: OptionType(RecordSliceSummaryType),
     entries: BooleanType,
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;

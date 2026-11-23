@@ -26,6 +26,14 @@
  *   order does, each entry carrying a **copy** of its event — what the value
  *   gives of the row — in the row's place: its reader draws the copies, and
  *   never takes one for a row.
+ * - A summary with no key keeps the **record's totals** a tile (#1732), `{ on,
+ *   tile }` → `{ count, ms }`: one entry a tile under each combination of its
+ *   leading values, whatever the events are on. A source names them in its
+ *   binding's `totals`; a reader reads a range of their tiles under the
+ *   narrowing's values of their leading fields ({@link totalsCellQueries}),
+ *   through the totals that leave it nothing of the narrowing but the window
+ *   ({@link totalsIndexFor}). No reader of a resource's summary takes them for
+ *   one: a summary's metadata says which it is.
  *
  * A **cell** is some keys over one run: what a reader reads of an index for a
  * block of its rows. Each key of a cell is one range search — the key leads
@@ -68,12 +76,14 @@ import { BooleanType, DateTimeType, SortedMap, StringType, compareFor, equalFor,
 import type { SeekQueryType } from "../../contracts/source.js";
 import {
     RecordSliceTileType, type RecordSliceChoiceType, type RecordSliceIndexType, type RecordSliceOrderType, type RecordSliceTilingType,
+    type RecordSliceTotalsType,
 } from "./record-types.js";
 import { MAX_RECORD_SLICE_RUNS, recordPrefixesExtended } from "./record-plan.js";
 
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
 type Tiling = ValueTypeOf<RecordSliceTilingType>;
+type Totals = ValueTypeOf<RecordSliceTotalsType>;
 
 /** A tile: a day, an ISO week from Monday, a calendar month, a quarter or a year, in UTC. */
 export type RecordTile = keyof RecordSliceTileType["cases"] & string;
@@ -167,6 +177,59 @@ export function readTileMarker(names: readonly string[]): TileMarker | undefined
     return { key, from, to, tile, summary, order, copy };
 }
 
+/** How a summary index with no key files the record's totals (#1732), as a binding's index metadata carries it. */
+export interface TotalsMarker {
+    /** The row field an event starts at. */
+    readonly from: string;
+    /** The row field it ends at. */
+    readonly to: string;
+    /** The tile. */
+    readonly tile: RecordTile;
+}
+
+/** The marker's name for the record's totals: a summary with no key. */
+const TOTALS_MARKER = "__totals";
+const TOTALS_ROLES = ["from", "to", "tile"] as const;
+
+/**
+ * The names of the struct `Data.bindPaged` marks the record's totals with in a
+ * binding's index metadata (#1732) — a summary index with no key, which its
+ * `totals` lists: the start and end fields and the tile, each named with its
+ * role, and `__totals`. Its kind is a summary's, whose entries name no row; a
+ * marker naming no key is never a {@link tileMarkerFields | tile marker}, so
+ * neither is read as the other.
+ *
+ * @param marker - How the summary files the record's totals
+ * @returns The marker struct's field names, in order
+ */
+export function totalsMarkerFields(marker: TotalsMarker): string[] {
+    return [`from=${marker.from}`, `to=${marker.to}`, `tile=${marker.tile}`, TOTALS_MARKER];
+}
+
+/**
+ * Read the record's totals' filing back from its marker's field names ({@link totalsMarkerFields}).
+ *
+ * @param names - The marker struct's field names
+ * @returns The filing, or `undefined` when the names are not the totals' marker
+ */
+export function readTotalsMarker(names: readonly string[]): TotalsMarker | undefined {
+    const roles = new Map<string, string>();
+    let marked = false;
+    for (const name of names) {
+        if (name === TOTALS_MARKER) {
+            if (marked) return undefined;
+            marked = true;
+            continue;
+        }
+        const at = name.indexOf("=");
+        const role = name.slice(0, Math.max(at, 0));
+        if (at <= 0 || !(TOTALS_ROLES as readonly string[]).includes(role) || roles.has(role)) return undefined;
+        roles.set(role, name.slice(at + 1));
+    }
+    const from = roles.get("from"), to = roles.get("to"), tile = RECORD_TILES.find(t => t === roles.get("tile"));
+    return !marked || from === undefined || to === undefined || tile === undefined ? undefined : { from, to, tile };
+}
+
 /** A day, in milliseconds. */
 const DAY_MS = 86_400_000;
 /** An ISO week, in milliseconds. */
@@ -223,15 +286,54 @@ export function tileNext(tile: RecordTile, start: Date): Date {
     }
 }
 
+/** A summary index filed by key's tiling: a resource's totals a tile, never the record's (#1732). */
+function keyedTiling(index: Index): Tiling | undefined {
+    return index.summary.type === "some" && index.summary.value.type === "keyed" ? index.summary.value.value : undefined;
+}
+
 /**
- * How a series or a summary index files a record's events: the index's own
- * metadata, or `undefined` for an index of another kind.
+ * How a series or a summary index filed by key files a record's events: the
+ * index's own metadata, or `undefined` for an index of another kind — the
+ * record's totals among them, which no reader of a key's events or totals
+ * reads (#1732).
  *
  * @param index - The index
  * @returns Its key, start and end fields and its tile
  */
 export function tilingOf(index: Index): Tiling | undefined {
-    return index.series.type === "some" ? index.series.value : index.summary.type === "some" ? index.summary.value : undefined;
+    return index.series.type === "some" ? index.series.value : keyedTiling(index);
+}
+
+/**
+ * The record's totals a summary index with no key keeps (#1732): its start
+ * and end fields and its tile; `undefined` for any other index, a summary by
+ * key among them.
+ *
+ * @param index - The index
+ * @returns Its fields and its tile
+ */
+export function totalsOf(index: Index): Totals | undefined {
+    return index.summary.type === "some" && index.summary.value.type === "totals" ? index.summary.value.value : undefined;
+}
+
+/**
+ * Whether an index files a record's events by time — a series index, or a
+ * summary, by key or the record's totals (#1732) — so a reader reads its cells
+ * and the rail is offered none of its fields.
+ *
+ * @param index - The index
+ * @returns Whether it is one
+ */
+export function isTiledIndex(index: Index): boolean {
+    return index.series.type === "some" || index.summary.type === "some";
+}
+
+/** Whether a narrowing chooses exact values of each of an index's leading fields — one of a field that fans out over a Set. */
+function leadingChosen(index: Index, where: ReadonlyMap<string, Choice>): boolean {
+    return index.fields.every(field => {
+        const choice = where.get(field);
+        return choice?.type === "values" && choice.value.length > 0 && (!index.sets.has(field) || new Set(choice.value).size === 1);
+    });
 }
 
 /**
@@ -244,11 +346,7 @@ export function tilingOf(index: Index): Tiling | undefined {
  * @returns Whether its cells hold the narrowing's events of their keys, or more
  */
 export function tileIndexServes(index: Index, where: ReadonlyMap<string, Choice>): boolean {
-    if (tilingOf(index) === undefined) return false;
-    return index.fields.every(field => {
-        const choice = where.get(field);
-        return choice?.type === "values" && choice.value.length > 0 && (!index.sets.has(field) || new Set(choice.value).size === 1);
-    });
+    return tilingOf(index) !== undefined && leadingChosen(index, where);
 }
 
 /**
@@ -268,8 +366,9 @@ export function tileIndexFor(indexes: readonly Index[], where: ReadonlyMap<strin
     accept: (tile: RecordTile) => boolean = () => true): Index | undefined {
     let best: Index | undefined;
     for (const index of indexes) {
-        const tiling = which === "series" ? index.series : index.summary;
-        if (tiling.type !== "some" || !accept(tiling.value.tile.type) || !tileIndexServes(index, where)) continue;
+        // A summary by key: the record's totals are no resource's (#1732).
+        const tiling = which === "series" ? (index.series.type === "some" ? index.series.value : undefined) : keyedTiling(index);
+        if (tiling === undefined || !accept(tiling.tile.type) || !tileIndexServes(index, where)) continue;
         if (best === undefined || index.fields.length > best.fields.length) best = index;
     }
     return best;
@@ -394,7 +493,7 @@ function leadingValues(index: Index, where: ReadonlyMap<string, Choice>): string
 }
 
 /** The fields of a narrowing a cell's searches leave to the reader: all but the leading fields and a range of the start field. */
-function residualOf(index: Index, tiling: Tiling, where: ReadonlyMap<string, Choice>): string[] {
+function residualOf(index: Index, tiling: { readonly from: string }, where: ReadonlyMap<string, Choice>): string[] {
     return [...where].filter(([field, choice]) => !index.fields.includes(field) && !(field === tiling.from && choice.type === "range"))
         .map(([field]) => field);
 }
@@ -579,11 +678,96 @@ export function seriesIndexFor(indexes: readonly Index[], where: ReadonlyMap<str
 export function summaryCellQueries(index: Index, where: ReadonlyMap<string, Choice>, run: { readonly from: Date; readonly to: Date },
     keys: readonly string[]): TileCellPlan {
     if (index.summary.type !== "some") throw new Error(`A summary's cell reads a summary index, and '${index.name}' is none`);
-    const tiling = index.summary.value;
+    const tiling = keyedTiling(index);
+    if (tiling === undefined) {
+        throw new Error(`'${index.name}' keeps the record's totals, under no key: its cells are a range of its tiles (totalsCellQueries)`);
+    }
     checkRun(index, tiling.tile.type, run);
     const from = printTile(run.from);
     const to = printTile(run.to);
     const queries = leadingValues(index, where).flatMap(prefix => keys.map(key =>
         variant("range", { from: [...prefix, key, from], to: [...prefix, key, to] })));
     return { queries, residual: residualOf(index, tiling, where) };
+}
+
+/**
+ * The whole tiles a read of the record's totals over a range `[from, to)`
+ * reads (#1732): from the start of the tile holding `from` to the start of the
+ * tile after the one holding its last instant. A total is split by tile, so a
+ * tile's total is its own, and nothing outside the range's tiles counts in
+ * them.
+ *
+ * @param tile - The totals' tile
+ * @param from - The range's start
+ * @param to - Its end, exclusive
+ * @returns The run, half-open
+ */
+export function totalsRun(tile: RecordTile, from: Date, to: Date): { readonly from: Date; readonly to: Date } {
+    return { from: tileStart(tile, from), to: tileNext(tile, lastTile(tile, from, to)) };
+}
+
+/**
+ * Plan a cell of the record's totals (#1732): a run of their tiles, a range
+ * search under each combination of the narrowing's values of their leading
+ * fields, `[…on, from]` to `[…on, to]` — the leading values one by one — each
+ * holding that combination's total of each tile in the run.
+ *
+ * @param index - A summary index with no key ({@link totalsIndexFor})
+ * @param where - The narrowing
+ * @param run - Its tiles ({@link totalsRun})
+ * @returns The cell's searches, and the fields of the narrowing its totals do not answer: none, for totals that serve it
+ * @throws {Error} When the index keeps no record's totals; when the narrowing does not choose exact values of each of
+ *   its leading fields (one of a Set's), or the combinations of them pass {@link MAX_RECORD_SLICE_RUNS}; or when the
+ *   run's ends do not start tiles of its tile
+ */
+export function totalsCellQueries(index: Index, where: ReadonlyMap<string, Choice>, run: { readonly from: Date; readonly to: Date }): TileCellPlan {
+    const totals = totalsOf(index);
+    if (totals === undefined) {
+        throw new Error(keyedTiling(index) !== undefined
+            ? `'${index.name}' keeps a resource's totals, filed by key: the record's totals are a summary with no key, index.summary({ from, to, tile })`
+            : `'${index.name}' keeps no totals: the record's totals are a summary with no key, index.summary({ from, to, tile })`);
+    }
+    checkRun(index, totals.tile.type, run);
+    const from = printTile(run.from);
+    const to = printTile(run.to);
+    const queries = leadingValues(index, where).map(prefix => variant("range", { from: [...prefix, from], to: [...prefix, to] }));
+    return { queries, residual: residualOf(index, totals, where) };
+}
+
+/**
+ * The record's totals at a tile that a narrowing is read through (#1732): of
+ * those whose leading fields it chooses exactly — one value of a field that
+ * fans out over a Set, so no event is counted twice — and which leave none of
+ * its choices to a reader, a total holding no event the narrowing does not
+ * hold, the ones led by the most fields; of two led by as many, the one listed
+ * first. The window's own range of their start field is no choice they leave:
+ * a total is a tile's, whatever the window. Totals whose leading values the
+ * narrowing chooses in more than {@link MAX_RECORD_SLICE_RUNS} combinations
+ * serve it not, as a cell of them could not be planned.
+ *
+ * @param indexes - The binding's indexes
+ * @param where - The narrowing
+ * @param tile - The tile wanted
+ * @returns The index, or `undefined` when none at the tile serves the narrowing
+ */
+export function totalsIndexFor(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, tile: RecordTile): Index | undefined {
+    let best: Index | undefined;
+    for (const index of indexes) {
+        const totals = totalsOf(index);
+        if (totals === undefined || totals.tile.type !== tile || !leadingChosen(index, where) || residualOf(index, totals, where).length > 0) continue;
+        if (!combinationsFit(index, where)) continue;
+        if (best === undefined || index.fields.length > best.fields.length) best = index;
+    }
+    return best;
+}
+
+/** Whether the narrowing's values of an index's leading fields make no more combinations than a cell takes searches a key. */
+function combinationsFit(index: Index, where: ReadonlyMap<string, Choice>): boolean {
+    let combinations = 1;
+    for (const field of index.fields) {
+        const choice = where.get(field);
+        combinations *= choice?.type === "values" ? new Set(choice.value).size : 0;
+        if (combinations > MAX_RECORD_SLICE_RUNS) return false;
+    }
+    return true;
 }
