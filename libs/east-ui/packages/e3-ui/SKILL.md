@@ -155,6 +155,7 @@ Task → What do you need?
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle · an entry of hundreds of rows (a Plan.series.group's): paging={{ entries: 1 }}, a window one entry, only those near the view made
     │   ├─ Narrow its rows, event kinds, templates            → slice={{ slice: Slice.bindRecords(key, { rows?, job?, jobTemplates? }) }} (Schedule.templates(rows, { …, source })); the rows source narrows the resources, which are rows
     │   ├─ Event kinds over records too large to read whole   → the kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), drawn within 10,000 events; over paged rows its source lists index.series + index.summary too, read a cell at a time · rows nested under a group (Plan.series.group): list index.series({ on: [group field], key: resource field, …, order: "time" }) — its last `on` field holds the group's key, and each event's that field its row's group — and a block of rows is one range a tile, whatever each row's history holds (its edge cases: the **e3** skill's record indexes reference)
+    │   ├─ The horizon's bars over the rail's sources         → each source's Data.bindPaged(record, { indexes, totals: [its month, quarter and year totals] }) — index.summary({ from: <the source's range>, to, tile }) with no key: the bars read them a range of whole tiles at a time, never counting events; with none listed, no bars
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Links kept in a record: selected, edited, removed  → links={{ flow: Plan.links(Record.bind(flows), { name, icon, from: { field, of }, to: { field, of }, quantity? }) }}: each link a row, each end the key of an event — `of` an event kind's slot, or a slot per case of a variant field
     │   ├─ Links drawn by hand, and the connect veto          → built in beside a link kind bound with Record.bind: the toolbar's Connect tool, a drag from one event to another; canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>} refuses a pair with its message
@@ -330,6 +331,13 @@ failed fetch throws, so wrap a hand-read in `$.try`.
 - `.seek` takes a key, a prefix, or a `from..to` range over a leading prefix of
   the key's fields (`late, 3..ok`); quote a value to make it exact.
 - `{ indexes: [...] }` lists several indexes for a `Slice.bindRecords` source.
+- `{ indexes, totals: [...] }` names the record's totals a tile apart from them:
+  summaries with no key (`index.summary({ from, to, tile })`, the **e3**
+  skill), which a Plan's horizon reads over the source's range, under its
+  narrowing. They count from the range's field and are led only by fields the
+  rail offers or the scope holds. The build refuses a summary by key or another
+  index in `totals`, a summary with no key among the `indexes`, and two at one
+  tile over the same fields, each naming the fix.
 
 ### `Record.bind(record, mutations?)`
 

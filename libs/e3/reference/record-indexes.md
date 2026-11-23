@@ -65,7 +65,7 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 | interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
 | area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
 | series | `{ on, key, level, tile }`; in time order, `{ on, level, tile, key, past }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
-| summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
+| summary | `{ on, key, tile }`; with no `key`, `{ on, tile }` | the value of the field `key` names; the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
 rest (`events.indexes.by_time.interval`, `racks.indexes.racks_by_area.area`,
@@ -256,6 +256,28 @@ pieces' totals of a key. A change that would leave a total no rebuild sums — a
 count below zero, or time with no row — fails the write, naming the total and
 `e3 reindex`, which rebuilds it; a total past the largest Integer fails the
 write or the build, naming a finer tile.
+
+### The record's totals — a summary with no key
+
+Declared with no `key`, a summary index keeps **the record's totals a tile**:
+under each tile, and each combination of its leading fields, `{ count, ms }` —
+how many of the record's events touch the tile and the milliseconds of it they
+cover, whatever each is on. Its key is `{ on, tile }`. An event over two months
+is in each month's count, and once in their quarter's, so a reader never sums
+finer tiles to make a coarser one: it declares the tile it reads.
+
+```typescript
+jobs_month: index.summary({ from: 'start', to: 'end', tile: 'month' }),
+jobs_by_hall_month: index.summary({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
+```
+
+In a task or a function, `totals({ on?, from, to })` reads each tile that
+overlaps `[from, to)`. It takes no `key`, and refuses one, naming a summary by
+key. A page lists such summaries apart from its indexes —
+`Data.bindPaged(record, { indexes, totals })`, e3-ui — for a horizon's bars,
+which read them a range of whole tiles at a time and count nothing
+themselves. `order` is refused, as on a summary by key, and a series index
+still takes a key, refusing none and naming this summary.
 
 A series index files an event past a year under each year it touches, as many
 as 4,096: one touching more is refused where it is written, naming it and its
@@ -502,6 +524,7 @@ parameter by it:
 | `index.entries('byService')` | the field's key | the row's key | that key's value |
 | `index.interval`, `index.area`, `index.series` | the generated key above | the row's key | nothing for an interval; the row for an area or a series, or a series index's `value` |
 | `index.summary` | `{ on, key, tile }` | Null: an entry stands for every row of its key | `{ count, ms }` |
+| `index.summary` with no `key` | `{ on, tile }` | Null: an entry stands for every row under its leading fields | `{ count, ms }` |
 | `index.nested` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
 
 It takes the indexes e3 keeps beside one as well: a nested series index's span
@@ -559,6 +582,7 @@ in the index's own order.
 | `index.series` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
 | `index.series`, `order: 'time'` | `events({ on?, from, to })`: the events on every key under `on` that overlap `[from, to)`; it takes no `key` | what the index carries, and the row's key | one a level, a tile's events together in their keys' order |
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
+| `index.summary` with no `key` | `totals({ on?, from, to })`: each of the record's tiles under `on` that overlaps `[from, to)`; it takes no `key` | `{ count, ms }`, and the tile's start in place of a row's key | one |
 | `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport, in the index's order: a cell before the cells inside it |
 | `index.entries` | `of(key)`: that key's entry on every row that holds one | the entry's value, and the row's key | one |
 | `index.nested` | of one node of a row's tree, below | below | one, or one a level |
