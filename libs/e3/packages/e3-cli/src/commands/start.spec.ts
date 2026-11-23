@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { none, some, variant } from '@elaraai/east';
 import type { DataflowExecutionState } from '@elaraai/e3-api-client';
-import { followRemoteRun, forcedTasks } from './start.js';
+import { followRemoteRun, forcedTasks, partitionLine, taskResultLine } from './start.js';
 
 describe('forcedTasks', () => {
   it('forces nothing unless told: --force every task, --force-task the tasks it names', () => {
@@ -86,5 +86,25 @@ describe('followRemoteRun', () => {
     const ended = await followRemoteRun(poll, () => false, async () => {});
     assert.equal(ended?.status.type, 'aborted');
     assert.equal(polls, 4);
+  });
+});
+
+describe('a local run\'s completion lines (#1723)', () => {
+  const timing = 'granted +12 s · fetched 903 MB (0 B cached) 260 s · booted 3 s · ran 19 s · sent 4 MB 1 s';
+
+  it('say where a rack unit\'s time went after its duration, and nothing more of one that ran here', () => {
+    const piece = { phase: 'partition', index: 2, total: 48, completed: 3, state: 'completed', cached: false, duration: 271_204.4 } as const;
+    assert.equal(partitionLine('scores', piece), '  [PART] scores 3/48 #3 [271204ms]');
+    assert.equal(partitionLine('scores', { ...piece, timing }), `  [PART] scores 3/48 #3 [271204ms] — ${timing}`);
+    assert.equal(partitionLine('scores', { ...piece, phase: 'merge', total: 2, completed: 1, timing }), `  [MERGE] scores 1/2 [271204ms] — ${timing}`);
+    assert.equal(partitionLine('scores', { phase: 'partition', index: 0, total: 48, completed: 0, state: 'started' }), undefined);
+  });
+
+  it('say it of a whole task, done or failed', () => {
+    const done = { name: 'train', cached: false, state: 'success', duration: 41_870, timing } as const;
+    assert.equal(taskResultLine(done), `  [DONE] train [41870ms] — ${timing}`);
+    assert.equal(taskResultLine({ ...done, state: 'failed', exitCode: 2 }), `  [FAIL] train [41870ms] (exit code 2) — ${timing}`);
+    assert.equal(taskResultLine({ name: 'train', cached: false, state: 'success', duration: 5 }), '  [DONE] train [5ms]');
+    assert.equal(taskResultLine({ ...done, cached: true }), '  [CACHED] train');
   });
 });

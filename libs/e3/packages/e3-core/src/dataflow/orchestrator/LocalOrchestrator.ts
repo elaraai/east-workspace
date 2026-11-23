@@ -258,6 +258,8 @@ interface TaskOutcome {
   cancelled?: boolean;
   duration: number;
   peakBytes?: number;
+  /** Where its time went, as the host that ran it says it (`TaskResult.timing`) */
+  timing?: string;
 }
 
 /** A split task's execution, as the loop completes it. */
@@ -272,6 +274,7 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
     cancelled: result.cancelled,
     duration: Date.now() - startTime,
     ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+    ...(result.timing !== undefined && { timing: result.timing }),
   };
 }
 
@@ -1520,6 +1523,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             cached: result.cached,
             state: 'success',
             duration: result.duration,
+            ...(result.timing !== undefined && { timing: result.timing }),
           });
         }
 
@@ -1559,6 +1563,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           error: result.error,
           exitCode: result.exitCode,
           duration: result.duration,
+          ...(result.timing !== undefined && { timing: result.timing }),
         });
 
         // Skip dependents (events added by step function)
@@ -1900,6 +1905,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       error: result.error ?? null,
       cancelled: result.cancelled ?? false,
       ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+      ...(result.timing !== undefined && { timing: result.timing }),
     };
   }
 
@@ -1951,6 +1957,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         cancelled: result.cancelled,
         duration: Date.now() - startTime,
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+        ...(result.timing !== undefined && { timing: result.timing }),
       };
     } else {
       const result = await this.hostRunner().execute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
@@ -1964,6 +1971,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         cancelled: result.cancelled,
         duration: Date.now() - startTime,
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+        ...(result.timing !== undefined && { timing: result.timing }),
       };
     }
   }

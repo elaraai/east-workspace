@@ -1472,3 +1472,15 @@ Each wire changed under this rule, with the kind it is.
   spec's bytes and hash change with the case, and each task of a re-exported
   package that names an environment runs again. Packages are re-exported, so
   no repository upgrade step ships.
+- **A rack lease's result gains `phases` (#1723)** — neither package-borne nor
+  stored: JSON inside the completion's `resultJson` (`RackLeaseResult`), as
+  its `reason` and `retries` are, read for the fields a build knows
+  (`readRackPhases`): each mark of the lease's time on its rack, in ms after
+  the rack received its grant, and the bytes it fetched, read from its cache
+  and sent. No BEAST2 struct changes and rack protocol 3 and hub control
+  protocol 5 stay as they are: a hub or a source that knows no phases takes
+  the field as nothing, and a rack's agent of an earlier release sends none,
+  of which a run prints nothing more. In process, e3-core's `ExecutionResult`,
+  `TaskResult`, `TaskCompletedCallback` and e3-types' `PartitionProgress` gain
+  an optional `timing`, the line a run prints of them; none is encoded, so no
+  repository upgrade step ships.
