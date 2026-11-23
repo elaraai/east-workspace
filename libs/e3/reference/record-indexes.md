@@ -235,7 +235,7 @@ event kind changes.
 | Rows drawn in another order than their keys' | Still right: the Plan keeps the entries of the block's rows and drops the rest. It reads more, and what it counts before a read is at least the block's, so the kind may shade sooner |
 | One key's events | Not a range of it. Declare an index in key order beside it |
 | An event longer than its tile | Filed once at the level its length fits, as in key order; past a year, under each year it touches, so a read over years meets it once a year: keep it by its key |
-| A `value` in the row's place | A task or a function reads that value. A Plan draws from whole rows: a kind's source listing such an index beside its interval index is refused as the binding is made, naming the index |
+| A `value` in the row's place | A task or a function reads that value, and a page's source may list the index beside any other: its entries are read as copies, at their own type, never joined. A Plan or a Calendar draws an event kind's events from whole rows, so a kind's source listing such an index is refused as the page is built, naming the index |
 | The tile | A week reads well at an hour's, a day's and a week's resolution. Zoomed out further a window holds more events, and past 10,000 the kind shades from its summary index |
 | Both orders over the same fields | Allowed, and each is maintained on every write: declare the second only for a reader that needs it |
 | `order` on a summary index, or another word | Refused, naming the two orders: a summary index is filed by key |

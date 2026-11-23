@@ -22,6 +22,10 @@
  * - A **series index in time order** (#1710) files the same entries as a
  *   series index, the tile before the key: `{ on, level, tile, key, past }`, a
  *   tile's events together in their keys' order, `past` false in every entry.
+ * - A series index declared with a `value` (#1725) files its events as either
+ *   order does, each entry carrying a **copy** of its event — what the value
+ *   gives of the row — in the row's place: its reader draws the copies, and
+ *   never takes one for a row.
  *
  * A **cell** is some keys over one run: what a reader reads of an index for a
  * block of its rows. Each key of a cell is one range search — the key leads
@@ -91,6 +95,11 @@ export interface TileMarker {
     readonly summary: boolean;
     /** The order a series index files its entries in (#1710): by key, or by time; a summary index's is by key. */
     readonly order: RecordOrder;
+    /**
+     * Whether a series index's entries carry a copy of each event — what its `value` gives of the row — in the row's
+     * place (#1725); a summary index's carry its totals, and its is false.
+     */
+    readonly copy: boolean;
 }
 
 /** The order a series index files its entries in: by the key an event is on, or by time. */
@@ -98,6 +107,8 @@ export type RecordOrder = keyof RecordSliceOrderType["cases"] & string;
 
 /** The marker's name for a summary index. */
 const SUMMARY_MARKER = "__summary";
+/** The marker's name for a series index whose entries carry a copy of each event (#1725). */
+const COPY_MARKER = "__copy";
 const TILE_ROLES = ["key", "from", "to", "tile", "order"] as const;
 /** The orders a marker names. */
 const RECORD_ORDERS: readonly RecordOrder[] = ["key", "time"];
@@ -107,18 +118,20 @@ const RECORD_ORDERS: readonly RecordOrder[] = ["key", "time"];
  * with in a binding's index metadata — its kind's `series` or `summary` case
  * (#1432), as an area index's case names its box: the key, start and end
  * fields and the tile, each named with its role (`key=…`), `order=time` for a
- * series index in time order (#1710) — an index in key order names none — and
- * `__summary` for a summary index. A marker's names are the kind's own, never
- * a row field among the index's.
+ * series index in time order (#1710) — an index in key order names none —
+ * `__copy` for a series index whose entries carry a copy of each event
+ * (#1725), and `__summary` for a summary index. A marker's names are the
+ * kind's own, never a row field among the index's.
  *
  * @param marker - How the index files the record's events
  * @returns The marker struct's field names, in order
- * @throws {Error} For a summary index in time order: a summary is filed by key
+ * @throws {Error} For a summary index in time order, or carrying a copy: a summary is filed by key, and holds its totals
  */
 export function tileMarkerFields(marker: TileMarker): string[] {
     if (marker.summary && marker.order !== "key") throw new Error("A summary index is filed by key: its marker names no order");
+    if (marker.summary && marker.copy) throw new Error("A summary index holds its totals: its marker names no copy");
     return [`key=${marker.key}`, `from=${marker.from}`, `to=${marker.to}`, `tile=${marker.tile}`,
-        ...(marker.order === "key" ? [] : [`order=${marker.order}`]), ...(marker.summary ? [SUMMARY_MARKER] : [])];
+        ...(marker.order === "key" ? [] : [`order=${marker.order}`]), ...(marker.copy ? [COPY_MARKER] : []), ...(marker.summary ? [SUMMARY_MARKER] : [])];
 }
 
 /**
@@ -130,11 +143,12 @@ export function tileMarkerFields(marker: TileMarker): string[] {
  */
 export function readTileMarker(names: readonly string[]): TileMarker | undefined {
     const roles = new Map<string, string>();
-    let summary = false;
+    // The names a marker holds once each, alone: a summary's, and a copy's.
+    const leaves = new Set<string>();
     for (const name of names) {
-        if (name === SUMMARY_MARKER) {
-            if (summary) return undefined;
-            summary = true;
+        if (name === SUMMARY_MARKER || name === COPY_MARKER) {
+            if (leaves.has(name)) return undefined;
+            leaves.add(name);
             continue;
         }
         const at = name.indexOf("=");
@@ -146,8 +160,11 @@ export function readTileMarker(names: readonly string[]): TileMarker | undefined
     // A marker that names no order is an index in key order; one that names it names an order, and never a summary's.
     const order = roles.has("order") ? RECORD_ORDERS.find(o => o === roles.get("order")) : "key";
     if (key === undefined || from === undefined || to === undefined || tile === undefined || order === undefined) return undefined;
-    if (summary && order !== "key") return undefined;
-    return { key, from, to, tile, summary, order };
+    const summary = leaves.has(SUMMARY_MARKER);
+    const copy = leaves.has(COPY_MARKER);
+    // A summary is filed by key, and holds its totals.
+    if (summary && (order !== "key" || copy)) return undefined;
+    return { key, from, to, tile, summary, order, copy };
 }
 
 /** A day, in milliseconds. */

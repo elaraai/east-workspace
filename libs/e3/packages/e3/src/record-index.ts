@@ -463,8 +463,16 @@ export interface TimeTileOf<S> {
   readonly tile: RecordTile;
 }
 
-/** What a series index's definition carries of its declaration: its fields and tile, and the order it is filed in. */
-export type SeriesOf<S> = TimeTileOf<S> & {
+/**
+ * What a series index's definition carries of its declaration: its fields and tile, the order it is filed in, and what
+ * its entries carry — each its row, or what its `value` gives of the row (#1710).
+ *
+ * @typeParam S - The spec as written
+ * @typeParam O - The options as written
+ */
+export type SeriesOf<S, O = Record<never, never>> = TimeTileOf<S> & {
   /** `'time'` where the declaration says so, `'key'` otherwise. */
   readonly order: S extends { order: 'time' } ? 'time' : 'key';
+  /** `'value'` where the options give a `value`, `'row'` otherwise. */
+  readonly carries: 'value' extends keyof O ? 'value' : 'row';
 };

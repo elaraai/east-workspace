@@ -87,7 +87,7 @@ describe("the rows a group stands under, as a leading field holds them (#1710)",
 describe("a group's searches through the series index that serves it (#1710)", () => {
     const indexType = ArrayType(RecordSliceIndexType);
     const plain = { interval: none, area: none, series: none, summary: none, entries: false };
-    const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("key", null) };
+    const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("key", null), copy: false };
     const [byPress, byHall] = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
         { name: "jobs_by_press_week", fields: [], sets: new Set(), structured: true, ...plain, series: some(week) },
         { name: "jobs_by_hall_week", fields: ["hall"], sets: new Set(), structured: true, ...plain, series: some({ ...week, order: variant("time", null) }) },

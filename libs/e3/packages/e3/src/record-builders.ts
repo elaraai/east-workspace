@@ -336,7 +336,7 @@ export interface IndexBuilder<T extends EastType> {
    * ```
    */
   series<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
-    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: SeriesOf<S> }>;
+    IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: SeriesOf<S, O> }>;
   /** The nested series index, and the builders of the collections it files. */
   readonly nested: NestedBuilder<T>;
   /**

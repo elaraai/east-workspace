@@ -141,7 +141,8 @@ export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Eve
  * builder reads only then — and refused in words naming the change to make:
  * one filed by another field than the kind's resource, or over other times
  * than its events'; a series index for a kind not placed on a paged resource
- * kind alone; two series in one order, or two summaries, by one tile over the same fields;
+ * kind alone; a series index whose entries are copies of its events, which
+ * hold no row to draw (#1725); two series in one order, or two summaries, by one tile over the same fields;
  * a series index with no summary beside it, whose shading draws past the cap;
  * and, for a kind placed on a paged resource kind, a source listing no series
  * index — a paged kind's events are read a cell at a time — each naming the
@@ -192,6 +193,13 @@ export function checkedScheduleTilings(
                         if (arm === "series" && !alone) {
                             $3.error(named.concat(unpaged));
                             return;
+                        }
+                        // A series index whose entries are copies of its events (#1725): its cells hold no row to draw.
+                        if (arm === "series") {
+                            $3.if(tiling.copy, ($4) => {
+                                $4.error(named.concat(", whose entries are copies of its events, what its `value` gives of each row — the " +
+                                    `${builder} draws an event kind's events from their rows: list a series index declared with no \`value\` in its place`));
+                            });
                         }
                         // Filed by the kind's resource, over its events' times.
                         $3.if(tiling.key.equal(field).not(), ($4) => {

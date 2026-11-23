@@ -311,12 +311,12 @@ function keysOf<T extends KeyedByString>(entries: readonly EntryOf<T>[], once: s
 /** A page's index metadata, as `Data.bindPaged` gives a record Slice one. */
 function pageIndex(name: string, def: RecordIndexDef): Index {
     // What a series and a summary index both file by: a series index says beside it what it carries, and its order.
-    const tiling = (t: NonNullable<RecordIndexDef["summary"]>, order: "key" | "time") =>
-        ({ key: t.key, from: t.from, to: t.to, tile: variant(t.tile, null), order: variant(order, null) });
+    const tiling = (t: NonNullable<RecordIndexDef["summary"]>, order: "key" | "time", copy: boolean) =>
+        ({ key: t.key, from: t.from, to: t.to, tile: variant(t.tile, null), order: variant(order, null), copy });
     return decodeBeast2For(RecordSliceIndexType)(encodeBeast2For(RecordSliceIndexType)({
         name, fields: [...(def.on ?? [])], sets: new Set(), structured: true, interval: none, area: none,
-        series: def.series === undefined ? none : some(tiling(def.series, def.series.order)),
-        summary: def.summary === undefined ? none : some(tiling(def.summary, "key")),
+        series: def.series === undefined ? none : some(tiling(def.series, def.series.order, def.series.carries === "value")),
+        summary: def.summary === undefined ? none : some(tiling(def.summary, "key", false)),
         entries: false,
     }));
 }

@@ -38,9 +38,10 @@ type DeclaredFields<D> = D extends { entries: { field: infer F extends string };
  *  start and end (`from=…`, `to=…`, east-ui's `intervalMarkerFields`), whose
  *  names the rail reads its start from; an area index's box and its cell
  *  (`areaMarkerFields`); a series or a summary index's key, times and tile,
- *  and a series index in time order's order (`tileMarkerFields`, #1039,
- *  #1710); an entries index's, `entries`, its field its one row field
- *  (#1522). Never a row field among the index's. */
+ *  a series index in time order's order, and one's whose entries carry a copy
+ *  of each event (`tileMarkerFields`, #1039, #1710, #1725); an entries
+ *  index's, `entries`, its field its one row field (#1522). Never a row field
+ *  among the index's. */
 type IndexKind<D> = D extends { interval: { from: infer From extends string; to: infer To extends string } }
     ? VariantType<{ interval: StructType<{ [N in `from=${From}` | `to=${To}`]: NullType }> }>
     : D extends { area: object } ? VariantType<{ area: StructType<Record<string, NullType>> }>
@@ -50,13 +51,20 @@ type IndexKind<D> = D extends { interval: { from: infer From extends string; to:
     : VariantType<{ plain: NullType }>;
 /** The projection a binding's entries carry (D29): the one every index carries,
  *  or Null where each carries the whole row, as an area or a series index does,
- *  or nothing. A summary index's totals are its own (#1039). A series index
- *  declared with a `value` carries that value, as a plain index does (#1710). */
+ *  or nothing. A summary index's totals are its own (#1039), as a series index's
+ *  copies are, one declared with a `value` (#1725). */
 type BindingProjection<V extends EastType, R extends EastType> =
     [V] extends [R] ? R
         : [Exclude<V, R>] extends [NullType] ? (R extends V ? NullType : V) : V;
-/** The indexes whose entries carry the binding's projection: every one but a summary (#1039) or a nested series index (#1435). */
-type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object } | { nested: object }>;
+/** A series index whose entries carry a copy of each event — what its `value` gives of the row (#1725) — as its type says it. */
+type CopyIndex = { series: { carries: "value" } };
+/**
+ * The indexes whose entries carry the binding's projection: every one but a summary (#1039), a nested series index
+ * (#1435) and a series index carrying a copy of each event (#1725), each of which carries its own.
+ */
+type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object } | { nested: object } | CopyIndex>;
+/** A series index's copy of each event, its type an empty Array of it in the index's metadata (#1725); nothing of any other index. */
+type CopyOf<D> = D extends CopyIndex & { valueType: infer V extends EastType } ? { copy: ArrayType<V> } : unknown;
 /** The indexes a rail reads: every one but a nested series index, which a binding carries in a part of its own (#1435). */
 type RailIndexes<I extends FieldIndexes<EastType>> = readonly Exclude<I[number], { nested: object }>[];
 
@@ -135,9 +143,12 @@ type OneOf<N extends string> = StructType<{ [K in N]: NullType }>;
  */
 export type NestedPart<C extends EastType, Name extends string, Tile extends string = never, Summary extends string = never> =
     ReturnType<typeof NestedPartType<C, OneOf<Name>, OneOf<Tile>, OneOf<Summary>>>;
-/** Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind. */
+/**
+ * Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind — and
+ * a series index's copy of each event, where it carries one (#1725).
+ */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
-    [D in I[number] as D["name"]]: StructType<{ fields: StructType<DeclaredFields<D>>; kind: IndexKind<D> }>
+    [D in I[number] as D["name"]]: StructType<{ fields: StructType<DeclaredFields<D>>; kind: IndexKind<D> } & CopyOf<D>>
 }>;
 /** A common key space for a source that may read through any listed index. */
 type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantType<{
@@ -168,8 +179,9 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * (D29): an area index (`index.area`) and a series index (`index.series`,
  * #1039) carry their rows, and are read without a join, beside indexes that
  * carry nothing, read with one; a series index declared with a `value`
- * carries that value in its rows' place (#1710), as a plain index carries its
- * own. A summary index (`index.summary`) carries its
+ * carries a copy of each event, what the value gives of its row, in the row's
+ * place, and is read without a join beside whatever the others carry (#1725):
+ * a reader of its cells draws the copies. A summary index (`index.summary`) carries its
  * totals, whatever the others carry, and is never joined: its entries name no
  * row. An entries index (`index.entries`, #1522) offers the Dict field it
  * files to the rail, its keys picked as a Set's elements are, and carries each
@@ -274,12 +286,23 @@ export const DataIndexedPrimitives = {
 };
 
 /**
+ * Whether a series index's entries carry a copy of each event — what its `value` gives of the row (#1725) — in the
+ * row's place.
+ *
+ * @param index - The index
+ * @returns Whether it carries copies
+ */
+function carriesCopy(index: RecordIndexDef): boolean {
+    return index.series?.carries === "value";
+}
+
+/**
  * The projection a binding's entries carry (D29): the one every listed index
  * carries; or, where they differ, Null, each index then carrying the whole row
  * — as an area or a series index does, read without a join — or nothing. A
- * summary index's totals are its own, and count for neither (#1039). A series
- * index declared with a `value` carries that value in its rows' place (#1710),
- * so it is one projection among the others, as a plain index's value is.
+ * summary index's totals are its own, and count for neither (#1039), as a
+ * series index's copies of its events are, one declared with a `value`
+ * (#1725).
  *
  * @param indexes - The listed indexes
  * @returns The binding's projection type
@@ -287,12 +310,12 @@ export const DataIndexedPrimitives = {
  *   neither the whole row, as an area or a series index does, nor nothing, naming it
  */
 function bindingProjection(indexes: FieldIndexes<EastType>): EastType {
-    const projected = indexes.filter(index => index.summary === undefined);
+    const projected = indexes.filter(index => index.summary === undefined && !carriesCopy(index));
     if (projected.length === 0) return NullType;
     const first = projected[0]!.valueType;
     if (projected.every(index => isTypeEqual(index.valueType, first))) return first;
     for (const index of projected) {
-        const carriesTheRow = index.area !== undefined || index.series?.carries === "row";
+        const carriesTheRow = index.area !== undefined || index.series !== undefined;
         if (!carriesTheRow && !isTypeEqual(index.valueType, NullType)) {
             throw new Error(
                 `Data.bindPaged: '${index.name}' carries ${printType(index.valueType)} beside indexes that carry another projection — ` +
@@ -332,8 +355,8 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const names = new Set<string>();
     // Each index's metadata, listed in the rail's order: every struct built here is a list of its fields, as an object
     // would list a field named like an integer first (#1574)
-    const fields: (readonly [string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>])[] = [];
-    const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown> }> = {};
+    const fields: (readonly [string, StructType])[] = [];
+    const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown>; copy?: readonly never[] }> = {};
     const keyTypes: Record<string, EastType> = { primary: type.key };
     const projection = nested === undefined && entries.length === 0 ? bindingProjection(options.indexes) : type.value;
     let singleEntryIndex = false;
@@ -355,10 +378,14 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         // kind's one case — `plain`, or a generated index's, a struct naming
         // the kind's own parts by role: an interval's start and end, an area
         // index's box and its cell, a series or a summary index's key, times
-        // and tile (#1039), and a series index in time order's order (#1710);
-        // an entries index's `entries`, its field its Dict field (#1522).
-        // Slice.bindRecord reads them back; e3's parts are never a field's name.
+        // and tile (#1039), a series index in time order's order (#1710), and
+        // one's whose entries carry a copy of each event (#1725); an entries
+        // index's `entries`, its field its Dict field (#1522). Slice.bindRecord
+        // reads them back; e3's parts are never a field's name. A series index's
+        // copy is carried beside them too, as an empty Array of it, so the page's
+        // runtime reads its entries at the copy's type.
         const tiling = index.series ?? index.summary;
+        const copy = carriesCopy(index);
         const [kind, parts]: [string, readonly string[] | undefined] = index.entries !== undefined ? ["entries", undefined] : index.interval !== undefined
             ? ["interval", intervalMarkerFields({ from: index.interval.from, to: index.interval.to })]
             : index.area !== undefined
@@ -368,7 +395,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                 : tiling !== undefined
                     ? [index.summary !== undefined ? "summary" : "series",
                         tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined,
-                            order: index.series?.order ?? "key" })]
+                            order: index.series?.order ?? "key", copy })]
                     : ["plain", undefined];
         const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(parts.map(name => [name, NullType] as const)) });
         const kindValue = variant(kind, parts === undefined ? null : Object.fromEntries(parts.map(name => [name, null])));
@@ -384,8 +411,9 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                 [field, index.multi ? SetType(type) : ArrayType(type)])), kind: kindType })]);
             metadata[index.name] = { fields: Object.fromEntries(entries.map(([field]) => [field, index.multi ? new Set() : []])), kind: kindValue };
         } else {
-            fields.push([index.name, StructType({ fields: StructType(index.on!.map(field => [field, NullType] as const)), kind: kindType })]);
-            metadata[index.name] = { fields: Object.fromEntries(index.on!.map(field => [field, null])), kind: kindValue };
+            const led = StructType(index.on!.map(field => [field, NullType] as const));
+            fields.push([index.name, StructType([["fields", led], ["kind", kindType], ...(copy ? [["copy", ArrayType(index.valueType)] as const] : [])])]);
+            metadata[index.name] = { fields: Object.fromEntries(index.on!.map(field => [field, null])), kind: kindValue, ...(copy && { copy: [] }) };
         }
         keyTypes[index.name] = index.keyType;
         singleEntryIndex ||= !index.multi;

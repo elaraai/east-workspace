@@ -13,6 +13,7 @@ import {
     SetType,
     SortedMap,
     StringType,
+    StructType,
     compareFor,
     example,
     none,
@@ -125,6 +126,9 @@ function windowJobs(): ValueTypeOf<DictType<StringType, typeof PrintJob>> {
     ]);
 }
 
+/** What a print job's tile draws: its title, its press and when it runs — the copy of each job a series index carries (#1725). */
+export const PrintJobTile = StructType({ title: StringType, press: OptionType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+
 /** The print jobs on the presses ({@link windowJobs}), read through their indexes. */
 export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType, PrintJob), {
     initial: windowJobs(),
@@ -154,6 +158,14 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
         // refused.
         plan_window_jobs_by_press_month_again: index.summary({
             key: "press", from: "start", to: "end", tile: "month",
+        }),
+        // The jobs' tiles by press and week, each entry a copy of its job — what its
+        // tile draws — in its row's place (#1725): no example lists it. A Plan draws a
+        // kind's events from their rows, and the series spec lists it to see it refused.
+        plan_window_job_tiles_by_press_week: index.series({
+            key: "press", from: "start", to: "end", tile: "week",
+        }, {
+            value: East.function([StringType, PrintJob], PrintJobTile, (_$, _id, job) => ({ title: job.title, press: job.press, start: job.start, end: job.end })),
         }),
         // The jobs by the days each touches (`Schedule.days`): a scheduled job is
         // filed under every day it runs into, and a job in the backlog under none —

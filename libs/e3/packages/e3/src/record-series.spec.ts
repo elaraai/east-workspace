@@ -527,6 +527,9 @@ describe('index.series — its declaration', () => {
     assert.equal(printType(def.valueType), printType(JobTile), 'it carries what its value gives');
     assert.equal(printType(def.keyType), printType(whole.keyType), 'under the key a series index files by');
     assert.deepEqual(def.series, { ...spec, carries: 'value', order: 'key' });
+    // What its entries carry, as its type says it: a binding tells its copies from the rows by it (#1725).
+    const carried: readonly ['value', 'row'] = [def.series.carries, whole.series.carries];
+    assert.deepEqual(carried, ['value', 'row']);
     assert.equal(def.valueFn, tileOf);
     const rows = seededJobs();
     const out = emitted(def, rows);

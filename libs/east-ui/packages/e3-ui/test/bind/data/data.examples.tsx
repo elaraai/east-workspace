@@ -912,12 +912,14 @@ export const indexedRackLoads = e3.record('indexed_rack_loads', DictType(StringT
 
 /** A print job: the press it runs on, if any yet, its state, and when it runs, if it is scheduled. */
 export const IndexedJob = StructType({ press: OptionType(StringType), state: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/** What a job's tile draws: its press and when it runs — the copy of each job a series index carries in its row's place (#1725). */
+export const IndexedJobTile = StructType({ press: OptionType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
 /**
  * Jobs on three presses about the week of Monday 5 October 2026: one carried in
  * from the week before, one across the week's end into the next, one the whole
  * month, two inside the week, an instant at its start, one on no press yet and
- * one in the backlog — what a cell of some presses in a week holds, and what a
- * month's totals count (#1039).
+ * one in the backlog — what a cell of some presses in a week holds, what a
+ * month's totals count (#1039), and what a copy of each job carries (#1725).
  */
 export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, IndexedJob), {
     initial: new Map([
@@ -938,6 +940,10 @@ export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, Indexe
         jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
         jobs_by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
         jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+        // Their tiles, some presses in a week: each entry a copy of its job, what its tile draws, in the row's place (#1725).
+        job_tiles_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }, {
+            value: East.function([StringType, IndexedJob], IndexedJobTile, (_$, _id, job) => ({ press: job.press, start: job.start, end: job.end })),
+        }),
     }),
     mutations: (mutation) => ({
         patch: mutation.patch(),

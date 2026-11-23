@@ -19,7 +19,8 @@
  * - The refusals a Plan makes of a source's series and summary indexes as its
  *   payload builds, in the words a build uses — a kind landing on the paged
  *   presses whose source lists no series index, or no summary, among them,
- *   each naming the indexes to declare over the kind's own fields.
+ *   each naming the indexes to declare over the kind's own fields, and one
+ *   whose series index carries a copy of each event in its row's place (#1725).
  *
  * What a reader reads, and when, is the DOM's (`src/plan/frame/plan-series.dom.test.tsx`).
  */
@@ -283,6 +284,12 @@ describe("a source's series and summary indexes, refused as the payload builds (
             refused(`series index "plan_window_jobs_by_press_week", filed by "press" — a Plan reads it by the kind's resource field: key: "customer"`));
         await assert.rejects(payloadOf({ end: "due" }),
             refused(`series index "plan_window_jobs_by_press_week", over "start" to "end" — a Plan reads it over the kind's own times: from: "start", to: "due"`));
+    });
+
+    test("a series index whose entries are copies of its events, what its value gives of each row (#1725): its cells hold no row to draw", async () => {
+        await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_job_tiles_by_press_week", "plan_window_jobs_by_press_month"] }),
+            refused(`series index "plan_window_job_tiles_by_press_week", whose entries are copies of its events, what its \`value\` gives of each row — ` +
+                "the Plan draws an event kind's events from their rows: list a series index declared with no `value` in its place"));
     });
 
     test("two summaries of one tile over the same fields, each named", async () => {

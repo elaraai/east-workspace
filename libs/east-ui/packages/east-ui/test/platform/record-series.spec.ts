@@ -16,6 +16,8 @@
  * cell's searches are a range a tile, from its first key through its last;
  * and a block of keys is read through the index led by the most of the
  * narrowing's choices, one in time order under the group the block stands in.
+ * A series index whose entries carry a copy of each event says so in its
+ * marker too (#1725).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -53,25 +55,32 @@ function dayOf(instant: Date): Date {
     return start;
 }
 
-test("a tile marker names its fields by role, a series index's time order, marks a summary, and reads back as itself", () => {
+test("a tile marker names its fields by role, a series index's time order and its copies, marks a summary, and reads back as itself", () => {
     for (const marker of [
-        { key: "press", from: "start", to: "end", tile: "week" as const, summary: false, order: "key" as const },
-        { key: "press", from: "start", to: "end", tile: "week" as const, summary: false, order: "time" as const },
-        { key: "press", from: "start", to: "end", tile: "month" as const, summary: true, order: "key" as const },
-        { key: "a=b", from: "__summary", to: "order=time", tile: "day" as const, summary: false, order: "key" as const },
-        ...RECORD_TILES.map(tile => ({ key: "k", from: "f", to: "t", tile, summary: true, order: "key" as const })),
-        ...RECORD_TILES.map(tile => ({ key: "k", from: "f", to: "t", tile, summary: false, order: "time" as const })),
+        { key: "press", from: "start", to: "end", tile: "week" as const, summary: false, order: "key" as const, copy: false },
+        { key: "press", from: "start", to: "end", tile: "week" as const, summary: false, order: "time" as const, copy: false },
+        { key: "press", from: "start", to: "end", tile: "month" as const, summary: true, order: "key" as const, copy: false },
+        { key: "a=b", from: "__summary", to: "order=time", tile: "day" as const, summary: false, order: "key" as const, copy: false },
+        // A series index carrying a copy of each event (#1725), in either order; a field named as the leaf is a field.
+        { key: "press", from: "start", to: "end", tile: "week" as const, summary: false, order: "key" as const, copy: true },
+        { key: "__copy", from: "start", to: "end", tile: "week" as const, summary: false, order: "time" as const, copy: true },
+        ...RECORD_TILES.map(tile => ({ key: "k", from: "f", to: "t", tile, summary: true, order: "key" as const, copy: false })),
+        ...RECORD_TILES.map(tile => ({ key: "k", from: "f", to: "t", tile, summary: false, order: "time" as const, copy: false })),
     ]) {
         assert.deepEqual(readTileMarker(tileMarkerFields(marker)), marker);
     }
-    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "quarter", summary: true, order: "key" }),
+    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "quarter", summary: true, order: "key", copy: false }),
         ["key=press", "from=start", "to=end", "tile=quarter", "__summary"]);
-    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: false, order: "key" }),
-        ["key=press", "from=start", "to=end", "tile=week"], "an index in key order names no order: its marker is as it was");
-    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: false, order: "time" }),
+    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: false, order: "key", copy: false }),
+        ["key=press", "from=start", "to=end", "tile=week"], "an index in key order carrying its rows names no order and no copy: its marker is as it was");
+    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: false, order: "time", copy: false }),
         ["key=press", "from=start", "to=end", "tile=week", "order=time"]);
-    assert.throws(() => tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: true, order: "time" }),
+    assert.deepEqual(tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: false, order: "time", copy: true }),
+        ["key=press", "from=start", "to=end", "tile=week", "order=time", "__copy"]);
+    assert.throws(() => tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: true, order: "time", copy: false }),
         /A summary index is filed by key/);
+    assert.throws(() => tileMarkerFields({ key: "press", from: "start", to: "end", tile: "week", summary: true, order: "key", copy: true }),
+        /A summary index holds its totals: its marker names no copy/);
     for (const names of [
         ["key=k", "from=f", "to=t", "tile=week", "order=press"], ["key=k", "from=f", "to=t", "tile=week", "order=time", "order=time"],
         ["key=k", "from=f", "to=t", "tile=week", "order=time", "__summary"],
@@ -79,6 +88,7 @@ test("a tile marker names its fields by role, a series index's time order, marks
         ["key=k", "key=j", "from=f", "to=t", "tile=week"], ["key=k", "from=f", "to=t", "tile=hour"],
         ["key=k", "from=f", "to=t", "tile=week", "__summary", "__summary"], ["key", "from=f", "to=t", "tile=week"],
         ["key=k", "from=f", "to=t", "tile=week", "cell=1.0"], ["key=k", "from=f", "to=t", "tile=week", "=x"],
+        ["key=k", "from=f", "to=t", "tile=week", "__copy", "__copy"], ["key=k", "from=f", "to=t", "tile=week", "__copy", "__summary"],
     ]) {
         assert.equal(readTileMarker(names), undefined, names.join(", "));
     }
@@ -193,7 +203,7 @@ test("a summary's run is its tiles from the one before the range to the one afte
 });
 
 const indexType = ArrayType(RecordSliceIndexType);
-const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("key", null) };
+const week = { key: "press", from: "start", to: "end", tile: variant("week", null), order: variant("key", null), copy: false };
 const month = { ...week, tile: variant("month", null) };
 const weekInTime = { ...week, order: variant("time", null) };
 const plain = { interval: none, area: none, series: none, summary: none, entries: false };

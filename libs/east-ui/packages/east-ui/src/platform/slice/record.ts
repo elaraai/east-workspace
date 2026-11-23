@@ -274,7 +274,8 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  *
  * A series or a summary index (`index.series`, `index.summary`) offers no
  * field at all: it is listed for a reader of its cells (#1039), and its
- * metadata says how it files the record's events.
+ * metadata says how it files the record's events, and whether a series
+ * index's entries carry a copy of each event in its row's place (#1725).
  *
  * An entries index (`index.entries`, #1522) offers its Dict field: the rail
  * lists the Dict's keys as the field's values, from its hints, each counted by
@@ -364,7 +365,8 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
             if (tiling === undefined || tiling.summary !== (kind === "summary") || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
                 throw unmarked(name, `${kind}`);
             }
-            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null), order: variant(tiling.order, null) });
+            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null), order: variant(tiling.order, null),
+                copy: tiling.copy });
             if (tiling.summary) summary = filed;
             else series = filed;
         } else if (kind === "area") {

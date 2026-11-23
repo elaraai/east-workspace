@@ -1681,3 +1681,24 @@ Each wire changed under this rule, with the kind it is.
   index is when its package is deployed; no index a record already has changes
   its key. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **east-ui's record Slice says whether a series index's entries are copies of
+  its events (#1725)** — package-borne. A series or a summary index's filing
+  (`RecordSliceTilingType`) gains `copy`, after `order`: whether a series
+  index's entries carry a copy of each event — what its `value` gives of the
+  row — in the row's place, false for one carrying its rows and for a summary.
+  A binding marks such an index's kind with `__copy`, and names the copy's
+  type in the index's metadata beside its `fields` and `kind` (`copy`, an
+  empty Array of it), so the page's runtime reads its entries at the copy's
+  type and never joins them; an index carrying its rows is marked as it was. A
+  binding's projection no longer counts such an index, as it counts no
+  summary: one that lists it beside a summary alone, whose projection was the
+  copy, now has none. The filing travels in a source's config
+  (`RecordSliceConfigType`'s `indexes`), which every payload with a rail over
+  records embeds, east-ui's and each e3-ui builder's, and the metadata in the
+  binding, so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. The narrowing the store keeps
+  (`RecordSliceStateType`) is unchanged, so a narrowing kept or a view saved
+  under the earlier type reads as it did. No index changes its key or what it
+  carries. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.
