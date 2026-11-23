@@ -180,7 +180,7 @@ describe("the grouped example on e3 (#1710)", () => {
         await settle();
         const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW, 3));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW, "quarter"));
         for (const { record, totals } of KINDS) {
             const read = h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
             expect(read.map((request) => request.query.get("index"))).toEqual([`${totals}_quarter_totals`]);

@@ -28,7 +28,7 @@ import type { E3Record } from "../../e3-web.test-utils.js";
 import type { Example } from "../../e3-web-mount.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { horizonLaidOut, planHarness, settle } from "./harness.test-utils.js";
-import { instants, optionSpans, spans, touched, type Span } from "./horizon.test-utils.js";
+import { instants, optionSpans, spans, touched, type HorizonPeriod, type Span } from "./horizon.test-utils.js";
 
 const h = planHarness({
     "plan/plan": plan, "plan/plan-events": events, "plan/plan-windows": windows, "plan/optimise-windows": optimise,
@@ -61,32 +61,37 @@ const sameText = equalFor(StringType);
 /** The windows' print jobs, each a span; four in the backlog, filed nowhere. */
 const windowJobs = () => optionSpans(windows.planWindowJobs.default!.values(), (job) => [job.start, job.end]);
 
-/** A Plan example, the window its axis states, each source holding the window — its record, and its totals' names' stem — and their events. */
+/**
+ * A Plan example, the window its axis states, the period its bars count by on a 3,000px strip — a day where its sources
+ * list day totals, so a horizon of weeks draws a bar a day — each source holding the window — its record, and its
+ * totals' names' stem — and their events.
+ */
 interface HorizonCase {
     readonly name: string;
     readonly example: Example;
     readonly window: Span;
+    readonly unit: HorizonPeriod;
     readonly sources: readonly { readonly record: E3Record; readonly totals: string }[];
     readonly events: () => readonly Span[];
 }
 
 const CASES: readonly HorizonCase[] = [
-    { name: "planWindows", example: windows.planWindows, window: WINDOWS_FORTNIGHT, sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
-    { name: "planSeriesByHall", example: windows.planSeriesByHall, window: WINDOWS_FORTNIGHT, sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
+    { name: "planWindows", example: windows.planWindows, window: WINDOWS_FORTNIGHT, unit: "day", sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
+    { name: "planSeriesByHall", example: windows.planSeriesByHall, window: WINDOWS_FORTNIGHT, unit: "day", sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
     {
-        name: "planTypedKeysPaged", example: windows.planTypedKeysPaged, window: WINDOWS_FORTNIGHT,
+        name: "planTypedKeysPaged", example: windows.planTypedKeysPaged, window: WINDOWS_FORTNIGHT, unit: "day",
         sources: [{ record: windows.planKeyedWindowJobs, totals: "plan_keyed_window_jobs" }],
         events: () => optionSpans(windows.planKeyedWindowJobs.default!.values(), (job) => [job.start, job.end]),
     },
-    { name: "planOptimiseWindows", example: optimise.planOptimiseWindows, window: WINDOWS_FORTNIGHT, sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
+    { name: "planOptimiseWindows", example: optimise.planOptimiseWindows, window: WINDOWS_FORTNIGHT, unit: "day", sources: [{ record: windows.planWindowJobs, totals: "plan_window_jobs" }], events: windowJobs },
     {
-        name: "planRecordIndexes", example: records.planRecordIndexes, window: ORDERS_FORTNIGHT,
+        name: "planRecordIndexes", example: records.planRecordIndexes, window: ORDERS_FORTNIGHT, unit: "day",
         sources: [{ record: records.planOperations, totals: "plan_operations" }],
         events: () => spans(records.planOperations.default!.values(), (operation) => [operation.start, operation.end]),
     },
     {
         // Two sources hold the window: the jobs, read through their own totals while the rail chooses no stock, and the shifts.
-        name: "planPrintWorks", example: events.planPrintWorks, window: WORKS_FOUR_WEEKS,
+        name: "planPrintWorks", example: events.planPrintWorks, window: WORKS_FOUR_WEEKS, unit: "day",
         sources: [{ record: events.planPrintJobs, totals: "plan_print_jobs" }, { record: events.planPrintShifts, totals: "plan_print_shifts" }],
         events: () => [
             ...optionSpans(events.planPrintJobs.default!.values(), (job) => [job.start, job.end]),
@@ -94,19 +99,19 @@ const CASES: readonly HorizonCase[] = [
         ],
     },
     {
-        name: "planPressTasks", example: events.planPressTasks, window: WORKS_FOUR_WEEKS,
+        name: "planPressTasks", example: events.planPressTasks, window: WORKS_FOUR_WEEKS, unit: "day",
         sources: [{ record: events.planPressTaskRows, totals: "plan_press_tasks" }],
         events: () => instants(pressTasks(), (task) => task.day),
     },
     {
         // A press's page: its scope holds the press it is for, the first, so its bars are that press's tasks, read through
         // the totals led by the press.
-        name: "planOnePress", example: events.planOnePress, window: WORKS_FOUR_WEEKS,
+        name: "planOnePress", example: events.planOnePress, window: WORKS_FOUR_WEEKS, unit: "day",
         sources: [{ record: events.planPressTaskRows, totals: "plan_press_tasks_by_press" }],
         events: () => instants(pressTasks().filter((task) => sameText(task.press, "P03")), (task) => task.day),
     },
     {
-        name: "planPrintWorksRecords", example: events.planPrintWorksRecords, window: WORKS_FOUR_WEEKS,
+        name: "planPrintWorksRecords", example: events.planPrintWorksRecords, window: WORKS_FOUR_WEEKS, unit: "day",
         sources: [
             { record: events.planWorksJobs, totals: "plan_works_jobs" }, { record: events.planWorksShifts, totals: "plan_works_shifts" },
             { record: events.planWorksStops, totals: "plan_works_stops" }, { record: events.planWorksBindings, totals: "plan_works_bindings" },
@@ -122,12 +127,12 @@ const CASES: readonly HorizonCase[] = [
     },
     {
         // The flagship's rail narrows its deliveries by hall and by risk, and chooses neither to start: their own totals.
-        name: "planTargetState", example: plan.planTargetState, window: FLAGSHIP_WEEKS,
+        name: "planTargetState", example: plan.planTargetState, window: FLAGSHIP_WEEKS, unit: "day",
         sources: [{ record: plan.planTargetDeliveries, totals: "plan_target_deliveries" }],
         events: () => instants(plan.planTargetDeliveries.default!.values(), (delivery) => delivery.at),
     },
     {
-        name: "planMeasures", example: plan.planMeasures, window: MEASURE_WEEKS,
+        name: "planMeasures", example: plan.planMeasures, window: MEASURE_WEEKS, unit: "month",
         sources: [{ record: plan.planMeasureWeeks, totals: "plan_measure_weeks" }],
         events: () => instants(plan.planMeasureWeeks.default!.values(), (week) => week.week),
     },
@@ -187,19 +192,31 @@ describe("the Plan examples' horizons over their sources' totals (#1732)", () =>
         expect(read[0]!.searches).toHaveLength(1);
     });
 
-    test.each(CASES)("$name: the horizon draws each month's events of its sources from their month totals, each source's in one request of one range", async ({ example, window, sources, events }) => {
-        // The strip laid out 3,000px wide: a month keeps 4px over any of these horizons, a bar a month.
+    test.each(CASES)("$name: the horizon draws each period's events of its sources from their totals at that period — a day's for a horizon of weeks, never one month's block — each source's in one request of one range", async ({ example, window, unit, sources, events }) => {
+        // The strip laid out 3,000px wide: a day keeps 4px over any of these horizons, a bar a day where there are day totals.
         horizonLaidOut()(3000);
         const { container: c } = await h.mount(example);
         await settle();
         const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(events(), window));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(events(), window, unit));
         for (const { record, totals } of sources) {
             const dataset = pathText(record.path as TreePath);
             const read = h.requests("find", dataset).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
-            expect(read.map((request) => request.query.get("index")), dataset).toEqual([`${totals}_month_totals`]);
+            expect(read.map((request) => request.query.get("index")), dataset).toEqual([`${totals}_${unit}_totals`]);
             expect(read[0]!.searches, dataset).toHaveLength(1);
         }
+    });
+
+    test("planWindows on a strip too narrow for 4px a day: a bar a week, from the jobs' week totals, each starting on its Monday", async () => {
+        // 80px over the windows' twenty-four days: a day keeps some 3px, a week some 23px.
+        horizonLaidOut()(80);
+        const { container: c } = await h.mount(windows.planWindows);
+        await settle();
+        const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
+        await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(windowJobs(), WINDOWS_FORTNIGHT, "week"));
+        const read = h.requests("find", pathText(windows.planWindowJobs.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
+        expect(read.map((request) => request.query.get("index"))).toEqual(["plan_window_jobs_week_totals"]);
     });
 });

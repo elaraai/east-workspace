@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { horizonDensity, horizonTotalsDensity, horizonUnit } from "./horizon-density.js";
+import { HORIZON_BUCKET_UNITS, horizonDensity, horizonTotalsDensity, horizonUnit } from "./horizon-density.js";
 
 const at = (iso: string): number => new Date(`${iso}T00:00:00Z`).getTime();
 
@@ -65,6 +65,11 @@ describe("horizonDensity (#1438)", () => {
         expect([d.buckets[0]!.start.toISOString(), d.buckets[0]!.from]).toEqual(["2022-10-01T00:00:00.000Z", 0]);
     });
 
+    test("a short horizon over a nested series' months still counts by the month: e3 keeps no finer count (#1732)", () => {
+        // Four weeks from Monday 5 October 2026 on 280px, where a day would keep 10px.
+        expect(horizonDensity(at("2026-10-05"), at("2026-11-02"), decade, 280)!.unit).toBe("month");
+    });
+
     test("a month outside the horizon counts in no bucket, and no horizon or no track has no buckets", () => {
         const d = horizonDensity(at("2025-01-01"), at("2026-01-01"), decade, 400)!;
         expect(d.buckets.reduce((n, b) => n + b.count, 0)).toBe(78);
@@ -78,13 +83,28 @@ describe("the horizon over the record's totals (#1732)", () => {
     const hi = at("2032-01-01");
 
     test("its period is the finest of those there are totals at that keeps 4px a bucket, or the coarsest of them", () => {
-        expect(horizonUnit(lo, hi, 1000)).toBe("month");
+        expect(horizonUnit(lo, hi, 1000, HORIZON_BUCKET_UNITS)).toBe("month");
         // Totals at quarters and years alone: a month would keep 4px, so a quarter's do.
         expect(horizonUnit(lo, hi, 1000, ["quarter", "year"])).toBe("quarter");
         // Totals at months alone, which keep under 4px: the coarsest there is, a month.
         expect(horizonUnit(lo, hi, 60, ["month"])).toBe("month");
-        expect(horizonUnit(lo, hi, 20)).toBe("year");
+        expect(horizonUnit(lo, hi, 20, HORIZON_BUCKET_UNITS)).toBe("year");
         expect(horizonUnit(lo, hi, 1000, [])).toBeUndefined();
+    });
+
+    test("a short horizon reads days or weeks where there are totals at them: four weeks on 280px a bar a day, thirteen a bar a week — never one month's block (#1732)", () => {
+        // Four weeks from Monday 5 October 2026: a day keeps 10px.
+        expect(horizonUnit(at("2026-10-05"), at("2026-11-02"), 280, HORIZON_BUCKET_UNITS)).toBe("day");
+        // Thirteen weeks: a day keeps 3px, a week 21px.
+        expect(horizonUnit(at("2026-10-05"), at("2027-01-04"), 280, HORIZON_BUCKET_UNITS)).toBe("week");
+    });
+
+    test("a week's bucket starts on its Monday, as e3's week tiles do, each counting its own week's totals (#1732)", () => {
+        // From Wednesday 7 October 2026 to Monday 26 October: three weeks, the first clipped to its Wednesday.
+        const weeks = horizonTotalsDensity(at("2026-10-07"), at("2026-10-26"), "week",
+            new Map([[at("2026-10-05"), 2], [at("2026-10-12"), 5], [at("2026-10-19"), 1]]))!;
+        expect(weeks.buckets.map((b) => [b.start.toISOString().slice(0, 10), b.count])).toEqual([["2026-10-05", 2], ["2026-10-12", 5], ["2026-10-19", 1]]);
+        expect([weeks.buckets[0]!.from, weeks.buckets.at(-1)!.to, weeks.max]).toEqual([0, 1, 5]);
     });
 
     test("a bucket a period, each counting what its totals say — an event over two months is in each month's and once in their quarter's — clipped to the horizon", () => {

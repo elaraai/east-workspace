@@ -60,8 +60,8 @@ export type PlanPart =
 /** The unit a horizon caption counts in — a time resolution, or a number axis's step. */
 export type PlanHorizonUnit = "hour" | "day" | "week" | "month" | "quarter" | "year" | "step";
 
-/** The period a horizon's bars count by (#1438). */
-export type PlanHorizonBucket = "month" | "quarter" | "year";
+/** The period a horizon's bars count by (#1438): a day or a week too over the record's totals (#1732). */
+export type PlanHorizonBucket = "day" | "week" | "month" | "quarter" | "year";
 
 /** A chart layer kind, as the chart's summary names it. */
 export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band";
@@ -600,7 +600,7 @@ const HORIZON_UNIT: Record<PlanHorizonUnit, string> = {
     hour: "HR", day: "D", week: "WK", month: "MO", quarter: "Q", year: "YR", step: "STEPS",
 };
 
-const HORIZON_PER: Record<PlanHorizonBucket, string> = { month: "mo", quarter: "q", year: "yr" };
+const HORIZON_PER: Record<PlanHorizonBucket, string> = { day: "day", week: "wk", month: "mo", quarter: "q", year: "yr" };
 
 const STATE_WORD: Record<PlanStateWord, string> = {
     estimated: "estimated",

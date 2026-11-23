@@ -15,8 +15,15 @@
 import { resolutionInterval } from "../../shared/time/scale.js";
 import type { PlanNestedMonths } from "../root/nested.js";
 
-/** The periods the horizon's bars count by, finest first: a month's counts make none finer. */
-export const HORIZON_BUCKET_UNITS = ["month", "quarter", "year"] as const;
+/**
+ * The periods the horizon's bars count by, finest first (#1438, #1732): over record sources, the record's totals at
+ * any of them every source lists, so a horizon of weeks draws a bar a day rather than one month's block; over a nested
+ * series, the months e3 keeps in its span ({@link NESTED_BUCKET_UNITS}).
+ */
+export const HORIZON_BUCKET_UNITS = ["day", "week", "month", "quarter", "year"] as const;
+
+/** The periods the horizon's bars count by over a nested series' months, finest first: a month's counts make none finer. */
+export const NESTED_BUCKET_UNITS = ["month", "quarter", "year"] as const;
 
 /** A period the horizon's bars count by. */
 export type HorizonBucketUnit = (typeof HORIZON_BUCKET_UNITS)[number];
@@ -26,8 +33,10 @@ export const HORIZON_BUCKET_MIN_PX = 4;
 
 const DAY_MS = 86_400_000;
 
-/** A period's usual length, ms: a Gregorian year's twelfth, fourth and whole. */
+/** A period's usual length, ms: a day, a week, and a Gregorian year's twelfth, fourth and whole. */
 const USUAL_MS: Readonly<Record<HorizonBucketUnit, number>> = {
+    day: DAY_MS,
+    week: 7 * DAY_MS,
     month: (365.2425 / 12) * DAY_MS,
     quarter: (365.2425 / 4) * DAY_MS,
     year: 365.2425 * DAY_MS,
@@ -63,11 +72,11 @@ export interface HorizonDensity {
  * @param lo - The horizon's start, ms
  * @param hi - Its end
  * @param trackPx - The track's width, px
- * @param units - The periods there are counts at, finest first: all three over a nested series' months, which make each;
- *   over record sources, those every source lists totals at
+ * @param units - The periods there are counts at, finest first: month, quarter and year over a nested series' months,
+ *   which make each ({@link NESTED_BUCKET_UNITS}); over record sources, those every source lists totals at
  * @returns The period; `undefined` where there are none
  */
-export function horizonUnit(lo: number, hi: number, trackPx: number, units: readonly HorizonBucketUnit[] = HORIZON_BUCKET_UNITS): HorizonBucketUnit | undefined {
+export function horizonUnit(lo: number, hi: number, trackPx: number, units: readonly HorizonBucketUnit[]): HorizonBucketUnit | undefined {
     const span = hi - lo;
     return units.find((u) => (USUAL_MS[u] / span) * trackPx >= HORIZON_BUCKET_MIN_PX) ?? units[units.length - 1];
 }
@@ -109,7 +118,7 @@ function bucketsOf(lo: number, hi: number, unit: HorizonBucketUnit): { starts: n
  */
 export function horizonDensity(lo: number, hi: number, months: PlanNestedMonths, trackPx: number): HorizonDensity | undefined {
     if (!(hi > lo) || !(trackPx > 0)) return undefined;
-    const unit = horizonUnit(lo, hi, trackPx)!;
+    const unit = horizonUnit(lo, hi, trackPx, NESTED_BUCKET_UNITS)!;
     const { starts, buckets } = bucketsOf(lo, hi, unit);
     // Each month in the bucket it starts in — one the horizon's start clips in the first, whole, as one its end clips counts
     // whole (#1710): a source's horizon begins on its first event's day — the months in order; one outside the horizon in none.

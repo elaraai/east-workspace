@@ -61,25 +61,52 @@ export function instants<R>(rows: Iterable<R>, at: (row: R) => Date): Span[] {
     return [...rows].map((row) => spanOf(at(row).getTime(), at(row).getTime()));
 }
 
+/** A period a horizon's bars count by: a day, a week from its Monday as e3's weeks are, a month, a quarter or a year — UTC. */
+export type HorizonPeriod = "day" | "week" | "month" | "quarter" | "year";
+
+const DAY_MS = 86_400_000;
+
+/** The start of the period holding an instant, in ms. */
+function periodStart(unit: HorizonPeriod, at: number): number {
+    const d = new Date(at);
+    const day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    switch (unit) {
+        case "day": return day;
+        case "week": return day - ((d.getUTCDay() + 6) % 7) * DAY_MS;
+        case "month": return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+        case "quarter": return Date.UTC(d.getUTCFullYear(), Math.floor(d.getUTCMonth() / 3) * 3, 1);
+        case "year": return Date.UTC(d.getUTCFullYear(), 0, 1);
+    }
+}
+
+/** The start of the period after the one starting at `start`, in ms. */
+function periodNext(unit: HorizonPeriod, start: number): number {
+    const d = new Date(start);
+    switch (unit) {
+        case "day": return start + DAY_MS;
+        case "week": return start + 7 * DAY_MS;
+        case "month": return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+        case "quarter": return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1);
+        case "year": return Date.UTC(d.getUTCFullYear() + 1, 0, 1);
+    }
+}
+
 /**
  * Each period's count of the events that touch it — those starting in it, and those running into it — across a
  * horizon: from the period the first event or the axis's window begins in to the one the last event starts or the
- * window ends in, a period `months` months long from the year's first. A period none touches is left out, as the
- * strip draws no bar for it.
+ * window ends in. A period none touches is left out, as the strip draws no bar for it.
  *
  * @param events - Every source's events
  * @param window - The axis's stated window, `[from, to)` in ms
- * @param months - A period's length in months: 1 for a month, 3 for a quarter, 12 for a year
+ * @param unit - The period the bars count by; a month unless given
  * @returns Each touched period's count, in order
  */
-export function touched(events: readonly Span[], window: Span, months = 1): number[] {
+export function touched(events: readonly Span[], window: Span, unit: HorizonPeriod = "month"): number[] {
     const first = events.reduce((least, [start]) => Math.min(least, start), window[0]);
     const last = events.reduce((most, [start]) => Math.max(most, start), window[1] - 1);
     const expected: number[] = [];
-    const begin = new Date(first);
-    for (let at = Date.UTC(begin.getUTCFullYear(), Math.floor(begin.getUTCMonth() / months) * months, 1); at <= last;) {
-        const from = new Date(at);
-        const next = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + months, 1);
+    for (let at = periodStart(unit, first); at <= last;) {
+        const next = periodNext(unit, at);
         const n = events.filter(([start, end]) => (start >= at && start < next) || (start < at && end > at)).length;
         if (n > 0) expected.push(n);
         at = next;
