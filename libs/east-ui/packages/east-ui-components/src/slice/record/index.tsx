@@ -43,6 +43,11 @@ function hasStringHints(field: Field): boolean {
     return field.kind === "string" && field.values.some(value => readRecordChoice(field, value.value) !== undefined);
 }
 
+/** Whether a field narrows through a search box: a String field the slice searches, which no known String value hints. */
+function searchesField(slice: Bind, field: Field): boolean {
+    return field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
+}
+
 /** A failed indexed read keeps its control mounted and offers a real retry. */
 export function RecordSliceFailure({ slice, message = "Could not load choices" }: { slice: Bind; message?: string }) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
@@ -340,7 +345,11 @@ function ScalarRange({ slice, field, choice, run }: { slice: Bind; field: Field;
     </SliceRangeEditor>;
 }
 
-/** The same typed field editor inside a host-owned navigator or the Slice rail. */
+/**
+ * The same typed field editor inside a host-owned navigator or the Slice rail. A field's Clear is the row at its foot,
+ * but for a search field (ruled 23 Nov 2026): the × in its box clears it, and a value beside the box a second press, so
+ * no row stands under the box for its suggestions to open over.
+ */
 export function RecordSliceFieldEditor({ slice, field, source }: { slice: Bind; field: Field; source?: string | undefined }) {
     useSliceReactivity(slice.key);
     const styles = useSlotRecipe({ key: "sliceEdit" })();
@@ -348,16 +357,17 @@ export function RecordSliceFieldEditor({ slice, field, source }: { slice: Bind; 
     const state = slice.read();
     const choice = state.where.get(field.fieldId);
     const scalar = ["datetime", "integer", "float"].includes(field.kind);
+    const search = searchesField(slice, field);
     const run = (action: () => unknown) => {
         try { action(); setError(undefined); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply this choice"); }
     };
     return <Box css={styles.choiceList} data-record-slice-editor={field.fieldId} data-record-slice-source={source}>
             {field.set && <Box css={styles.hint}>Includes one value</Box>}
             {field.values.length > 0 && <KnownValues slice={slice} field={field} run={run} />}
-            {field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId) && <StringSearch slice={slice} field={field} run={run} />}
+            {search && <StringSearch slice={slice} field={field} run={run} />}
             {scalar && <ScalarRange slice={slice} field={field} choice={choice} run={run} />}
         {error !== undefined && <Box css={styles.hintError} role="alert">{error}</Box>}
-        {!scalar && <SliceFieldActions label={field.label} onClear={() => run(() => slice.clear(field.fieldId))} clearDisabled={choice === undefined} />}
+        {!scalar && !search && <SliceFieldActions label={field.label} onClear={() => run(() => slice.clear(field.fieldId))} clearDisabled={choice === undefined} />}
     </Box>;
 }
 
@@ -383,7 +393,7 @@ function Presets({ slice }: { slice: Bind }) {
 function fieldDescriptor(slice: Bind, field: Field, kind: string, words: Formatters, attributes?: Readonly<Record<string, string>>): SliceRailDescriptor {
     const choice = slice.read().where.get(field.fieldId);
     const range = !field.set && ["datetime", "integer", "float"].includes(field.kind);
-    const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
+    const search = searchesField(slice, field);
     return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
         text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3,
         ...(choice === undefined ? {} : { choice: recordChoiceSummary(field, choice, words) }),

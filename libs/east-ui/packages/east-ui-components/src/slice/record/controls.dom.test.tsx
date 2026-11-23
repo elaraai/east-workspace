@@ -200,7 +200,9 @@ test("Unset leaves optional String search available, while Set search cannot com
     expect(screen.getByRole("combobox")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Unset/ }));
     expect(optional.slice.read().where.get("status")).toEqual(variant("values", [".none"]));
-    fireEvent.click(screen.getByRole("button", { name: "Clear Status" }));
+    // A search field has no Clear row (ruled 23 Nov 2026): Unset, chosen, clears by a second press, as every value does.
+    expect(screen.queryByRole("button", { name: "Clear Status" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Unset/ }));
     expect(optional.slice.read().where.has("status")).toBe(false);
     cleanup();
     const member = fixture([field({ set: true, multiple: false, values: [] })]);
@@ -210,4 +212,35 @@ test("Unset leaves optional String search available, while Set search cannot com
     await user.keyboard("{Enter}");
     expect(screen.queryByRole("option", { name: /All starting/ })).toBeNull();
     expect(member.slice.read().where.size).toBe(0);
+});
+
+test("a search field clears from the × in its box, with no Clear row under it for its suggestions to open over (ruled 23 Nov 2026)", async () => {
+    const f = fixture([field({ fieldId: "name", label: "Name", values: [] })]);
+    f.suggest.mockImplementation((_id, query) => { trackKey("network"); return some([{ value: '"Alice"', label: "Alice", count: some(2n), error: none, selected: false }].filter(v => v.label.startsWith(query))); });
+    f.show();
+    const editor = document.querySelector('[data-record-slice-editor="name"]')!;
+    expect(editor.querySelector("[data-slice-field-actions]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear Name" })).toBeNull();
+    // Nothing chosen and nothing typed: nothing to clear.
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    const user = userEvent.setup();
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    await user.type(input, "Al");
+    await waitFor(() => expect(input.getAttribute("aria-busy")).toBe("false"));
+    await user.keyboard("{ArrowDown}{Enter}");
+    await waitFor(() => expect(f.slice.read().where.get("name")).toEqual(variant("values", ['"Alice"'])));
+    // The value chosen stands in the box, and its × beside it, in the box's own control.
+    const clear = screen.getByRole("button", { name: "Clear search" });
+    expect(clear.closest('[data-part="control"]')).toBe(input.closest('[data-part="control"]'));
+    await user.click(clear);
+    await waitFor(() => expect(f.slice.read().where.has("name")).toBe(false));
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
+    cleanup();
+    // A field of known values keeps its Clear row.
+    const known = fixture([field({})]);
+    known.show();
+    act(() => { known.slice.choose("status", ['"Ready"']); });
+    fireEvent.click(screen.getByRole("button", { name: "Clear Status" }));
+    expect(known.slice.read().where.has("status")).toBe(false);
 });
