@@ -26,12 +26,15 @@
  *   following the frame frame by frame, never painting slots they do not rest
  *   on; a `+n`'s pick; a day with no room for a tile drawing its lone tile as
  *   a mark across it, several as their `+n` alone (#1276, #1710);
+ * - `planTaskTiles`' library: a task card dropped on a crew's day is a
+ *   proposed task there, a draft Save commits;
  * - and, under a touch pointer, the `+n`'s tap target: its 44px halo held to
  *   its cell, less the tiles in it (#1267).
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
+import { centre, libraryOf, openCards, pickUp } from "./plan-builder-page";
 import { PLAN_EXAMPLES, openExample, planBox, rowId, rowSel, sizeBuckets } from "./plan-page";
 import { cutText } from "./plan-text";
 import { settled } from "./settle";
@@ -679,6 +682,44 @@ test.describe("Plan bucket tiles (#1735) @desktop", () => {
             return p !== null && m !== null && p.y + p.height <= m.y + 0.5 && p.x <= m.x + m.width && p.x + p.width >= m.x;
         };
         await expect.poll(read).toBe(true);
+    });
+
+    test("planTaskTiles' library: a task card dragged onto Crew A's Monday is a proposed task there, saying its length, the day's two tiles taking halves — a draft, which Save commits to the crews' record", async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await openExample(page, "planTaskTiles", TILES);
+        const frame = entry.locator("[data-builder-frame]").first();
+        const pane = libraryOf(entry);
+        if (await pane.getAttribute("data-collapsed") !== null) await frame.getByRole("button", { name: "Expand Library" }).click();
+        await expect(pane).not.toHaveAttribute("data-collapsed", "");
+        await settled(page);
+        // Monday holds one task, a1; the Inspection card makes one saying 1h.
+        const monday = entry.locator(`${rowSel("crews", "crew-a")} [data-plan-cell="0:0"]`);
+        const tiles = monday.locator(":scope > [data-plan-cell-tiles] > [data-event]");
+        await expect(tiles).toHaveCount(1);
+        const card = openCards(pane).filter({ hasText: "Inspection" });
+        await expect(card).toHaveCount(1);
+        const target = await centre(monday);
+        await pickUp(page, card);
+        await page.mouse.move(target.x, target.y, { steps: 8 });
+        await page.mouse.up();
+        const made = monday.locator(":scope > [data-plan-cell-tiles] > [data-event]:not([data-event='a1'])");
+        await expect(made).toHaveCount(1);
+        await expect(made).toHaveAttribute("data-state", "prop");
+        await expect(made.locator("[data-plan-label]")).toHaveText("1h");
+        // The draft is the crew's: its row, which holds its tasks, is drafted.
+        const crew = entry.locator(rowSel("crews", "crew-a"));
+        await expect(crew).toHaveAttribute("data-draft", "");
+        await expect(entry.locator('[data-plan-count="pending"]')).toHaveText("1 pending");
+        // Two tiles: halves of the day, side by side, each as wide.
+        const widths = await tiles.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width * 100) / 100));
+        expect(widths).toHaveLength(2);
+        expect(widths[0]).toBe(widths[1]);
+        // Save commits it: the crew no longer drafted, the task still Monday's.
+        await frame.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(entry.locator('[data-plan-count="pending"]')).toHaveText("0 pending");
+        await expect(crew).not.toHaveAttribute("data-draft");
+        await expect(made).toHaveCount(1);
+        await expect(made.locator("[data-plan-label]")).toHaveText("1h");
     });
 });
 

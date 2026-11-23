@@ -36,11 +36,17 @@ describe("a Plan's task tiles (#1735)", () => {
         assert.deepEqual([...crews.values()].map((crew) => crew.lanes.length), [0, 2, 3]);
     });
 
+    test("the library's task cards: each says the length of the task a drop makes, in a group", () => {
+        const cards = [...ex.TILE_CARDS.values()];
+        assert.deepEqual(cards.map((card) => card.label), ["45m", "1h", "2h 30m", "3h", "4h"]);
+        assert.deepEqual([...new Set(cards.map((card) => card.group))], ["Short", "Long"]);
+    });
+
     test(ex.planTaskTiles.description, () => {
         const manifest = deriveManifest(ex.planTaskTiles.fn);
-        // The crews, read whole: a week of a few tasks.
-        assert.deepEqual(manifest.paths, [ex.planTileCrews.path]);
-        assert.equal(manifest.pages.length, 0);
+        // The crews' record, paged by the canvas; the library's cards, read whole.
+        assert.deepEqual(manifest.pages, [ex.planTileCrews.path]);
+        assert.deepEqual(manifest.paths, [ex.planTileCards.path]);
         const component = (ex.planTaskTiles.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });
