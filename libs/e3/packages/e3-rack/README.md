@@ -702,7 +702,9 @@ scope ends). A unit of a scope goes first, for five seconds
 (`SCOPE_AFFINITY_MS`), to a rack that wrote some of what it reads, so a merge
 runs where its pieces are when that rack has room for it; after that any
 rack may take it. A piece, which reads nothing the scope wrote, waits for no
-rack.
+rack; nor does a lease no rack that wrote it could ever be granted — one of
+another tier, too small for its cores, GPU or cap, a boot awaiting approval,
+an agent too old for it, or one its environment's builds do not serve.
 
 | Pieces | Merge levels | What a merge fetches back without a scope | With one, on the rack that made the pieces |
 | --- | --- | --- | --- |

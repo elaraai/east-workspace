@@ -54,8 +54,8 @@ export interface HubSession {
   readonly repoAlias: string;
   /** Ends the session, and its data socket */
   close(): Promise<void>;
-  /** Leases work, naming the builds of its environment the session keeps */
-  create(event: RackLeaseEvent, envManifests?: string[]): Promise<CreateLeaseResult>;
+  /** Leases work, naming the builds of its environment the session keeps, of a tier (`node` unless given) */
+  create(event: RackLeaseEvent, envManifests?: string[], tier?: string): Promise<CreateLeaseResult>;
   /** Joins identical work queued or held, naming the builds of its environment the session keeps; queues nothing */
   attach(event: RackLeaseEvent, envManifests?: string[]): Promise<AttachLeaseResult>;
   /** The session's events since the last asked for, and the fleet */
@@ -67,7 +67,7 @@ export interface HubSession {
 }
 
 /** What enrolls a test's rack: the agent's options, and the release its version names. */
-export type HubAgentOptions = Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label' | 'manifestEveryHeartbeat' | 'splitScopes'>
+export type HubAgentOptions = Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label' | 'manifestEveryHeartbeat' | 'splitScopes' | 'tiers'>
   & { version?: string };
 
 /** A hub of a test's own, and how the test reaches it. */
@@ -122,8 +122,8 @@ export async function fixture(options: RackHubOptions = {}, port = 0, overrides:
     const path = `/v1/sessions/${opened.sessionId}`;
     const close = async () => { await socketRequest(socket, 'DELETE', path, { responseType: EmptyType }).catch(() => {}); await data.close(); };
     cleanup.push(close);
-    const create = (event: RackLeaseEvent, envManifests: string[] = []): Promise<CreateLeaseResult> => socketRequest(socket, 'POST', `${path}/leases`, {
-      requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event), tier: 'node', computeSize: 'large', envManifests }, responseType: CreateLeaseResultType,
+    const create = (event: RackLeaseEvent, envManifests: string[] = [], tier = 'node'): Promise<CreateLeaseResult> => socketRequest(socket, 'POST', `${path}/leases`, {
+      requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event), tier, computeSize: 'large', envManifests }, responseType: CreateLeaseResultType,
     });
     const attach = (event: RackLeaseEvent, envManifests: string[] = []): Promise<AttachLeaseResult> => socketRequest(socket, 'POST', `${path}/leases/attach`, {
       requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event), tier: 'node', computeSize: 'large', envManifests }, responseType: AttachLeaseResultType,

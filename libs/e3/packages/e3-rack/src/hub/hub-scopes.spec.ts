@@ -9,8 +9,8 @@
  * whose report names `split-scopes`, and a call's never; the rack is told once
  * the scope ended — by its session, or as its session ends or expires; and a
  * lease of a scope goes first to a rack that holds some of what it reads, as
- * the scope's completed leases wrote it, which is also what the scope's work
- * is weighed as fetching nothing of there.
+ * the scope's completed leases wrote it, when that rack could take it, which
+ * is also what the scope's work is weighed as fetching nothing of there.
  */
 
 import { afterEach, it } from 'node:test';
@@ -170,6 +170,35 @@ it('grants a merge of a scope first to a rack that wrote some of its parts, and 
   time += SCOPE_AFFINITY_MS + 1;
   await holder.heartbeat(); await other.heartbeat();
   assert.equal((await other.claim())?.leaseId, next.leaseId);
+});
+
+it('holds a lease of a scope back for no rack that holds what it reads but runs another tier, or could never hold its work', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const session = await f.session();
+  // A rack of the node tier alone, and a small one, each holding what a later lease reads
+  const nodeOnly = await f.agent({ resources, splitScopes: true, label: 'node-only' });
+  const small = await f.agent({ resources: { cores: 4, memoryBytes: 2 * GiB, gpus: 0 }, splitScopes: true, label: 'small' });
+  const other = await f.agent({ resources: { cores: 4, memoryBytes: 16 * GiB, gpus: 0 }, splitScopes: true, label: 'other', tiers: ['node', 'py'] });
+  const scope = { id: uuidv7(), feeds: true };
+  await session.create(task(['b'.repeat(64)], scope));
+  const made = await runs(f, nodeOnly);
+  await session.create(unit('1', scope));
+  const piece = await runs(f, small);
+
+  // A py task reads what the node rack made: that rack never runs it, so another is granted it at once
+  const py = await session.create(task([made], scope), [], 'py');
+  const onOther = await other.claim();
+  assert.equal(onOther?.leaseId, py.leaseId, 'the rack that wrote its input runs no py');
+  await other.complete(onOther, failed);
+  // A merge capped at 8 GiB reads the small rack's piece: that rack could never hold it
+  const merged = await session.create({ ...merge([piece], scope), resources: { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false } });
+  const mergedOn = await other.claim();
+  assert.equal(mergedOn?.leaseId, merged.leaseId, 'the rack that wrote its part has 2 GiB in all');
+  await other.complete(mergedOn, failed);
+  // A node task reading the node rack's output still waits for that rack, which could take it
+  const node = await session.create(task([made], scope));
+  assert.equal(await other.claim(), null, 'a holder that could take the lease is still waited for');
+  assert.equal((await nodeOnly.claim())?.leaseId, node.leaseId);
 });
 
 it('grants a whole task\'s lease with its scope to a rack that keeps scopes, and a call\'s with none', async () => {

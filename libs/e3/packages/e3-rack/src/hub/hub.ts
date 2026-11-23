@@ -20,10 +20,10 @@ import { generateEnrollmentToken } from '../identity/machine-identity.js';
 import { FileRackRegistry } from '../registry/file-rack-registry.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
-import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
+import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, leaseRefusal, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
-import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
+import { RackRegistrationType, RackSecurityPolicyType, type RackRegistration } from '../protocol/registration.js';
 import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, readRackLeaseScope,
   type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
@@ -182,8 +182,10 @@ export interface RackHubOptions {
  * ends. The hub notes which rack each completed lease of a scope that feeds
  * it wrote its objects on ({@link ScopeWrites}), and a lease of the scope goes
  * first, for {@link SCOPE_AFFINITY_MS}, to a rack that holds some of what that
- * lease reads, and is weighed as fetching none of it there: by input, so a
- * session's work is not piled onto one rack. The hub keeps no more of a scope
+ * lease reads and could be granted it — its tier, its resources, its release
+ * and approval, the work's environment — and is weighed as fetching none of
+ * it there: by input, so a session's work is not piled onto one rack. A lease
+ * no such rack could take waits for none. The hub keeps no more of a scope
  * than its id, its racks, and the writers of at most `SCOPE_WRITES_MAX` of
  * its objects.
  * @example
@@ -424,11 +426,54 @@ export class RackHub {
   }
 
   /**
+   * Whether a rack may be granted a lease, of what the hub keeps of both: the
+   * lease is still wanted, the rack never claimed it before, is healthy, and
+   * bundles an e3 its session's release runs on; and work that declares an
+   * environment is served to the rack a build of it the work's sessions keep.
+   * What the routes ask of a rack that polls (their `canClaim`),
+   * beside what they judge themselves.
+   */
+  private async mayClaim(rack: RackRegistration, lease: RackLeaseRecord): Promise<boolean> {
+    const sub = this.subscriptions.get(lease.leaseId);
+    if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;
+    // v2 completion does not carry an attempt id. A previous claimant
+    // must never reclaim this lease: its delayed reply is ambiguous.
+    if (sub.claimants.has(rack.rackId)) return false;
+    if (!rack.healthy || this.now() - rack.lastSeenAt.getTime() > DEFAULT_HEALTHY_WINDOW_MS) return false;
+    const bundled = bundledE3Version(rack.agentVersion);
+    if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
+    // Work that declares an environment is a rack's that composes
+    // environments, when its sessions keep the layers built for that
+    // rack's platform: another rack is never granted it.
+    if (lease.event.environment === undefined) return true;
+    return await this.bridge.envManifestKeyOf(lease.repo, lease.leaseId, rack.rackId) !== null;
+  }
+
+  /**
+   * Whether a rack that holds what a lease reads could ever be granted it: it
+   * may claim it ({@link mayClaim}), and passes what the routes judge of a
+   * rack that polls — it has capacity, runs the lease's tier, takes leases
+   * (its agent is not too old, its boot is not awaiting approval), and its
+   * resources could hold the lease's work with nothing else on it. Only for
+   * such a rack is a lease held back from another.
+   */
+  private async couldHold(rack: RackRegistration, lease: RackLeaseRecord): Promise<boolean> {
+    if (compareInteger(rack.capacity, 0n) <= 0 || !rack.tiers.includes(lease.tier) || leaseRefusal(rack.agentVersion) !== null) return false;
+    if ((await this.registry.getRackSecurityPolicy())?.requireStartApproval === true && bootPendingApproval(rack)) return false;
+    let needs: ReturnType<typeof readRackLeaseResources>;
+    try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
+    if (needs !== undefined && !rackEverHolds(needs, this.reports.get(rack.rackId)?.resources)) return false;
+    return this.mayClaim(rack, lease);
+  }
+
+  /**
    * Whether a lease of a scope waits for a rack that holds some of what it
-   * reads, which the scope's earlier leases wrote there: one is healthy, the
-   * rack asking is none of them, and the lease has waited less than
-   * {@link SCOPE_AFFINITY_MS}. A lease that reads nothing the scope's leases
-   * wrote waits for no rack.
+   * reads, which the scope's earlier leases wrote there: one could be granted
+   * it ({@link couldHold}), the rack asking is none of them, and the lease has
+   * waited less than {@link SCOPE_AFFINITY_MS}. A lease that reads nothing the
+   * scope's leases wrote, or whose every holder could never take it — another
+   * tier's rack, one too small for it, a boot awaiting approval — waits for
+   * no rack.
    */
   private async waitsForHolder(rackId: string, lease: RackLeaseRecord): Promise<boolean> {
     const scope = readRackLeaseScope(lease.event.scope);
@@ -437,7 +482,7 @@ export class RackHub {
     if (holders.size === 0 || holders.has(rackId)) return false;
     for (const holder of holders) {
       const rack = await this.registry.getRack(holder);
-      if (rack !== null && rack.healthy && this.now() - rack.lastSeenAt.getTime() <= DEFAULT_HEALTHY_WINDOW_MS) return true;
+      if (rack !== null && await this.couldHold(rack, lease)) return true;
     }
     return false;
   }
@@ -930,24 +975,9 @@ export class RackHub {
       // holds whole tasks and no unit, which it would not cap.
       claimLookahead: 64,
       canEverHold: (rack, needs) => rackEverHolds(needs, this.reports.get(rack.rackId)?.resources),
-      canClaim: async (rack, lease) => {
-        const sub = this.subscriptions.get(lease.leaseId);
-        if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;
-        // v2 completion does not carry an attempt id. A previous claimant
-        // must never reclaim this lease: its delayed reply is ambiguous.
-        if (sub.claimants.has(rack.rackId)) return false;
-        if (!rack.healthy || this.now() - rack.lastSeenAt.getTime() > DEFAULT_HEALTHY_WINDOW_MS) return false;
-        const bundled = bundledE3Version(rack.agentVersion);
-        if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
-        // A unit of a split scope goes first to a rack that holds what the
-        // scope's leases wrote, which it then reads there
-        if (await this.waitsForHolder(rack.rackId, lease)) return false;
-        // Work that declares an environment is a rack's that composes
-        // environments, when its sessions keep the layers built for that
-        // rack's platform: another rack is never granted it.
-        if (lease.event.environment === undefined) return true;
-        return await this.bridge.envManifestKeyOf(lease.repo, lease.leaseId, rack.rackId) !== null;
-      },
+      // A unit of a split scope goes first to a rack that holds what the
+      // scope's leases wrote, which it then reads there
+      canClaim: async (rack, lease) => await this.mayClaim(rack, lease) && !await this.waitsForHolder(rack.rackId, lease),
     }));
     let server: Server | HttpsServer | undefined;
     try {

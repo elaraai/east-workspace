@@ -436,8 +436,10 @@ heartbeat (`x-e3-rack-scopes-ended`). The hub notes which rack each
 completed lease of a scope that feeds it wrote its output and targets on
 (`ScopeWrites`, bounded at 200,000 objects, let go as the scope ends), and a
 lease of a scope waits up to `SCOPE_AFFINITY_MS` for a rack that wrote some
-of what it reads before another may take it; `fetch-costs`, asked with the
-scope, counts those objects held there.
+of what it reads before another may take it — only for one that could be
+granted it (its tier, what its resources could ever hold, its approval and
+release, the work's environment), never for one that could not; `fetch-costs`,
+asked with the scope, counts those objects held there.
 
 The policy's `keep` widens the scope: `split` (the default) is the above;
 `session` names one scope, the session's own (`RackSession.sessionScope`), on
