@@ -14,7 +14,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { waitFor } from "@testing-library/react";
-import { East, StringType, equalFor, type option } from "@elaraai/east";
+import { East, StringType, equalFor } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan } from "@elaraai/e3-ui/internal";
 import type { TreePath } from "@elaraai/e3-types";
@@ -28,6 +28,7 @@ import type { E3Record } from "../../e3-web.test-utils.js";
 import type { Example } from "../../e3-web-mount.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { horizonLaidOut, planHarness, settle } from "./harness.test-utils.js";
+import { instants, optionSpans, spans, touched, type Span } from "./horizon.test-utils.js";
 
 const h = planHarness({
     "plan/plan": plan, "plan/plan-events": events, "plan/plan-windows": windows, "plan/optimise-windows": optimise,
@@ -41,61 +42,6 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 let restore: (() => void)[] = [];
 beforeEach(() => { restore = [boundFrame(700), frameScrolls()]; });
 afterEach(() => { for (const undo of restore.reverse()) undo(); });
-
-/** An event's `[start, end)`, in ms: an instant's, and one ending at or before its start, `[at, at]`. */
-type Span = readonly [number, number];
-
-/** A span from an event's start and end: one ending at or before its start is an instant, as e3 files it. */
-const spanOf = (start: number, end: number): Span => [start, Math.max(start, end)];
-
-/**
- * The spans of rows timed by Option<DateTime> fields: a row with no start waits in the backlog, filed nowhere, and
- * one with no end is an instant.
- */
-function optionSpans<R>(rows: Iterable<R>, times: (row: R) => readonly [option<Date>, option<Date>]): Span[] {
-    return [...rows].flatMap((row) => {
-        const [start, end] = times(row);
-        if (start.type !== "some") return [];
-        return [spanOf(start.value.getTime(), end.type === "some" ? end.value.getTime() : start.value.getTime())];
-    });
-}
-
-/** The spans of rows timed by DateTime fields. */
-function spans<R>(rows: Iterable<R>, times: (row: R) => readonly [Date, Date]): Span[] {
-    return [...rows].map((row) => {
-        const [start, end] = times(row);
-        return spanOf(start.getTime(), end.getTime());
-    });
-}
-
-/** The spans of rows each an instant, by its DateTime field. */
-function instants<R>(rows: Iterable<R>, at: (row: R) => Date): Span[] {
-    return [...rows].map((row) => spanOf(at(row).getTime(), at(row).getTime()));
-}
-
-/**
- * Each month's count of the events that touch it — those starting in it, and those running into it — across the
- * horizon: from the month the first event or the axis's window begins in to the one the last event starts or the
- * window ends in. A month none touches is left out, as the strip draws no bar for it.
- *
- * @param events - Every source's events
- * @param window - The axis's stated window, `[from, to)` in ms
- * @returns Each touched month's count, in order
- */
-function touched(events: readonly Span[], window: Span): number[] {
-    const first = events.reduce((least, [start]) => Math.min(least, start), window[0]);
-    const last = events.reduce((most, [start]) => Math.max(most, start), window[1] - 1);
-    const expected: number[] = [];
-    const begin = new Date(first);
-    for (let at = Date.UTC(begin.getUTCFullYear(), begin.getUTCMonth(), 1); at <= last;) {
-        const from = new Date(at);
-        const next = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1);
-        const n = events.filter(([start, end]) => (start >= at && start < next) || (start < at && end > at)).length;
-        if (n > 0) expected.push(n);
-        at = next;
-    }
-    return expected;
-}
 
 /** The window the windows' examples' axis states: the fortnight from Monday 5 October 2026. */
 const WINDOWS_FORTNIGHT: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 9, 19)];

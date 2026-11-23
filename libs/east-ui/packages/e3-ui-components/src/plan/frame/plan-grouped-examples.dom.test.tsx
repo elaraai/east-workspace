@@ -24,6 +24,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-grouped";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { el, entry, horizonLaidOut, planHarness, rowAt, settle, slot, zoomTo } from "./harness.test-utils.js";
+import { instants, spans, touched, type Span } from "./horizon.test-utils.js";
 
 const h = planHarness({ "plan/plan-grouped": ex });
 
@@ -50,27 +51,13 @@ const KINDS = [
 
 /** Every kind's events, each `[start, end)` in ms: an instant's, `[at, at]`. */
 const EVENTS = [
-    ...[...ex.planSeriesInspections.default!.values()], ...[...ex.planSeriesFolding.default!.values()], ...[...ex.planSeriesJobs.default!.values()],
-].map((row) => [row.start.getTime(), row.end.getTime()] as const).concat(
-    [...[...ex.planSeriesDeliveries.default!.values()], ...[...ex.planSeriesTrims.default!.values()]].map((row) => [row.at.getTime(), row.at.getTime()] as const));
+    ...spans([...ex.planSeriesInspections.default!.values(), ...ex.planSeriesFolding.default!.values(), ...ex.planSeriesJobs.default!.values()],
+        (row) => [row.start, row.end]),
+    ...instants([...ex.planSeriesDeliveries.default!.values(), ...ex.planSeriesTrims.default!.values()], (row) => row.at),
+];
 
-/**
- * Each period's count of every kind's events that touch it — those starting in it, and those running into it — from
- * the horizon's first, October 2026's, to the one the last event starts in: a period of so many months; none touched,
- * left out, as the strip draws no bar for it.
- */
-function touched(months: number): number[] {
-    const last = EVENTS.reduce((most, [start]) => Math.max(most, start), 0);
-    const expected: number[] = [];
-    for (let at = Date.UTC(2026, 9, 1); at <= last;) {
-        const from = new Date(at);
-        const next = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + months, 1);
-        const n = EVENTS.filter(([start, end]) => (start >= at && start < next) || (start < at && end > at)).length;
-        if (n > 0) expected.push(n);
-        at = next;
-    }
-    return expected;
-}
+/** The window the grouped example's axis states: the four weeks from Monday 5 October 2026. */
+const WINDOW: Span = [Date.UTC(2026, 9, 5), Date.UTC(2026, 10, 2)];
 
 const printText = printFor(StringType);
 /** Each line's key, as an index's second leading field holds it, by its hall's key as the first holds it: `.east` literals of a String. */
@@ -163,7 +150,7 @@ describe("the grouped example on e3 (#1710)", () => {
         const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
         // Each month from the horizon's first to the last start's, and every kind's events that touch it.
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(1));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW));
         // Each kind's month totals in one request, one range over the whole years — never its interval index counted month
         // by month, nor an event read.
         const totalsRead = () => KINDS.map(({ record }) =>
@@ -183,7 +170,7 @@ describe("the grouped example on e3 (#1710)", () => {
         await zoomTo(c, "day");
         await settle();
         expect(totalsRead().map((read) => read.length)).toEqual(asked);
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(1));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW));
     });
 
     test("planSeriesAll's horizon on a strip too narrow for 4px a month draws quarters from the quarter totals, an event over two months counted once in their quarter (#1732)", async () => {
@@ -193,7 +180,7 @@ describe("the grouped example on e3 (#1710)", () => {
         await settle();
         const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(3));
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(EVENTS, WINDOW, 3));
         for (const { record, totals } of KINDS) {
             const read = h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
             expect(read.map((request) => request.query.get("index"))).toEqual([`${totals}_quarter_totals`]);
