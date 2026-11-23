@@ -119,8 +119,10 @@ export const planOperations = e3.record("plan_operations", Operations, {
         plan_operations_by_work_month: index.summary({
             key: "work", from: "start", to: "end", tile: "month",
         }),
-        // The operations' totals a month, a quarter and a year (#1732): how many of them touch each, under no work order —
+        // The operations' totals a day, a week, a month, a quarter and a year (#1732): how many of them touch each, under no work order —
         // what the horizon's bars read at the period that fits the strip, never counting operations.
+        plan_operations_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_operations_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_operations_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_operations_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_operations_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -176,7 +178,7 @@ export const planRecordIndexes = example({
                     source: Data.bindPaged(planOperations, {
                         indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
                         // The operations' totals, which the horizon's bars read (#1732).
-                        totals: ["plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                        totals: ["plan_operations_day_totals", "plan_operations_week_totals", "plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
                     }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -227,7 +229,7 @@ export const planRecordIndexesMobile = example({
                     source: Data.bindPaged(planOperations, {
                         indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"],
                         // The operations' totals, which the horizon's bars read (#1732).
-                        totals: ["plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
+                        totals: ["plan_operations_day_totals", "plan_operations_week_totals", "plan_operations_month_totals", "plan_operations_quarter_totals", "plan_operations_year_totals"],
                     }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },

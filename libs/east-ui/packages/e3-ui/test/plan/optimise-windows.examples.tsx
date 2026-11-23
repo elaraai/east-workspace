@@ -69,7 +69,7 @@ export const planOptimiseWindows = example({
                 job: {
                     source: Data.bindPaged(planWindowJobs, {
                         indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"],
-                        totals: ["plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
+                        totals: ["plan_window_jobs_day_totals", "plan_window_jobs_week_totals", "plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
                     }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
                 },

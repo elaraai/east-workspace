@@ -154,11 +154,15 @@ export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, P
         // the customers by district, and each templates record by its group.
         plan_print_jobs_by_time: index.interval({ from: "start", to: "end" }),
         plan_print_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
-        // The jobs' totals a month, a quarter and a year (#1732), on their own and by their stock: what the horizon's bars
+        // The jobs' totals a day, a week, a month, a quarter and a year (#1732), on their own and by their stock: what the horizon's bars
         // read at the period that fits the strip — by the stock the rail chooses, where it chooses one — never counting jobs.
+        plan_print_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_print_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_print_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_print_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_print_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_print_jobs_by_stock_day_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "day" }),
+        plan_print_jobs_by_stock_week_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "week" }),
         plan_print_jobs_by_stock_month_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "month" }),
         plan_print_jobs_by_stock_quarter_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "quarter" }),
         plan_print_jobs_by_stock_year_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "year" }),
@@ -217,7 +221,9 @@ export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringTyp
     ]),
     indexes: (index) => ({
         plan_print_shifts_by_time: index.interval({ from: "start", to: "end" }),
-        // The shifts' totals a month, a quarter and a year (#1732): what the horizon's bars read.
+        // The shifts' totals a day, a week, a month, a quarter and a year (#1732): what the horizon's bars read.
+        plan_print_shifts_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_print_shifts_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_print_shifts_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_print_shifts_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_print_shifts_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -999,8 +1005,8 @@ export const planPrintWorks = example({
                     source: Data.bindPaged(planPrintJobs, {
                         indexes: ["plan_print_jobs_by_time", "plan_print_jobs_by_stock_time"],
                         totals: [
-                            "plan_print_jobs_month_totals", "plan_print_jobs_quarter_totals", "plan_print_jobs_year_totals",
-                            "plan_print_jobs_by_stock_month_totals", "plan_print_jobs_by_stock_quarter_totals", "plan_print_jobs_by_stock_year_totals",
+                            "plan_print_jobs_day_totals", "plan_print_jobs_week_totals", "plan_print_jobs_month_totals", "plan_print_jobs_quarter_totals", "plan_print_jobs_year_totals",
+                            "plan_print_jobs_by_stock_day_totals", "plan_print_jobs_by_stock_week_totals", "plan_print_jobs_by_stock_month_totals", "plan_print_jobs_by_stock_quarter_totals", "plan_print_jobs_by_stock_year_totals",
                         ],
                     }),
                     icon: { prefix: "fas", name: "file-lines" }, fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start",
@@ -1008,7 +1014,7 @@ export const planPrintWorks = example({
                 shift: {
                     source: Data.bindPaged(planPrintShifts, {
                         indexes: ["plan_print_shifts_by_time"],
-                        totals: ["plan_print_shifts_month_totals", "plan_print_shifts_quarter_totals", "plan_print_shifts_year_totals"],
+                        totals: ["plan_print_shifts_day_totals", "plan_print_shifts_week_totals", "plan_print_shifts_month_totals", "plan_print_shifts_quarter_totals", "plan_print_shifts_year_totals"],
                     }),
                     icon: { prefix: "fas", name: "user-clock" }, fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -1634,11 +1640,15 @@ export const planPressTaskRows = e3.record("plan_press_tasks", DictType(StringTy
         // The tasks a press at a time, a cell at a time, and their totals: each task an instant, its end its start.
         plan_press_tasks_by_press_week: index.series({ key: "press", from: "day", to: "day", tile: "week" }),
         plan_press_tasks_by_press_month: index.summary({ key: "press", from: "day", to: "day", tile: "month" }),
-        // The tasks' totals a month, a quarter and a year (#1732): the works' horizon's bars, and a press's page's, led by
+        // The tasks' totals a day, a week, a month, a quarter and a year (#1732): the works' horizon's bars, and a press's page's, led by
         // the press its scope holds — each task an instant.
+        plan_press_tasks_day_totals: index.summary({ from: "day", to: "day", tile: "day" }),
+        plan_press_tasks_week_totals: index.summary({ from: "day", to: "day", tile: "week" }),
         plan_press_tasks_month_totals: index.summary({ from: "day", to: "day", tile: "month" }),
         plan_press_tasks_quarter_totals: index.summary({ from: "day", to: "day", tile: "quarter" }),
         plan_press_tasks_year_totals: index.summary({ from: "day", to: "day", tile: "year" }),
+        plan_press_tasks_by_press_day_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "day" }),
+        plan_press_tasks_by_press_week_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "week" }),
         plan_press_tasks_by_press_month_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "month" }),
         plan_press_tasks_by_press_quarter_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "quarter" }),
         plan_press_tasks_by_press_year_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "year" }),
@@ -1682,7 +1692,7 @@ export const planPressTasks = example({
                     source: Data.bindPaged(planPressTaskRows, {
                         indexes: ["plan_press_tasks_by_day", "plan_press_tasks_by_time", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
                         // The tasks' totals, which the horizon's bars read (#1732).
-                        totals: ["plan_press_tasks_month_totals", "plan_press_tasks_quarter_totals", "plan_press_tasks_year_totals"],
+                        totals: ["plan_press_tasks_day_totals", "plan_press_tasks_week_totals", "plan_press_tasks_month_totals", "plan_press_tasks_quarter_totals", "plan_press_tasks_year_totals"],
                     }),
                     label: "Press tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
                 },
@@ -1775,7 +1785,7 @@ export const planOnePress = example({
                             "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month",
                         ],
                         // The tasks' totals led by the press the scope holds, which the horizon's bars read (#1732).
-                        totals: ["plan_press_tasks_by_press_month_totals", "plan_press_tasks_by_press_quarter_totals", "plan_press_tasks_by_press_year_totals"],
+                        totals: ["plan_press_tasks_by_press_day_totals", "plan_press_tasks_by_press_week_totals", "plan_press_tasks_by_press_month_totals", "plan_press_tasks_by_press_quarter_totals", "plan_press_tasks_by_press_year_totals"],
                     }),
                     scope: { press: [press] },
                     label: "Tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
@@ -2277,7 +2287,9 @@ export const planWorksJobs = e3.record("plan_works_jobs", WorksJobs, {
         plan_works_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
         // How busy each press is, a month at a time: what the Plan shades where the jobs in view are too many to draw.
         plan_works_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
-        // The jobs' totals a month, a quarter and a year (#1732): what the horizon's bars read, with every other kind's.
+        // The jobs' totals a day, a week, a month, a quarter and a year (#1732): what the horizon's bars read, with every other kind's.
+        plan_works_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_works_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_works_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_works_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_works_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -2299,6 +2311,8 @@ export const planWorksStops = e3.record("plan_works_stops", DictType(StringType,
         plan_works_stops_by_time: index.interval({ from: "at", to: "at" }),
         plan_works_stops_by_press_week: index.series({ key: "press", from: "at", to: "at", tile: "week" }),
         plan_works_stops_by_press_month: index.summary({ key: "press", from: "at", to: "at", tile: "month" }),
+        plan_works_stops_day_totals: index.summary({ from: "at", to: "at", tile: "day" }),
+        plan_works_stops_week_totals: index.summary({ from: "at", to: "at", tile: "week" }),
         plan_works_stops_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
         plan_works_stops_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
         plan_works_stops_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
@@ -2317,6 +2331,8 @@ export const planWorksBindings = e3.record("plan_works_bindings", DictType(Strin
         plan_works_bindings_by_time: index.interval({ from: "start", to: "end" }),
         plan_works_bindings_by_line_week: index.series({ key: "line", from: "start", to: "end", tile: "week" }),
         plan_works_bindings_by_line_month: index.summary({ key: "line", from: "start", to: "end", tile: "month" }),
+        plan_works_bindings_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_works_bindings_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_works_bindings_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_works_bindings_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_works_bindings_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -2337,6 +2353,8 @@ export const planWorksShifts = e3.record("plan_works_shifts", DictType(StringTyp
         plan_works_shifts_by_time: index.interval({ from: "start", to: "end" }),
         plan_works_shifts_by_crew_week: index.series({ key: "crew", from: "start", to: "end", tile: "week" }),
         plan_works_shifts_by_crew_month: index.summary({ key: "crew", from: "start", to: "end", tile: "month" }),
+        plan_works_shifts_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_works_shifts_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_works_shifts_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_works_shifts_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_works_shifts_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -2356,6 +2374,8 @@ export const planWorksDeliveries = e3.record("plan_works_deliveries", DictType(S
         // The key field is the variant, so a row's cells are asked by its key in its case.
         plan_works_deliveries_by_location_week: index.series({ key: "location", from: "at", to: "at", tile: "week" }),
         plan_works_deliveries_by_location_month: index.summary({ key: "location", from: "at", to: "at", tile: "month" }),
+        plan_works_deliveries_day_totals: index.summary({ from: "at", to: "at", tile: "day" }),
+        plan_works_deliveries_week_totals: index.summary({ from: "at", to: "at", tile: "week" }),
         plan_works_deliveries_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
         plan_works_deliveries_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
         plan_works_deliveries_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
@@ -2585,11 +2605,11 @@ export const planPrintWorksRecords = example({
                 },
                 // The jobs on the rows in view, a cell at a time: the presses in view by the weeks in view, and each
                 // press's months where the jobs are too many to draw. Its range is the window the rows share. Each kind
-                // lists its totals a month, a quarter and a year, which the horizon's bars read, summed (#1732).
+                // lists its totals a day, a week, a month, a quarter and a year, which the horizon's bars read, summed (#1732).
                 job: {
                     source: Data.bindPaged(planWorksJobs, {
                         indexes: ["plan_works_jobs_by_time", "plan_works_jobs_by_press_week", "plan_works_jobs_by_press_month"],
-                        totals: ["plan_works_jobs_month_totals", "plan_works_jobs_quarter_totals", "plan_works_jobs_year_totals"],
+                        totals: ["plan_works_jobs_day_totals", "plan_works_jobs_week_totals", "plan_works_jobs_month_totals", "plan_works_jobs_quarter_totals", "plan_works_jobs_year_totals"],
                     }),
                     label: "Print jobs", icon: { prefix: "fas", name: "file-lines" },
                     fields: { start: { label: "Dates" } }, range: "start",
@@ -2597,7 +2617,7 @@ export const planPrintWorksRecords = example({
                 shift: {
                     source: Data.bindPaged(planWorksShifts, {
                         indexes: ["plan_works_shifts_by_time", "plan_works_shifts_by_crew_week", "plan_works_shifts_by_crew_month"],
-                        totals: ["plan_works_shifts_month_totals", "plan_works_shifts_quarter_totals", "plan_works_shifts_year_totals"],
+                        totals: ["plan_works_shifts_day_totals", "plan_works_shifts_week_totals", "plan_works_shifts_month_totals", "plan_works_shifts_quarter_totals", "plan_works_shifts_year_totals"],
                     }),
                     label: "Shifts", icon: { prefix: "fas", name: "user-clock" },
                     fields: { start: { label: "Dates" } }, range: "start",
@@ -2605,7 +2625,7 @@ export const planPrintWorksRecords = example({
                 stop: {
                     source: Data.bindPaged(planWorksStops, {
                         indexes: ["plan_works_stops_by_time", "plan_works_stops_by_press_week", "plan_works_stops_by_press_month"],
-                        totals: ["plan_works_stops_month_totals", "plan_works_stops_quarter_totals", "plan_works_stops_year_totals"],
+                        totals: ["plan_works_stops_day_totals", "plan_works_stops_week_totals", "plan_works_stops_month_totals", "plan_works_stops_quarter_totals", "plan_works_stops_year_totals"],
                     }),
                     label: "Stops", icon: { prefix: "fas", name: "screwdriver-wrench" },
                     fields: { at: { label: "Dates" } }, range: "at",
@@ -2613,7 +2633,7 @@ export const planPrintWorksRecords = example({
                 binding: {
                     source: Data.bindPaged(planWorksBindings, {
                         indexes: ["plan_works_bindings_by_time", "plan_works_bindings_by_line_week", "plan_works_bindings_by_line_month"],
-                        totals: ["plan_works_bindings_month_totals", "plan_works_bindings_quarter_totals", "plan_works_bindings_year_totals"],
+                        totals: ["plan_works_bindings_day_totals", "plan_works_bindings_week_totals", "plan_works_bindings_month_totals", "plan_works_bindings_quarter_totals", "plan_works_bindings_year_totals"],
                     }),
                     label: "Bindery jobs", icon: { prefix: "fas", name: "book-open" },
                     fields: { start: { label: "Dates" } }, range: "start",
@@ -2621,7 +2641,7 @@ export const planPrintWorksRecords = example({
                 delivery: {
                     source: Data.bindPaged(planWorksDeliveries, {
                         indexes: ["plan_works_deliveries_by_time", "plan_works_deliveries_by_location_week", "plan_works_deliveries_by_location_month"],
-                        totals: ["plan_works_deliveries_month_totals", "plan_works_deliveries_quarter_totals", "plan_works_deliveries_year_totals"],
+                        totals: ["plan_works_deliveries_day_totals", "plan_works_deliveries_week_totals", "plan_works_deliveries_month_totals", "plan_works_deliveries_quarter_totals", "plan_works_deliveries_year_totals"],
                     }),
                     label: "Deliveries", icon: { prefix: "fas", name: "truck" },
                     fields: { at: { label: "Dates" } }, range: "at",

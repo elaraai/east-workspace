@@ -164,8 +164,10 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
         plan_window_jobs_by_press_month_again: index.summary({
             key: "press", from: "start", to: "end", tile: "month",
         }),
-        // The jobs' totals a month, a quarter and a year (#1732): how many of them touch each, under no press — what the
+        // The jobs' totals a day, a week, a month, a quarter and a year (#1732): how many of them touch each, under no press — what the
         // horizon's bars read at the period that fits the strip, never counting jobs.
+        plan_window_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_window_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_window_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_window_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_window_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -336,7 +338,7 @@ export const planWindowRuns = e3.record("plan_window_runs", DictType(StringType,
  * booked. The source's range is the window — the toolbar's dates, a pan and
  * the horizon brush write it — its exact count the interval index's, and the
  * backlog, which the library's Backlog tab lists, its Unset start's. The
- * horizon's bars are the jobs' totals a month, a quarter and a year, which the
+ * horizon's bars are the jobs' totals a day, a week, a month, a quarter and a year, which the
  * source lists in its binding's `totals` (#1732). One job —
  * the inspector's, a draft's — is read by its key through the record's own
  * entries. Neither the presses nor the jobs are ever read whole, and Save
@@ -353,20 +355,20 @@ export const planWindows = example({
         "scroll", "pan", "zoom", "resolutions", "shading", "brush", "presses", "jobs", "e3.task", "Record.bind", "e3.record", "entries",
         "by key", "revision", "editing", "Save", "horizon", "totals", "summary with no key", "#1199", "#1344", "#1039", "#1732",
     ],
-    description: "A Plan read a window at a time — 2,000 presses, its rows, paged 200 to a window as the canvas scrolls (`data` a `Data.bindPaged` of them laid out by a `Plan.series.resources`, the key search seeking a press), and the jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.series`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Plan reads only the cells around the rows in view, two requests a change, shading from the summary when zoomed out past what it draws — the window, its count and the backlog the interval index's, one job by its key through the record's own entries, and its editing a session over the record's revision, never the record whole; the horizon's bars are the jobs' totals a month, a quarter and a year (index.summary with no key), which the source lists in its binding's `totals`",
+    description: "A Plan read a window at a time — 2,000 presses, its rows, paged 200 to a window as the canvas scrolls (`data` a `Data.bindPaged` of them laid out by a `Plan.series.resources`, the key search seeking a press), and the jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.series`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Plan reads only the cells around the rows in view, two requests a change, shading from the summary when zoomed out past what it draws — the window, its count and the backlog the interval index's, one job by its key through the record's own entries, and its editing a session over the record's revision, never the record whole; the horizon's bars are the jobs' totals a day, a week, a month, a quarter and a year (index.summary with no key), which the source lists in its binding's `totals`",
     fn: East.function([], UIComponentType, (_$) => {
         return (<Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planWindowPresses));
             const jobs = $.let(Record.bind(planWindowJobs));
             const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // One rail: its `job` source lists the series and the summary beside the interval index, its range the window
-            // in view — the Plan reads the jobs' cells through them — and the jobs' totals a month, a quarter and a year,
+            // in view — the Plan reads the jobs' cells through them — and the jobs' totals a day, a week, a month, a quarter and a year,
             // which the horizon's bars read (#1732).
             const slice = $.let(Slice.bindRecords("ex.plan.windows", {
                 job: {
                     source: Data.bindPaged(planWindowJobs, {
                         indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"],
-                        totals: ["plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
+                        totals: ["plan_window_jobs_day_totals", "plan_window_jobs_week_totals", "plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
                     }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -444,7 +446,7 @@ export const planSeriesByHall = example({
                 job: {
                     source: Data.bindPaged(planWindowJobs, {
                         indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"],
-                        totals: ["plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
+                        totals: ["plan_window_jobs_day_totals", "plan_window_jobs_week_totals", "plan_window_jobs_month_totals", "plan_window_jobs_quarter_totals", "plan_window_jobs_year_totals"],
                     }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
                 },
@@ -510,7 +512,9 @@ export const planKeyedWindowJobs = e3.record("plan_keyed_window_jobs", PrintKeye
         plan_keyed_window_jobs_by_press_month: index.summary({
             key: "press", from: "start", to: "end", tile: "month",
         }),
-        // Their totals a month, a quarter and a year (#1732): what the horizon's bars read.
+        // Their totals a day, a week, a month, a quarter and a year (#1732): what the horizon's bars read.
+        plan_keyed_window_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
+        plan_keyed_window_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
         plan_keyed_window_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
         plan_keyed_window_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
         plan_keyed_window_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
@@ -547,7 +551,7 @@ export const planTypedKeysPaged = example({
                 job: {
                     source: Data.bindPaged(planKeyedWindowJobs, {
                         indexes: ["plan_keyed_window_jobs_by_time", "plan_keyed_window_jobs_by_press_week", "plan_keyed_window_jobs_by_press_month"],
-                        totals: ["plan_keyed_window_jobs_month_totals", "plan_keyed_window_jobs_quarter_totals", "plan_keyed_window_jobs_year_totals"],
+                        totals: ["plan_keyed_window_jobs_day_totals", "plan_keyed_window_jobs_week_totals", "plan_keyed_window_jobs_month_totals", "plan_keyed_window_jobs_quarter_totals", "plan_keyed_window_jobs_year_totals"],
                     }),
                     label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start",
                 },
