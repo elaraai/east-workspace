@@ -130,6 +130,69 @@ export const RACK_TIER_MANIFESTS = 'tier-manifests';
  */
 export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
 
+/**
+ * The report's feature by which a rack says it keeps what the leases of a
+ * split task's execution wrote for its later leases, until its source says
+ * the execution ended: a lease of a unit is then granted it with its scope
+ * (`RackLeaseEvent.scope`), and the heartbeat's answer names the scopes that
+ * ended ({@link RACK_SCOPES_ENDED_HEADER}). A rack that does not name it is
+ * granted the same lease without one.
+ */
+export const RACK_SPLIT_SCOPES = 'split-scopes';
+
+/**
+ * The header of a heartbeat's answer that names the split scopes that ended
+ * of those the rack was granted a lease of: a JSON array of their ids. Each is
+ * named once, to a rack whose report names {@link RACK_SPLIT_SCOPES}; an
+ * answer lost on its way is not sent again, so a rack bounds what it keeps of
+ * a scope by its own time too.
+ */
+export const RACK_SCOPES_ENDED_HEADER = 'x-e3-rack-scopes-ended';
+
+/**
+ * Whether a text is a split scope's id, as a lease or a heartbeat's answer
+ * names one: a word of at most 64 letters, digits and hyphens.
+ *
+ * @param value - The text
+ * @returns Whether it is one
+ * @example
+ * ```ts
+ * isRackScopeId('0193b1c2-7f00-7abc-8def-0123456789ab'); // true
+ * ```
+ */
+export function isRackScopeId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(value);
+}
+
+/** The most scopes one heartbeat's answer names as ended; those past it go
+ *  with the next. */
+export const RACK_SCOPES_ENDED_MAX = 1024;
+
+/**
+ * Reads a heartbeat answer's ended-scopes header.
+ *
+ * @param json - The header's value, or null when the answer had none
+ * @returns The ids of the scopes that ended, at most
+ *   {@link RACK_SCOPES_ENDED_MAX}; none when the header is absent or does not
+ *   read, and none of an entry that is no scope's id
+ *
+ * @example
+ * ```ts
+ * for (const scope of readRackScopesEnded(response.headers.get(RACK_SCOPES_ENDED_HEADER))) forget(scope);
+ * ```
+ */
+export function readRackScopesEnded(json: string | null): string[] {
+  if (json === null) return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, RACK_SCOPES_ENDED_MAX).filter(isRackScopeId);
+}
+
 /** What a rack says of a tier it boots environments over. */
 export interface RackReportedTier {
   /** The digest of the tier image's manifest: `sha256:<hex>` of its bytes */
@@ -212,7 +275,9 @@ export interface RackReport {
    * the work grow to the cap its lease names and stops it there, and stops
    * the newest unit it holds when its host runs short), `environments` (it
    * composes a lease's environment from layers),
-   * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier).
+   * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier),
+   * {@link RACK_SPLIT_SCOPES} (it keeps a split task's outputs for its later
+   * leases).
    */
   readonly features: readonly string[];
   /** The platform environments are installed for, as e3-core names one

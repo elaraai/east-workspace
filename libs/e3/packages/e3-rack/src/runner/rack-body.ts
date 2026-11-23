@@ -59,6 +59,12 @@ function unitResources(reserve: number, verdict: RackVerdict): RackLeaseResource
  * and work whose environment no install makes for that platform, or whose
  * build fails, runs locally with the reason.
  *
+ * A unit of a split task names the task's execution it runs in, its scope
+ * (`TaskBodyRequest.options.splitScope`), which the hub grants to a rack that
+ * keeps what the scope's leases wrote for its later ones: a merge then reads
+ * its pieces there rather than over the link. Every output still comes here,
+ * whole, before its unit succeeds.
+ *
  * A unit of a split task is leased only to a rack that caps it at what its
  * lease asks (`rackCapsUnits`), which is the hub's rule for granting one
  * too, so every unit runs where something stops it when it outgrows its
@@ -132,6 +138,8 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       // unit its cap stopped is leased again asking for more.
       leases: for (;;) {
       handle = undefined;
+      // The split task's execution the unit runs in, while it has not ended
+      const splitScope = request.unit === undefined || request.options.splitScope === undefined ? undefined : session.scope(request.options.splitScope);
       const common = { launchId: uuidv7(), repo: session.repoAlias, timeoutMs,
         taskHash: request.taskHash, force: true, verbose: request.options.verbose === true,
         ...(request.options.expectedPeakBytes !== undefined && { expectedPeakBytes: request.options.expectedPeakBytes }) };
@@ -139,7 +147,7 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
         runnerEvent: request.unit === undefined ? { ...common, mode: 'task', inputHashes: request.inputHashes }
           : { ...common, mode: 'unit', unit: splitUnitToWire(request.unit) },
         workspace: options.workspace, taskName, e3Version: session.e3Version, closure, resources,
-        ...(verdict.environment !== null && { environment: verdict.environment }) };
+        ...(verdict.environment !== null && { environment: verdict.environment }), ...(splitScope !== undefined && { scope: splitScope }) };
       if (signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
       const needs = resources;
       const submitted = await fleet.submit({ eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size }, needs,

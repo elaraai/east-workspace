@@ -25,7 +25,7 @@ import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(background = false) {
+async function fixture(background = false, splitScopes = false) {
   const home = await mkdtemp(join(tmpdir(), 'e3s-'));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   await saveHubConfig({ ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 0n }) }, home);
@@ -38,7 +38,7 @@ async function fixture(background = false) {
   }
   const mint = await client.enroll();
   // A rack that admits by its resources: one that caps a unit, as the rack a unit is leased to must
-  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'], resources: { cores: 8, memoryBytes: 16 * 1024 ** 3, gpus: 0 },
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'], resources: { cores: 8, memoryBytes: 16 * 1024 ** 3, gpus: 0 }, splitScopes,
     certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
   cleanup.push(() => agent.close());
   const repo = join(home, 'repo'); assert(repoInit(repo).success);
@@ -88,6 +88,8 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
   ]);
   assert.equal(remote.state, 'success', remote.error); assert.equal(f.budget.peak, 0);
   assert(events.length > 1); assert(events.every((event) => event.runnerEvent.mode === 'unit'));
+  // A rack that does not say it keeps a split task's outputs is told no scope
+  assert(events.every((event) => event.scope === undefined));
   if (kind === 'fold' || kind === 'dict') assert(events.some((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge !== null));
   const record = await f.storage.refs.executionGet(f.repo, hash, inputsHash(inputs), remote.executionId);
   assert(record?.type === 'success' && !record.value.unit);
@@ -112,6 +114,72 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
   const local = await new LocalTaskRunner(f.repo, f.budget).execute(f.storage, hash, inputs, { force: true });
   assert.equal(local.state, 'success', local.error); assert.equal(local.outputHash, remote.outputHash);
   assert(f.placements.every((placement) => placement.where === 'rack' && placement.role === 'unit'));
+});
+
+/** A dict split task whose every piece emits the same key, so its pieces are merged: deployed, with its input. */
+async function overlapping(f: Awaited<ReturnType<typeof fixture>>): Promise<{ hash: string; inputs: string[] }> {
+  const original = process.env.E3_TEST_PIECE_BYTES;
+  process.env.E3_TEST_PIECE_BYTES = '64';
+  cleanup.push(() => { if (original === undefined) delete process.env.E3_TEST_PIECE_BYTES; else process.env.E3_TEST_PIECE_BYTES = original; return Promise.resolve(); });
+  const type = ArrayType(IntegerType);
+  const input = e3.input('rows', type);
+  const task = e3.streamTask('split', { inputs: [e3.partition(input)], output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }) },
+    ($, rows, emit) => { $.for(rows, ($, row) => { $(emit(0n, row)); }); });
+  const zip = join(f.home, 'split.zip');
+  await e3.export(e3.package('split', '1.0.0', task), zip);
+  await packageImport(f.storage, f.repo, zip);
+  return { hash: (await packageRead(f.storage, f.repo, 'split', '1.0.0')).tasks.get('split')!,
+    inputs: [await datasetWrite(f.storage, f.repo, Array.from({ length: 8000 }, (_, i) => BigInt(i)), type)] };
+}
+
+/** The scopes the rack's heartbeats are told ended, once one is, or none in five seconds. */
+async function toldEnded(agent: TestRackAgent): Promise<string[]> {
+  for (const until = Date.now() + 5000; agent.scopesEnded.length === 0 && Date.now() < until;) { await agent.heartbeat(); await delay(20); }
+  return [...agent.scopesEnded];
+}
+
+it('names each unit\'s split scope to a rack that keeps them, and tells the rack once the task has ended', async () => {
+  const f = await fixture(false, true);
+  const { hash, inputs } = await overlapping(f);
+  const events: RackLeaseEvent[] = [];
+  let ended = false;
+  const pump = async () => {
+    while (!ended) {
+      if (Number((await f.client.status()).capacity.queued) === 0) { await delay(10); continue; }
+      const grant = await f.agent.claim(); assert(grant);
+      events.push(JSON.parse(grant.eventJson) as RackLeaseEvent);
+      assert.equal((await f.agent.execute(grant)).status, 'success');
+    }
+  };
+  const [remote] = await Promise.all([f.rack.runner.execute(f.storage, hash, inputs, { taskName: 'split' }).finally(() => { ended = true; }), pump()]);
+  assert.equal(remote.state, 'success', remote.error);
+  const merges = events.filter((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge !== null);
+  const pieces = events.filter((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge === null);
+  assert(pieces.length > 1 && merges.length >= 1);
+  const ids = new Set(events.map((event) => event.scope?.id));
+  assert.equal(ids.size, 1, 'every unit of the execution names one scope');
+  const [id] = ids; assert(id !== undefined);
+  assert(pieces.every((event) => event.scope?.feeds === true), 'the pieces feed the merge');
+  assert(merges.every((event) => event.scope?.feeds === false), 'the last merges feed nothing');
+  // The task ended: the rack is told its scope did, once
+  assert.deepEqual(await toldEnded(f.agent), [id]);
+  await f.agent.heartbeat();
+  assert.deepEqual(f.agent.scopesEnded, [id], 'and only once');
+});
+
+it('tells a rack that keeps scopes that a cancelled split task\'s scope ended', async () => {
+  const f = await fixture(false, true);
+  const { hash, inputs } = await overlapping(f);
+  const abort = new AbortController();
+  const running = f.rack.runner.execute(f.storage, hash, inputs, { taskName: 'split', signal: abort.signal });
+  while (Number((await f.client.status()).capacity.queued) === 0) await delay(10);
+  const grant = await f.agent.claim(); assert(grant);
+  const id = (JSON.parse(grant.eventJson) as RackLeaseEvent).scope?.id; assert(id !== undefined);
+  abort.abort();
+  await f.agent.execute(grant).catch(() => {});
+  const result = await running;
+  assert.equal(result.cancelled, true);
+  assert.deepEqual(await toldEnded(f.agent), [id]);
 });
 
 it('executes an east-py task through the same rack wire', { skip: stockRuntimesOnPath().includes('east-py') ? false : 'east-py CLI not on PATH' }, async () => {

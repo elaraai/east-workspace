@@ -59,6 +59,12 @@
  * ends, its end is recorded once its log is written and flushed, so a reader
  * that finds the task ended reads its whole log.
  *
+ * Each execution of a task is a split scope ({@link SplitTask.scope}): a
+ * random id its units are run under, which says whether a later unit reads
+ * what each writes, and which ends as the execution does. A runner whose units
+ * run on another host may keep a stage's outputs there for the next stage, and
+ * keep nothing once the scope has ended; nothing of it is hashed or recorded.
+ *
  * The engine runs wherever its driver does: it reaches storage through the
  * storage interfaces and runs units through the executor its driver gives, and
  * knows nothing of the process it runs in but the owner its driver names.
@@ -89,7 +95,7 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
 import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
-import type { ExecutionLiveness, MergeParts, SplitUnit } from './interfaces.js';
+import type { ExecutionLiveness, MergeParts, SplitScope, SplitUnit } from './interfaces.js';
 import { planPieces, pieceSizes, type PiecePlan, type PieceSizes } from './pieces.js';
 import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
 
@@ -385,6 +391,9 @@ export function isSplitTask(task: TaskObject): boolean {
  * @param guessed - Whether `expectedPeakBytes` is a guess from what the
  *   unit holds of its rows decoded, which no run of its program measured
  *   ({@link SplitTask.stagePeakGuessed})
+ * @param scope - The execution of the task the unit runs in
+ *   ({@link SplitTask.scope}); none for the one unit of a task that is one
+ *   piece
  * @returns The execution's result
  */
 export type UnitExecutor = (
@@ -394,6 +403,7 @@ export type UnitExecutor = (
   expectedPeakBytes: number | undefined,
   own: boolean,
   guessed?: boolean,
+  scope?: SplitScope,
 ) => Promise<ExecutionResult>;
 
 /**
@@ -500,6 +510,10 @@ export class SplitTask {
   /** The largest peak any unit of the task has reached, in bytes: the one its
    *  own execution records. */
   private peakBytes: number | undefined;
+  /** This execution's split scope ({@link scope}): an id made afresh, of
+   *  nothing the task runs over, and its end. */
+  private readonly scopeId = uuidv7();
+  private readonly scopeEnded = new AbortController();
 
   private constructor(
     private readonly storage: StorageBackend,
@@ -558,6 +572,32 @@ export class SplitTask {
    */
   get stagePeakGuessed(): boolean {
     return this.estimate?.from === 'rows' && this.stagePeakBytes === undefined;
+  }
+
+  /**
+   * The execution the stage's units run in, as each is given it
+   * ({@link SplitScope}): one id for every stage of this execution, which
+   * ends as the execution ends — however it ends, or once it is left
+   * mid-stage — or once its driver lets it go ({@link endScope}). A piece
+   * feeds a later unit unless the task's output is an array, whose pieces'
+   * outputs are concatenated here; a merge does below the last level. None
+   * for a task that is one piece, whose one unit is the task's own
+   * execution.
+   */
+  get scope(): SplitScope | undefined {
+    if (this.current.plan === null) return undefined;
+    const merge = this.current.merge;
+    const feeds = merge === null ? this.task.output.kind.type !== 'array' : merge.level < merge.levels;
+    return { id: this.scopeId, feeds, ended: this.scopeEnded.signal };
+  }
+
+  /**
+   * Ends the execution's {@link scope}: what its end does, and what a driver
+   * does that lets the task go otherwise, as when advancing it threw. No unit
+   * of the execution runs after it. Ending it again does nothing.
+   */
+  endScope(): void {
+    this.scopeEnded.abort();
   }
 
   /**
@@ -846,6 +886,8 @@ export class SplitTask {
    *   took it up (`superseded`), which its log's last line says
    */
   async suspend(by: 'yielded' | 'superseded' = 'yielded'): Promise<void> {
+    // A run that takes the stage up is another execution, with its own scope
+    this.endScope();
     if (!this.running) return;
     const cause = by === 'yielded'
       ? 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again'
@@ -996,6 +1038,7 @@ export class SplitTask {
   /** Records the task's outcome, once its log is written and flushed, and
    *  unroots its plan. */
   private async finish(status: ExecutionStatus): Promise<void> {
+    this.endScope();
     await this.logWrites;
     await this.flushLog();
     this.running = false;
@@ -1207,19 +1250,25 @@ export async function executeSplitTask(
   }
   const split = await SplitTask.open(storage, repo, taskHash, task, inputHashes, ids, options, plan, owner);
   if (!(split instanceof SplitTask)) return split;
-  for (;;) {
-    const { units } = split.stage;
-    const outcome = await runPool(units.length, width, options.signal, () => !split.measuring, async (index) => {
-      const unit = units[index]!;
-      split.unitStarted(index);
-      const unitHash = inputsHash(unit.inputs);
-      const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash, executionAlive))
-        ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own,
-          split.stagePeakGuessed);
-      split.unitSettled(index, result);
-      return result;
-    });
-    const result = await split.advance(outcome.results, outcome.thrown);
-    if (result !== null) return result;
+  try {
+    for (;;) {
+      const { units } = split.stage;
+      const scope = split.scope;
+      const outcome = await runPool(units.length, width, options.signal, () => !split.measuring, async (index) => {
+        const unit = units[index]!;
+        split.unitStarted(index);
+        const unitHash = inputsHash(unit.inputs);
+        const result = (options.force ? null : await probeExecutionCache(storage, repo, taskHash, unitHash, executionAlive))
+          ?? await execute(unit.inputs, { inHash: unitHash, executionId: uuidv7(), startTime: Date.now() }, unit.merge, split.stagePeak, unit.own,
+            split.stagePeakGuessed, scope);
+        split.unitSettled(index, result);
+        return result;
+      });
+      const result = await split.advance(outcome.results, outcome.thrown);
+      if (result !== null) return result;
+    }
+  } finally {
+    // However the task ends, its scope ends with it: one whose advance threw too
+    split.endScope();
   }
 }

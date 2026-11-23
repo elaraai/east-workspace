@@ -15,6 +15,8 @@ export const E3_RACK_VERSION: string = E3_RELEASE;
  * another started. 4 leases function calls: a claim's attempt is optional,
  * since a call's lease runs none. 5 says, of each rack, the manifest of each
  * tier it boots environments over, and answers a manifest by its digest; and
- * a lease names the builds of its environment its session keeps.
+ * a lease names the builds of its environment its session keeps. 6 ends a
+ * split scope a session's leases named, so the racks that keep what its
+ * leases wrote are told to let it go.
  */
-export const HUB_PROTOCOL = 5;
+export const HUB_PROTOCOL = 6;

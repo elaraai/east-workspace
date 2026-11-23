@@ -1472,3 +1472,21 @@ Each wire changed under this rule, with the kind it is.
   spec's bytes and hash change with the case, and each task of a re-exported
   package that names an environment runs again. Packages are re-exported, so
   no repository upgrade step ships.
+- **A unit's rack lease names its split task's execution, and the hub's
+  control protocol ends one: hub control protocol 6** — neither package-borne
+  nor stored. e3-core gives each unit of a split task the execution it runs
+  in, `SplitScope` (a random id, whether a later unit reads what the unit
+  writes, and a signal that ends with the execution), runtime-only, never
+  hashed or recorded. A unit's lease event, JSON already, gains an optional
+  `scope` (`{ "id", "feeds" }`); a rack's report names the feature
+  `split-scopes`; and a heartbeat's answer may carry the header
+  `x-e3-rack-scopes-ended`, a JSON array of ids. No BEAST2 struct of rack
+  protocol 3 changes, so the rack protocol keeps its number: the hub grants a
+  lease with its scope only to a rack whose report names the feature, and
+  sends the header only to such a rack, so an agent from before it is granted
+  the same lease without one, and an agent that names it, under a hub from
+  before it, is never told a scope and keeps nothing. The control protocol
+  gains a route, `POST /v1/sessions/:id/scopes/end` (`EndScopeType`), so it
+  is 6: an e3 that finds a hub of protocol 5 asks it to drain and runs
+  locally that once, as for any protocol change. Nothing is stored, so no
+  repository upgrade step ships.

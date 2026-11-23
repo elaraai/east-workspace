@@ -97,6 +97,7 @@ export type {
   ExecutionLiveness,
   MergeParts,
   SplitUnit,
+  SplitScope,
   UnitRequeue,
   IntakeSource,
   IntakeSpec,

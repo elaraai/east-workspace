@@ -23,7 +23,7 @@
 import { variant } from '@elaraai/east';
 import type { ExecutionOwner, ExecutionStatus, PartitionProgress, StopReason } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { ExecutionLiveness, RunningExecution, UnitRequeue } from './interfaces.js';
+import type { ExecutionLiveness, RunningExecution, SplitScope, UnitRequeue } from './interfaces.js';
 
 /**
  * Options for task execution.
@@ -113,6 +113,11 @@ export interface ExecuteOptions {
    * another's behalf and judges its liveness itself. Runtime-only.
    */
   owner?: ExecutionOwner | null;
+  /** The execution of the split task a unit is part of ({@link SplitScope}):
+   *  the engine's, for each unit it runs, which a body that runs the unit
+   *  elsewhere reads (`TaskBodyRequest.options`). Runtime-only: never hashed,
+   *  never recorded. */
+  splitScope?: SplitScope;
 }
 
 /**

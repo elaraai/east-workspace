@@ -16,6 +16,7 @@ export {
   type ExecutionLiveness,
   type MergeParts,
   type SplitUnit,
+  type SplitScope,
   type UnitRequeue,
   type IntakeSource,
   type IntakeSpec,
