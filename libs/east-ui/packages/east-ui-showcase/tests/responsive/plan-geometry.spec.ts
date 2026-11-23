@@ -1460,8 +1460,9 @@ async function stopCellPaint(cell: Locator): Promise<CellPainted[]> {
  * in it: a tap at each of that area's corners, 1px in, the middle of each of
  * its edges and its middle lands on the chip, or on the tile there. A tap on
  * every tile its row or card shows — its middle, 1px inside each end — lands
- * on that tile. Evaluated on the chip; `onTile` counts the area's taps that a
- * tile took.
+ * on that tile. Evaluated on the chip, or on a lone tile a cell with no room
+ * draws as a mark across itself, whose halo is the chip's (#1710); `onTile`
+ * counts the area's taps that a tile took.
  */
 const tapFaults = (chip: Element): { bad: string[]; onTile: number } => {
     const bad: string[] = [];
@@ -1624,71 +1625,63 @@ const floorCell = (key: string) => `[data-plan-row] [data-plan-cell]:has([data-e
 const toFloor = (page: Page, key: string) =>
     page.addStyleTag({ content: `${floorCell(key)} { width: 12px !important; min-width: 0 !important; }` });
 
-/** A cell at its floor as it draws: the tiles that show, its chip's words, whether it says its count and spans the
- *  cell, and whether it lies inside the cell. */
+/** A cell at its floor as it draws: the tiles that show; the mark a lone one draws as, by its key, whether it spans the
+ *  cell and lies inside it; and its chip's words, whether it says its count, spans the cell and lies inside it. */
 const floorDrawn = (cell: Element) => {
     const c = cell.getBoundingClientRect();
+    const spans = (r: DOMRect) => Math.abs(r.left - c.left) <= 0.5 && Math.abs(r.right - c.right) <= 0.5;
+    const inside = (r: DOMRect) => r.left >= c.left - 0.5 && r.right <= c.right + 0.5 && r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5;
+    const mark = cell.querySelector("[data-plan-cell-tiles][data-no-room] > [data-event]");
     const chip = cell.querySelector("[data-tile-more]");
-    const m = chip?.getBoundingClientRect();
     return {
         shown: [...cell.querySelectorAll("[data-event]")].filter((t) => getComputedStyle(t).display !== "none").map((t) => t.getAttribute("data-event")),
+        mark: mark === null ? null : { key: mark.getAttribute("data-event"), spans: spans(mark.getBoundingClientRect()), inside: inside(mark.getBoundingClientRect()) },
         chip: chip === null ? null : {
             words: chip.textContent,
             label: chip.getAttribute("aria-label"),
             count: getComputedStyle(chip.querySelector("[data-tile-more-count]")!).display !== "none",
-            spans: m !== undefined && Math.abs(m.left - c.left) <= 0.5 && Math.abs(m.right - c.right) <= 0.5,
-            inside: m !== undefined && m.left >= c.left - 0.5 && m.right <= c.right + 0.5 && m.top >= c.top - 0.5 && m.bottom <= c.bottom + 0.5,
+            spans: spans(chip.getBoundingClientRect()),
+            inside: inside(chip.getBoundingClientRect()),
         },
     };
 };
 
 /**
- * A cell with no room for one whole tile (#1276, the user's ruling "Fold into
- * +n"): at its 12px floor its padding leaves the tiles nothing, so it draws no
- * tile and shows its `+n` alone, across the whole cell — its padding too — its
- * menu listing every tile, a pick doing what the tile's click does, and its
- * name saying its lane where it has one. A popover the pick opens hangs from
- * the chip, the tile having no box.
+ * A cell with no room for one whole tile (#1276): at its 12px floor its
+ * padding leaves the tiles nothing. A lone tile draws as a mark across the
+ * whole cell — its padding too — the tile itself, its click and its popover
+ * its own, never a faint `+1` in its place (#1710); several fold into their
+ * `+n` alone (the user's ruling "Fold into +n"), its menu listing every tile
+ * (Van 1's Aug 24 cell, above).
  */
-test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desktop" }, () => {
+test.describe("Plan bucket cells with no room for a tile (#1276, #1710)", { tag: "@desktop" }, () => {
 
-    test("planTargetState: a cell at its 12px floor draws no tile — its +1 alone, across the cell and inside it — and its menu lists the tile; a pick does what its click does, Van 1 selected", async ({ page }) => {
+    test("planTargetState: a cell at its 12px floor draws its lone tile as a mark across the cell and inside it, never a +1; a click on it does what the tile's does, Van 1 selected", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         await toFloor(page, "a0");
         const cell = entry.locator(floorCell("a0"));
-        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
-            shown: [],
-            // The cell's one event: one event, never one more (#1680's review).
-            chip: { words: "+1", label: "1 event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
-        });
+        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({ shown: ["a0"], mark: { key: "a0", spans: true, inside: true }, chip: null });
         await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
-        await cell.locator("[data-tile-more]").click();
-        const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
-        await expect(items).toHaveText(["Event, Week of Jun 29, 2026, confirmed"]);
-        await items.first().click();
+        await cell.locator("[data-event='a0']").click();
         await expect(entry.locator(rowSel("vans", "van1"))).toHaveAttribute("data-selected", "");
-        // The tile, which cannot draw, stays in the chip.
-        await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: [] });
+        // Selected, the tile is still its cell's mark.
+        await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: ["a0"], chip: null });
     });
 
-    test("planTargetState: a lane's cell at its floor draws its +1 across the cell, its name saying the lane; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
+    test("planTargetState: a lane's cell at its floor draws its lone tile as a mark across the cell, never a +1; a click on it opens the tile's popover, hung from the mark, and it stays open", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         await toFloor(page, "m5");
         const cell = entry.locator(floorCell("m5"));
-        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
-            shown: [],
-            chip: { words: "+1", label: "1 event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
-        });
-        const chip = cell.locator("[data-tile-more]");
-        await chip.click();
-        await page.locator("[data-tile-more-menu]").getByRole("menuitem").first().click();
+        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({ shown: ["m5"], mark: { key: "m5", spans: true, inside: true }, chip: null });
+        const mark = cell.locator("[data-event='m5']");
+        await mark.click();
         const pop = page.locator('[data-plan-overlay="popover"]');
         await expect(pop).toHaveText("Load 41 · 8 pallets");
-        // Over the chip, which it hangs from, and still open once the page is at rest.
+        // Over the mark, which it hangs from, and still open once the page is at rest.
         await settled(page);
         await expect(pop).toBeVisible();
         const read = async () => {
-            const [p, m] = [await pop.boundingBox(), await chip.boundingBox()];
+            const [p, m] = [await pop.boundingBox(), await mark.boundingBox()];
             return p !== null && m !== null && p.y + p.height <= m.y + 0.5 && p.x <= m.x + m.width && p.x + p.width >= m.x;
         };
         await expect.poll(read).toBe(true);
@@ -1701,7 +1694,9 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
  * another cell, keeps its own taps. On the phone planTargetState's Van 1 card
  * folds its Aug 24 cell's tiles into a `+2` cramped to the room, its target
  * the whole cell; on a touch screen 1280px wide, 60px of room draws the ✓
- * beside `+1`, the halo reaching over the ✓, which keeps its taps.
+ * beside `+1`, the halo reaching over the ✓, which keeps its taps. A lone
+ * tile a cell with no room draws as a mark across itself takes the chip's
+ * halo (#1710).
  */
 test.describe("Plan bucket cells' +n on touch (#1267)", { tag: "@mobile" }, () => {
 
@@ -1743,18 +1738,20 @@ test.describe("Plan bucket cells' +n on touch (#1267)", { tag: "@mobile" }, () =
         expect(read.onTile, "the halo's taps on the ✓").toBeGreaterThan(0);
     });
 
-    test("planTargetState on a touch screen 1920px wide: a cell at its 12px floor is its +1 alone, its 44px halo held inside the cell — a tap anywhere in it lands on the chip, one just outside it never does, and every tile of the row keeps its own (#1276)", async ({ page }) => {
+    test("planTargetState on a touch screen 1920px wide: a cell at its 12px floor draws its lone tile as a mark, its 44px halo held inside the cell — a tap anywhere in it lands on the mark, one just outside it never does, and every tile of the row keeps its own (#1276, #1710)", async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
         await toFloor(page, "a0");
-        const chip = entry.locator(`${floorCell("a0")} [data-tile-more]`);
-        await expect(chip).toHaveAttribute("data-no-room", "");
-        await expect.poll(() => chip.evaluate(tapFaults)).toEqual({ bad: [], onTile: 0 });
-        const outside = () => chip.evaluate((el) => {
+        const mark = entry.locator(`${floorCell("a0")} [data-plan-cell-tiles][data-no-room] > [data-event='a0']`);
+        await expect(mark).toHaveCount(1);
+        await expect(entry.locator(`${floorCell("a0")} [data-tile-more]`)).toHaveCount(0);
+        // The taps on the mark's own box are on a tile; those above and below it, on its halo.
+        await expect.poll(() => mark.evaluate(tapFaults)).toMatchObject({ bad: [] });
+        const outside = () => mark.evaluate((el) => {
             const c = el.closest("[data-plan-cell]")!.getBoundingClientRect();
             const [mx, my] = [(c.left + c.right) / 2, (c.top + c.bottom) / 2];
             return ([[c.left - 2, my, "left"], [c.right + 2, my, "right"], [mx, c.top - 2, "above"], [mx, c.bottom + 2, "below"]] as const)
-                .flatMap(([x, y, side]) => { const hit = document.elementFromPoint(x, y); return hit !== null && el.contains(hit) ? [`a tap 2px ${side} the cell lands on the chip`] : []; });
+                .flatMap(([x, y, side]) => { const hit = document.elementFromPoint(x, y); return hit !== null && el.contains(hit) ? [`a tap 2px ${side} the cell lands on the mark`] : []; });
         });
         expect(await outside()).toEqual([]);
     });

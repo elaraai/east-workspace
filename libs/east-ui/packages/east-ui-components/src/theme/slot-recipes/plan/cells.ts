@@ -64,6 +64,12 @@ const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";
 const PLAN_TILE_LINE = "calc(var(--plan-tile-h) - 4px)";
 const PLAN_CHIP_LINE = "calc(var(--plan-chip-h) - 4px)";
 
+/**
+ * A lone tile's tap halo where its cell has no room for it (#1710), as the `+n` chip's is (#1267): on a coarse pointer
+ * its `::after` — its `::before` is its line's strut — which the tile lets out, its parts unseen, and its cell clips.
+ */
+const LONE_MARK_HALO = coarseHitArea({ pseudo: "_after" }) as { readonly _coarse: SystemStyleObject };
+
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
     // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
@@ -326,7 +332,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // A lone tile in a cell with no room for it (#1710): a mark across the whole cell — its padding too — at its
         // own height, in its state's fill and rings, none of its parts drawn; out of its tiles' box, so the room the
         // cell measures never changes with it. Its ink goes `transparent`, as a strip's mark's does, which takes an FA
-        // icon with it.
+        // icon with it. On a coarse pointer its tap target is its cell, as the `+n` chip's is (#1267).
         "[data-no-room] > &": {
             position: "absolute",
             insetInline: 0,
@@ -336,6 +342,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             padding: 0,
             color: "transparent",
             "& > * + *": { marginInlineStart: 0 },
+            _coarse: { ...LONE_MARK_HALO._coarse, overflow: "visible" },
         },
         // ── R1 GEOMETRY SHRINKS — the bucket case ──
         // A tile is already quantised to its cell; collapsing keeps the
@@ -450,8 +457,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-status='success']": { color: "{colors.status.pos}" },
         "&[data-status='neutral']": { color: "fg.subtle" },
         // Its message is a hover's tooltip, which a coarse pointer has none of:
-        // there it takes no tap from the `+n` chip's halo, which its cell is (#1267).
+        // there it takes no tap from the `+n` chip's halo, which its cell is (#1267),
+        // nor from a lone tile's drawn as a mark across its cell (#1710).
         "[data-plan-cell]:has(> [data-plan-cell-tiles] > [data-tile-more]) > &": { _coarse: { pointerEvents: "none" } },
+        "[data-plan-cell]:has(> [data-plan-cell-tiles][data-no-room]) > &": { _coarse: { pointerEvents: "none" } },
     },
     // ── Cards chips (K6) — the Roster `.shift` chip, verbatim: 5px
     //    radius, brand tint + 1px brand ring, mono 10/500, text left ──
