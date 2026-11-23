@@ -15,6 +15,7 @@
  * `keyField` out. A Sheet's and a Record's are refused in the Sheet's spec.
  * A `key` that hands the row whole to a function that cannot be read where it
  * is declared may read the field unseen: beside a `keyField` it is refused too.
+ * And one that hands it whole to a builtin — printing it — reads every field.
  *
  * e3-ui's specs read and write no e3: each record is a handle made by hand
  * (`record-handles.ts`).
@@ -122,6 +123,12 @@ describe("a declaration whose `key` reads the field its `keyField` names", () =>
             refusal(laned, { keyField: "code", key: (lane: ExprType<typeof Lane>) => labelled(lane.label) }),
             refusal(laned, { key: (lane: ExprType<typeof Lane>) => coded(lane) }),
         ], ["", ""]);
+    });
+
+    test("ruling 8 — a `key` that hands the row whole to a builtin, printing it, reads every field, the key field among them: refused beside `keyField`, and alone it stands", () => {
+        assert.match(refusal(laned, { keyField: "code", key: (lane: ExprType<typeof Lane>) => East.print(lane) }),
+            /^Flowchart\.lanes: `key` reads "code", the field `keyField` names/);
+        assert.equal(refusal(laned, { key: (lane: ExprType<typeof Lane>) => East.print(lane) }), "");
     });
 
     test("ruling 8 — a `key` that reads another field stands beside `keyField`: one of the row's own, or a field of the same name a step down", () => {

@@ -9,7 +9,9 @@
  * in place, each parameter given the row holding it, and each variable bound
  * to the row; a call it cannot follow given the row — a platform function, or
  * a function value it cannot read — it reports as one it cannot see into,
- * rather than guess.
+ * rather than guess. The row taken whole anywhere else — handed to a builtin
+ * that prints, encodes, hashes or compares it, held in a struct or a
+ * collection, or returned — reads every field.
  *
  * What a Plan holds its series' functions to over paged rows, and what holds
  * a kind's `key` off the field its `keyField` names.
@@ -56,6 +58,12 @@ function isRow(x: unknown, rows: ReadonlySet<string>): boolean {
     return false;
 }
 
+/** What a use of the row whole reads: every field asked after, the first of them named; nothing where none is asked after. */
+function readsEvery(fields: ReadonlySet<string>): RowRead | undefined {
+    const [field] = fields;
+    return field === undefined ? undefined : { kind: "reads", field };
+}
+
 /** The first finding of a list of walks. */
 function firstOf<T>(xs: readonly T[], walk: (x: T) => RowRead | undefined): RowRead | undefined {
     for (const x of xs) {
@@ -86,8 +94,12 @@ function walk(node: unknown, rows: ReadonlySet<string>, fields: ReadonlySet<stri
     if (!isNode(node)) return undefined;
     const value = node.value;
     switch (node.type) {
+        case "Variable":
+            // The row reached here is taken whole: never a field read's struct, a call's argument followed into, or a
+            // variable bound to it, which the cases below take before they walk on.
+            return rows.has(value.name as string) ? readsEvery(fields) : undefined;
         case "GetField":
-            if (isRow(value.struct, rows) && fields.has(value.field as string)) return { kind: "reads", field: value.field as string };
+            if (isRow(value.struct, rows)) return fields.has(value.field as string) ? { kind: "reads", field: value.field as string } : undefined;
             return walk(value.struct, rows, fields);
         case "Platform": {
             const args = value.arguments as readonly unknown[];
@@ -98,7 +110,8 @@ function walk(node: unknown, rows: ReadonlySet<string>, fields: ReadonlySet<stri
         case "CallAsync": {
             const fn = value.function;
             const args = value.arguments as readonly unknown[];
-            const found = firstOf(args, (arg) => walk(arg, rows, fields));
+            // The row given as an argument is followed into the function below, or the call is one the walk cannot see into.
+            const found = firstOf(args.filter((arg) => !isRow(arg, rows)), (arg) => walk(arg, rows, fields));
             if (found !== undefined) return found;
             // An East function called in place is followed into, each parameter given the row holding it.
             if (isNode(fn) && (fn.type === "Function" || fn.type === "AsyncFunction")) {
@@ -121,12 +134,13 @@ function walk(node: unknown, rows: ReadonlySet<string>, fields: ReadonlySet<stri
             // A variable bound to the row holds it for the statements after.
             const scope = new Set(rows);
             for (const statement of value.statements as readonly unknown[]) {
-                const found = walk(statement, scope, fields);
-                if (found !== undefined) return found;
                 if (isNode(statement) && statement.type === "Let" && isRow(statement.value.value, scope)) {
                     const name = variableName(statement.value.variable);
                     if (name !== undefined) scope.add(name);
+                    continue;
                 }
+                const found = walk(statement, scope, fields);
+                if (found !== undefined) return found;
             }
             return undefined;
         }
