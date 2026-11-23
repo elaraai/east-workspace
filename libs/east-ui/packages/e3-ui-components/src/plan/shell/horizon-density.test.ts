@@ -7,11 +7,12 @@
 /**
  * The horizon's density (#1438): the period its bars count by for the
  * track's width, its buckets clipped to the horizon, and each month's count
- * in the bucket it starts in.
+ * in the bucket it starts in; over the record's totals (#1732), the period
+ * chosen of those there are totals at, and each bucket its own period's count.
  */
 
 import { describe, expect, test } from "vitest";
-import { horizonDensity } from "./horizon-density.js";
+import { horizonDensity, horizonTotalsDensity, horizonUnit } from "./horizon-density.js";
 
 const at = (iso: string): number => new Date(`${iso}T00:00:00Z`).getTime();
 
@@ -69,5 +70,35 @@ describe("horizonDensity (#1438)", () => {
         expect(d.buckets.reduce((n, b) => n + b.count, 0)).toBe(78);
         expect(horizonDensity(at("2025-01-01"), at("2025-01-01"), decade, 400)).toBeUndefined();
         expect(horizonDensity(at("2025-01-01"), at("2026-01-01"), decade, 0)).toBeUndefined();
+    });
+});
+
+describe("the horizon over the record's totals (#1732)", () => {
+    const lo = at("2022-01-01");
+    const hi = at("2032-01-01");
+
+    test("its period is the finest of those there are totals at that keeps 4px a bucket, or the coarsest of them", () => {
+        expect(horizonUnit(lo, hi, 1000)).toBe("month");
+        // Totals at quarters and years alone: a month would keep 4px, so a quarter's do.
+        expect(horizonUnit(lo, hi, 1000, ["quarter", "year"])).toBe("quarter");
+        // Totals at months alone, which keep under 4px: the coarsest there is, a month.
+        expect(horizonUnit(lo, hi, 60, ["month"])).toBe("month");
+        expect(horizonUnit(lo, hi, 20)).toBe("year");
+        expect(horizonUnit(lo, hi, 1000, [])).toBeUndefined();
+    });
+
+    test("a bucket a period, each counting what its totals say — an event over two months is in each month's and once in their quarter's — clipped to the horizon", () => {
+        // A horizon from Wednesday 5 October 2022 to Monday 2 January 2023: four months, two quarters.
+        const from = at("2022-10-05");
+        const to = at("2023-01-02");
+        const months = horizonTotalsDensity(from, to, "month", new Map([[at("2022-10-01"), 3], [at("2022-11-01"), 2], [at("2023-01-01"), 1]]))!;
+        expect(months.unit).toBe("month");
+        expect(months.buckets.map((b) => [b.start.toISOString().slice(0, 10), b.count])).toEqual([
+            ["2022-10-01", 3], ["2022-11-01", 2], ["2022-12-01", 0], ["2023-01-01", 1],
+        ]);
+        expect([months.buckets[0]!.from, months.buckets.at(-1)!.to, months.max]).toEqual([0, 1, 3]);
+        const quarters = horizonTotalsDensity(from, to, "quarter", new Map([[at("2022-10-01"), 4], [at("2023-01-01"), 1]]))!;
+        expect(quarters.buckets.map((b) => b.count)).toEqual([4, 1]);
+        expect(horizonTotalsDensity(from, from, "month", new Map())).toBeUndefined();
     });
 });

@@ -438,7 +438,9 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
  * summary whose tile fits the zoom: a day's, a month's, a quarter's or a
  * year's. The library's Series tab switches each series and each kind on and
  * off; one event is read by its key through its record's own entries, and
- * Save commits through each record's patch door.
+ * Save commits through each record's patch door. The horizon's bars are each
+ * kind's totals a month, a quarter or a year (#1732): summaries with no key,
+ * which each binding lists apart from its indexes, in `totals`.
  */
 export const planSeriesAll = example({
     keywords: [
@@ -448,9 +450,9 @@ export const planSeriesAll = example({
         "paging", "entries", "Slice", "Slice.bindRecords", "rows source", "Data.bindPaged", "paged", "index.series", "series index", "order",
         "time order", "order: 'time'", "on", "leading fields", "key order", "index.interval", "index.summary", "summary tiles",
         "level of detail", "zoom", "cell", "range a tile", "large record", "scale", "sparse", "three years", "shading", "Plan.library.series",
-        "Series tab", "Record.bind", "entries", "Save", "#1710",
+        "Series tab", "Record.bind", "entries", "Save", "horizon", "totals", "summary with no key", "#1710", "#1732",
     ],
-    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.series({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door",
+    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.series({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const inspections = $.let(Record.bind(planSeriesInspections));
@@ -465,7 +467,8 @@ export const planSeriesAll = example({
             const jobEntries = $.let(Data.bindPaged(planSeriesJobs));
             const trimEntries = $.let(Data.bindPaged(planSeriesTrims));
             // One rail: its `rows` source pages the halls by name; each kind's source lists its record's interval index,
-            // its series index and its summaries — the Plan reads the kind's cells through them.
+            // its series index and its summaries — the Plan reads the kind's cells through them — and, apart, its totals a month,
+            // a quarter and a year, which the horizon's bars read.
             const slice = $.let(Slice.bindRecords("ex.planSeriesAll", {
                 rows: {
                     source: Data.bindPaged(planSeriesHalls, { indexes: ["plan_series_halls_by_name"] }),

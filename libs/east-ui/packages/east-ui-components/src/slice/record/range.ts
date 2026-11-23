@@ -8,7 +8,6 @@ import { StringType, equalFor, none, variant, type ValueTypeOf } from "@elaraai/
 import {
     RecordSliceChoiceType, recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceStateType, type RecordSliceWhereType,
 } from "@elaraai/east-ui/internal";
-import { recordSliceWhereCounts } from "../../platform/slice/record.js";
 import { printRecordChoice, readRecordChoice } from "./value.js";
 
 type Bind = ValueTypeOf<RecordSliceBindType>;
@@ -86,33 +85,6 @@ export function setRecordSliceWindow(slice: Bind, min: number, max: number): voi
         variant("range", { from: literal(min), to: literal(max) }));
     if (where === null) throw new Error("Choose a preceding field before changing this range");
     slice.write({ ...state, where, preset: presetHolds(slice, state, where, field.fieldId) ? state.preset : none });
-}
-
-/**
- * How many of a source's rows each of some windows of its range holds (#1710):
- * its narrowing with each window in the range field's place, as
- * {@link setRecordSliceWindow} writes one — every other choice it keeps kept —
- * every window counted in one request through the index the window is read
- * by, no row read (`recordSliceWhereCounts`). What a horizon's bars count a
- * source's months by. Run under the host's tracked evaluation.
- *
- * @param slice - The source's record Slice
- * @param windows - The windows, each `[min, max)` on the range field's numbers: epoch ms on a date
- * @returns Each window's count, in order; `undefined` while any is pending, or for a source with no range
- * @throws {Error} When a window cannot be chosen beside the source's other choices
- */
-export function recordSliceWindowCounts(slice: Bind, windows: readonly (readonly [number, number])[]): readonly number[] | undefined {
-    const field = rangeField(slice);
-    if (field === undefined) return undefined;
-    const literal = windowLiteral(field);
-    const where = slice.read().where;
-    const wheres = windows.map(([min, max]) => {
-        const next = recordChoiceWhere(slice.config, where, field.fieldId, variant("range", { from: literal(min), to: literal(max) }));
-        if (next === null) throw new Error("Choose a preceding field before counting this range");
-        return next;
-    });
-    const counts = recordSliceWhereCounts(slice, wheres);
-    return counts.type === "some" ? counts.value.map(Number) : undefined;
 }
 
 /**

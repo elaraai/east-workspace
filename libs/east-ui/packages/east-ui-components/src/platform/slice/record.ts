@@ -740,52 +740,6 @@ export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
 }
 
 /**
- * How many rows each of some narrowings of a record Slice holds (#1710), as
- * its count counts one: each narrowing planned through the index it is read
- * by, a cell of its searches, and the cells of every narrowing through an
- * index in one request when the binding's runtime batches its reads — no entry
- * read. A cell found is kept for the record's revision, as a reader of cells'
- * is ({@link recordSliceCellRuns}), so a narrowing asked again asks nothing and
- * one new asks alone: a horizon that widens as its sources' spans land asks
- * only its new months. A narrowing's searches are disjoint, so its count is
- * theirs summed. What a horizon's bars count a source's months by
- * (`recordSliceWindowCounts`). A tracked read, as {@link recordSlicePlace} is.
- *
- * @param slice - The record Slice
- * @param wheres - The narrowings
- * @returns Each narrowing's count, in order; none while any is pending
- * @throws {Error} When a narrowing's choices cannot be combined, or the source answers a search with bounds no search has
- */
-export function recordSliceWhereCounts(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, wheres: readonly Where[]): option<bigint[]> {
-    const controller = controllerOf(slice);
-    const counts = wheres.map(() => 0n);
-    // Each index's cells — a narrowing a cell, named by its place — and the narrowings they are.
-    const asked = new Map<string, RecordSliceCell[]>();
-    let pending = false;
-    wheres.forEach((where, at) => {
-        const plan = controller.plan(where);
-        // A narrowing that holds no row counts none.
-        if (plan.empty === true) return;
-        // One that searches nothing is its whole source, counted as a count counts it.
-        if (plan.queries.length === 0) {
-            const whole = controller.count(where);
-            if (whole.type === "none") pending = true;
-            else counts[at] = whole.value;
-            return;
-        }
-        let cells = asked.get(plan.index);
-        if (cells === undefined) { cells = []; asked.set(plan.index, cells); }
-        cells.push({ id: String(at), queries: plan.queries });
-    });
-    for (const [index, cells] of asked) {
-        const found = controller.windows.cellRuns(index, cells);
-        if (found.type === "none") { pending = true; continue; }
-        for (const cell of cells) counts[Number(cell.id)] = found.value.get(cell.id)!.total;
-    }
-    return pending ? none : some(counts);
-}
-
-/**
  * Read the entries of some runs of an index a record Slice's binding lists
  * (#1393): the runs as {@link recordSliceBounds} found them at the record's
  * revision now — ascending, disjoint and none empty — in one read however many

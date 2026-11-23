@@ -112,7 +112,7 @@ const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048
 
 /**
  * Each period of a calendar tile from the one holding an instant to the last starting before another, by its start, in
- * ms: at most ten thousand — what a zoom's window is cut into, and a horizon's months (`horizon-months.ts`). The axis's
+ * ms: at most ten thousand — what a zoom's window is cut into, and what tells whether a window fits a zoom. The axis's
  * domain is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
  *
  * @param tile - The tile

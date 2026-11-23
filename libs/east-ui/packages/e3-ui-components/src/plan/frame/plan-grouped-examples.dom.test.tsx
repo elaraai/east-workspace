@@ -13,7 +13,8 @@
  * order led by the hall, each search under one hall; the presses' jobs and
  * the guillotines' trims through indexes led by the hall and the line, each
  * search under one line of one hall. Its Plan built with no refusal, and every
- * way an event kind draws drawn: chips, bars, tiles and marks.
+ * way an event kind draws drawn: chips, bars, tiles and marks. Its horizon's
+ * bars are the kinds' totals a period, which their bindings list (#1732).
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -40,12 +41,36 @@ afterEach(() => { for (const undo of restore.reverse()) undo(); });
  * led by the hall — or one line of one hall.
  */
 const KINDS = [
-    { record: ex.planSeriesInspections, series: "plan_series_inspections_by_hall_week", under: "hall" },
-    { record: ex.planSeriesFolding, series: "plan_series_folding_by_hall_week", under: "hall" },
-    { record: ex.planSeriesDeliveries, series: "plan_series_deliveries_by_hall_week", under: "hall" },
-    { record: ex.planSeriesJobs, series: "plan_series_jobs_by_line_week", under: "line" },
-    { record: ex.planSeriesTrims, series: "plan_series_trims_by_line_week", under: "line" },
+    { record: ex.planSeriesInspections, series: "plan_series_inspections_by_hall_week", under: "hall", totals: "plan_series_inspections" },
+    { record: ex.planSeriesFolding, series: "plan_series_folding_by_hall_week", under: "hall", totals: "plan_series_folding" },
+    { record: ex.planSeriesDeliveries, series: "plan_series_deliveries_by_hall_week", under: "hall", totals: "plan_series_deliveries" },
+    { record: ex.planSeriesJobs, series: "plan_series_jobs_by_line_week", under: "line", totals: "plan_series_jobs" },
+    { record: ex.planSeriesTrims, series: "plan_series_trims_by_line_week", under: "line", totals: "plan_series_trims" },
 ] as const;
+
+/** Every kind's events, each `[start, end)` in ms: an instant's, `[at, at]`. */
+const EVENTS = [
+    ...[...ex.planSeriesInspections.default!.values()], ...[...ex.planSeriesFolding.default!.values()], ...[...ex.planSeriesJobs.default!.values()],
+].map((row) => [row.start.getTime(), row.end.getTime()] as const).concat(
+    [...[...ex.planSeriesDeliveries.default!.values()], ...[...ex.planSeriesTrims.default!.values()]].map((row) => [row.at.getTime(), row.at.getTime()] as const));
+
+/**
+ * Each period's count of every kind's events that touch it — those starting in it, and those running into it — from
+ * the horizon's first, October 2026's, to the one the last event starts in: a period of so many months; none touched,
+ * left out, as the strip draws no bar for it.
+ */
+function touched(months: number): number[] {
+    const last = EVENTS.reduce((most, [start]) => Math.max(most, start), 0);
+    const expected: number[] = [];
+    for (let at = Date.UTC(2026, 9, 1); at <= last;) {
+        const from = new Date(at);
+        const next = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + months, 1);
+        const n = EVENTS.filter(([start, end]) => (start >= at && start < next) || (start < at && end > at)).length;
+        if (n > 0) expected.push(n);
+        at = next;
+    }
+    return expected;
+}
 
 const printText = printFor(StringType);
 /** Each line's key, as an index's second leading field holds it, by its hall's key as the first holds it: `.east` literals of a String. */
@@ -129,7 +154,7 @@ describe("the grouped example on e3 (#1710)", () => {
         await waitFor(() => expect(drawn()).toBeGreaterThan(0));
     });
 
-    test("planSeriesAll's horizon draws each month's events of its kinds, counted through their sources' interval indexes — a kind's every month in one request, no event read (#1710)", async () => {
+    test("planSeriesAll's horizon draws each month's events of its kinds from their month totals — a kind's years in one request of one range, nothing counted, no event read — and a zoom within the years reads them nowhere again (#1732)", async () => {
         // The strip laid out 3,000px wide: the three years keep some 80px a month, a bar a month.
         horizonLaidOut()(3000);
         const { container: c } = await h.mount(ex.planSeriesAll);
@@ -137,31 +162,41 @@ describe("the grouped example on e3 (#1710)", () => {
         const band = () => c.querySelector<HTMLElement>("[data-slot='horizon']")!;
         const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
-        // Each month from the first start's to the last start's — the horizon's — and every kind's events overlapping it:
-        // those starting in it, and those running into it.
-        const spans = [
-            ...[...ex.planSeriesInspections.default!.values()], ...[...ex.planSeriesFolding.default!.values()], ...[...ex.planSeriesJobs.default!.values()],
-        ].map((row) => [row.start.getTime(), row.end.getTime()] as const);
-        const instants = [...[...ex.planSeriesDeliveries.default!.values()], ...[...ex.planSeriesTrims.default!.values()]]
-            .map((row) => [row.at.getTime(), row.at.getTime()] as const);
-        const events = [...spans, ...instants];
-        const last = events.reduce((most, [start]) => Math.max(most, start), 0);
-        const expected: number[] = [];
-        for (let month = Date.UTC(2026, 9, 1); month <= last;) {
-            const at = new Date(month);
-            const next = Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1);
-            const n = events.filter(([start, end]) => (start >= month && start < next) || (start < month && end > month)).length;
-            if (n > 0) expected.push(n);
-            month = next;
-        }
-        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(expected);
-        // Each kind's months asked in one request of its interval index — more searches than one range's fifty-five — and a
-        // month the horizon gains as its sources' spans land asked alone, never every month again; no event read.
-        for (const { record } of KINDS) {
+        // Each month from the horizon's first to the last start's, and every kind's events that touch it.
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(1));
+        // Each kind's month totals in one request, one range over the whole years — never its interval index counted month
+        // by month, nor an event read.
+        const totalsRead = () => KINDS.map(({ record }) =>
+            h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true));
+        totalsRead().forEach((read, i) => {
+            const { record, totals } = KINDS[i]!;
             const dataset = pathText(record.path as TreePath);
-            const searched = h.requests("find", dataset).filter((request) => request.query.get("index")?.endsWith("_by_time") === true);
-            expect(searched.filter((request) => request.searches.length > 55).length, dataset).toBe(1);
+            expect(read.map((request) => request.query.get("index")), dataset).toEqual([`${totals}_month_totals`]);
+            expect(read[0]!.searches, dataset).toHaveLength(1);
+            const counted = h.requests("find", dataset).filter((request) => request.query.get("index")?.endsWith("_by_time") === true && request.searches.length > 55);
+            expect(counted, dataset).toEqual([]);
             expect(h.requests("read", dataset)).toEqual([]);
+        });
+        // To the week and back: the window moves within the years, and no kind's totals are read again.
+        const asked = totalsRead().map((read) => read.length);
+        await zoomTo(c, "week");
+        await zoomTo(c, "day");
+        await settle();
+        expect(totalsRead().map((read) => read.length)).toEqual(asked);
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(1));
+    });
+
+    test("planSeriesAll's horizon on a strip too narrow for 4px a month draws quarters from the quarter totals, an event over two months counted once in their quarter (#1732)", async () => {
+        // 120px: a month keeps some 3px of the three years, a quarter some 10px.
+        horizonLaidOut()(120);
+        const { container: c } = await h.mount(ex.planSeriesAll);
+        await settle();
+        const bars = () => [...c.querySelectorAll<HTMLElement>("[data-slot='horizon'] [data-brush-bars=''] > [data-brush-bar]")];
+        await waitFor(() => expect(bars().length).toBeGreaterThan(0), { timeout: 10_000 });
+        expect(bars().map((bar) => Number(bar.getAttribute("data-count")))).toEqual(touched(3));
+        for (const { record, totals } of KINDS) {
+            const read = h.requests("find", pathText(record.path as TreePath)).filter((request) => request.query.get("index")?.endsWith("_totals") === true);
+            expect(read.map((request) => request.query.get("index"))).toEqual([`${totals}_quarter_totals`]);
         }
     });
 

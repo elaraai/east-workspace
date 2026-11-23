@@ -5,7 +5,9 @@
 
 /**
  * The horizon's density (#1438): the buckets its bars count by, and what each
- * counts, from the months' counts e3 keeps beside a nested series index.
+ * counts — from the months' counts e3 keeps beside a nested series index, or
+ * from the record's totals a period its sources list (#1732), each bucket its
+ * own period's count.
  *
  * @packageDocumentation
  */
@@ -39,7 +41,7 @@ export interface HorizonDensityBucket {
     to: number;
     /** The period's start (UTC). */
     start: Date;
-    /** The items and values of every month starting in it. */
+    /** What it counts: the items and values of every month starting in it, or the events that touch its period (#1732). */
     count: number;
 }
 
@@ -51,6 +53,43 @@ export interface HorizonDensity {
     buckets: readonly HorizonDensityBucket[];
     /** The largest bucket's count. */
     max: number;
+}
+
+/**
+ * The period a horizon's bars count by (#1438, #1732): the finest of the
+ * periods there are counts at whose buckets keep 4px each on the track, or the
+ * coarsest of them where none does.
+ *
+ * @param lo - The horizon's start, ms
+ * @param hi - Its end
+ * @param trackPx - The track's width, px
+ * @param units - The periods there are counts at, finest first: all three over a nested series' months, which make each;
+ *   over record sources, those every source lists totals at
+ * @returns The period; `undefined` where there are none
+ */
+export function horizonUnit(lo: number, hi: number, trackPx: number, units: readonly HorizonBucketUnit[] = HORIZON_BUCKET_UNITS): HorizonBucketUnit | undefined {
+    const span = hi - lo;
+    return units.find((u) => (USUAL_MS[u] / span) * trackPx >= HORIZON_BUCKET_MIN_PX) ?? units[units.length - 1];
+}
+
+/**
+ * The horizon's buckets of a period, none counted yet: from the period the
+ * horizon begins in to the one it ends in, each clipped to the horizon, as
+ * fractions of it.
+ */
+function bucketsOf(lo: number, hi: number, unit: HorizonBucketUnit): { starts: number[]; buckets: HorizonDensityBucket[] } {
+    const span = hi - lo;
+    const interval = resolutionInterval(unit);
+    const starts: number[] = [];
+    const buckets: HorizonDensityBucket[] = [];
+    // The horizon is a span of milliseconds, each bucket a fraction of it: arithmetic on the track's numbers, never an
+    // ordering of East DateTimes (#1650).
+    for (let start = interval.floor(new Date(lo)); start.getTime() < hi; start = interval.offset(start, 1)) {
+        const end = interval.offset(start, 1).getTime();
+        starts.push(start.getTime());
+        buckets.push({ from: (Math.max(start.getTime(), lo) - lo) / span, to: (Math.min(end, hi) - lo) / span, start, count: 0 });
+    }
+    return { starts, buckets };
 }
 
 /**
@@ -70,18 +109,8 @@ export interface HorizonDensity {
  */
 export function horizonDensity(lo: number, hi: number, months: PlanNestedMonths, trackPx: number): HorizonDensity | undefined {
     if (!(hi > lo) || !(trackPx > 0)) return undefined;
-    const span = hi - lo;
-    const unit = HORIZON_BUCKET_UNITS.find((u) => (USUAL_MS[u] / span) * trackPx >= HORIZON_BUCKET_MIN_PX) ?? "year";
-    const interval = resolutionInterval(unit);
-    const starts: number[] = [];
-    const buckets: HorizonDensityBucket[] = [];
-    // The horizon is a span of milliseconds, each bucket a fraction of it: arithmetic on the track's numbers, never an
-    // ordering of East DateTimes (#1650).
-    for (let start = interval.floor(new Date(lo)); start.getTime() < hi; start = interval.offset(start, 1)) {
-        const end = interval.offset(start, 1).getTime();
-        starts.push(start.getTime());
-        buckets.push({ from: (Math.max(start.getTime(), lo) - lo) / span, to: (Math.min(end, hi) - lo) / span, start, count: 0 });
-    }
+    const unit = horizonUnit(lo, hi, trackPx)!;
+    const { starts, buckets } = bucketsOf(lo, hi, unit);
     // Each month in the bucket it starts in — one the horizon's start clips in the first, whole, as one its end clips counts
     // whole (#1710): a source's horizon begins on its first event's day — the months in order; one outside the horizon in none.
     const monthly = resolutionInterval("month");
@@ -92,6 +121,29 @@ export function horizonDensity(lo: number, hi: number, months: PlanNestedMonths,
         while (at + 1 < starts.length && starts[at + 1]! <= from) at += 1;
         if (starts[at]! <= from) buckets[at]!.count += count;
     }
-    const max = buckets.reduce((m, b) => Math.max(m, b.count), 0);
-    return { unit, buckets, max };
+    return densityOf(unit, buckets);
+}
+
+/** The horizon's buckets counted, with the largest count. */
+function densityOf(unit: HorizonBucketUnit, buckets: readonly HorizonDensityBucket[]): HorizonDensity {
+    return { unit, buckets, max: buckets.reduce((m, b) => Math.max(m, b.count), 0) };
+}
+
+/**
+ * The horizon's buckets over the record's totals a period (#1732): a bucket a
+ * period of the totals' own, each clipped to the horizon, counting the events
+ * that touch its period as e3 keeps them — an event over two months is in
+ * each month's count, and once in their quarter's, never two months summed.
+ *
+ * @param lo - The horizon's start, ms
+ * @param hi - Its end
+ * @param unit - The totals' period ({@link horizonUnit})
+ * @param tiles - Each period's count by its start, in ms: a period no event touches has none
+ * @returns The buckets; `undefined` with no horizon
+ */
+export function horizonTotalsDensity(lo: number, hi: number, unit: HorizonBucketUnit, tiles: ReadonlyMap<number, number>): HorizonDensity | undefined {
+    if (!(hi > lo)) return undefined;
+    const { buckets } = bucketsOf(lo, hi, unit);
+    for (const bucket of buckets) bucket.count = tiles.get(bucket.start.getTime()) ?? 0;
+    return densityOf(unit, buckets);
 }
