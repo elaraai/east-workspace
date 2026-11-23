@@ -9,14 +9,14 @@
  * dragged from Mix to Proof, which a move joins already, adds none — and the
  * footer says so, naming the two steps, in the danger ink. A drop that seems
  * to have done nothing is never left unexplained. The next transition drawn,
- * from Mix to Bake, is added, and the footer's words go. A page of its own:
- * the pointer is held down as a handle is dragged.
+ * from Mix to Bake, is added, and the footer's words go.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-repeat --project desktop`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
 import { CARRY_WINDOW, openFlowchart } from "./flowchart-page";
 import { settled } from "./settle";
 import { token } from "./tokens";

@@ -12,13 +12,13 @@
  * frame's width across what lies beside the ghost. Released, the reservation
  * is where it was, and the Calendar says why in its own line for a gesture's
  * error, in the danger ink — the ghost and its caption gone, the reason is not.
- * A page of its own: the pointer is held down across the measurements.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test calendar-key-refused --project desktop`.
  */
 
-import { expect, test } from "playwright/test";
+import { expect } from "playwright/test";
+import { test } from "./kept-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 
