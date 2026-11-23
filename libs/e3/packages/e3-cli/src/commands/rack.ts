@@ -20,7 +20,8 @@ const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
 interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
-interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
+/** The flags of `e3 rack policy`, as Commander reads them. */
+export interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
   merges?: string; keep?: string }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
@@ -39,6 +40,39 @@ function keepOf(text: string): RackKeep {
   if (text !== 'split' && text !== 'session') throw new Error(`--keep must be split or session, not '${text}'`);
   return text;
 }
+/** The flags of `e3 rack policy` each verb takes, by their option names: a
+ *  rule's with `set`, the policy's with `defaults`, and none with any other. */
+const POLICY_FLAGS: Readonly<Record<string, ReadonlyArray<keyof PolicyFlags>>> = {
+  set: ['size', 'timeout', 'allowHostAccess', 'memoryLimit', 'gpu', 'merges'],
+  defaults: ['size', 'timeout', 'claimTimeout', 'spill', 'retryTaskFailuresLocally', 'weighFetch', 'merges', 'keep'],
+};
+const FLAG_NAMES: Readonly<Record<keyof PolicyFlags, string>> = { size: '--size', timeout: '--timeout', allowHostAccess: '--allow-host-access',
+  memoryLimit: '--memory-limit', gpu: '--gpu', spill: '--spill/--no-spill', claimTimeout: '--claim-timeout',
+  retryTaskFailuresLocally: '--retry-task-failures-locally/--no-retry-task-failures-locally', weighFetch: '--weigh-fetch/--no-weigh-fetch',
+  merges: '--merges', keep: '--keep' };
+
+/**
+ * Why an `e3 rack policy` verb refuses the flags it was given, or undefined
+ * when it takes them all: a flag the verb would leave unread is refused, never
+ * ignored, naming where it belongs.
+ *
+ * @param action - The verb
+ * @param flags - The flags given
+ * @returns The refusal, or undefined
+ * @example
+ * policyFlagRefusal('set', { weighFetch: true }); // '--weigh-fetch/--no-weigh-fetch is the policy's, not a rule's: …'
+ */
+export function policyFlagRefusal(action: string, flags: PolicyFlags): string | undefined {
+  const takes = POLICY_FLAGS[action] ?? [];
+  const given = (Object.keys(FLAG_NAMES) as Array<keyof PolicyFlags>).filter((name) => flags[name] !== undefined && !takes.includes(name));
+  if (given.length === 0) return undefined;
+  const [first] = given as [keyof PolicyFlags];
+  const flag = FLAG_NAMES[first];
+  if (POLICY_FLAGS.defaults!.includes(first) && !POLICY_FLAGS.set!.includes(first)) return `${flag} is the policy's, not a rule's: use e3 rack policy defaults ${flag.split('/')[0]}`;
+  if (POLICY_FLAGS.set!.includes(first) && !POLICY_FLAGS.defaults!.includes(first)) return `${flag} is a rule's: use e3 rack policy set <pattern> rack ${flag}`;
+  return `${flag} is taken by e3 rack policy set or defaults, not ${action}`;
+}
+
 function integer(text: string, name: string, min = 1, max = Number.MAX_SAFE_INTEGER): number {
   const value = Number(text);
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`${name} must be an integer from ${min} to ${max}`);
@@ -283,12 +317,14 @@ export function createRackCommand(): Command {
       const repo = await openRepo(repoArg); const action = words.shift() ?? 'show';
       const arity = action === 'set' ? 2 : action === 'unset' || action === 'mode' ? 1 : 0;
       if (!verbs.includes(action) || words.length !== arity) throw new Error('Use e3 rack policy --help for policy actions and arguments');
+      // A flag the verb would not read is refused, not ignored
+      const refused = policyFlagRefusal(action, flags);
+      if (refused !== undefined) throw new Error(refused);
       if (action === 'reset') {
         await unlink(lib.policyPath(repo)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
         console.log('Rack policy reset.'); return;
       }
       let policy = await lib.loadPolicy(repo);
-      if (flags.keep !== undefined && action !== 'defaults') throw new Error('--keep is the policy\'s, not a rule\'s: use e3 rack policy defaults --keep');
       if (action === 'set') {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
         policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),

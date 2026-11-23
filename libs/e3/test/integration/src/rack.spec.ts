@@ -202,6 +202,11 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'session')), /^Defaults: .*, merges=rack, keep=session$/m);
   const ruled = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--keep', 'session');
   assert.notEqual(ruled.exitCode, 0); assert.match(ruled.stderr, /--keep is the policy's, not a rule's/);
+  // Nor is a flag another verb reads ignored: the weighing is the policy's, and merges a rule's or the defaults'
+  const weighedRule = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--no-weigh-fetch');
+  assert.notEqual(weighedRule.exitCode, 0); assert.match(weighedRule.stderr, /--weigh-fetch\/--no-weigh-fetch is the policy's, not a rule's/);
+  const enabledMerges = await f.cli('rack', 'policy', '.', 'enable', '--merges', 'local');
+  assert.notEqual(enabledMerges.exitCode, 0); assert.match(enabledMerges.stderr, /--merges is taken by e3 rack policy set or defaults, not enable/);
   const forever = await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'forever');
   assert.notEqual(forever.exitCode, 0); assert.match(forever.stderr, /--keep must be split or session, not 'forever'/);
   ok(await f.cli('rack', 'policy', '.', 'defaults', '--keep', 'split'));
