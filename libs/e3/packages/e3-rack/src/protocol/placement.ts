@@ -17,7 +17,8 @@ import type { RackLeaseResources, RackReason, RackTransferRetry } from './task-e
  * happens to it on a rack:
  * - `placed` on a rack, when one claims its lease;
  * - `placed` locally, with why: never a rack's work (`reason` is why it is not
- *   eligible), or a rack's work that this machine runs after all (`spill`,
+ *   eligible: `merges-local` for a split task's merge unit its policy keeps
+ *   here, its pieces on a rack), or a rack's work that this machine runs after all (`spill`,
  *   `no-rack-for-tier:<tier>`, `source-unreachable` when the racks that run
  *   its tier are not healthy, or have not yet said what they are to a hub
  *   that has just started, `no-rack-caps-units:<tier>` when it is a unit

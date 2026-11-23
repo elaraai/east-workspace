@@ -15,8 +15,10 @@ export type RackTier = 'node' | 'py' | 'py-datascience' | 'c';
  * or what its build for the rack's platform was refused or failed of
  * (`no-wheel:<package>`, `native-package:<package>`, `pnpm`, `build-failed`).
  * A call that names no function (`no-function-name`) has no rule to select it.
+ * A merge unit of a split task whose rule, or the policy's default, keeps its
+ * merges here (`merges-local`) runs here, its pieces on a rack.
  */
-export type IneligibleReason = 'no-task-name' | 'no-function-name' | 'not-selected' | 'custom-runner' | 'gpu-not-east-py'
+export type IneligibleReason = 'no-task-name' | 'no-function-name' | 'not-selected' | 'merges-local' | 'custom-runner' | 'gpu-not-east-py'
   | `environment:${string}` | `non-stock-platform:${string}` | `host-coupled:${string}` | 'unscannable';
 
 /** What a task asks of a rack beyond its runner. */

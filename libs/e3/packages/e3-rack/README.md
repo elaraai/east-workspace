@@ -227,9 +227,15 @@ A rule's `--size` is a shorthand for cores and memory (`RACK_SIZES`):
 
 `--memory-limit 8G` is a ceiling on what one piece of the rule's work may be
 capped at on a rack, read as `--memory` is. It is no request: e3 measures what
-a piece needs. `--gpu` asks for a rack's GPU. Setting a rule again replaces it
-whole. A policy an earlier release stored is carried into this release's form
-when its repository is next opened, every rule as it was.
+a piece needs. `--gpu` asks for a rack's GPU. `--merges local` runs the merge
+and combine units of a split task the rule sends to a rack here, beside its
+planning, while its pieces run on the rack: each piece's output is here
+already, so such a merge fetches nothing over the link, and runs under the
+run's local budget (`--merges rack`, the default, leases it as its pieces are).
+`defaults --merges local` sets it for every rule that names none. Setting a
+rule again replaces it whole. A policy an earlier release stored is carried
+into this release's form when its repository is next opened, every rule as it
+was and its merges on a rack.
 
 ```sh
 e3 rack policy . show
@@ -238,6 +244,7 @@ e3 rack policy . mode auto               # route eligible unmatched tasks too
 e3 rack policy . set 'ingest_*' local
 e3 rack policy . set 'score_*' rack --memory-limit 8G
 e3 rack policy . set 'embed_*' rack --size xlarge --gpu
+e3 rack policy . set 'rollup_*' rack --merges local   # pieces on a rack, merges here
 e3 rack policy . defaults --no-spill --claim-timeout 30
 e3 dataflow run . dev --no-rack           # override the saved opt-in
 e3 dataflow run . dev --rack-only         # wait when compatible racks are busy
@@ -246,11 +253,12 @@ e3 rack policy . reset
 ```
 
 Defaults are disabled, opt-in selection, `large`, a 1440-minute timeout,
-capacity spill enabled, a 30-second claim recheck and no local retry of task
-failures. `--rack-only` disables capacity spill; infrastructure failures can
-still fall back locally, after a wait: work whose racks are not healthy waits
+capacity spill enabled, a 30-second claim recheck, no local retry of task
+failures, and a split task's merges on a rack with its pieces. `--rack-only`
+disables capacity spill; infrastructure failures can still fall back locally, after a wait: work whose racks are not healthy waits
 two minutes for one to come back, and work whose transfer failed its tries is
-leased once more. It does not force ineligible tasks onto a rack.
+leased once more. It does not force ineligible tasks onto a rack, nor a split
+task's merges its policy keeps here (`--merges local`).
 Rack flags apply to local dataflows, watch with `--start`, and `e3 run` and
 `e3 call` ([below](#one-task-or-one-call)), and are refused for remote
 repository URLs. A local API server's calls, mutations and intake remain local.

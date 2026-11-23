@@ -159,7 +159,8 @@ export interface RackDelegationOptions {
   workspace: string;
   /** Disables capacity spill, but still permits infrastructure fallback:
    *  after a wait for a rack to be healthy, and one further lease for work
-   *  whose transfer failed. */
+   *  whose transfer failed. It keeps no work for a rack that the policy
+   *  keeps here, a split task's merges under `merges` `local` among it. */
   rackOnly?: boolean;
   /** How long work waits, under {@link rackOnly}, for a rack that runs its
    *  tier to be healthy before it runs locally, in ms: two minutes
@@ -169,7 +170,8 @@ export interface RackDelegationOptions {
    * Whether all the run's work is a rack's, whatever the policy's rules
    * select: a command's `--rack`, which names its one piece of work. A rule
    * that matches the work's name still gives its size, its timeout, its
-   * memory limit, its GPU and its host-coupling override.
+   * memory limit, its GPU, its host-coupling override and where its merges
+   * run.
    */
   selected?: boolean;
   /** Receives placement and fallback notifications. */

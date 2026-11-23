@@ -190,6 +190,14 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^1\. train_\* → rack, size=xlarge, timeout=default, allow-host-access=false, memory-limit=8 GB, gpu$/m);
   const refused = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--memory-limit', 'plenty');
   assert.notEqual(refused.exitCode, 0); assert.match(refused.stderr, /--memory-limit must be a memory size, such as 8G or 512M/);
+  // Where a split task's merges run: its rule's, else the policy's default, a rack's unless set
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^Defaults: .*, merges=rack$/m);
+  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--merges', 'local'));
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^1\. train_\* → rack, size=default, timeout=default, allow-host-access=false, merges=local$/m);
+  const nowhere = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--merges', 'elsewhere');
+  assert.notEqual(nowhere.exitCode, 0); assert.match(nowhere.stderr, /--merges must be rack or local, not 'elsewhere'/);
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'defaults', '--merges', 'local')), /^Defaults: .*, merges=local$/m);
+  ok(await f.cli('rack', 'policy', '.', 'defaults', '--merges', 'rack'));
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'large'));
   const policy = ok(await f.cli('rack', 'policy', '.', 'show'));
   assert.match(policy, /1\. train_\* → rack, size=large/); assert(!policy.includes('2. train_'));

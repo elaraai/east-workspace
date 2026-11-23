@@ -5,6 +5,7 @@
 
 import type { RepositoryUpgrade } from '../interfaces.js';
 import { rackPolicyLimits } from './rack-policy-limits.js';
+import { rackPolicyMerges } from './rack-policy-merges.js';
 
 /**
  * The upgrades of a local repository's own layout — its files and
@@ -13,6 +14,8 @@ import { rackPolicyLimits } from './rack-policy-limits.js';
  * @remarks
  * - `rack-policy-limits`: a rule of the repository's rack policy may hold a
  *   memory limit and ask for a GPU ({@link rackPolicyLimits}).
+ * - `rack-policy-merges`: the policy says where a split task's merge units
+ *   run, and a rule may say it for its own ({@link rackPolicyMerges}).
  *
  * A release that changes the local layout appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -20,4 +23,4 @@ import { rackPolicyLimits } from './rack-policy-limits.js';
  *
  * @internal
  */
-export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits];
+export const LOCAL_REPOSITORY_UPGRADES: RepositoryUpgrade[] = [rackPolicyLimits, rackPolicyMerges];

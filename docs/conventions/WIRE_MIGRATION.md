@@ -1472,3 +1472,23 @@ Each wire changed under this rule, with the kind it is.
   spec's bytes and hash change with the case, and each task of a re-exported
   package that names an environment runs again. Packages are re-exported, so
   no repository upgrade step ships.
+- **e3-rack's `RackPolicyType` gains `defaultMerges`, and `RackRuleType`
+  `merges`** — stored state, of a local repository's own layout: its rack
+  policy, `rack/policy.beast2`. The policy gains `defaultMerges`, a variant
+  `rack | local` after `retryTaskFailuresLocally`, and a rule `merges`, an
+  `Option` of it after `gpu`: where the merge and combine units of a split
+  task the rule sends to a rack run, the rule's own else the policy's. The
+  policy's header names the whole policy type, so one an earlier release
+  stored does not decode under the new type, and the release ships the local
+  backend's second step (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+  `storage/local/rack-policy-merges.ts`): `rack-policy-merges` rewrites the
+  file in the form `rack-policy-limits` writes, which runs before it, into the
+  new one, everything as it was, no rule naming merges of its own, and
+  `defaultMerges` `rack`: every merge runs where it ran before. A repository
+  with no policy file is left without one; a file in no form the steps know is
+  left as it is, and a read refuses it as before, naming its reset. The step's
+  written form is frozen in e3-core and held to `RackPolicyType` by the rack
+  package's own test, over the policy release 1.0.107 stored, carried through
+  both steps. An earlier release refuses a repository that has had the step,
+  naming this release. No wire between e3, a hub and a rack changes: a merge
+  its policy keeps here is never leased.
