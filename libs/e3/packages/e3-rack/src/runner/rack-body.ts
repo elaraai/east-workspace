@@ -65,7 +65,8 @@ function unitResources(reserve: number, verdict: RackVerdict): RackLeaseResource
  * (`TaskBodyRequest.options.splitScope`), which the hub grants to a rack that
  * keeps what the scope's leases wrote for its later ones: a merge then reads
  * its pieces there rather than over the link. Every output still comes here,
- * whole, before its unit succeeds.
+ * whole, before its unit succeeds. A piece of a task whose merges its policy
+ * keeps here feeds no later lease, so no rack keeps its output for them.
  *
  * A unit of a split task is leased only to a rack that caps it at what its
  * lease asks (`rackCapsUnits`), which is the hub's rule for granting one
@@ -152,8 +153,13 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       // unit its cap stopped is leased again asking for more.
       leases: for (;;) {
       handle = undefined;
-      // The split task's execution the unit runs in, while it has not ended
-      const splitScope = request.unit === undefined || request.options.splitScope === undefined ? undefined : session.scope(request.options.splitScope);
+      // The split task's execution the unit runs in, while it has not ended.
+      // A piece whose merges its policy keeps here feeds no later lease: no
+      // rack keeps its output for a merge that runs here
+      const unitScope = request.unit === undefined ? undefined : request.options.splitScope;
+      const feedsNoRack = unitScope?.feeds === true && request.unit?.merge === null && request.options.taskName !== undefined
+        && delegation.evaluator.keepsMergesHere(request.options.taskName);
+      const splitScope = unitScope === undefined ? undefined : session.scope(feedsNoRack ? { ...unitScope, feeds: false } : unitScope);
       const common = { launchId: uuidv7(), repo: session.repoAlias, timeoutMs,
         taskHash: request.taskHash, force: true, verbose: request.options.verbose === true,
         ...(request.options.expectedPeakBytes !== undefined && { expectedPeakBytes: request.options.expectedPeakBytes }) };

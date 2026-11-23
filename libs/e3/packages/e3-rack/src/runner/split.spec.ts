@@ -133,8 +133,9 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
 
 for (const kind of ['dict', 'fold'] as const) it(`runs split ${kind} merges here when its merges are local, its pieces on a rack, under rack-only too`, async () => {
   smallPieces();
-  // The run keeps its work for a rack (rack-only), and its policy keeps merges here
-  const f = await fixture(false, { policy: { ...setMode(DEFAULT_RACK_POLICY, 'auto'), defaultMerges: variant('local', null) } });
+  // The run keeps its work for a rack (rack-only), and its policy keeps merges
+  // here; its rack keeps split scopes
+  const f = await fixture(false, { policy: { ...setMode(DEFAULT_RACK_POLICY, 'auto'), defaultMerges: variant('local', null) }, splitScopes: true });
   const { hash, inputs } = await splitTask(f, kind);
   const events: RackLeaseEvent[] = [];
   let ended = false;
@@ -154,6 +155,8 @@ for (const kind of ['dict', 'fold'] as const) it(`runs split ${kind} merges here
   // Every piece leased, and no merge: each merge ran here, under the run's budget
   assert(events.length > 1);
   assert(events.every((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge === null), 'no merge is leased');
+  // A piece feeds no rack: its merges run here, so no rack keeps what it wrote for them
+  assert(events.every((event) => event.scope !== undefined && !event.scope.feeds), JSON.stringify(events.map((event) => event.scope)));
   assert(f.budget.peak > 0, 'the merges took the local budget');
   const here = f.placements.filter((placement) => placement.where === 'local');
   assert(here.length > 0 && here.every((placement) => placement.kind === 'placed' && placement.where === 'local' && placement.role === 'unit' && placement.reason === 'merges-local'),

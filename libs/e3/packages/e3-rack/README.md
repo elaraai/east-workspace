@@ -671,7 +671,8 @@ piece it merges back from here, over the same link. So each unit's lease
 names the split task's **execution** it runs in, its scope: a random id, one
 for each execution, and whether a later unit reads what this one writes (a
 piece of a set, a dict or a fold does; an array's pieces, which are
-concatenated here, and the last level of merges do not). A rack whose agent
+concatenated here, and the last level of merges do not; nor does a piece of
+a task whose merges its policy keeps here, `--merges local`). A rack whose agent
 says it keeps them (`split-scopes`) keeps what such a lease wrote, once it is
 here, and gives it to the later leases of the same execution that read it,
 which then fetch nothing of it; an agent that does not is granted the same

@@ -111,7 +111,7 @@ export class EligibilityEvaluator {
   evaluate(request: TaskBodyRequest): Promise<Eligibility> {
     const name = request.options.taskName;
     if (name === undefined) return Promise.resolve({ eligible: false, reason: 'no-task-name' });
-    if (request.unit !== undefined && request.unit.merge !== null && this.select(name)?.merges === 'local') {
+    if (request.unit !== undefined && request.unit.merge !== null && this.keepsMergesHere(name)) {
       return Promise.resolve({ eligible: false, reason: 'merges-local' });
     }
     const hash = request.logicalTaskHash ?? request.taskHash;
@@ -153,6 +153,17 @@ export class EligibilityEvaluator {
     } catch {
       return { eligible: false, reason: 'unscannable' };
     }
+  }
+
+  /**
+   * Whether the merge units of a split task its policy sends to a rack run
+   * here: its rule's `merges`, else the policy's `defaultMerges`, is `local`.
+   * A piece of such a task then feeds no later unit on a rack.
+   * @param name - The task's name
+   * @returns Whether its merges are kept here
+   */
+  keepsMergesHere(name: string): boolean {
+    return this.select(name)?.merges === 'local';
   }
 
   /** The work's selection by its name, or null when it is not a rack's. */
