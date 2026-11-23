@@ -70,6 +70,8 @@ import {
     SheetSuggestType,
     SheetRecordViewType,
     SheetSelectionType,
+    SheetRowClickType,
+    SheetRowClickTypeFor,
     SheetFooterItemType,
     SheetStyleType,
     SheetNarrowType,
@@ -86,6 +88,7 @@ import {
     type SheetAnyContextOf,
     type SheetProposalOf,
     type SheetPatchOf,
+    type SheetRowClickOf,
     type SheetLinesField,
     type SheetLineOf,
     type SheetEntryOf,
@@ -120,7 +123,7 @@ import { unsettableFields } from "./fields.js";
 import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
-import { scheduleLastKey } from "../schedule/window.js";
+import { keyOfText, scheduleLastKey } from "../schedule/window.js";
 import { checkOneKeyRule, newKeyOf } from "../utils/record-kind.js";
 import type { RecordSaveTypeFor } from "../bind/record.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
@@ -208,6 +211,7 @@ export type SheetApplyInput<B extends EastType> =
  * @property activeView - The active view's id
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
  * @property onSelect - The ring moved
+ * @property onRowClick - A pointer click on a row: its key, typed, its place in its group and the column clicked (`Sheet.Types.RowClick(K)`)
  * @property selection - Controlled selection (§3.14)
  * @property newKey - A new row's key, the app's: given the keys taken, one that is not
  * @property group - Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}
@@ -242,6 +246,14 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
     onApply?: SheetApplyInput<ReturnType<typeof SheetChangeSetTypeFor<R>>>;
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
+    /**
+     * A pointer click on a row (east-workspace#1727), heard as `Sheet.Types.RowClick(K)`: the row's key at the rows' key
+     * type, its place in its group, and the column clicked. Each press and release on a row fires it, on a row already
+     * selected too — never a key, nor a press that ticks the row, steps a cell in place, drags or takes an action; a double
+     * click fires it once. Passed through untouched, never called at build: an East function over the click, or a bare
+     * lambda, which is built at that type.
+     */
+    onRowClick?: SubtypeExprOrValue<FunctionType<[SheetRowClickOf<K>], NullType>>;
     /** Controlled selection. */
     selection?: SubtypeExprOrValue<OptionType<SheetSelectionType>>;
     /** Additional author requirements; structural completeness always remains mandatory. */
@@ -778,6 +790,36 @@ export function createSheetBuild(
     return buildSheet(data, columns, options, internal);
 }
 
+/**
+ * The app's `onRowClick` on the wire (east-workspace#1727): held to a click on a row keyed by `keyType`, and wrapped so
+ * the grid's click — the row by its id, as every wire row is — reaches it with the row's key, read back from the id as
+ * every builder reads a key's text ({@link keyOfText}). Never called here.
+ *
+ * @param keyType - The rows' key type: a record's own; `String` where the rows are identified by an id field
+ * @param onRowClick - The app's function over `Sheet.Types.RowClick(K)`, or a bare lambda, built at that type
+ * @param hold - Binds the wrapper once in the block the sheet is built in, where it is built in one
+ * @param types - The namespace whose `Types.RowClick` a refusal names: the `Record`'s, for `<Record>`'s build
+ * @returns The function the grid calls with each click
+ * @throws {Error} When the function takes anything but `Sheet.Types.RowClick` at the rows' key type, or gives anything but Null
+ */
+function rowClickOf(keyType: EastType, onRowClick: unknown, hold: SheetHold | undefined, types: "Sheet" | "Record"): ExprType<FunctionType<[SheetRowClickType], NullType>> {
+    const takes = SheetRowClickTypeFor(keyType);
+    if (onRowClick instanceof Expr) {
+        const type = Expr.type(onRowClick) as EastType;
+        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, takes) || !isTypeEqual(type.output, NullType)) {
+            throw new Error(`Sheet: \`onRowClick\` hears a click on a row — East.function([${types}.Types.RowClick(K)], NullType, …), K the rows' key type, here ${printType(keyType)}`);
+        }
+    }
+    const app = East.value(onRowClick as SubtypeExprOrValue<FunctionType<[typeof takes], NullType>>, FunctionType([takes], NullType));
+    const keyOf = keyOfText(keyType);
+    const wire = East.function([SheetRowClickType], NullType, ($, click) => {
+        const heard = $.const(app);
+        const parse = $.const(keyOf);
+        $(heard({ key: parse(click.rowId), index: click.index, column: click.column }));
+    });
+    return hold !== undefined ? hold(wire) : wire;
+}
+
 /** The sheet's payload and its bridge, built and checked. */
 function buildSheet(
     data: unknown,
@@ -906,6 +948,10 @@ function buildSheet(
         });
     })();
     const newKey = appKey ?? integerKey;
+    // A click on a row (east-workspace#1727): the app's function held to the rows' key type, the grid's click — the row
+    // by its id — read back as the row's key, as every builder reads a key's text.
+    const rowClick = opts.onRowClick === undefined ? undefined
+        : rowClickOf(keyType ?? StringType, opts.onRowClick, internal.hold, internal.recordKinds === true ? "Record" : "Sheet");
     const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
@@ -1315,6 +1361,7 @@ function buildSheet(
         onSelect:      opts.onSelect !== undefined
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
             : none,
+        onRowClick:    rowClick !== undefined ? some(rowClick) : none,
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
         newKey:        newKey !== undefined ? some(newKey) : none,
         group:         groupValue,

@@ -185,6 +185,7 @@ Task → What do you need?
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest() — over one entry's rows OptimiseRequest({ entry: K }) — to Sheet.Types.OptimiseResult(Rows), a patch of the rows its Save reaches; over a record only
     │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
+    │   ├─ What the host hears of the rows                    → onRowClick={fn(Sheet.Types.RowClick(K))} each click — the row's key at the rows' key type, a line's place in its group, the column; never a key, a tick, a step, a drag or an action · onSelect={fn(Sheet.Types.Selection)} as the ring moves · selection
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
     ├─ Keep a system of records — people, skills, certificates — the Record
@@ -196,6 +197,7 @@ Task → What do you need?
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
     │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
     │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
+    │   ├─ What the host hears of the rows                    → onRowClick={fn(Record.Types.RowClick(K))} each click — the row's key at the record's key type, the column — a panel beside it reads · onSelect · selection, the Sheet's
     │   └─ Narrow it — one rail, the record beside it        → slice={{ slice: Slice.bindRecords(key, { rows }) }} + record={record} (the record its `rows` source pages; without it, read only)
     │
     ├─ Schedule bound records on a calendar — the Calendar

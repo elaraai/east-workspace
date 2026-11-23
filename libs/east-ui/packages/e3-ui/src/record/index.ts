@@ -24,7 +24,7 @@ import { createMembers, concatMembers } from "../sheet/registers.js";
 import { SheetField } from "../sheet/fields.js";
 import { createPatch } from "../sheet/index.js";
 import {
-    RecordChangeType, RecordMarkType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, sheetContextType,
+    RecordChangeType, RecordMarkType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, SheetRowClickTypeFor, sheetContextType,
 } from "../sheet/types.js";
 import { SheetNewRowType, SheetReadinessType, SheetFieldIssueType, SheetDraftTypeFor } from "../sheet/transactions.js";
 import { RecordTag, RecordComponent, createRecordPayload, type RecordTagType } from "./record.js";
@@ -125,6 +125,8 @@ export interface RecordNamespace extends RecordTagType {
         Link: typeof SheetLinkType;
         /** One member of a link. */
         Member: typeof SheetMemberType;
+        /** `RowClick(K)` — a click on a row as `onRowClick` hears it: its key at the record's key type `K`, and the column clicked ({@link SheetRowClickTypeFor}). */
+        RowClick: typeof SheetRowClickTypeFor;
     };
 }
 
@@ -151,6 +153,7 @@ const RECORD_MEMBERS = {
         FieldIssue: SheetFieldIssueType,
         Link: SheetLinkType,
         Member: SheetMemberType,
+        RowClick: SheetRowClickTypeFor,
     },
 };
 

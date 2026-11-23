@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1394,
-    "totalFiles": 228,
+    "totalEntries": 1397,
+    "totalFiles": 230,
     "packages": {
       "east": 595,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 229,
+      "e3-ui": 232,
       "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -45704,6 +45704,70 @@
       "source": "// recordBuiltKeysSliced over a key that is no text: the same stock locations, under the same rail, keyed by a struct of their aisle and their bin, which `rowKey` builds from the row as a struct. A record keyed by any type a Dict takes is a source of the rail: it pages through its indexes, filters by zone and by aisle and searches by what its rows hold as a text-keyed one does; a bin typed over moves its location under the struct it then builds, a Save writes it there, and a bin another location has is refused. The grid holds a key as East prints it, and reads it back at its own type\n// inputs: []\n/** A stock location: what it holds, the aisle and the bin its key is built from, and the zone its aisle is in. */\nexport const StockSlot = StructType({ item: StringType, aisle: StringType, bin: IntegerType, zone: StringType });\n\n/** A location's key as a struct: its aisle and its bin. */\nexport const StockSlotKey = StructType({ aisle: StringType, bin: IntegerType });\n\n/** What the bins of an aisle hold, bin by bin. */\nconst HELD = [\"Pallet wrap\", \"Strapping\", \"Corner boards\", \"Labels\", \"Tape\", \"Void fill\", \"Cartons\", \"Dividers\"] as const;\n\n/** The aisles, each with the zone it is in. */\nconst AISLES = [[\"A\", \"Dry\"], [\"B\", \"Dry\"], [\"C\", \"Chilled\"], [\"D\", \"Chilled\"]] as const;\n\n/** Four aisles of eight bins: aisles A and B in the dry zone, C and D in the chilled one. */\nfunction stockSlots(): ValueTypeOf<typeof StockSlot>[] {\n    return AISLES.flatMap(([aisle, zone]) => HELD.map((item, at) => ({ item: `${item} ${aisle}${at + 1}`, aisle, bin: BigInt(at + 1), zone })));\n}\n\n/** The same locations keyed by a struct: their aisle and their bin. A Dict over struct keys is a SortedMap, in East's order. */\nexport const recordSlotsByStruct = e3.record(\"record_slots_by_struct\", DictType(StockSlotKey, StockSlot), {\n    initial: new SortedMap<ValueTypeOf<typeof StockSlotKey>, ValueTypeOf<typeof StockSlot>>(\n        stockSlots().map((slot) => [{ aisle: slot.aisle, bin: slot.bin }, slot] as const), compareFor(StockSlotKey)),\n    indexes: (index) => ({\n        // What the rail filters and searches by.\n        record_slots_by_struct_zone: index.on([\"zone\"]),\n        record_slots_by_struct_aisle: index.on([\"aisle\"]),\n        record_slots_by_struct_item: index.on([\"item\"]),\n    }),\n    mutations: (mutation) => ({\n        // The locations' patch door — every Save commits through it, each location by its struct key.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const locations = $.let(Record.bind(recordSlotsByStruct));\n            // The rail's `rows` source, as the text-keyed locations': the indexes are of the rows' fields, whatever keys them.\n            const slice = $.let(Slice.bindRecords(\"record.slots.struct\", {\n                rows: {\n                    source: Data.bindPaged(recordSlotsByStruct, { indexes: [\"record_slots_by_struct_zone\", \"record_slots_by_struct_aisle\", \"record_slots_by_struct_item\"] }),\n                    label: \"Locations\",\n                    fields: { zone: { label: \"Zone\", hints: [\"Dry\", \"Chilled\"] }, aisle: { label: \"Aisle\", hints: [\"A\", \"B\", \"C\", \"D\"] }, item: { label: \"Holds\" } },\n                    search: [\"item\"],\n                },\n            }));\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockSlot), (_$) => Record.patch(StockSlot, { zone: \"Dry\" })));\n            return (\n                <Box height=\"520px\">\n                    <Record\n                        slice={{ slice }}\n                        record={locations}\n                        // A location's key, built from its row at the record's key type: a struct of its aisle and its bin.\n                        rowKey={(location) => ({ aisle: location.aisle, bin: location.bin })}\n                        title=\"Stock locations\"\n                        noun={{ singular: \"location\", plural: \"locations\" }}\n                        columns={{\n                            item:  Record.column.title(StockSlot, { header: \"Holds\", width: \"200px\" }),\n                            aisle: Record.column.text(StockSlot, { header: \"Aisle\", width: \"96px\" }),\n                            bin:   Record.column.integer(StockSlot, { header: \"Bin\", width: \"96px\" }),\n                            zone:  Record.column.text(StockSlot, { header: \"Zone\", width: \"120px\" }),\n                        }}\n                        newRow={newRow}\n                        name=\"recordStructKeysSliced\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "e3-ui:record-row-click.examples.tsx:recordRowClick",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record-row-click.examples.tsx",
+      "suite": "",
+      "test": "A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too — writes the press's code and the column clicked into the page's state, which a panel beside the Record reads. A click that ticks the row's box, a drag across the cells and a key never does",
+      "keywords": [
+        "Record",
+        "onRowClick",
+        "row click",
+        "click",
+        "Record.Types.RowClick",
+        "RowClick",
+        "key",
+        "column",
+        "State",
+        "State.bind",
+        "picked",
+        "panel",
+        "detail"
+      ],
+      "imports": [
+        "import { DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { Box, HStack, Reactive, State, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A Record whose row clicks the page hears: each click on a press — on any of its cells, on a row already selected too — writes the press's code and the column clicked into the page's state, which a panel beside the Record reads. A click that ticks the row's box, a drag across the cells and a key never does\n// inputs: []\n/** A press: its name, the hall it stands in and the hours booked on it this week. */\nexport const RowClickPress = StructType({ name: StringType, hall: StringType, booked: FloatType });\n\n/** The presses, keyed by their code. */\nexport const recordRowClickPresses = e3.record(\"record_row_click_presses\", DictType(StringType, RowClickPress), {\n    initial: new Map([\n        [\"P-01\", { name: \"Offset press 1\", hall: \"Hall A\", booked: 31.5 }],\n        [\"P-02\", { name: \"Offset press 2\", hall: \"Hall A\", booked: 38.0 }],\n        [\"P-03\", { name: \"Digital press\", hall: \"Hall B\", booked: 12.5 }],\n        [\"P-04\", { name: \"Flexo line\", hall: \"Hall B\", booked: 40.0 }],\n    ]),\n    mutations: (mutation) => ({\n        // The presses' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const presses = $.let(Record.bind(recordRowClickPresses));\n            const picked = $.let(State.bind([OptionType(StringType)], \"record_row_click_picked\", none));\n            const shown = $.let(picked.read());\n            // The press clicked, by its key as the record holds it, and the column the click landed in.\n            const onRowClick = $.const(East.function([Record.Types.RowClick(StringType)], NullType, ($2, click) => {\n                const column = $2.let(click.column.match({ some: (_$3, key) => key, none: (_$3) => \"the row\" }));\n                $2(picked.write(some(East.str`${click.key} · ${column}`)));\n            }));\n            return (\n                <HStack gap=\"4\" align=\"stretch\">\n                    <Box height=\"420px\" flex=\"1\">\n                        <Record\n                            record={presses}\n                            title=\"Presses\"\n                            noun={{ singular: \"press\", plural: \"presses\" }}\n                            onRowClick={onRowClick}\n                            columns={{\n                                name:   Record.column.title(RowClickPress, { header: \"Press\", width: \"200px\" }),\n                                hall:   Record.column.text(RowClickPress, { header: \"Hall\", width: \"120px\" }),\n                                booked: Record.column.quantity(RowClickPress, { header: \"Booked\", unit: \"h\", width: \"112px\" }),\n                            }}\n                            name=\"recordRowClick\"\n                        />\n                    </Box>\n                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => \"Click a press\" })}</Text>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record-row-click.examples.tsx:recordRowClickInteger",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record-row-click.examples.tsx",
+      "suite": "",
+      "test": "recordRowClick over a record keyed by Integer: `onRowClick` takes `Record.Types.RowClick(IntegerType)`, so the clicked bench's key arrives as the Integer the record keys it by, and the panel looks the bench up in the record by it",
+      "keywords": [
+        "Record",
+        "onRowClick",
+        "row click",
+        "Record.Types.RowClick",
+        "IntegerType",
+        "typed key",
+        "key type",
+        "DictType",
+        "State",
+        "State.bind",
+        "picked"
+      ],
+      "imports": [
+        "import { DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { Box, HStack, Reactive, State, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// recordRowClick over a record keyed by Integer: `onRowClick` takes `Record.Types.RowClick(IntegerType)`, so the clicked bench's key arrives as the Integer the record keys it by, and the panel looks the bench up in the record by it\n// inputs: []\n/** A bench: what stands on it. */\nexport const RowClickBench = StructType({ name: StringType, holds: StringType });\n\n/** The benches, keyed by their number. */\nexport const recordRowClickBenches = e3.record(\"record_row_click_benches\", DictType(IntegerType, RowClickBench), {\n    initial: new Map([\n        [1n, { name: \"Assembly bench 1\", holds: \"Door frames\" }],\n        [2n, { name: \"Assembly bench 2\", holds: \"Drawer boxes\" }],\n        [7n, { name: \"Finishing bench\", holds: \"Oak tops\" }],\n    ]),\n    mutations: (mutation) => ({\n        // The benches' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const benches = $.let(Record.bind(recordRowClickBenches));\n            const rows = $.let(benches.read());\n            const picked = $.let(State.bind([OptionType(IntegerType)], \"record_row_click_bench\", none));\n            const shown = $.let(picked.read());\n            // The bench clicked, by its number: an Integer, as the record keys it.\n            const onRowClick = $.const(East.function([Record.Types.RowClick(IntegerType)], NullType, ($2, click) => {\n                $2(picked.write(some(click.key)));\n            }));\n            return (\n                <HStack gap=\"4\" align=\"stretch\">\n                    <Box height=\"420px\" flex=\"1\">\n                        <Record\n                            record={benches}\n                            title=\"Benches\"\n                            noun={{ singular: \"bench\", plural: \"benches\" }}\n                            onRowClick={onRowClick}\n                            columns={{\n                                name:  Record.column.title(RowClickBench, { header: \"Bench\", width: \"200px\" }),\n                                holds: Record.column.text(RowClickBench, { header: \"Holds\", width: \"160px\" }),\n                            }}\n                            name=\"recordRowClickInteger\"\n                        />\n                    </Box>\n                    <Text>{shown.match({\n                        some: (_$2, key) => rows.has(key).ifElse((_$3) => East.str`Bench ${key} holds ${rows.get(key).holds}`, (_$3) => East.str`Bench ${key}, not saved yet`),\n                        none: (_$2) => \"Click a bench\",\n                    })}</Text>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
       "id": "e3-ui:record.examples.tsx:recordBasic",
       "skill": "e3-ui",
       "package": "e3-ui",
@@ -48007,6 +48071,40 @@
         "tsx"
       ],
       "source": "// The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.\n// inputs: []\n/**\n * A work order: edited as a Sheet row, and a row of the Plan whose operations\n * are a record of their own (`plan/plan-records.examples.tsx`). Its String\n * record key is kept through every index.\n */\nexport const IndexedWork = StructType({ reference: StringType, job: StringType, status: StringType, due: DateTimeType, quantity: IntegerType, urgent: BooleanType, tags: SetType(StringType) });\n\nconst Work = DictType(StringType, IndexedWork);\n\n/** The `i`-th work order's reference, its record key: `JOB-` and its number plus 10,000, so key order is number order. */\nexport const indexedWorkReference = East.function([IntegerType], StringType, (_$, i) => East.str`JOB-${i.add(10000n)}`);\n\n/** The job the `i`-th work order runs: cut panels, edge band, inspect and pack, in turn. */\nexport const indexedWorkJob = East.function([IntegerType], StringType, ($, i) => {\n    const jobs = $.const([\"Cut panels\", \"Edge band\", \"Inspect\", \"Pack\"], ArrayType(StringType));\n    return jobs.get(i.remainder(4n));\n});\n\n/** When the `i`-th work order is due: a day of the ninety from 1 October 2026, each order thirty-seven days on from the one before. */\nexport const indexedWorkDue = East.function([IntegerType], DateTimeType, ($, i) => {\n    const start = $.const(new Date(\"2026-10-01T00:00:00Z\"));\n    return start.addMilliseconds(i.multiply(37n).remainder(90n).multiply(86400000n));\n});\n\n/** The same pure generator seeds the example record and runs as an e3 task. */\nconst generateWork = East.function([IntegerType], Work, ($, count) => {\n    const rows = $.let(new Map(), Work);\n    const statuses = $.const([\"Ready\", \"Scheduled\", \"Done\"], ArrayType(StringType));\n    const referenceOf = $.const(indexedWorkReference);\n    const jobOf = $.const(indexedWorkJob);\n    const dueOf = $.const(indexedWorkDue);\n    const i = $.let(0n);\n    $.while(i.less(count), ($) => {\n        const reference = $.const(referenceOf(i));\n        $(rows.insert(reference, {\n            reference, job: jobOf(i), status: statuses.get(i.remainder(3n)),\n            due: dueOf(i),\n            quantity: i.remainder(24n).add(1n).multiply(100n), urgent: i.remainder(5n).equal(0n),\n            tags: i.remainder(2n).equal(0n).ifElse(() => new Set([\"Production\"]), () => new Set([\"Dispatch\"])),\n        }));\n        $.assign(i, i.add(1n));\n    });\n    return rows;\n});\n\nexport const indexedWorkOrders = e3.record(\"indexed_work_orders\", Work, {\n    initial: () => East.compile(generateWork, [])(50000n),\n    indexes: (index) => ({\n        by_status_due: index.on([\"status\", \"due\"]),\n        by_due: index.on([\"due\"]),\n        by_job: index.on([\"job\"]),\n        by_quantity: index.on([\"quantity\"]),\n        by_urgent: index.on([\"urgent\"]),\n        by_tag: index.on([\"tags\"]),\n    }),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{($) => {\n            // The work orders' record, which the sheet is handed beside its rail and saves through.\n            const record = $.let(Record.bind(indexedWorkOrders));\n            // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.\n            const slice = $.let(Slice.bindRecords(\"ex.sheetRecordIndexesMobile\", {\n                rows: {\n                    source: Data.bindPaged(indexedWorkOrders, { indexes: [\"by_status_due\", \"by_due\", \"by_job\", \"by_quantity\", \"by_urgent\", \"by_tag\"] }),\n                    fields: { status: { label: \"Status\", hints: [\"Ready\", \"Scheduled\", \"Done\"] }, due: { label: \"Due\" }, job: { label: \"Job\" }, quantity: { label: \"Quantity\" }, urgent: { label: \"Urgent\" }, tags: { label: \"Tag\", hints: [\"Production\", \"Dispatch\"] } },\n                    range: \"due\", search: [\"job\"], initial: { status: [\"Ready\"] },\n                },\n            }, { presets: [{ id: \"ready\", name: \"Ready\", where: { rows: { status: [\"Ready\"] } } }, { id: \"urgent\", name: \"Urgent\", where: { rows: { urgent: [true] } } }] }));\n            const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], \"ex.sheetRecordIndexesMobile.views\", []));\n            return <Box width=\"390px\" maxWidth=\"100%\" height=\"760px\">\n                <Sheet name=\"sheetRecordIndexesMobile\" slice={{ slice }} views={views}\n                    columns={{ reference: Sheet.column.text(IndexedWork, { header: \"Reference\", width: \"136px\" }), job: Sheet.column.text(IndexedWork, { header: \"Job\", width: \"180px\" }), status: Sheet.column.text(IndexedWork, { header: \"Status\", width: \"120px\" }), due: Sheet.column.date(IndexedWork, { header: \"Due\", width: \"144px\" }), quantity: Sheet.column.integer(IndexedWork, { header: \"Quantity\", width: \"112px\" }) }}\n                    record={record} edits={{ insertRows: false }} />\n            </Box>;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-row-click.examples.tsx:sheetRowClickGrouped",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-row-click.examples.tsx",
+      "suite": "",
+      "test": "A grouped Sheet whose row clicks the page hears: a click on an order's band gives the order's key; a click on one of its steps gives the order's key and the step's place among its steps, which the panel beside the sheet counts from one",
+      "keywords": [
+        "Sheet",
+        "onRowClick",
+        "row click",
+        "click",
+        "Sheet.Types.RowClick",
+        "RowClick",
+        "group",
+        "Sheet.group",
+        "line",
+        "index",
+        "band",
+        "key",
+        "State",
+        "State.bind"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { Box, HStack, Reactive, State, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A grouped Sheet whose row clicks the page hears: a click on an order's band gives the order's key; a click on one of its steps gives the order's key and the step's place among its steps, which the panel beside the sheet counts from one\n// inputs: []\n/** One step of an order: its task and the hours it takes. */\nexport const RowClickStep = StructType({ task: StringType, hours: FloatType });\n\n/** An order: its customer, and its steps — the lines of its group. */\nexport const RowClickOrder = StructType({ customer: StringType, steps: ArrayType(RowClickStep) });\n\n/** The orders, keyed by their number. */\nexport const sheetRowClickOrders = e3.record(\"sheet_row_click_orders\", DictType(StringType, RowClickOrder), {\n    initial: new Map([\n        [\"SO-4401\", { customer: \"Harbour Joinery\", steps: [\n            { task: \"Cut panels\", hours: 3.5 },\n            { task: \"Edge band\", hours: 1.5 },\n            { task: \"Drill\", hours: 2.0 },\n        ] }],\n        [\"SO-4402\", { customer: \"Fernside Fitouts\", steps: [\n            { task: \"Cut panels\", hours: 2.0 },\n            { task: \"Spray\", hours: 4.0 },\n        ] }],\n    ]),\n    mutations: (mutation) => ({\n        // The orders' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(sheetRowClickOrders));\n            const clicked = $.let(State.bind([OptionType(StringType)], \"sheet_row_click_clicked\", none));\n            const shown = $.let(clicked.read());\n            // The order clicked, by its key, and — on one of its steps — the step's place among them.\n            const onRowClick = $.const(East.function([Sheet.Types.RowClick(StringType)], NullType, ($2, click) => {\n                const where = $2.let(click.index.match({ some: (_$3, i) => East.str`step ${i.add(1n)}`, none: (_$3) => \"the order\" }));\n                $2(clicked.write(some(East.str`${click.key} · ${where}`)));\n            }));\n            return (\n                <HStack gap=\"4\" align=\"stretch\">\n                    <Box height=\"420px\" flex=\"1\">\n                        <Sheet\n                            record={orders}\n                            group={Sheet.group(RowClickOrder, \"steps\", { title: \"customer\", noun: { singular: \"order\", plural: \"orders\" } })}\n                            onRowClick={onRowClick}\n                            columns={{\n                                task:  Sheet.column.text(RowClickStep, { header: \"Step\", width: \"200px\" }),\n                                hours: Sheet.column.quantity(RowClickStep, { header: \"Hours\", width: \"96px\" }),\n                            }}\n                            name=\"sheetRowClickGrouped\"\n                        />\n                    </Box>\n                    <Text>{shown.match({ some: (_$2, said) => East.str`Clicked ${said}`, none: (_$2) => \"Click an order or a step\" })}</Text>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:sheet-transactions.examples.ts:sheetApplyBatch",

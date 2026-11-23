@@ -224,6 +224,20 @@ export interface SheetUiState {
      * places it, and so does the first move key, on the first row's first cell that edits in place; no other key acts.
      */
     ringless: boolean;
+    /** The press in hand that may be a click on its row (east-workspace#1727), until its release says; `null` with none. */
+    press: SheetPress | null;
+}
+
+/**
+ * A press that may be a click on its row (east-workspace#1727): a primary button's first press, on a cell or a row's
+ * number, that did nothing but place the ring — no step of a cell, no range, no ⇧. Released where it pressed, it is a
+ * click: `emit.rowClick`. It is let go of, clicking nothing, as the pointer drags the range into another cell.
+ */
+export interface SheetPress {
+    /** The row it pressed, in row space: it follows the row as the rows move under it. */
+    r: number;
+    /** The column it pressed; `null` for the row's number. */
+    c: number | null;
 }
 
 /** A commit direction — where the ring goes after a commit. */
@@ -231,12 +245,22 @@ export type CommitDir = "right" | "left" | "down" | "stay" | "blur" | "cancel";
 
 /** Every interaction the surface can report. */
 export type SheetEvent =
-    | { t: "cell.down"; r: number; c: number; shift: boolean }
+    /**
+     * A press on a cell. `click`: it may be a click on its row (east-workspace#1727) — the primary button's first press
+     * (its `detail` 1); absent, it is none.
+     */
+    | { t: "cell.down"; r: number; c: number; shift: boolean; click?: boolean | undefined }
+    /**
+     * The press in hand ends (east-workspace#1727): released `inside` the cell or the row's number it pressed — a click
+     * there, where it was one — or elsewhere, or with its release never heard, which clicks nothing.
+     */
+    | { t: "cell.up"; inside: boolean }
     | { t: "cell.dbl"; r: number; c: number }
     | { t: "cell.enter"; r: number; c: number; dragging: boolean }
     /** The pointer left the grid: no cell is hovered, and a strip that previews the hovered cell returns to the ring's (#1531). */
     | { t: "cell.leave" }
-    | { t: "row.pick"; r: number; shift: boolean }
+    /** A press on a row's number, or a pick of its box. `click`: a press that may be a click on its row, as `cell.down`'s; absent — a pick of the box among them — none. */
+    | { t: "row.pick"; r: number; shift: boolean; click?: boolean | undefined }
     | { t: "key"; key: string; shift: boolean; meta: boolean; alt: boolean }
     | { t: "editor.change"; val: string }
     | { t: "editor.key"; key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }
@@ -353,6 +377,8 @@ export type SheetEffect =
     | { t: "focus.editor"; selectAll: boolean }
     /** The ring moved — `onSelect`. */
     | { t: "emit.select"; r: number; c: number }
+    /** A click on a row (east-workspace#1727) — `onRowClick`: its row, and the column clicked, `null` for the row's number. */
+    | { t: "emit.rowClick"; r: number; c: number | null }
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
     /**
@@ -517,6 +543,7 @@ export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string 
         folds: folds === undefined || folds.size === 0 ? NO_FOLDS : folds,
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
         ringless,
+        press: null,
     };
 }
 

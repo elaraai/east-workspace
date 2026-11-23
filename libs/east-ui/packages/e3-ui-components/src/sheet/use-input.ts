@@ -101,21 +101,38 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
     // every gesture is held to, east-ui-components' `src/pointer/`).
     const pressed = useRef(false);
     const dragging = useRef(false);
+    // What the press in hand pressed — a cell, or a row's number — until its button lifts (east-workspace#1727): a
+    // release inside it is a click there, a mousedown and a mouseup on one element, as the browser counts a click,
+    // wherever the pointer went between. The machine says whether the press was one.
+    const pressAt = useRef<Element | null>(null);
     useEffect(() => {
-        const up = () => { pressed.current = false; dragging.current = false; };
+        const release = (inside: boolean) => {
+            if (pressAt.current === null) return;
+            pressAt.current = null;
+            dispatch({ t: "cell.up", inside });
+        };
+        // A lift never heard — a move with the button no longer held, the window losing the page — clicks nothing.
+        const letGo = () => { pressed.current = false; dragging.current = false; release(false); };
+        const up = (e: globalThis.MouseEvent) => {
+            pressed.current = false;
+            dragging.current = false;
+            if (e.button !== 0) return;
+            const at = pressAt.current;
+            release(at !== null && e.target instanceof Node && at.contains(e.target));
+        };
         const move = (e: globalThis.MouseEvent) => {
-            if ((e.buttons & 1) === 0) up();
+            if ((e.buttons & 1) === 0) letGo();
             else if (pressed.current) dragging.current = true;
         };
         window.addEventListener("mouseup", up);
         window.addEventListener("mousemove", move);
-        window.addEventListener("blur", up);
+        window.addEventListener("blur", letGo);
         return () => {
             window.removeEventListener("mouseup", up);
             window.removeEventListener("mousemove", move);
-            window.removeEventListener("blur", up);
+            window.removeEventListener("blur", letGo);
         };
-    }, []);
+    }, [dispatch]);
     /**
      * A gesture on the ring (#860): counted — a key's move past the rows read lands only if none came after it — and,
      * when it is no such move itself, it abandons one still on its way at once, the rows that move holds put back as
@@ -132,10 +149,12 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         e.preventDefault();
         pressed.current = !e.shiftKey;
         dragging.current = false;
+        pressAt.current = e.currentTarget;
         ringGesture();
         // A press opens a phone's action bar again, wherever it was closed (SH9).
         setBarClosedAt(undefined);
-        dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
+        // The button's first press may be a click on the row; a double click's second is not (east-workspace#1727).
+        dispatch({ t: "cell.down", r, c, shift: e.shiftKey, click: e.detail <= 1 });
     }, [dispatch, ringGesture, setBarClosedAt]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
@@ -145,7 +164,11 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         if (e.button !== 0) return;
         e.preventDefault();
         ringGesture();
-        dispatch({ t: "row.pick", r, shift: e.shiftKey });
+        // A press on the row's number may be a click on the row (east-workspace#1727); a pick of its box comes as the
+        // box's click, and ticks it — no press.
+        const press = e.type === "mousedown";
+        if (press) pressAt.current = e.currentTarget;
+        dispatch({ t: "row.pick", r, shift: e.shiftKey, click: press && e.detail <= 1 });
     }, [dispatch, ringGesture]);
     const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);
     const onFillRow = useCallback(() => dispatch({ t: "fill.row" }), [dispatch]);

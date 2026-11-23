@@ -25,7 +25,7 @@ import type { SheetNotice } from "./sheet-types.js";
 import { LATENCY_MS } from "./suggest.js";
 import { editsOutOfPlace, stepsInPlace } from "./steps.js";
 import type { EditorFocusRequest } from "./Editor.js";
-import type { SheetSelectionValue } from "./values.js";
+import type { SheetRowClickValue, SheetSelectionValue } from "./values.js";
 import type { SheetDecode } from "./use-decode.js";
 import type { SheetSession } from "./use-session.js";
 import type { SheetBody } from "./use-body.js";
@@ -47,7 +47,7 @@ import type { SheetCopilot } from "./use-copilot.js";
 export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSession, sheetBody: SheetBody,
     sheetMachine: SheetMachine, sheetWrites: SheetWrites, sheetCopilot: SheetCopilot) {
     const {
-        chrome, columns, copilotOn, declaredNoun, declaredViews, group, hostGrid, onSelectFn, onViewsChangeFn,
+        chrome, columns, copilotOn, declaredNoun, declaredViews, group, hostGrid, onRowClickFn, onSelectFn, onViewsChangeFn,
         setViewsState, triggers, viewsRef, words,
     } = sheetDecode;
     const { canEdit, dispatchStore, paging, recordGesture, store } = sheetSession;
@@ -342,6 +342,23 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     queueMicrotask(() => onSelectFn(sel));
                     break;
                 }
+                case "emit.rowClick": {
+                    // A click on a row (east-workspace#1727): a row's id, a line's group's and its place among the
+                    // group's lines, a band's group's; the column as `onSelect` names it, none for the row's number. A
+                    // blank padding row and a proposal are no rows.
+                    if (onRowClickFn === undefined) break;
+                    const it = rowAt(eff.r);
+                    if (it === undefined || (it.kind !== "real" && it.kind !== "group")) break;
+                    const meta = eff.c === null ? undefined : metaAt(eff.r, eff.c);
+                    const lg = it.kind === "real" ? it.group : undefined;
+                    const click: SheetRowClickValue = {
+                        rowId: lg !== undefined ? lg.row.id : it.row.id,
+                        index: lg !== undefined ? some(BigInt(lg.index)) : none,
+                        column: meta !== undefined ? some(meta.key) : none,
+                    };
+                    queueMicrotask(() => onRowClickFn(click));
+                    break;
+                }
                 case "scroll.to": {
                     const bi = rowSpace.bodyIndexOf[eff.r];
                     if (bi !== undefined) setScrollTarget({ index: bi, align: "auto" });
@@ -437,7 +454,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onRowClickFn, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;

@@ -151,8 +151,11 @@ export interface RecordNounInput {
     plural: string;
 }
 
-/** The Sheet's options a Record takes as they are. */
-type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready";
+/**
+ * The Sheet's options a Record takes as they are — its selection among them: `onSelect` as the ring moves, `selection`
+ * to place it, and `onRowClick` (east-workspace#1727) for each click on a row, its key typed at the record's.
+ */
+type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready" | "onSelect" | "selection" | "onRowClick";
 
 /**
  * What every `<Record>` takes beside its rows and its columns.
