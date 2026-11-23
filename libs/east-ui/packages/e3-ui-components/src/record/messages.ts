@@ -7,7 +7,7 @@
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
  * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2–IN4, IN7–IN9): its select column's,
  * a new row's required cell's, its empty state's, its cells' — their hovers,
- * an age's, an audit's and a sparkline's, the words for no one and for no value where a
+ * an age's, an audit's, a sparkline's and a meter's, the words for no one and for no value where a
  * column gives none, and a mark's after a cell's own — and its toolbar's, its status line's, its strip's, its
  * footer's and its inspector's, each in the Record's word for its rows. Every
  * other word it shows is the Sheet's, but the message of an empty field a new
@@ -91,6 +91,10 @@ export interface RecordMessages {
     pendingTitle: (p: { count: string }) => string;
     /** A sparkline's hover (east-workspace#1729): its series' last value, and its range — each a number in the viewer's language. */
     sparklineTitle: (p: { last: string; min: string; max: string }) => string;
+    /** A meter's hover (east-workspace#1730): its value, the row's max and the value's share of it — each in the viewer's language. */
+    meterTitle: (p: { value: string; max: string; percent: string }) => string;
+    /** A meter's hover where it draws no share (east-workspace#1730): its value, and why — its max is 0 or below, or not read. */
+    meterNoShare: (p: { value: string; max: string | undefined }) => string;
     /** The rows, where the Record names them no other way: one and many. */
     rowNoun: () => { singular: string; plural: string };
     /** Add's words (FR6). */
@@ -200,6 +204,8 @@ export const recordMessages: RecordMessages = {
     pendingMeta: ({ count, one, blame }) => (blame ? `${count} ${one ? "change" : "changes"}` : count),
     pendingTitle: ({ count }) => `${count} pending`,
     sparklineTitle: ({ last, min, max }) => `last ${last} · ${min} to ${max}`,
+    meterTitle: ({ value, max, percent }) => `${value} of ${max} · ${percent}`,
+    meterNoShare: ({ value, max }) => (max === undefined ? `${value} · no share: its max is not read` : `${value} of ${max} · no share: its max is 0 or below`),
     rowNoun: () => ({ singular: "row", plural: "rows" }),
     add: () => "Add",
     addTip: ({ noun }) => `Add ${withArticle(noun)}`,

@@ -101,9 +101,10 @@ describe("a Record's sparkline cells (east-workspace#1729)", () => {
         const { container } = await h.mount(ex.recordSparkline, { storageKey: "record-sparkline-details" });
         await press(cell(container, "M-02", "scrap"));
         expect(details(container).getAttribute("data-record-entry")).toBe("M-02");
-        // The fields in the columns' order, the load and last year hidden; each sparkline the host's own control.
+        // The fields in the columns' order, the load and last year hidden; each sparkline the host's own control; then the
+        // fields no column shows, this week's figures.
         expect([...details(container).querySelectorAll("[data-field]")].map((f) => [f.getAttribute("data-field"), f.getAttribute("data-editor")]))
-            .toEqual([["name", "text"], ["output", "custom"], ["scrap", "custom"], ["weeks", "custom"]]);
+            .toEqual([["name", "text"], ["output", "custom"], ["scrap", "custom"], ["weeks", "custom"], ["booked", "number"], ["capacity", "number"], ["used", "number"], ["good", "number"], ["made", "number"]]);
         const scrap = details(container).querySelector<HTMLElement>('[data-field="scrap"]')!;
         expect(parts(scrap).map((p) => p.getAttribute("data-place"))).toEqual(["details"]);
         expect(line(scrap)).toEqual(line(cell(container, "M-02", "scrap")));

@@ -16,8 +16,8 @@
  *   under its label — an unlabelled group's `Other` — and the fields no column
  *   shows after them (IN4), each member of a column from data a line of its
  *   own in its group's section (#1561), a cycle, a toggle and a boolean each
- *   one line of radios (IN5), and a trace's or a sparkline's series the part its
- *   cell draws, read only (east-workspace#1726); a cell's mark its field's help, and a lock's
+ *   one line of radios (IN5), and a trace's, a sparkline's or a meter's value the
+ *   part its cell draws, read only (east-workspace#1726); a cell's mark its field's help, and a lock's
  *   field read only (D1); its facts last, the audit's and the age's, read
  *   only, an age warning once stale (IN6); then Duplicate and Delete (IN7);
  * - **nothing** — the rows shown, the drafts pending and the rows stale, then
@@ -60,7 +60,7 @@ import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
 import { staleCountOf } from "./footer.js";
-import { RecordDisplay } from "./cells.js";
+import { RecordDisplay, isDisplayKind } from "./cells.js";
 import { nameOf, titleColumnOf, titleOf, useRecordGrid } from "./grid.js";
 import { recordMessages as rm } from "./messages.js";
 import type { RecordNoun, RecordStatus } from "./status.js";
@@ -266,15 +266,16 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
         });
         return out;
     }, [edit.specs, edit.columns, inspect, r, registers]);
-    // A trace's or a sparkline's field, the part its cell draws, read only (east-workspace#1726): its series as the row
-    // holds it — a `value`'s as it derives it — in the field's line, a Trace at its compact steps whatever the rows' height.
+    // A trace's, a sparkline's or a meter's field, the part its cell draws, read only (east-workspace#1726): its value as
+    // the row holds it — a `value`'s as it derives it, a meter's over the row's max and tone as its draft reads them — in
+    // the field's line, at the comfortable density whatever the rows': a Trace's compact steps, a Meter's own.
     const displays = useMemo(() => {
         const out = new Map<string, ReactNode>();
         edit.specs.forEach((spec, i) => {
             const key = edit.columns[i];
             const kind = key === undefined ? undefined : inspect.columnAt(r, key)?.raw.kind;
-            if (key === undefined || (kind?.type !== "trace" && kind?.type !== "sparkline")) return;
-            out.set(formKey(spec.path), <RecordDisplay styles={record} kind={kind} cell={cells.get(key)} density="compact" place="details"
+            if (key === undefined || kind === undefined || !isDisplayKind(kind)) return;
+            out.set(formKey(spec.path), <RecordDisplay styles={record} kind={kind} cell={cells.get(key)} cells={cells} density="comfortable" place="details"
                 storageKey={`record.details.${key}.${kind.type}`} />);
         });
         return out;

@@ -3,7 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Meter slot recipe. */
+/**
+ * Meter slot recipe: the track and its fill, and the mono percent beside them — never a bar alone where there is room
+ * for both. In a size container too narrow for the percent beside a bar worth drawing (under 56px: "100%" at the
+ * comfortable 12.5px is 32px, its gap 12px, and the bar 12px), the bar takes the room alone, as a Trace's steps drop
+ * their values where they have none (east-workspace#1730) — a Record's meter cell on a phone's 62px column. Every track
+ * is an even number of pixels tall, so it centres on a whole pixel in the even lines its hosts draw.
+ */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
@@ -42,6 +48,7 @@ export const meterSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             fontVariantNumeric: "tabular-nums",
             color: "fg.muted",
+            "@container (width < 56px)": { display: "none" },
         },
     },
     variants: {
@@ -63,16 +70,17 @@ export const meterSlotRecipe = defineSlotRecipe({
         // Density cascade — track + value text scale with the chipRail/trace
         // rhythm so a meter sits comfortably beside chips at the same density.
         // No default: an undensified meter keeps the `thickness` look.
-        // Declared after `thickness` so density wins the merge.
+        // Declared after `thickness` so density wins the merge. Each track an
+        // even height, as every thickness is: an odd one centred at half a pixel.
         density: {
             condensed: {
                 root: { gap: "{spacing.1.5}" },
-                track: { height: "3px" },
+                track: { height: "4px" },
                 value: { fontSize: "9px" },
             },
             compact: {
                 root: { gap: "{spacing.2}" },
-                track: { height: "5px" },
+                track: { height: "6px" },
                 value: { fontSize: "10px" },
             },
             comfortable: {

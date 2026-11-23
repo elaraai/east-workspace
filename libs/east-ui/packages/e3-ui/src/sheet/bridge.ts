@@ -26,7 +26,10 @@
  *   author's typed function inside its closed wire twin;
  * - the rule cells and sub rows (#844) — a column's `level` / `actual` /
  *   `detail` accessors and the `subRows` mappers, each compiled once and
- *   called inside the row projection.
+ *   called inside the row projection;
+ * - a row's cells at the day (#1559) — each column from data's, every
+ *   column's marks and each meter's max and tone (east-workspace#1730), read
+ *   over the row's entry or its draft, so they follow the draft.
  *
  * On a GROUPED sheet (#740) the source row is the group `P` and the columns
  * are declared over the line `L` its lines field holds: `projectRow` /
@@ -66,6 +69,7 @@ import {
     StringType,
     StructType,
     defaultValue,
+    isSubtype,
     isTypeEqual,
     variant,
     some,
@@ -197,6 +201,21 @@ export interface SheetColumnMeta {
     mark?: ExprType<FunctionType<[StructType, DateTimeType], OptionType<typeof RecordMarkType>>>;
     /** A column from data: where its columns come from, and how each cell reads and writes the field. */
     data?: SheetFromDataMeta;
+    /** A meter's max and tone over the row (east-workspace#1730), read with its marks. */
+    meter?: SheetMeterMeta;
+}
+
+/**
+ * A meter column's max and tone (east-workspace#1730), compiled over the row: read at the day with the row's marks, over
+ * its entry or its whole draft, so they follow the draft — an edit of the field a max reads redraws its bar.
+ *
+ * @internal
+ */
+export interface SheetMeterMeta {
+    /** The row's max: the author's, a Float for every row made a function returning it, else 100. */
+    max: ExprType<FunctionType<[StructType], FloatType>>;
+    /** The row's tone, by its case's name; `undefined` without one. */
+    tone: ExprType<FunctionType<[StructType], StringType>> | undefined;
 }
 
 /**
@@ -287,8 +306,15 @@ export function optionPayload(t: EastType): EastType | undefined {
 /** A series of numbers: a trace's or a sparkline's payload (east-workspace#1728), which a `Series` cell holds. */
 const SERIES_TYPE = ArrayType(FloatType);
 
-/** The kinds that show a row's series and take no edit (east-workspace#1726): the Record's display columns. */
-const SERIES_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["trace", "sparkline"]);
+/**
+ * The kinds that draw a row's numbers with an east-ui part and take no edit (east-workspace#1726) — the Record's display
+ * columns — each with what its cell shows, as a refusal says it.
+ *
+ * @internal
+ */
+export const DISPLAY_KINDS: ReadonlyMap<SheetColumnKindLiteral, string> = new Map<SheetColumnKindLiteral, string>([
+    ["trace", "series"], ["sparkline", "series"], ["meter", "value against its max"],
+]);
 
 /** The cell arm a primitive payload lands in, or `undefined` for a type no cell holds. */
 export function cellTagOf(t: EastType): SheetColumnMeta["cellTag"] | undefined {
@@ -308,7 +334,7 @@ const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
     text: StringType, lookup: StringType, reference: StringType, enum: StringType, stamped: StringType,
     date: DateTimeType, quantity: FloatType, integer: IntegerType,
     title: StringType, person: StringType, cycle: StringType, boolean: BooleanType, toggle: BooleanType,
-    trace: SERIES_TYPE, sparkline: SERIES_TYPE,
+    trace: SERIES_TYPE, sparkline: SERIES_TYPE, meter: FloatType,
 };
 
 /** Compile one rule accessor and check its payload — `String` or `DateTime`, or its Option. */
@@ -470,8 +496,9 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
     if (kind === "lookup") {
         throw new Error(`${where} is a lookup column, the sheet's driver and one column of its own — it makes no columns from data, so give it no \`each\``);
     }
-    if (SERIES_KINDS.has(kind)) {
-        throw new Error(`${where} is ${aKind}, which draws one row's series — it makes no columns from data, so give it no \`each\``);
+    const shows = DISPLAY_KINDS.get(kind);
+    if (shows !== undefined) {
+        throw new Error(`${where} is ${aKind}, which draws one row's ${shows} — it makes no columns from data, so give it no \`each\``);
     }
     for (const option of ["fill", "options", "value"] as const) {
         if (cfg[option] !== undefined) {
@@ -831,15 +858,19 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         };
     }
 
-    // A trace or a sparkline (east-workspace#1726) shows its series and takes no edit: no `editable`, no `fill`, no `options`.
-    const series = SERIES_KINDS.has(kind);
-    if (series) {
+    // A trace, a sparkline or a meter (east-workspace#1726) shows the row's numbers and takes no edit: no `editable`, no
+    // `fill`, no `options`.
+    const shows = DISPLAY_KINDS.get(kind);
+    if (shows !== undefined) {
         for (const option of ["editable", "fill", "options"] as const) {
             if (cfg[option] !== undefined) {
-                throw new Error(`Sheet: column "${key}" is a ${kind} column, which shows its series and is read only — it takes no \`${option}\``);
+                throw new Error(`Sheet: column "${key}" is a ${kind} column, which shows its ${shows} and is read only — it takes no \`${option}\``);
             }
         }
     }
+    // A meter's max and tone over the row, checked (east-workspace#1730).
+    const meter = kind === "meter" ? meterOf(key, cfg, rowType) : undefined;
+    const metered = meter !== undefined ? { meter } : {};
 
     // A derived read — the projection decides the payload; the field is free.
     if (cfg.value !== undefined && kind !== "set" && kind !== "link" && kind !== "stamped" && kind !== "custom") {
@@ -849,8 +880,8 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         const outPayload = optionPayload(out);
         const outUnwrapped = outPayload ?? out;
         if (!isTypeEqual(outUnwrapped, payloadType)) {
-            // A series is named whole; a primitive by its kind, as ever.
-            const spelt = (t: EastType) => (series ? describeType(t) : (t as { type: string }).type);
+            // A display column's value is named whole; a primitive by its kind, as ever.
+            const spelt = (t: EastType) => (shows !== undefined ? describeType(t) : (t as { type: string }).type);
             throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${spelt(outUnwrapped)} — a ${kind} column's projection must return ${spelt(payloadType)} or its Option`);
         }
         return {
@@ -859,6 +890,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
             derived, derivedOptional: outPayload !== undefined,
             ...(col.register !== undefined ? { register: col.register } : {}),
             ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
+            ...metered,
         };
     }
 
@@ -908,8 +940,9 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     }
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
-    if (series && !isTypeEqual(unwrapped, payloadType)) {
-        throw new Error(`Sheet: ${kind} column "${key}" must sit on an Array<Float> or Option<Array<Float>> field, or read one through \`value\` — got ${describeType(fieldType)}`);
+    if (shows !== undefined && !isTypeEqual(unwrapped, payloadType)) {
+        const held = describeType(payloadType);
+        throw new Error(`Sheet: ${kind} column "${key}" must sit on ${/^[AEIOU]/.test(held) ? "an" : "a"} ${held} or Option<${held}> field, or read one through \`value\` — got ${describeType(fieldType)}`);
     }
     if (!isTypeEqual(unwrapped, payloadType)) {
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
@@ -917,11 +950,47 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     return {
         key, field: key, kind, config: cfg, fieldType, optional, payloadType,
         cellTag: cellTagOf(payloadType)!,
-        // A stamped code and a series a trace or a sparkline shows are never written.
-        editable: kind !== "stamped" && !series && cfg.editable !== false,
+        // A stamped code and the numbers a display column shows are never written.
+        editable: kind !== "stamped" && shows === undefined && cfg.editable !== false,
         ...(col.register !== undefined ? { register: col.register } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
+        ...metered,
     };
+}
+
+/**
+ * A meter column's max and tone, compiled over the row and checked (east-workspace#1730): its `max` one Float for every
+ * row or the row's own — a function of the row, told from a value by being one — and 100 without it; its `tone` a
+ * function of the row to a status value, or a variant of some of its cases, kept by its case's name.
+ *
+ * @param key - The column, as a refusal names it
+ * @param cfg - The column's config
+ * @param rowType - The row type
+ * @returns The max and the tone
+ * @throws {Error} Naming the column, when its `max` gives no Float or its `tone` no status value
+ */
+function meterOf(key: string, cfg: SheetAnyColumnConfig, rowType: StructType): SheetMeterMeta {
+    const given = cfg.max;
+    const max = East.function([rowType], undefined, (_$, r) => (typeof given === "function" ? given(r) : given ?? 100)) as unknown as ExprType<FunctionType<[StructType], EastType>>;
+    const maxOut = (Expr.type(max) as FunctionType).output as EastType;
+    if (!isTypeEqual(maxOut, FloatType)) {
+        throw new Error(`Sheet: meter column "${key}" has a \`max\` of ${describeType(maxOut)} — it is what the bar is a share of: a Float for every row, or one over the row`);
+    }
+    const tone = cfg.tone;
+    if (tone === undefined) return { max: max as unknown as SheetMeterMeta["max"], tone: undefined };
+    if (typeof tone !== "function") {
+        throw new Error(`Sheet: meter column "${key}" has a \`tone\` that is no function of the row — give it one returning a status value: (row) => …`);
+    }
+    const toneOf = East.function([rowType], undefined, (_$, r) => tone(r)) as unknown as ExprType<FunctionType<[StructType], EastType>>;
+    const toneOut = (Expr.type(toneOf) as FunctionType).output as EastType;
+    if (!isSubtype(toneOut, StatusValueType)) {
+        throw new Error(`Sheet: meter column "${key}" has a \`tone\` returning ${describeType(toneOut)} — a meter's tone is a status value: success, warning, danger, info or neutral, or a variant of some of them`);
+    }
+    const named = East.function([rowType], StringType, ($, r) => {
+        const of = $.const(toneOf);
+        return (of(r) as unknown as ExprType<VariantType>).getTag();
+    });
+    return { max: max as unknown as SheetMeterMeta["max"], tone: named as unknown as SheetMeterMeta["tone"] };
 }
 
 /**
@@ -1352,17 +1421,22 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     const bridgeReady = hold(buildReadyContexts(rowType, groupInput?.linesField, ctxType, driverType,
         rowById, draftDecode, lookupDriver, loose));
 
-    // The columns from data and every column's marks (#1559): read at the Record's day over a row's draft or its entry,
-    // and a gesture's edits to them written over the draft — a flat row's, as a Record's rows are.
+    // The columns from data, every column's marks (#1559) and each meter's max and tone (east-workspace#1730): read at the
+    // Record's day over a row's draft or its entry, and a gesture's edits to the columns from data written over the draft —
+    // a flat row's, as a Record's rows are.
     const dataMetas = input.dataMetas ?? [];
     const marked = metas.some((m) => m.mark !== undefined);
     if ((dataMetas.length > 0 || marked) && groupInput !== undefined) {
         throw new Error("Sheet: columns from data and marks are read over a flat row's draft — a grouped sheet draws neither");
     }
+    const metered = metas.some((m) => m.meter !== undefined);
+    if (metered && groupInput !== undefined) {
+        throw new Error("Sheet: a meter's max and tone are read over a flat row's draft — a grouped sheet draws no meter");
+    }
     // Each register columns from data are made from, its members once in the sheet's block: one column per key.
     const members = new Map(dataMetas.flatMap((m) => m.data?.from === "register" ? [m.data.register] : [])
         .map((name) => [name, hold(dedupeMembers(registers[name]!))] as const));
-    const cellsAt = dataMetas.length > 0 || marked ? hold(buildCellsAt(lineType, metas, dataMetas, members)) : undefined;
+    const cellsAt = dataMetas.length > 0 || marked || metered ? hold(buildCellsAt(lineType, metas, dataMetas, members)) : undefined;
     const writes = buildWriteData(lineType, dataMetas, members);
     const writeData = writes !== undefined ? hold(writes) : undefined;
 
@@ -1497,13 +1571,14 @@ function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cel
 
 /**
  * Compile a row's cells at a day (#1559): each column from data's — every
- * member's value through its column's `read` — and every column's marks,
- * read over the row's draft, or over its entry before it has one. A field not
- * yet set shows nothing, nor one holding text no column could read; a mark
- * over the row reads it once its draft is whole.
+ * member's value through its column's `read` — every column's marks, and
+ * each meter's max and tone (east-workspace#1730), read over the row's draft,
+ * or over its entry before it has one. A field not yet set shows nothing, nor
+ * one holding text no column could read; a mark, a max and a tone over the
+ * row read it once its draft is whole.
  *
  * @param rowType - The row type
- * @param metas - The declared columns, for their marks
+ * @param metas - The declared columns, for their marks and meters
  * @param dataMetas - The columns from data
  * @param members - Each register they are made from, its members held once
  * @returns What a row is read over, and the day → its cells
@@ -1512,7 +1587,8 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
     const draftType = SheetDraftTypeFor(rowType) as StructType;
     const lift = buildDraftLift(rowType) as unknown as ExprType<FunctionType<[StructType], StructType>>;
     const marked = metas.filter((m) => m.mark !== undefined);
-    const complete = marked.length > 0 ? buildComplete(rowType) : undefined;
+    const metered = metas.filter((m) => m.meter !== undefined);
+    const complete = marked.length > 0 || metered.length > 0 ? buildComplete(rowType) : undefined;
     return East.function([SheetReadFromType, DateTimeType], SheetCellsType, ($, from, day) => {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const toDraft = $.const(lift);
@@ -1527,6 +1603,14 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
                     for (const m of marked) {
                         const mark = $2.const(m.mark!);
                         insertMark($2 as unknown as SheetAnyBlock, cells, East.value(m.key, StringType), mark(row, day));
+                    }
+                    // A meter's max and its tone's name, beside its value's cell.
+                    for (const m of metered) {
+                        const max = $2.const(m.meter!.max);
+                        $2(cells.insert(sheetRuleCell("max", m.key), cellOfPayload("Float", max(row) as ExprType<EastType>)));
+                        if (m.meter!.tone === undefined) continue;
+                        const tone = $2.const(m.meter!.tone);
+                        $2(cells.insert(sheetRuleCell("tone", m.key), cellOfPayload("String", tone(row) as ExprType<EastType>)));
                     }
                 },
             });

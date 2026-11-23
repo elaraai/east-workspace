@@ -42,7 +42,7 @@ import { actionColumnOf } from "./actions/model.js";
 
 /**
  * The column kinds: the arms of `SheetColumnKindType`, as the wire's column decodes them — title, person, boolean,
- * toggle, cycle, age, audit and trace only a Record draws (#1528, east-workspace#1728).
+ * toggle, cycle, age, audit, trace, sparkline and meter only a Record draws (#1528, east-workspace#1726).
  */
 export type SheetKind = SheetColumnKindValue["type"];
 
@@ -51,7 +51,7 @@ const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
     title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
-    trace: 240, sparkline: 120,
+    trace: 240, sparkline: 120, meter: 160,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -578,7 +578,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
             return rawCellText(cell);
         case "date":
             return cell.type === "DateTime" ? formatDateCell(cell.value, meta.dateFormat) : rawCellText(cell);
+        // A meter's value reads as a quantity's, in the viewer's language (east-workspace#1730).
         case "quantity":
+        case "meter":
             return cell.type === "Float" ? formatQuantity(cell.value, meta.format, words)
                 : cell.type === "Integer" ? formatQuantity(Number(cell.value), meta.format, words) : rawCellText(cell);
         case "integer":
