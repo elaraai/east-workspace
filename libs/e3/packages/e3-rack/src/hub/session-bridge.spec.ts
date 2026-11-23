@@ -6,6 +6,7 @@
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ import { envManifestKey } from '../server/env-publication.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { RACK_INLINE_OBJECT_MAX } from '../protocol/rack-json.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge } from './session-bridge.js';
+import { RackLinkMeter } from './link-meter.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -127,4 +129,59 @@ it('serves an object inline when it fits the reply\'s room, taking its bytes fro
   assert.equal(room.left, 2 * 1024);
   assert.equal((await read(large, { objectBytes: RACK_INLINE_OBJECT_MAX, left: Number.MAX_SAFE_INTEGER })).kind, 'url', 'one past the largest the request takes is a data URL');
   assert.deepEqual(reads.filter((line) => line.startsWith('GET')), [`GET ${segment}`], 'and the session is asked for no bytes of those');
+});
+
+it('counts an object\'s read towards its rack\'s link until the answer to the rack has finished, and holds it there only once it has', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'e3sb-'));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  // A session that keeps two objects of 2 MiB, whose stream ends as soon as it is read
+  const objects = new Map([1, 2].map((fill) => {
+    const bytes = new Uint8Array(2 * 1024 * 1024).fill(fill);
+    return [createHash('sha256').update(bytes).digest('hex'), bytes] as const;
+  }));
+  const [sent, cut] = [...objects.keys()] as [string, string];
+  const app = new Hono();
+  app.on(['HEAD', 'GET'], '/v1/objects/:hash', (c) => {
+    const bytes = objects.get(c.req.param('hash'));
+    if (bytes === undefined) return c.body(null, 404);
+    return new Response(c.req.method === 'HEAD' ? null : bytes, { headers: { 'content-length': String(bytes.length) } });
+  });
+  const socket = hubSocketPath(home);
+  const server = await serveOnSocket(app, socket);
+  cleanup.push(() => closeSocketServer(server, socket));
+  const lease: RackLeaseRecord = { ...leaseOf('L1', 'e'.repeat(64)), status: 'claimed', claimedBy: 'rack-a', attempt: { executionId: uuidv7(), startedAtMs: 0 } };
+  const coordinator = new SessionLeaseCoordinator();
+  let now = 1000;
+  const meter = new RackLinkMeter(() => now);
+  const bridge = new SessionProxyStorageBridge({ leases: { get: () => Promise.resolve(lease) } as unknown as RackLeaseStore, coordinator,
+    session: () => ({ dataSocket: socket, dataToken: 'a session credential' }), owner: await processOwner(), advertiseOrigin: () => 'https://hub.invalid', meter });
+  cleanup.push(() => { bridge.close(); return Promise.resolve(); });
+  const routes = bridge.dataRoutes();
+  /** The object's data URL, read whole by the rack's side of a connection
+   *  whose end the test says: the connection's answer, which the route watches. */
+  const fetchWhole = async (hash: string) => {
+    const descriptor = await coordinator.run('r-repo', 'L1', () => bridge.readDescriptor('r-repo', hash, { objectBytes: 0, left: 0 }));
+    assert(descriptor.kind === 'url');
+    const outgoing = Object.assign(new EventEmitter(), { writableFinished: false });
+    const response = await routes.fetch(new Request(descriptor.url), { outgoing });
+    assert.equal(response.status, 200);
+    assert.equal((await response.arrayBuffer()).byteLength, 2 * 1024 * 1024, 'the session\'s stream has ended');
+    return outgoing;
+  };
+
+  // Read whole at once, as a small object is into the buffers between hub and rack: the link is busy until its answer finishes, two seconds on
+  const finished = await fetchWhole(sent);
+  now += 2000;
+  assert.equal(meter.link('rack-a').bytesPerSecond, null, 'still in flight: no sample of the time its bytes took');
+  assert.equal(meter.link('rack-a').holds('r-repo', sent), false, 'nor held, while its answer has not finished');
+  finished.writableFinished = true;
+  finished.emit('finish'); finished.emit('close');
+  assert.equal(meter.link('rack-a').bytesPerSecond, 1024 * 1024, '2 MiB over the 2 s its answer took');
+  assert.equal(meter.link('rack-a').holds('r-repo', sent), true);
+
+  // One whose connection closed before its answer finished is a transfer cut short: the rack does not hold it
+  const dropped = await fetchWhole(cut);
+  now += 1000;
+  dropped.emit('close');
+  assert.equal(meter.link('rack-a').holds('r-repo', cut), false);
 });

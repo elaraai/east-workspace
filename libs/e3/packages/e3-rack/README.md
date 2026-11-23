@@ -298,13 +298,16 @@ Work that would spend longer fetching than it ran runs here, and says so:
 - **The link's rate** is the hub's to measure: every byte a rack reads
   streams through it, so it counts what it sends each rack while any of the
   rack's transfers is in flight, a sample each 16 MiB, smoothed as a moving
-  average. A rate no transfer has refreshed for thirty minutes is forgotten.
+  average. A byte counts as it is written to the rack's connection, and a
+  transfer is in flight until its answer has finished; the buffers past the
+  hub (its host's, a tunnel's) still take a burst of small objects at once,
+  so a rate errs fast, not slow. A rate no transfer has refreshed for thirty minutes is forgotten.
   A rack whose link is not measured yet is taken to carry a gigabit (`at an
   assumed 1 Gbit/s` on the line), so a first run keeps on the rack all but
   what would be fetch-bound even over a LAN, and its transfers measure the
   link.
-- **What a rack holds** is each object the hub served it whole, by
-  repository, since the hub started: what the next unit over the same
+- **What a rack holds** is each object the hub served it whole — its
+  answer finished, not cut short — by repository, since the hub started: what the next unit over the same
   collection does not fetch again. An output a rack wrote is not counted,
   but for work whose lease names a scope: what a lease of the same scope
   that feeds it wrote on a rack, which that rack keeps, is held there

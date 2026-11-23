@@ -19,16 +19,19 @@
  * {@link LINK_SAMPLE_BYTES}, and when the rack's transfers all end with at
  * least {@link LINK_MIN_SAMPLE_BYTES} counted, and smoothed as an exponentially
  * weighted moving average ({@link LINK_EWMA_WEIGHT}): one slow or fast transfer
- * moves it, and does not set it. Bytes a transfer read from its session but
- * the link has not yet carried count early, so a sample errs fast, never
- * slow. A rate no sample has refreshed for {@link LINK_STALE_MS} is forgotten:
- * a link that once measured slow, and so kept work off the rack, is measured
- * again.
+ * moves it, and does not set it. A transfer's bytes are counted as they are
+ * written to the rack's connection, and it is in flight until its answer has
+ * finished, not when its session's stream ended. Bytes the buffers past the
+ * hub hold (its host's socket, a tunnel's) still count before the link has
+ * carried them, so a sample errs fast, never slow: most for a burst of small
+ * objects those buffers take whole. A rate no sample has refreshed for
+ * {@link LINK_STALE_MS} is forgotten: a link that once measured slow, and so
+ * kept work off the rack, is measured again.
  *
- * **What a rack holds** is each object it was served to the last byte, or
- * sent inline, by its
- * repository's cache namespace (a session's `repoAlias`) and its hash, at most
- * {@link LINK_HELD_MAX} of them, the least recently served going first. It is
+ * **What a rack holds** is each object it was served to the last byte, its
+ * answer finished, or sent inline, by its repository's cache namespace (a
+ * session's `repoAlias`) and its hash, at most {@link LINK_HELD_MAX} of them,
+ * the least recently served going first. It is
  * what the hub saw since it started, and no more: an object the rack fetched
  * from another hub, or an output it wrote, is not known to be held.
  *
