@@ -90,6 +90,7 @@ import {
     SheetStyleType,
     SheetRootType,
     SheetFillTypeFor,
+    SheetRowClickTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
     SheetFacetType,
@@ -198,11 +199,14 @@ export {
     SheetRecordViewType,
     SheetEditType,
     SheetSelectionType,
+    SheetRowClickType,
     SheetFooterItemType,
     SheetStyleType,
     SheetRootType,
     SheetContextTypeFor,
     SheetFillTypeFor,
+    SheetRowClickTypeFor,
+    type SheetRowClickOf,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
     SheetCheckContextTypeFor,
@@ -775,6 +779,8 @@ export interface SheetNamespace extends SheetTagType {
         WireEdit: typeof SheetEditType;
         /** The selection ring's position ({@link SheetSelectionType}). */
         Selection: typeof SheetSelectionType;
+        /** `RowClick(K)` — a click on a row as `onRowClick` hears it: its key at the rows' key type `K`, its place in its group and the column clicked ({@link SheetRowClickTypeFor}). */
+        RowClick: typeof SheetRowClickTypeFor;
         /** One footer item ({@link SheetFooterItemType}). */
         FooterItem: typeof SheetFooterItemType;
         /** The Sheet style ({@link SheetStyleType}). */
@@ -897,6 +903,7 @@ const SHEET_MEMBERS = {
         RecordView: SheetRecordViewType,
         WireEdit: SheetEditType,
         Selection: SheetSelectionType,
+        RowClick: SheetRowClickTypeFor,
         FooterItem: SheetFooterItemType,
         Style: SheetStyleType,
         Context: sheetContextType,

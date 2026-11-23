@@ -67,6 +67,13 @@
  *   on a press, ⏎ or F2. A grid a host draws opens with no ring: a press
  *   places it, or the first move key, on the first row's first cell that
  *   edits in place.
+ * - **A click on a row (east-workspace#1727)**: a press on a cell or on a
+ *   row's number that did nothing but place the ring — the button's first
+ *   press, no step of the cell, no ⇧ — is held until its release, and
+ *   released inside what it pressed it reports a click (`emit.rowClick`). A
+ *   drag of the range into another cell, a release elsewhere and a release
+ *   never heard click nothing, and no key ever does; a pick of a row's box
+ *   is no press.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. A lens over a grouped sheet narrows its groups,
@@ -584,7 +591,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const stepped = ctx.stepAt?.(e.r, e.c, e.shift ? -1 : 1);
             const steps = stepped !== undefined && ctx.editableAt(e.r, e.c);
             if (e.shift && !steps && !closed.state.ringless) {
-                return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
+                return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null, press: null }, effects };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
@@ -595,7 +602,16 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             }
             // A cell that edits out of place opens where the host edits it (#1531).
             if (!e.shift && ctx.opensAt?.(e.r, e.c) === true) effects.push({ t: "open", r: e.r, c: e.c });
-            return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
+            // A press that did nothing but place the ring may be a click on its row (east-workspace#1727): its release
+            // inside the cell says. A step of the cell, or ⇧, is no click.
+            const press = e.click === true && !e.shift && !steps ? { r: e.r, c: e.c } : null;
+            return { state: moved.gsel === null && moved.press === null && press === null ? moved : { ...moved, gsel: null, press }, effects };
+        }
+        case "cell.up": {
+            // The press in hand ends (east-workspace#1727): released inside what it pressed, a click on its row.
+            const press = s.press;
+            if (press === null) return { state: s, effects: [] };
+            return { state: { ...s, press: null }, effects: e.inside ? [{ t: "emit.rowClick", r: press.r, c: press.c }] : [] };
         }
         case "cell.dbl":
             // A double press inside the open editor — its step buttons pressed twice, a word double-clicked — reaches
@@ -603,7 +619,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit !== null && same(s.edit, e)) return { state: s, effects: [] };
             return startEdit(s, e.r, e.c, undefined, ctx);
         case "cell.enter": {
-            if (e.dragging) return { state: { ...s, selEnd: clamp({ r: e.r, c: e.c }, ctx) }, effects: [] };
+            if (e.dragging) {
+                // The range dragged into another cell: the press is no click (east-workspace#1727).
+                const press = s.press !== null && (s.press.r !== e.r || s.press.c !== e.c) ? null : s.press;
+                return { state: { ...s, selEnd: clamp({ r: e.r, c: e.c }, ctx), press }, effects: [] };
+            }
             if (s.hover !== null && s.hover.r === e.r && s.hover.c === e.c) return { state: s, effects: [] };
             return { state: { ...s, hover: { r: e.r, c: e.c } }, effects: [] };
         }
@@ -613,18 +633,20 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;
             const last = Math.max(0, ctx.colCount - 1);
-            if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
+            if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null, press: null }, effects };
             // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
             const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
             const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
             const r1 = group?.lines !== undefined ? group.lines.r1 : e.r;
             const selected = wholeRows(closed.state, ctx.colCount);
+            // A press on the row's number may be a click on its row — a band's, on its group (east-workspace#1727); ⇧ is none.
+            const press = e.click === true && !e.shift ? { r: e.r, c: null } : null;
             if (selected !== null && selected.r0 === r0 && selected.r1 === r1) {
                 effects.push({ t: "focus.sheet" });
-                return { state: { ...closed.state, selEnd: null, gsel: null }, effects };
+                return { state: { ...closed.state, selEnd: null, gsel: null, press }, effects };
             }
             effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
-            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null, ringless: false }, effects };
+            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null, ringless: false, press }, effects };
         }
         case "key":
             if (s.edit !== null) return { state: s, effects: [] };
@@ -701,9 +723,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
             const msg: SheetNotice | null = editLeft ? { id: "rowLeft" } : s.msg;
-            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg
+            // A press in hand follows its row; its row gone, it is let go of, clicking nothing (east-workspace#1727).
+            const pressR = s.press === null ? undefined : e.moved?.(s.press.r);
+            const press = s.press === null || pressR === null ? null : pressR === undefined || pressR === s.press.r ? s.press : { ...s.press, r: pressR };
+            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg && press === s.press
                 ? s
-                : { ...s, sel, selEnd, edit, hover, armed, msg };
+                : { ...s, sel, selEnd, edit, hover, armed, msg, press };
             return { state: afterRowsChanged(clamped, ctx), effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
         case "columns.changed": {
@@ -722,8 +747,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
             const msg: SheetNotice | null = editLeft ? { id: "columnLeft" } : s.msg;
-            const kept = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg;
-            return { state: kept ? s : { ...s, sel, selEnd, edit, hover, armed, msg }, effects: editLeft ? [{ t: "focus.sheet" }] : [] };
+            // A press in hand on a cell follows its column; its column gone, it is let go of (east-workspace#1727). One on
+            // a row's number is under no column.
+            const pressC = s.press === null || s.press.c === null ? undefined : e.moved(s.press.c);
+            const press = s.press === null || pressC === null ? null : pressC === undefined || pressC === s.press.c ? s.press : { ...s.press, c: pressC };
+            const kept = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg && press === s.press;
+            return { state: kept ? s : { ...s, sel, selEnd, edit, hover, armed, msg, press }, effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
         case "msg":
             return s.msg === e.msg ? { state: s, effects: [] } : { state: { ...s, msg: e.msg }, effects: [] };

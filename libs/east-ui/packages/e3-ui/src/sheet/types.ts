@@ -1232,6 +1232,23 @@ export const SheetSelectionType = StructType({
 export type SheetSelectionType = typeof SheetSelectionType;
 
 /**
+ * A click on a row, as the grid reports it (east-workspace#1727): the row by its id, its place in its group, and the
+ * column clicked. The sheet reads the id back as the rows' key and calls the author's `onRowClick` with
+ * `Sheet.Types.RowClick(K)` ({@link SheetRowClickTypeFor}).
+ *
+ * @property rowId - The row clicked, as the grid identifies it — on a grouped sheet, the GROUP's id
+ * @property index - A grouped sheet: the clicked line's place among its group's lines, from 0 (`none` on the band, a loose row, or a flat sheet)
+ * @property column - The column clicked, as {@link SheetSelectionType} names it (a band: the line column the cell sits under, or `$title`); `none` for the row's number
+ */
+export const SheetRowClickType = StructType({
+    rowId:  StringType,
+    index:  OptionType(IntegerType),
+    column: OptionType(StringType),
+});
+/** Type alias for {@link SheetRowClickType}. */
+export type SheetRowClickType = typeof SheetRowClickType;
+
+/**
  * One footer item (B§9).
  *
  * @property text - The footer text
@@ -1311,6 +1328,7 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
+ * @property onRowClick - A pointer click on a row (east-workspace#1727) — never a key, nor a press that ticks, steps a cell, drags or takes an action: the author's `onRowClick`, its row read back from the row's id ({@link SheetRowClickType})
  * @property selection - Controlled selection when `some`
  * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; with none, an Integer key's one past the largest (#1549); `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
@@ -1335,6 +1353,7 @@ export const SheetRootType = StructType({
     activeView:    OptionType(StringType),
     onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
+    onRowClick:    OptionType(FunctionType([SheetRowClickType], NullType)),
     selection:     OptionType(SheetSelectionType),
     newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
@@ -1403,6 +1422,29 @@ export function SheetContextTypeFor<R extends StructType, D extends EastType = N
 export function SheetFillTypeFor<T extends EastType>(payloadType: T) {
     return StructType({ value: payloadType, meta: StringType });
 }
+
+/**
+ * `Sheet.Types.RowClick(K)` — a click on a row as the author's `onRowClick` hears it (east-workspace#1727): the row's
+ * key, typed at the rows' key type, its place in its group, and the column clicked.
+ *
+ * @typeParam K - The rows' key type: a record's own; `String` where the rows are identified by an id field (`data`, `entry`)
+ * @param keyType - The key type value
+ * @returns The concrete click `StructType`
+ *
+ * @property key - The row's key as the session holds it — a row added this session, the key it was given; a row an edit moved under another key, the one it stands under now; on a grouped sheet, the group's
+ * @property index - On a grouped sheet, the clicked line's place among its group's lines, from 0; `none` for the group's band, a loose row and every flat sheet
+ * @property column - The clicked column's key, as `Sheet.Types.Selection` names it; `none` for a press on the row's number
+ */
+export function SheetRowClickTypeFor<K extends EastType>(keyType: K) {
+    return StructType({ key: keyType, index: OptionType(IntegerType), column: OptionType(StringType) });
+}
+
+/**
+ * The click `onRowClick` hears over rows keyed by `K` ({@link SheetRowClickTypeFor}).
+ *
+ * @typeParam K - The rows' key type
+ */
+export type SheetRowClickOf<K extends EastType> = ReturnType<typeof SheetRowClickTypeFor<K>>;
 
 /**
  * The fields of a struct type as a record of East types — the shape every

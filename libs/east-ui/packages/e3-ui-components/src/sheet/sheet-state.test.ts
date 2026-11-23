@@ -13,48 +13,15 @@
 
 import { describe, test, expect } from "vitest";
 import { variant } from "@elaraai/east";
-import { sheetReducer, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
+import { initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
 import type { SheetNotice } from "./sheet-types.js";
 import { noticeText, SHEET_WORDS, sheetWords } from "./words.js";
 import { sheetMessages } from "./messages.js";
+import { cell, ctxOf, ekey, key, run } from "./sheet-state.test-utils.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
-
-/** A 4 × 3 sheet: text · date · stamped; `bad` never parses; row 3 is blank. */
-function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
-    return {
-        rowCount: 4,
-        colCount: 3,
-        lensActive: false,
-        canAppend: true,
-        editableAt: (_r, c) => c !== 2,
-        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
-        parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
-        candidates: (_r, _c, text) => (text.startsWith("ro") ? [{ key: "Routing", label: "Routing" }, { key: "Routing - Nesting", label: "Routing - Nesting" }] : []),
-        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? { key: "Routing - Nesting", label: "Routing - Nesting" } : { key: "Routing", label: "Routing" }) : undefined),
-        editTextAt: (r, c) => `v${r}${c}`,
-        ...over,
-    };
-}
-
-const key = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: boolean }> = {}): SheetEvent =>
-    ({ t: "key", key: k, shift: false, meta: false, alt: false, ...mods });
-const ekey = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }> = {}): SheetEvent =>
-    ({ t: "editor.key", key: k, shift: false, meta: false, alt: false, atEnd: true, ...mods });
 /** The footer's line for the message a transition left — the machine leaves data, worded in English here (#861). */
 const said = (msg: SheetNotice | null): string => (msg === null ? "" : noticeText(msg, SHEET_WORDS));
-
-function run(s: SheetUiState, events: SheetEvent[], ctx = ctxOf()): { state: SheetUiState; effects: SheetEffect[] } {
-    let state = s;
-    const effects: SheetEffect[] = [];
-    for (const e of events) {
-        const t = sheetReducer(state, e, ctx);
-        state = t.state;
-        effects.push(...t.effects);
-    }
-    return { state, effects };
-}
 
 describe("movement", () => {
     test("arrows move the ring and report; shift extends a range", () => {

@@ -85,6 +85,7 @@ interface SheetDecodeValues {
     readonly driver: SheetDriverValue | undefined;
     readonly narrowing: SheetNarrowing | undefined;
     readonly onSelectFn: Extract<SheetRootValue["onSelect"], { type: "some" }>["value"] | undefined;
+    readonly onRowClickFn: Extract<SheetRootValue["onRowClick"], { type: "some" }>["value"] | undefined;
     readonly onViewsChangeFn: Extract<SheetRootValue["onViewsChange"], { type: "some" }>["value"] | undefined;
     readonly pagedSource: SheetPagedSourceValue | undefined;
     readonly proposers: SheetProposerValue[];
@@ -260,6 +261,8 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
 
     // Callbacks — taken from the latest value on every render.
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
+    // A click on a row (east-workspace#1727): the app's `onRowClick`, its row by id — the sheet's build reads the key back.
+    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
     // The sheet's rule for a new entry's key (#1536): the app's `newKey`'s, given every key taken, each as its text — else
     // one made up at random, as every builder's is. A key the app gives that is taken, or a `newKey` that throws,
@@ -339,7 +342,7 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
         [data.rows],
     );
     const named: SheetDecodeValues = {
-        capabilities, chrome, declaredViews, decodedRows, driver, narrowing, onSelectFn, onViewsChangeFn, pagedSource,
+        capabilities, chrome, declaredViews, decodedRows, driver, narrowing, onRowClickFn, onSelectFn, onViewsChangeFn, pagedSource,
         proposers, rowsPart, rowsWhere, selection, views, viewsRef,
     };
     return {
