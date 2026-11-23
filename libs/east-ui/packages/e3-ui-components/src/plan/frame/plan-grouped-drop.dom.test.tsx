@@ -10,7 +10,9 @@
  * hall, so a job whose `hall` names another is drawn nowhere. Carried from the
  * first hall's press onto the second's, the drop writes the job's hall from
  * the hall it lands under, beside its press and its task: saved, the record
- * holds it there, and the Plan reads it there again and draws it.
+ * holds it there, and the Plan reads it there again and draws it. Two groups
+ * deep — halls, each its lines — through an index led by the hall and the
+ * line, the drop writes both.
  */
 
 import { describe, test, expect } from "vitest";
@@ -55,7 +57,37 @@ export const dropJobs = e3.record("plan_drop_jobs", Jobs, {
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
-const h = planHarness({ "plan/grouped-drop": { dropHalls, dropJobs } });
+// Two groups deep: halls, each its lines, each line its press and its task — the job's index led by the hall and the line.
+const Line = StructType({ name: StringType, presses: DictType(StringType, Press) });
+const LineHall = StructType({ name: StringType, lines: DictType(StringType, Line) });
+const LineHalls = DictType(StringType, LineHall);
+const LineJob = StructType({
+    hall: StringType, line: StringType, press: StringType, task: StringType, title: StringType, start: DateTimeType, end: DateTimeType,
+});
+
+/** Two halls, each one line of one press with one task: the first's job carried onto the second's. */
+const LINE_HALLS: ValueTypeOf<typeof LineHalls> = new Map([
+    ["H-1", { name: "Hall 1", lines: new Map([["L-11", { name: "Line 1.1", presses: HALLS.get("H-1")!.presses }]]) }],
+    ["H-2", { name: "Hall 2", lines: new Map([["L-21", { name: "Line 2.1", presses: HALLS.get("H-2")!.presses }]]) }],
+]);
+
+export const dropLineHalls = e3.record("plan_drop_line_halls", LineHalls, {
+    initial: LINE_HALLS,
+    indexes: (index) => ({ plan_drop_line_halls_by_name: index.on(["name"]) }),
+});
+
+export const dropLineJobs = e3.record("plan_drop_line_jobs", DictType(StringType, LineJob), {
+    initial: new Map([["J-1", { hall: "H-1", line: "L-11", press: "P-11", task: "T1", title: "Brochures", start: AT, end: UNTIL }]]),
+    indexes: (index) => ({
+        plan_drop_line_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        // A week's jobs together under their hall and line, in their presses' order.
+        plan_drop_line_jobs_by_line_week: index.series({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        plan_drop_line_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const h = planHarness({ "plan/grouped-drop": { dropHalls, dropJobs, dropLineHalls, dropLineJobs } });
 
 /** The halls, each its press and its task, and the job on the task rows through the series index in time order. */
 const page = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -87,8 +119,44 @@ const page = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East
     });
 }))) };
 
+/** The halls, each its line, its press and its task, and the job on the task rows through the series index led by both. */
+const linePage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const jobs = $.let(Record.bind(dropLineJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(dropLineJobs));
+    const slice = $.let(Slice.bindRecords("plan.grouped.drop.lines", {
+        rows: { source: Data.bindPaged(dropLineHalls, { indexes: ["plan_drop_line_halls_by_name"] }), fields: { name: { label: "Hall" } } },
+        job: {
+            source: Data.bindPaged(dropLineJobs, { indexes: ["plan_drop_line_jobs_by_time", "plan_drop_line_jobs_by_line_week", "plan_drop_line_jobs_by_press_day"] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") }, resolution: "day" }),
+        slice: { slice },
+        series: [Plan.series.group(LineHall, {
+            key: "halls", title: "Halls", label: (hall) => hall.name,
+            children: Plan.children("lines", [Plan.series.group(Line, {
+                key: "lines", title: "Lines", label: (line) => line.name,
+                children: Plan.children("presses", [Plan.series.resources(Press, {
+                    key: "press", title: "Presses", label: (press) => press.name,
+                    children: Plan.children("tasks", [Plan.series.resources(Task, { key: "tasks", title: "Tasks", label: (task) => task.name })]),
+                })]),
+            })]),
+        })],
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "press" }, child: { field: "task", of: "tasks" }, entries,
+            }),
+        },
+    });
+}))) };
+
 /** The job's bar on a hall's task row. */
 const barUnder = (c: HTMLElement, hall: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(entry("tasks", hall, press, "T1"))} ${el("data-run", "job", "J-1")}`);
+/** The job's bar on a line's task row. */
+const barUnderLine = (c: HTMLElement, hall: string, line: string, press: string) =>
+    c.querySelector<HTMLElement>(`${rowAt(entry("tasks", hall, line, press, "T1"))} ${el("data-run", "job", "J-1")}`);
 /** The footer's count of the changes waiting on Save. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
 
@@ -110,5 +178,20 @@ describe("a job dropped under another hall (#1710)", () => {
         // And the Plan, reading the second hall's press's jobs under that hall, draws it there.
         await waitFor(() => expect(barUnder(c, "H-2", "P-21")).not.toBeNull());
         expect(barUnder(c, "H-1", "P-11")).toBeNull();
+    });
+
+    test("two groups deep, carried onto another hall's line, its hall and its line are both written: saved, the record holds it there, and the Plan draws it there", async () => {
+        const { container: c } = await h.mount(linePage, { drag: true, storageKey: "plan-lines" });
+        await settle();
+        await waitFor(() => expect(barUnderLine(c, "H-1", "L-11", "P-11")).not.toBeNull());
+        await carryRun(barUnderLine(c, "H-1", "L-11", "P-11")!, { key: "ArrowDown" });
+        expect(carrySaid(c)).toMatch(/^Dropped Brochures on Print on 2\.1/);
+        await act(async () => { within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() }).click(); });
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        await settle();
+        const saved = ((await h.read(dropLineJobs)) as ReadonlyMap<string, ValueTypeOf<typeof LineJob>>).get("J-1");
+        expect(saved !== undefined && equalFor(LineJob)(saved, { hall: "H-2", line: "L-21", press: "P-21", task: "T1", title: "Brochures", start: AT, end: UNTIL })).toBe(true);
+        await waitFor(() => expect(barUnderLine(c, "H-2", "L-21", "P-21")).not.toBeNull());
+        expect(barUnderLine(c, "H-1", "L-11", "P-11")).toBeNull();
     });
 });
