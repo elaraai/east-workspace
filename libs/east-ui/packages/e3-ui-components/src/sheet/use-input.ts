@@ -4,8 +4,9 @@
  */
 
 /**
- * The pointer and the keyboard: the ring following a host's controlled selection, a press, a drag and a hover on a cell,
- * the grid's keys — the history's, ⏎ on an action cell, a phone's paging of the columns, the machine's — and the clipboard.
+ * The pointer and the keyboard: the ring following a host's controlled selection; a press, a drag and a hover on a
+ * cell, and a press released where it was pressed, which clicks its row (east-workspace#1727); the grid's keys, the
+ * history's, ⏎ on an action cell, a phone's paging of the columns and the machine's; and the clipboard.
  *
  * @packageDocumentation
  */
@@ -24,6 +25,20 @@ import type { SheetBody } from "./use-body.js";
 import type { SheetMachine } from "./use-machine.js";
 import type { SheetEffects } from "./use-effects.js";
 import type { SheetGestures } from "./use-gestures.js";
+
+/** Where a press was: the box of what it pressed, on the page, as the press found it. */
+interface PressBox {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
+}
+
+/** What a press pressed, where it lies on the page as the press lands. */
+function pressBoxOf(el: Element): PressBox {
+    const b = el.getBoundingClientRect();
+    return { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+}
 
 /** The action cells' calls as the sheet stands (#1475): made afresh each render, read through a ref by the one host. */
 export interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> {
@@ -101,24 +116,26 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
     // every gesture is held to, east-ui-components' `src/pointer/`).
     const pressed = useRef(false);
     const dragging = useRef(false);
-    // What the press in hand pressed — a cell, or a row's number — until its button lifts (east-workspace#1727): a
-    // release inside it is a click there, a mousedown and a mouseup on one element, as the browser counts a click,
-    // wherever the pointer went between. The machine says whether the press was one.
-    const pressAt = useRef<Element | null>(null);
+    // Where the press in hand was — the box of the cell, or the row's number, it pressed, as the press found it — until
+    // its button lifts (east-workspace#1727): a release inside it is a click there, wherever the pointer went between,
+    // and whatever the press drew over it by then, which the release lands on instead — Details over a scrim, a phone's
+    // bottom editor, a sticky line's row in its copy's place, the row drawn again under the key its committed edit gave
+    // it. The machine says whether the press was one.
+    const pressBox = useRef<PressBox | null>(null);
     useEffect(() => {
-        const release = (inside: boolean) => {
-            if (pressAt.current === null) return;
-            pressAt.current = null;
-            dispatch({ t: "cell.up", inside });
+        const release = (at: { x: number; y: number } | undefined) => {
+            const box = pressBox.current;
+            if (box === null) return;
+            pressBox.current = null;
+            dispatch({ t: "cell.up", inside: at !== undefined && at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom });
         };
         // A lift never heard — a move with the button no longer held, the window losing the page — clicks nothing.
-        const letGo = () => { pressed.current = false; dragging.current = false; release(false); };
+        const letGo = () => { pressed.current = false; dragging.current = false; release(undefined); };
         const up = (e: globalThis.MouseEvent) => {
             pressed.current = false;
             dragging.current = false;
             if (e.button !== 0) return;
-            const at = pressAt.current;
-            release(at !== null && e.target instanceof Node && at.contains(e.target));
+            release({ x: e.clientX, y: e.clientY });
         };
         const move = (e: globalThis.MouseEvent) => {
             if ((e.buttons & 1) === 0) letGo();
@@ -149,7 +166,7 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         e.preventDefault();
         pressed.current = !e.shiftKey;
         dragging.current = false;
-        pressAt.current = e.currentTarget;
+        pressBox.current = pressBoxOf(e.currentTarget);
         ringGesture();
         // A press opens a phone's action bar again, wherever it was closed (SH9).
         setBarClosedAt(undefined);
@@ -167,7 +184,7 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
         // A press on the row's number may be a click on the row (east-workspace#1727); a pick of its box comes as the
         // box's click, and ticks it — no press.
         const press = e.type === "mousedown";
-        if (press) pressAt.current = e.currentTarget;
+        if (press) pressBox.current = pressBoxOf(e.currentTarget);
         dispatch({ t: "row.pick", r, shift: e.shiftKey, click: press && e.detail <= 1 });
     }, [dispatch, ringGesture]);
     const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);

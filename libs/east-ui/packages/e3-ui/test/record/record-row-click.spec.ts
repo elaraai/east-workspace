@@ -13,7 +13,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { East, IntegerType, NullType, RefType, StringType, equalFor, none, ref, some } from "@elaraai/east";
+import { East, IntegerType, NullType, RefType, StringType, equalFor, none, printFor, ref, some } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Data, Record, RecordPayloadType, Sheet } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
@@ -46,7 +46,7 @@ describe("the Record's click and selection (east-workspace#1727)", () => {
             $(payload.sheet.onRowClick.unwrap("some")({ rowId: "7", index: none, column: some("name") }));
             return key.get();
         }), refusingPlatform)();
-        assert.ok(equalFor(IntegerType)(heard, 7n), `heard bench ${String(heard)}`);
+        assert.ok(equalFor(IntegerType)(heard, 7n), `heard bench ${printFor(IntegerType)(heard)}`);
     });
 
     test("hands its sheet the Sheet's onSelect and selection as they are, and no onRowClick unless given", () => {

@@ -366,17 +366,32 @@ describe("columns", () => {
 });
 
 describe("the store", () => {
-    test("effects ride the returned store and bump the sequence; a no-op keeps identity", () => {
+    /** Each batch the store holds: its place, and its effects' kinds. */
+    const batches = (store: ReturnType<typeof initialSheetStore>) => store.fx.map((batch) => [batch.seq, batch.effects.map((e) => e.t)]);
+
+    test("effects ride the returned store as the event's batch and bump the sequence; a no-op keeps identity", () => {
         const ctx = ctxOf();
         const s0 = initialSheetStore();
-        const s1 = sheetStoreReducer(s0, { t: "event", e: key("ArrowDown"), ctx });
+        const s1 = sheetStoreReducer(s0, { t: "event", e: key("ArrowDown"), ctx, drained: 0 });
         expect(s1.fxSeq).toBe(1);
-        expect(s1.fx.map((e) => e.t)).toEqual(["emit.select", "scroll.to"]);
-        const s2 = sheetStoreReducer(s1, { t: "event", e: key("Escape"), ctx });
+        expect(batches(s1)).toEqual([[1, ["emit.select", "scroll.to"]]]);
+        const s2 = sheetStoreReducer(s1, { t: "event", e: key("Escape"), ctx, drained: 0 });
         expect(s2).toBe(s1);
         const s3 = sheetStoreReducer(s2, { t: "patch", patch: { msg: { id: "text", text: "hi" } } });
         expect(said(s3.ui.msg)).toBe("hi");
         expect(s3.fxSeq).toBe(1);
+    });
+
+    test("each effectful event's batch stands until the drain has run it: a press and its release dispatched before a drain keep both, in order (east-workspace#1727)", () => {
+        const ctx = ctxOf();
+        const pressed = sheetStoreReducer(initialSheetStore(), { t: "event", e: { t: "cell.down", r: 1, c: 1, shift: false, click: true }, ctx, drained: 0 });
+        const released = sheetStoreReducer(pressed, { t: "event", e: { t: "cell.up", inside: true }, ctx, drained: 0 });
+        expect(batches(released)).toEqual([[1, ["emit.select", "focus.sheet"]], [2, ["emit.rowClick"]]]);
+        // An event dispatched once the drain has run both lets them go; one dispatched after it ran the first alone keeps the second.
+        expect(batches(sheetStoreReducer(released, { t: "event", e: key("ArrowDown"), ctx, drained: 2 })).map(([seq]) => seq)).toEqual([3]);
+        expect(batches(sheetStoreReducer(released, { t: "event", e: key("ArrowDown"), ctx, drained: 1 })).map(([seq]) => seq)).toEqual([2, 3]);
+        // An event with no effects keeps every batch the drain may not have run.
+        expect(sheetStoreReducer(released, { t: "event", e: { t: "cell.enter", r: 2, c: 2, dragging: false }, ctx, drained: 0 }).fx).toBe(released.fx);
     });
 });
 

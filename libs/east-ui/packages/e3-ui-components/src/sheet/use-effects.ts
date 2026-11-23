@@ -52,7 +52,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
     } = sheetDecode;
     const { canEdit, dispatchStore, paging, recordGesture, store } = sheetSession;
     const { blankLineRowOf, cellAt, colCount, idAt, lensEnds, metaAt, parseCtxFor, rowAt, rowOf, rowSpace, writableAt } = sheetBody;
-    const { dispatch, expectedNarrowing, jumpToElement, lensJumpTo } = sheetMachine;
+    const { dispatch, drainedFx, expectedNarrowing, jumpToElement, lensJumpTo } = sheetMachine;
     const { deleteRows, failed, gestureEvents, insertLooseProposals, insertProposal, writeCells } = sheetWrites;
     const { requestReady, requestRun } = sheetCopilot;
     // ── Effects ───────────────────────────────────────────────────────────
@@ -455,12 +455,14 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
         }
         recordSoFar();
     }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onRowClickFn, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
-    const drainedFx = useRef(0);
+    // Each effectful event's batch, once and in order, each one gesture: every batch since the last drain — a press and
+    // its release dispatched in one task among them — never the last alone.
     useLayoutEffect(() => {
-        if (store.fxSeq === drainedFx.current) return;
+        const from = drainedFx.current;
+        if (store.fxSeq === from) return;
         drainedFx.current = store.fxSeq;
-        runEffects(store.fx);
-    }, [store.fxSeq, store.fx, runEffects]);
+        for (const batch of store.fx) if (batch.seq > from) runEffects(batch.effects);
+    }, [store.fxSeq, store.fx, drainedFx, runEffects]);
     return {
         cardRef, editorFocus, jumpBy, revealSeq, ringMoves, runEffects, scrollTarget, seekIntent, setScrollTarget,
         toolbarRef,
