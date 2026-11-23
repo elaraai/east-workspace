@@ -134,12 +134,31 @@ export class HubClient {
    * @param scope - The scope the work's lease names, whose leases' outputs
    *   the racks that wrote them hold; none unless given
    * @returns Each rack's link and holdings
+   * @throws {RackHubError} When the hub refuses the request or does not answer
+   * @example
+   * ```ts
+   * const links = await client.fetchCosts(sessionId, closure, scope.id);
+   * ```
    */
   fetchCosts(id: string, hashes: readonly string[], scope?: string): Promise<ValueTypeOf<typeof FetchCostResultType>> {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/fetch-costs`, { requestType: FetchCostRequestType,
       body: { hashes: [...hashes], scope: scope === undefined ? none : some(scope) }, responseType: FetchCostResultType });
   }
-  /** Ends a split task's scope the session's leases named: the racks it was granted to let what they kept of it go. */
+  /**
+   * Ends a split task's scope the session's leases named: the racks it was
+   * granted to let what they kept of it go, told with their next heartbeats.
+   * A scope another session's leases named, or one already ended, is left as
+   * it is.
+   * @param id - The session
+   * @param scope - The scope's id
+   * @returns Once the hub has taken the end
+   * @throws {RackHubError} When the hub refuses the request or does not
+   *   answer: the session tells it again
+   * @example
+   * ```ts
+   * await client.endScope(sessionId, scope.id);
+   * ```
+   */
   async endScope(id: string, scope: string): Promise<void> {
     await socketRequest(this.socketPath, 'POST', `${this.path(id)}/scopes/end`, { requestType: EndScopeType, body: { scope }, responseType: EmptyType });
   }

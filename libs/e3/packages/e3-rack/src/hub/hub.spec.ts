@@ -26,7 +26,7 @@ import { ApproveRackType, HubAttemptType, HubConfigType, HubEnrollResultType, Hu
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_INLINE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_INLINE_OBJECT_MAX, RACK_INLINE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { certificateSha256, createHubCertificate } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
@@ -488,12 +488,26 @@ it('carries a burst of input transfers over a slow link with no failed transfer,
   assert.equal(agent.transfers.busy, 0, 'the hub never had one more to refuse');
   assert.equal(agent.transfers.retried, 0);
 
-  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it.
+  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it. Its
+  // objects are larger than any reply carries inline, so every one is a transfer; and the session holds each
+  // read the hub asks of it until the hub has refused the agent one, so the transfers the hub serves are all
+  // in flight together, whatever the link's buffers take at once.
   const greedy = await f.agent({ transfersAtOnce: 2 * RACK_TRANSFERS_AT_ONCE }, origin);
-  const inputs = await f.objects(2 * RACK_TRANSFERS_AT_ONCE, 64 * 1024);
+  const inputs = await f.objects(2 * RACK_TRANSFERS_AT_ONCE, RACK_INLINE_OBJECT_MAX + 32 * 1024);
   await session.create(event([...inputs.keys()]));
   const grant = await greedy.claim(); assert(grant);
+  const readRange = f.storage.objects.readRange.bind(f.storage.objects);
+  const read = new Set<string>();
+  const refused = (async () => {
+    for (const end = Date.now() + 30_000; greedy.transfers.busy === 0 && Date.now() < end; ) await delay(5);
+  })();
+  f.storage.objects.readRange = async (repo, hash, ...rest) => {
+    if (inputs.has(hash)) { read.add(hash); await refused; }
+    return readRange(repo, hash, ...rest);
+  };
   await greedy.fetch(grant, [...inputs.keys()]);
+  f.storage.objects.readRange = readRange;
+  assert.equal(read.size, inputs.size, 'every object was a transfer of its own');
   for (const hash of inputs.keys()) assert(await greedy.holds(hash));
   assert(greedy.transfers.peak > RACK_TRANSFERS_AT_ONCE, `the agent asked for ${greedy.transfers.peak} at once`);
   assert(greedy.transfers.busy > 0, 'the hub told it to ask again');

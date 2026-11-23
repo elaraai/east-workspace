@@ -22,7 +22,7 @@
  * its idle time and its restart may have let an object go, and its later
  * lease then fetches it as any does. At most {@link SCOPE_WRITES_MAX} objects
  * are kept, of every scope, the least recently written going first; a scope's
- * are let go as it ends, and a rack's as it is removed.
+ * are let go as it ends, and a rack's as it is removed or reboots.
  *
  * @example
  * ```ts
@@ -37,17 +37,44 @@
  *  rack's link is remembered to hold (`LINK_HELD_MAX`). */
 export const SCOPE_WRITES_MAX = 200_000;
 
-/** See the module's documentation. */
+/**
+ * Which rack wrote each object of each open scope, as a hub saw its leases
+ * complete: what a later lease of the scope finds kept on that rack.
+ *
+ * @remarks
+ * Kept in memory, for as long as the hub runs, at most its bound of objects
+ * of every scope, the least recently written going first. A scope's are let
+ * go as it ends; a rack's as it is removed, or reboots. See the module's
+ * documentation for what it is used for.
+ *
+ * @example
+ * ```ts
+ * const writes = new ScopeWrites();
+ * writes.wrote('scope-1', 'rack-1', [outputHash, partHash]);
+ * writes.writersOf('scope-1', [outputHash]); // Set { 'rack-1' }
+ * writes.forget('rack-1');
+ * writes.writer('scope-1', outputHash); // undefined
+ * ```
+ */
 export class ScopeWrites {
   /** `scope\0hash` to the rack that wrote it, least recently written first */
   private readonly writers = new Map<string, string>();
   /** By scope, the keys of its objects */
   private readonly byScope = new Map<string, Set<string>>();
 
-  /** @param max - The most objects kept; {@link SCOPE_WRITES_MAX} unless given */
+  /**
+   * @param max - The most objects kept; {@link SCOPE_WRITES_MAX} unless given
+   * @example
+   * ```ts
+   * const writes = new ScopeWrites(1000);
+   * ```
+   */
   constructor(private readonly max: number = SCOPE_WRITES_MAX) {}
 
-  /** How many objects it knows the writer of. */
+  /**
+   * How many objects it knows the writer of.
+   * @returns The count, of every scope
+   */
   get size(): number { return this.writers.size; }
 
   /**
@@ -56,6 +83,10 @@ export class ScopeWrites {
    * @param scope - The scope's id
    * @param rackId - The rack the lease ran on
    * @param hashes - Its output, and the objects it wrote
+   * @example
+   * ```ts
+   * writes.wrote(scope, lease.claimedBy, [outputHash, ...lease.targets]);
+   * ```
    */
   wrote(scope: string, rackId: string, hashes: Iterable<string>): void {
     let keys = this.byScope.get(scope);
@@ -75,6 +106,10 @@ export class ScopeWrites {
    * @param hash - The object
    * @returns The rack's id; undefined when no lease of the scope wrote it, or
    *   the hub let it go
+   * @example
+   * ```ts
+   * const held = writes.writer(scope, hash) === rackId;
+   * ```
    */
   writer(scope: string, hash: string): string | undefined {
     return this.writers.get(`${scope}\0${hash}`);
@@ -85,6 +120,10 @@ export class ScopeWrites {
    * @param scope - The scope's id
    * @param hashes - What a lease reads
    * @returns Their ids, in the order the objects are given
+   * @example
+   * ```ts
+   * const holders = writes.writersOf(scope, leaseReads(event));
+   * ```
    */
   writersOf(scope: string, hashes: Iterable<string>): Set<string> {
     const racks = new Set<string>();
@@ -98,6 +137,10 @@ export class ScopeWrites {
   /**
    * The scope ended: its racks keep nothing of it.
    * @param scope - The scope's id
+   * @example
+   * ```ts
+   * writes.end(scope);
+   * ```
    */
   end(scope: string): void {
     for (const key of this.byScope.get(scope) ?? []) this.writers.delete(key);
@@ -105,8 +148,12 @@ export class ScopeWrites {
   }
 
   /**
-   * A rack is removed: it holds nothing of any scope.
+   * A rack is removed, or rebooted: it holds nothing of any scope.
    * @param rackId - The rack
+   * @example
+   * ```ts
+   * writes.forget(rackId);
+   * ```
    */
   forget(rackId: string): void {
     for (const [key, writer] of this.writers) {
