@@ -42,7 +42,7 @@ import { usePlanWords } from "../words.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
-import { laneBand, laneIndexAt, laneRooms, laneRulesPath, type LaneBand } from "./lanes.js";
+import { laneBand, laneIndexAt, laneRooms, laneRulesPath } from "./lanes.js";
 import { dayRulesPath } from "../../shared/time/rules.js";
 import { useLaidOutSize } from "../../shared/use-laid-out-size.js";
 
@@ -52,12 +52,25 @@ type Styles = Record<string, Record<string, unknown>>;
  *  caret's cell, a leaf none, so a leaf's name starts at its level's indent. */
 export const INDENT_PX = 8;
 
-/** A laned row's lane, as its gutter line draws it (#1680's review): its caption, and where it sits down the row. */
+/**
+ * A laned row's lane, as its gutter line draws it (#1680's review): its caption. The row places the line in the lane's
+ * room, on the whole pixels its cells stand on (`laneRooms`, #1735).
+ */
 export interface PlanGutterLane {
     /** Its caption; `undefined` for a lane that has none. */
     readonly caption: string | undefined;
-    /** Its band, as fractions of the row's height. */
-    readonly band: LaneBand;
+}
+
+/**
+ * Whether a gutter line stands alone in a room of an even height (#1735), which the recipe stands its words a pixel low
+ * in (`data-plan-even-room`): the canvas's 11px face has a 13px glyph box, which no line centres on a whole pixel in an
+ * even room (#1638) — a pixel over the line starts it a whole number of pixels under the room's top.
+ *
+ * @param room - The room's height, in px
+ * @returns The attribute's value: `""` in an even room, else none
+ */
+function evenRoom(room: number): "" | undefined {
+    return room % 2 === 0 ? "" : undefined;
 }
 
 /** A row with no lanes. */
@@ -638,6 +651,11 @@ export function RowShell({
     // name's on the first, the sub on the second — in place of a caption in every cell.
     const laned = gutterLanes !== undefined && gutterLanes.length > 1 && ctx !== true && !expanded
         && gutterLanes.some((lane) => lane.caption !== undefined) ? gutterLanes : undefined;
+    // Each lane's room, on the whole pixels its cells stand on (#1735): a lane line in it, the line a pixel low in an even
+    // one. A buckets row's name line alone in its room — no sub, no swatches — the same: the room is the row less its rule.
+    const rooms = laned === undefined ? undefined : laneRooms(height, laned.length);
+    const nameRoom = row.kind.type === "buckets" && ctx !== true && !expanded && sub === undefined && gutter.swatches.length === 0
+        ? evenRoom(height - 1) : undefined;
 
     return (
         <Box
@@ -686,7 +704,8 @@ export function RowShell({
                     // A lane's line, laid over the cell where its cells sit: the name's line first, the sub on the
                     // second, and each lane's caption in its value cell — the first's, where it has none, the row's value.
                     <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
-                        style={{ left: `${12 + depth * INDENT_PX}px`, top: `${lane.band.top * 100}%`, height: `${lane.band.height * 100}%` }}>
+                        data-plan-even-room={rooms?.[i] === undefined ? undefined : evenRoom(rooms[i].room)}
+                        style={{ left: `${12 + depth * INDENT_PX}px`, top: `${rooms?.[i]?.top ?? 0}px`, height: `${rooms?.[i]?.room ?? 0}px` }}>
                         {i === 0 ? caretCell : caret !== undefined && <Box as="span" />}
                         {i === 0 ? nameCell : (
                             <Box as="span" css={styles.gutterNameCell}>
@@ -700,7 +719,8 @@ export function RowShell({
                     </Box>
                 )) : (
                     <>
-                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name">
+                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name"
+                            data-plan-even-room={nameRoom}>
                             {caretCell}
                             {nameCell}
                             {valueCell}

@@ -31,7 +31,6 @@ import { memo, useEffect, type ReactNode } from "react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartLeftTicks } from "./ChartRow.js";
-import { laneBand } from "./lanes.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
@@ -283,13 +282,12 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             shellExtras = { caret, onCaretClick };
             break;
         case "buckets": {
-            // A laned row's lanes: a gutter line each, its caption in the value cell (#1680's review).
+            // A laned row's lanes: a gutter line each, its caption in the value cell (#1680's review), the row placing each
+            // in its lane's room.
             const lanes = kind.value.lanes;
             shellExtras = {
                 caret, onCaretClick,
-                lanes: lanes.length > 1
-                    ? lanes.map((lane, i) => ({ caption: lane.label.type === "some" ? lane.label.value : undefined, band: laneBand(i, lanes.length) }))
-                    : undefined,
+                lanes: lanes.length > 1 ? lanes.map((lane) => ({ caption: lane.label.type === "some" ? lane.label.value : undefined })) : undefined,
             };
             break;
         }

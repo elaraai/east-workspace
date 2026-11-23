@@ -16,8 +16,11 @@
  * - what a tile holds — its parts from 6 in, its state's border standing in
  *   that, whole or dropped from the end: a half holds a check but not a check
  *   and `2h 30m`, a quarter a check but not `10m`; its name says its label
- *   all the same; the label mono 11/600 tabular, its cap band centred, 6 | 8 |
- *   6 — and, on planTargetState's tiles, either side of every turn;
+ *   all the same; the label mono 11/600 tabular, its glyph box a whole 4px
+ *   under the tile's top edge (#1638), its digits 6 | 8 | 6 — and, on
+ *   planTargetState's tiles, either side of every turn;
+ * - the gutter's lines in the lanes' rooms, each name's words a whole 6px
+ *   under its lane's top, on the rows its lane's tiles' digits stand on;
  * - each state's look, resolved from the tokens;
  * - the floor: narrower days draw fewer tiles and a `+n` (#1267), the slots
  *   following the frame frame by frame, never painting slots they do not rest
@@ -114,8 +117,12 @@ interface TileRead {
     readonly contentRight: number;
     /** Its accessible name. */
     readonly name: string;
-    /** Its label's cap band, when its label is in sight: above it, its height, below it. */
-    readonly band: { readonly above: number; readonly cap: number; readonly below: number } | undefined;
+    /**
+     * Its label's words, when its label is in sight: how far under the tile's top edge their glyph box starts (#1638),
+     * and their digits' ink — above it, its height, and below it to the tile's bottom edge — read from the glyph box's
+     * top and the face's own metrics.
+     */
+    readonly band: { readonly words: number; readonly above: number; readonly cap: number; readonly below: number } | undefined;
     /** Its label's face. */
     readonly face: string | undefined;
     /** Its look: fill, rings, border, ink, slant, line, and its check's ink. */
@@ -138,8 +145,17 @@ function readTile(entry: Locator, key: string): Promise<TileRead> {
         const words = (part: Element) => (part.hasAttribute("data-plan-done") || part.querySelector("[data-plan-done]") !== null ? "check"
             : part.hasAttribute("data-plan-label") ? (part.textContent ?? "") : "icon");
         const label = inSight.find((part) => part.hasAttribute("data-plan-label"));
-        const lb = label?.getBoundingClientRect();
         const ls = label === undefined ? undefined : getComputedStyle(label);
+        // Its words' glyph box, as box-rows.spec reads it, and its digits' ink, from the face's metrics: the baseline its
+        // ascent under the glyph box's top, the ink its text's ascent over that.
+        const text = label === undefined ? null : document.createTreeWalker(label, NodeFilter.SHOW_TEXT).nextNode();
+        const range = document.createRange();
+        if (text !== null) range.selectNodeContents(text);
+        const glyph = text === null ? undefined : range.getClientRects()[0];
+        const metrics = document.createElement("canvas").getContext("2d")!;
+        if (ls !== undefined) metrics.font = `${ls.fontStyle} ${ls.fontWeight} ${ls.fontSize} ${ls.fontFamily}`;
+        const m = metrics.measureText(text?.textContent ?? "");
+        const baseline = glyph === undefined ? 0 : glyph.top + m.fontBoundingBoxAscent;
         const check = tile.querySelector("[data-plan-done]");
         const icon = tile.querySelector(":scope > svg")?.getBoundingClientRect();
         return {
@@ -153,7 +169,12 @@ function readTile(entry: Locator, key: string): Promise<TileRead> {
             clear: inSight.at(-1) === undefined ? undefined : r.right - inSight.at(-1)!.getBoundingClientRect().right,
             contentRight: px(s.borderRightWidth) + px(s.paddingRight),
             name: tile.getAttribute("aria-label") ?? "",
-            band: lb === undefined ? undefined : { above: lb.top - r.top, cap: lb.height, below: r.bottom - lb.bottom },
+            band: glyph === undefined ? undefined : {
+                words: glyph.top - r.top,
+                above: baseline - m.actualBoundingBoxAscent - r.top,
+                cap: m.actualBoundingBoxAscent,
+                below: r.bottom - baseline,
+            },
             face: ls === undefined ? undefined : `${/mono/i.test(ls.fontFamily) ? "mono" : ls.fontFamily} ${ls.fontSize} ${ls.fontWeight} ${ls.fontVariantNumeric}`,
             look: {
                 // A border of no width is none, whatever style the page's reset gives every element.
@@ -352,7 +373,7 @@ test.describe("Plan bucket tiles (#1735) @desktop", () => {
         expect(c.cells["4:2"]!.placed).toEqual([at(4, 0, "s6"), at(4, 1, "s7"), at(4, 2, "s8"), at(4, 3, "s9")]);
     });
 
-    test("what a tile holds at a day, a half and a quarter: its parts from 6 in, its state's border standing in that, whole or dropped from the end; its name says its label all the same; its label mono 11/600 tabular, its cap band centred — 6 | 8 | 6", async ({ page }) => {
+    test("what a tile holds at a day, a half and a quarter: its parts from 6 in, its state's border standing in that, whole or dropped from the end; its name says its label all the same; its label mono 11/600 tabular, its glyph box a whole 4px under the tile's top, its digits 6 | 8 | 6", async ({ page }) => {
         const entry = await openExample(page, "planTaskTiles", TILES);
         await sizeBuckets(page, entry, 132, DAYS);
         const tiles = Object.fromEntries(await Promise.all(["a1", "b1", "b2", "c1", "c2", "c3", "d1", "d3", "e1"].map(async (key) => [key, await readTile(entry, key)] as const)));
@@ -371,15 +392,53 @@ test.describe("Plan bucket tiles (#1735) @desktop", () => {
             if (tile.first !== undefined) expect(tile.first, `${key}: its first part`).toBeCloseTo(tile.content, 2);
             // Nothing in sight past its content's right edge: 6 clear, its border in it.
             if (tile.clear !== undefined) expect(tile.clear, `${key}: what its last part leaves`).toBeGreaterThanOrEqual(tile.contentRight - 0.01);
+            // Its words a whole number of pixels under its top edge, whatever border its state draws (#1638): 4.
+            if (tile.band !== undefined) expect(Math.round(tile.band.words * 64) / 64, `${key}: its words' glyph box under its top edge`).toBe(4);
         }
         // Its name says its label, in sight or not.
         expect(tiles.b1!.name).toContain("2h 30m");
         expect(tiles.c2!.name).toContain("20m");
-        // The label: mono 11/600 tabular, its cap band centred in the 20px tile — 6.23 above and below, 6 | 8 | 6.
+        // The label: mono 11/600 tabular, its 13px glyph box a pixel low in the tile's even room — 4 under its top edge —
+        // so its digits' eight rows stand 6 | 8 | 6, as the spec centres them.
         const band = tiles.a1!.band!;
         expect(tiles.a1!.face).toBe("mono 11px 600 tabular-nums");
-        expect(Math.abs(band.above - band.below), "the cap band centred").toBeLessThan(0.02);
-        expect([Math.round(band.above), Math.round(band.above + band.cap), Math.round(band.below)]).toEqual([6, 14, 6]);
+        expect([band.words, band.above, band.cap, band.below].map((v) => Math.round(v * 100) / 100)).toEqual([4, 6, 8, 6]);
+    });
+
+    test("the gutter's lines stand in their lanes: a one-lane row's name, and a laned row's every line in its lane's room — the rooms its cells stand in — each name's glyph box a whole 6px under its lane's top, its digits on the rows its lane's tiles' stand on (#1638, #1735)", async ({ page }) => {
+        const entry = await openExample(page, "planTaskTiles", TILES);
+        await sizeBuckets(page, entry, 132, DAYS);
+        const read = (crew: string) => entry.locator(rowSel("crews", crew)).evaluate((row) => {
+            const top = row.getBoundingClientRect().top;
+            const at = (el: Element) => Math.round((el.getBoundingClientRect().top - top) * 64) / 64;
+            const glyph = (el: Element) => {
+                const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+                if (text === null) return undefined;
+                const range = document.createRange();
+                range.selectNodeContents(text);
+                const box = range.getClientRects()[0];
+                return box === undefined ? undefined : Math.round((box.top - top) * 64) / 64;
+            };
+            return {
+                // Each lane line's box: its top and height in the row.
+                lines: [...row.querySelectorAll("[data-plan-gutter='name'], [data-plan-gutter='lane']")].map((line) => [at(line), line.getBoundingClientRect().height]),
+                name: glyph(row.querySelector("[data-plan-gutter='label']")!),
+                // A tile's words in the row's first lane, for the rows its digits stand on.
+                tile: glyph(row.querySelector("[data-plan-cell$=':0'] [data-plan-label]")!),
+            };
+        });
+        // Crew A, one lane: its name's line in the row, its words 6 under the row's top.
+        const a = await read("crew-a");
+        expect(a.name).toBe(6);
+        // Crew B and Crew C: a line a lane, each the lane's room — 24, a rule's pixel between — its name on the first.
+        const b = await read("crew-b");
+        expect(b.lines).toEqual([[0, 24], [25, 24]]);
+        expect(b.name).toBe(6);
+        const c = await read("crew-c");
+        expect(c.lines).toEqual([[0, 24], [25, 24], [50, 24]]);
+        expect(c.name).toBe(6);
+        // A tile's words stand 2 + 4 under its lane's top, as the name's 6: their digits on the same rows.
+        for (const row of [a, b, c]) expect(row.tile).toBe(row.name);
     });
 
     test("each state's look from the tokens: done the third paper in the strong rule, its check in the positive; in progress the committed fill; confirmed the paper in the brand's rule; a proposal and a removal the tint, dashed in the brand, the pressed ink, upright; an estimate dashed in the strong rule, the fourth ink, upright; a rejection as it was", async ({ page }) => {

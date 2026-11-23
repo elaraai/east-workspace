@@ -59,6 +59,14 @@ const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";
 const OBSERVED = "inset 0 0 0 1px {colors.border.strong}";
 
 /**
+ * A tile's words, and a `+n` chip's count (#1735): the canvas's 11px face has a 13px glyph box, 10 over its baseline
+ * and 3 under, which no line centres on a whole pixel in a tile's even room (#1638). A 13px line with a pixel over it,
+ * centred in the tile, stands it a pixel low: 4px under a 20px tile's top edge, its baseline at 14, its digits' eight
+ * rows 6 | 8 | 6 — what the spec centres them at.
+ */
+const TILE_WORDS = { lineHeight: "13px", paddingTop: "1px" } as const;
+
+/**
  * The line of a chip's words (#1638): the chip's height less 4px. The chip
  * centres its line, so its words start half of what the line leaves under its
  * edge — 2px, whatever border its state draws, which takes as much of the room
@@ -255,7 +263,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         fontSize: "11px",
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
-        // The line's height is the tile's: a browser that cannot trim a label to its cap height centres its line box.
+        // The line its parts stand on is the tile's height; its words have a line of their own (`TILE_WORDS`).
         lineHeight: "var(--plan-tile-h)",
         overflow: "hidden",
         whiteSpace: "nowrap",
@@ -349,13 +357,12 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan` — whole or not at all (#1735): with no room on its
     // line it wraps off it, out of sight, and its hover says it in the
-    // canvas's tooltip. Trimmed to its cap height and its baseline where the
-    // browser can, so its digits stand centred in the tile, 6 | 8 | 6 at 1×;
-    // elsewhere its line box is centred, a pixel high.
+    // canvas's tooltip. On its own line a pixel low (`TILE_WORDS`): its glyph
+    // box a whole 4px under the tile's top edge, its digits 6 | 8 | 6.
     tileLabel: {
         flex: "none",
         whiteSpace: "nowrap",
-        "@supports (text-box: trim-both cap alphabetic)": { textBox: "trim-both cap alphabetic" },
+        ...TILE_WORDS,
     },
     // A cell's `+n` chip (#1267): the tiles it has no slot for, counted — a
     // button whose anchored menu lists them — in the last slot (#1735), the
@@ -395,7 +402,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         _hover: { color: "fg" },
         // Its count on a line of the chip's height, which the count's strut holds, in a box of its own that clips —
         // never the chip, whose halo, its `::before`, reaches past it — so a count with no room wraps off that line,
-        // out of sight. Its words trimmed as a tile's label is, its digits centred as the label's are.
+        // out of sight. Its words on a tile's label's line (`TILE_WORDS`), its digits where the label's stand.
         "& > [data-tile-more-count]": {
             flex: "1 1 0%",
             minWidth: 0,
@@ -406,7 +413,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             justifyContent: "center",
             overflow: "hidden",
             "&::before": { content: '""', height: "100%" },
-            "& > *": { flex: "none", "@supports (text-box: trim-both cap alphabetic)": { textBox: "trim-both cap alphabetic" } },
+            "& > *": { flex: "none", ...TILE_WORDS },
         },
         // No room for a tile: across the day's room, which has none for its padding either.
         "&[data-no-room]": {

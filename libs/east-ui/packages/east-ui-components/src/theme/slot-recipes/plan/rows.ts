@@ -63,12 +63,20 @@ const gutterGrid = {
 /**
  * The line of a row's name, and of what stands on it — its value, its unit — a whole number of pixels (#1638). The
  * gutter cell centres the name in the row's height less its 1px rule and its 4px of padding above and below: an odd
- * room, 23px in a 32px row, since every row is an even number of pixels tall. So the line is an odd 17px, three above
- * the words and three below. The theme's line of 1.5 is a fraction of a pixel at the name's face, which started the
- * words a fraction of a pixel under the row's edge, and the page painted them a row higher or lower by where it stood
- * the row.
+ * room, 23px in a 32px row. So the line is an odd 17px, three above the words and three below. The theme's line of
+ * 1.5 is a fraction of a pixel at the name's face, which started the words a fraction of a pixel under the row's edge,
+ * and the page painted them a row higher or lower by where it stood the row. A buckets row's lane is 25px with its
+ * rule (#1735), an even room, where the line stands a pixel low ({@link EVEN_ROOM}).
  */
 const GUTTER_LINE = centredLine(23, 17);
+
+/**
+ * A line of the gutter alone in a room of an even height (#1735), which the renderer marks `data-plan-even-room`: a
+ * buckets row's lane, 25px with its rule — 16px of room in its cell, 24 for a laned row's line. The name's face has a
+ * 13px glyph box, which no line centres on a whole pixel in an even room (#1638): a pixel over the line stands it a
+ * pixel low, so the glyph box starts 6px under the lane's top — its digits on the rows a tile's stand on.
+ */
+const EVEN_ROOM = { "&[data-plan-even-room]": { paddingTop: "1px" } } satisfies SystemStyleObject;
 
 /** The line of a group band's caption: a whole 15px (#1638). */
 const HEADING_LINE = centredLine(23, 15);
@@ -255,6 +263,10 @@ export const rowsBase = {
         ...gutterVoice,
         ...gutterGrid,
         lineHeight: GUTTER_LINE,
+        // Alone in a room of an even height — a buckets row's lane, 24px (#1735) — a pixel low: the face's 13px glyph box
+        // centres on no whole pixel there (#1638), and a pixel over the line starts it 6px under the room's top, its
+        // digits on the rows a tile's stand on.
+        ...EVEN_ROOM,
         // What its controls are placed against below a 220px gutter.
         position: "relative",
         // In a strip every name reads as an id — one 10px mono line is
@@ -353,12 +365,15 @@ export const rowsBase = {
         ...gutterVoice,
         ...gutterGrid,
         lineHeight: GUTTER_LINE,
-        // Its one 17px line in the middle of the lane's height.
+        // Its one 17px line in the middle of the lane's room, which the renderer sets on whole pixels (#1735) — a pixel
+        // low in an even room, as a name alone in one is.
         alignContent: "center",
         position: "absolute",
         left: "12px",
         right: "12px",
         minWidth: 0,
+        boxSizing: "border-box",
+        ...EVEN_ROOM,
     },
     // A lane's caption: mono 9.5 / 600 in the label ink, at its value cell's end — the fourth column from the line's
     // end, whether the line has a caret's cell or not.

@@ -330,7 +330,7 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Plan mark's label", at(plan, "markLabel"), "15px"],
         ["a Plan chart tick", at(plan, "chartTickLeft"), "14px"],
         ["a Plan segment's label", at(plan, "segmentPart"), "var(--plan-segment-h)"],
-        // A tile's line is its own height (#1735): its label, trimmed to its cap height, centred in it — 6 | 8 | 6 at 1×.
+        // The line a tile's parts stand on is its own height (#1735); its words have a line of their own (below).
         ["a Plan tile", at(plan, "tile"), "var(--plan-tile-h)"],
         ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
         ["a Plan chip", at(plan, "cardChip"), "calc(var(--plan-chip-h) - 4px)"],
@@ -403,10 +403,18 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         expect(at(calendarSlotRecipe.base, "event", "&[data-compact]:not([data-chip])").containerType).toBe("size");
     });
 
-    test("a Plan tile's label and its `+n` chip's count are trimmed to their cap height where the browser can, so each centres in its tile's room as the spec measures it (#1735)", () => {
-        const trim = { textBox: "trim-both cap alphabetic" };
-        expect(at(plan, "tileLabel", "@supports (text-box: trim-both cap alphabetic)")).toEqual(trim);
-        expect(at(plan, "tileMore", "& > [data-tile-more-count]", "& > *", "@supports (text-box: trim-both cap alphabetic)")).toEqual(trim);
+    test("a Plan tile's label and its `+n` chip's count stand on a 13px line with a pixel over it, a pixel low in the tile's even room: the face's 13px glyph box a whole 4px under its top edge, its digits 6 | 8 | 6 (#1735)", () => {
+        const words = { lineHeight: "13px", paddingTop: "1px" };
+        expect(at(plan, "tileLabel")).toMatchObject(words);
+        expect(at(plan, "tileMore", "& > [data-tile-more-count]", "& > *")).toMatchObject(words);
+        // Nothing trims them to a cap height, which the face's metrics put at a fraction of a pixel.
+        expect(JSON.stringify([at(plan, "tileLabel"), at(plan, "tileMore")])).not.toContain("text-box");
+    });
+
+    test("a Plan gutter line alone in an even room — a buckets row's 25px lane — stands a pixel low, its glyph box 6px under the lane's top (#1735)", () => {
+        expect(at(plan, "gutterName", "&[data-plan-even-room]")).toEqual({ paddingTop: "1px" });
+        expect(at(plan, "gutterLane", "&[data-plan-even-room]")).toEqual({ paddingTop: "1px" });
+        expect(at(plan, "gutterLane").boxSizing).toBe("border-box");
     });
 
     test("the Sheet's action cell takes the line of its room's parity, which the Sheet's cell says beside its own (#1646's review)", () => {
