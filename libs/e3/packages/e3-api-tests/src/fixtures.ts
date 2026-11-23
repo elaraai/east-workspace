@@ -785,6 +785,8 @@ export const JobsType = DictType(StringType, JobRowType);
 export const JobPressLevelTileKeyType = StructType({ on: StructType({}), key: StringType, level: RecordLevelType, tile: DateTimeType });
 /** The key of the series fixture's summary index: its `on`, then a press and a week's start (#1433). */
 export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringType, tile: DateTimeType });
+/** The key of the series fixture's summary with no key (#1732): its `on`, empty, then a week's start — the record's totals a week. */
+export const JobWeekKeyType = StructType({ on: StructType({}), tile: DateTimeType });
 
 /**
  * Create a package whose record is read in two dimensions (#1039): a block of
@@ -800,9 +802,11 @@ export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringT
  * - Index: "jobs_by_press_week", each job under its press, filed once at the
  *   level its length fits — a week, a month, a quarter or a year, from the
  *   week up — or once a year past a year, carrying its row, keyed
- *   {@link JobPressLevelTileKeyType}; and "jobs_by_press_week_totals", how many
+ *   {@link JobPressLevelTileKeyType}; "jobs_by_press_week_totals", how many
  *   jobs touch each week on each press and the time of it they cover, keyed
- *   {@link JobPressWeekKeyType}
+ *   {@link JobPressWeekKeyType}; and "jobs_week_totals", a summary with no
+ *   key, how many jobs touch each week on any press and the time of it they
+ *   cover, keyed {@link JobWeekKeyType} (#1732)
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -821,6 +825,7 @@ export async function createSeriesRecordPackageZip(
     indexes: (index) => ({
       jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      jobs_week_totals: index.summary({ from: 'start', to: 'end', tile: 'week' }),
     }),
     mutations: (mutation) => ({
       seed: mutation.reduce(East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {

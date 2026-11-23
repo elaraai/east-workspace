@@ -416,21 +416,31 @@ export interface SeriesInTimeReaders<IK extends EastType = EastType, P extends E
 }
 
 /**
+ * The window a summary's reader is given: a key's, `{ key, from, to }`, for a
+ * summary filed by one; the window alone for one with no key, the record's
+ * totals a tile (#1732).
+ */
+export type SummaryWindow<IK> = IK extends StructType<{ key: EastType }> ? KeyWindow<IK> : TimeWindow;
+
+/**
  * A summary index's readers (`index.summary`).
  *
- * @typeParam IK - The index's key type, `{ on, key, tile }`
+ * @typeParam IK - The index's key type, `{ on, key, tile }`, or `{ on, tile }` for a summary with no key
  */
 export interface SummaryReaders<IK extends EastType = EastType> {
   /**
    * The totals of each tile of `key` that overlaps `[from, to)`: how many
-   * rows touch the tile, and the milliseconds of it they cover. A window that
-   * ends at or before its start holds none. One run.
+   * rows touch the tile, and the milliseconds of it they cover — of a summary
+   * with no key, the record's totals of each such tile under the leading
+   * fields, given no key (#1732). A window that ends at or before its start
+   * holds none. One run.
    *
-   * @param window - The leading fields, each exactly, the key, and the window
+   * @param window - The leading fields, each exactly, the key of a summary filed by one, and the window
    * @returns The read: each tile's totals, and the tile's start in place of a row's key
-   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them; or a
+   *   summary with no key is given one
    */
-  totals(window: LeadingOn<IK> & KeyWindow<IK>): IndexRead<typeof RecordSummaryTotalsType, DateTimeType>;
+  totals(window: LeadingOn<IK> & SummaryWindow<IK>): IndexRead<typeof RecordSummaryTotalsType, DateTimeType>;
 }
 
 /** The key a series or a summary reader is given, at the index's key field's type. */
@@ -611,19 +621,32 @@ function seriesInTimeReaders(entries: Entries): SeriesInTimeReaders {
 }
 
 function summaryReaders(entries: Entries): SummaryReaders {
-  const level = variant(entries.def.summary!.tile, null);
+  const summary = entries.def.summary!;
+  const level = variant(summary.tile, null);
+  // A summary with no key keeps the record's totals a tile under its leading fields alone (#1732): its run is theirs.
+  const keyed = summary.key !== undefined;
   return {
     totals: (window) => {
-      const written = keyWindow(entries, 'totals', window);
+      const given = (window ?? {}) as { on?: unknown; key?: unknown; from?: unknown; to?: unknown };
+      if (!keyed && given.key !== undefined) {
+        throw new Error(
+          `${entries.name} totals: the summary keeps the record's totals a tile, under no key — it takes no \`key\`: a key's totals are a ` +
+          'summary filed by it, index.summary({ key, … })',
+        );
+      }
+      const written = keyed ? keyWindow(entries, 'totals', window) : {
+        on: leadingOn(entries, 'totals', given.on), key: undefined, from: instant(entries, 'totals', 'from', given.from),
+        to: instant(entries, 'totals', 'to', given.to),
+      };
       return readOf(DateTimeType, RecordSummaryTotalsType, ($, give) => {
       const on = $.const(written.on);
-      const key = $.const(written.key);
+      const lead: Record<string, Expr> = written.key === undefined ? { on } : { on, key: $.const(written.key) };
       const from = $.const(written.from);
       const to = $.const(written.to);
       $.if(East.less(from, to), ($) => {
         // A total is split by tile, so the tiles that overlap the window hold all of it.
         const { first, after } = tilesOver($, tileFns($), $.const(level, RecordLevelType), from, to, false);
-        const run = entries.dict.range({ from: { ik: { on, key, tile: first } }, to: { ik: { on, key, tile: after } } } as never);
+        const run = entries.dict.range({ from: { ik: { ...lead, tile: first } }, to: { ik: { ...lead, tile: after } } } as never);
         $.for(run as Entries['dict'], ($, totals, entry) => { give($, totals, indexKeyPart(entry, 'tile')); });
       });
       });

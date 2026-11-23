@@ -20,7 +20,7 @@ import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './typ
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
   AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
-  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, TimeTileOf,
+  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, SummaryOf,
 } from './record-index.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
@@ -350,14 +350,36 @@ export interface IndexBuilder<T extends EastType> {
    * of it the event overlaps; an instant counts in the tile holding it and
    * covers none of it; a row with no start counts in no tile.
    *
-   * @param spec - `key`, `from`, `to` and `tile`, as {@link series} takes them, and the optional exact leading `on`
-   *   fields
+   * Declared with no `key` (#1732), it keeps the record's totals a tile, `{ ik:
+   * { on: { …on }, tile }, k: Null }`: each event counted once in each tile it
+   * touches, whatever it is on — one entry a tile however many resources, so a
+   * view of the whole record's density reads a range of a few entries. Lead it
+   * by the fields a view narrows by exactly (`on`), and its totals are a
+   * combination's of them.
+   *
+   * @param spec - `from`, `to` and `tile`, as {@link series} takes them; the optional `key`, the field naming what an
+   *   event is on, which files a total a key a tile; and the optional exact leading `on` fields
    * @param options - Its runner
    * @returns The index, its value the totals
-   * @throws {Error} As {@link series} does, and for an event touching more than 4,096 tiles where it is written
+   * @throws {Error} As {@link series} does, but for a key left out, and for an event touching more than 4,096 tiles
+   *   where it is written
+   *
+   * @example
+   * ```ts
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // Each press's totals a month: what a board shades a press's row by, zoomed out.
+   *     jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+   *     // The record's totals a month, and each hall's: a horizon's bars, one entry a month.
+   *     jobs_month: index.summary({ from: 'start', to: 'end', tile: 'month' }),
+   *     jobs_by_hall_month: index.summary({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
+   *   }),
+   * });
+   * ```
    */
   summary<const S extends SummaryIndexSpec<T>>(spec: S, options?: PartRunner):
-    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: TimeTileOf<S> }>;
+    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: SummaryOf<S> }>;
   /**
    * An entries index (#1521): a row's Dict field filed entry by entry — for
    * each key the field holds, one entry under that key and then the row's,

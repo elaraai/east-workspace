@@ -450,9 +450,10 @@ export interface RecordIndexDef<
   /** What a summary index totals a record's events by (#1039): the same
    *  fields and tile as a series index's. It holds, under each key and tile,
    *  `{ on, key, tile }`, how many rows touch the tile and the milliseconds of
-   *  it they cover; its {@link keyFn} is a row's contributions,
-   *  `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
-  readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+   *  it they cover — or, declared with no `key`, under each tile, `{ on, tile
+   *  }`, the record's totals (#1732); its {@link keyFn} is a row's
+   *  contributions, `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
+  readonly summary?: { readonly key?: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** A nested series index's span (#1438): the nested series index whose
    *  collections it counts, and the tile it counts by. It holds, under each
    *  collection's place and each tile its items or values touch, how many of

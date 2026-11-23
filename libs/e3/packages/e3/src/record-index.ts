@@ -195,15 +195,17 @@ export type NestedValueOf<T extends EastType, S extends NestedSeriesIndexSpec<T>
 /**
  * What a summary index totals a record's events by (`index.summary`,
  * #1039): the same key and tiles as a series index, and under each key how
- * many rows touch its tile and the milliseconds of it they cover.
+ * many rows touch its tile and the milliseconds of it they cover. With no
+ * key, the record's totals a tile, under its leading fields alone (#1732).
  *
  * @typeParam T - The owning record's state type
  */
 export interface SummaryIndexSpec<T extends EastType = EastType> {
   /** Exact leading fields before the key. Set fields fan out. */
   on?: readonly (keyof RowFields<T> & string)[];
-  /** The field naming what an event is on — a Plan's resource: any field but a Set. */
-  key: KeyField<T>;
+  /** The field naming what an event is on — a Plan's resource: any field but a Set. Left out, the summary keeps the
+   *  record's totals a tile, under its leading fields alone, `{ on, tile }` (#1732). */
+  key?: KeyField<T>;
   /** The field an event starts at: a DateTime, or an Option of one; a row
    *  with none is in no tile, and counts in none. */
   from: IntervalField<T>;
@@ -257,7 +259,9 @@ export type IndexKeyOf<S, T extends EastType = EastType> =
 /**
  * A summary index's key (#1433): `{ on, key, tile }`, its leading fields under
  * `on`, then the key's value and the start of the tile it totals — the key
- * before the tile, so a key's totals over a span of tiles are one range.
+ * before the tile, so a key's totals over a span of tiles are one range. With
+ * no key, `{ on, tile }`: the record's totals a tile under its leading fields,
+ * so their totals over a span of tiles are one range (#1732).
  *
  * @typeParam S - The summary's spec as written
  * @typeParam T - The owning record's state type
@@ -265,7 +269,8 @@ export type IndexKeyOf<S, T extends EastType = EastType> =
 export type SummaryKeyOf<S, T extends EastType = EastType> =
   S extends { key: infer KF extends keyof RowFields<T> & string }
     ? StructType<{ on: StructType<LeadingFields<S, T>>; key: RowFields<T>[KF]; tile: DateTimeType }>
-    : EastType;
+    : 'key' extends keyof S ? EastType
+    : StructType<{ on: StructType<LeadingFields<S, T>>; tile: DateTimeType }>;
 
 /** The covering projection a spec declares: `value`'s return, Null when the
  *  spec has no `value`, and any type when it only might. */
@@ -462,6 +467,18 @@ export interface TimeTileOf<S> {
   /** The tile. */
   readonly tile: RecordTile;
 }
+
+/**
+ * What a summary index's definition carries of its declaration: its fields and tile, and the field naming its key —
+ * none for one with no key, the record's totals a tile (#1732), which its type says too: a binding tells the record's
+ * totals from a resource's by it.
+ *
+ * @typeParam S - The spec as written
+ */
+export type SummaryOf<S> = S extends { key: string } ? TimeTileOf<S> : Omit<TimeTileOf<S>, 'key'> & {
+  /** None: the summary keeps the record's totals a tile, under its leading fields alone. */
+  readonly key?: undefined;
+};
 
 /**
  * What a series index's definition carries of its declaration: its fields and tile, the order it is filed in, and what

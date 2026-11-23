@@ -98,6 +98,8 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         in_time: index.interval({ from: 'start', to: 'end' }),
         press_weeks: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         press_load: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        // With no key, the record's totals a week under each state (#1732).
+        state_load: index.summary({ on: ['state'], from: 'start', to: 'end', tile: 'week' }),
         by_area: index.area({ x: 'x', y: 'y', cell: 0.25 }),
         by_part: index.entries('parts'),
       }),
@@ -251,6 +253,17 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         });
         return kept;
       }),
+      // A summary with no key's totals of the tiles that overlap a window under a state (#1732): a loop over every entry of it.
+      e3.function('plain_state_totals', { inputs: [e3.index(jobs.indexes.state_load)], args: [StringType, DateTimeType, DateTimeType], output: Totals }, ($, load, state, from, to) => {
+        const kept = $.let(new Map(), Totals);
+        const week = $.const(7n * DAY);
+        $.for(load, ($, totals, entry) => {
+          const tile = $.const(entry.ik.tile.toEpochMilliseconds());
+          $.if(East.equal(entry.ik.on.state, state).and(() => East.less(from, to)).and(() => tile.less(to.toEpochMilliseconds()))
+            .and(() => tile.add(week).greater(from.toEpochMilliseconds())), ($) => { $(kept.insert(entry.ik.tile, totals)); });
+        });
+        return kept;
+      }),
       // A nested series index's: a loop over what the line, or its unit, holds
       e3.function('plain_unit_jobs', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: Keys }, ($, rows, line, unit, from, to) => {
         const inWindow = $.const(overlaps);
@@ -324,6 +337,7 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     const inTime = e3.index(jobs.indexes.in_time);
     const pressWeeks = e3.index(jobs.indexes.press_weeks);
     const pressLoad = e3.index(jobs.indexes.press_load);
+    const stateLoad = e3.index(jobs.indexes.state_load);
     const byArea = e3.index(jobs.indexes.by_area);
     const byPart = e3.index(jobs.indexes.by_part);
     const linesInTime = e3.index(lines.indexes.lines_in_time);
@@ -359,6 +373,8 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         }),
         e3.function(onRuntime('totals', runtime), { inputs: [pressLoad], args: [StringType, DateTimeType, DateTimeType], output: Totals, ...on }, ($, entries, press, from, to) =>
           entries.totals({ key: press, from, to }).collect($)),
+        e3.function(onRuntime('state_totals', runtime), { inputs: [stateLoad], args: [StringType, DateTimeType, DateTimeType], output: Totals, ...on }, ($, entries, state, from, to) =>
+          entries.totals({ on: { state }, from, to }).collect($)),
         e3.function(onRuntime('within', runtime), { inputs: [byArea], args: [FloatType, FloatType, FloatType, FloatType], output: Keys, ...on }, ($, entries, x, y, width, height) => {
           const kept = $.let(new Map(), Keys);
           entries.within({ x, y, width, height }).each($, ($, _job, key) => { $(kept.insert(key, null)); });
@@ -494,6 +510,13 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     const load = await held('totals', 'plain_totals', 'press_load', Totals,
       [arg(StringType, 'P117'), arg(DateTimeType, at('2026-06-10T00:00:00.000')), arg(DateTimeType, at('2026-07-08T00:00:00.000'))], 2, 2);
     assert.equal(load.size, 5, 'four weeks from a Wednesday touch five weeks');
+  });
+
+  it('a summary index with no key: totals, each tile of the record\'s that overlaps a window, under its leading fields (#1732)', async () => {
+    const load = await held('state_totals', 'plain_state_totals', 'state_load', Totals,
+      [arg(StringType, 'confirmed'), arg(DateTimeType, at('2026-06-10T00:00:00.000')), arg(DateTimeType, at('2026-07-08T00:00:00.000'))], 1, 1);
+    assert.equal(load.size, 5, 'four weeks from a Wednesday touch five weeks');
+    for (const [, totals] of load) assert.ok(totals.count > 200n, `a week's confirmed jobs on every press, a job every forty minutes: ${totals.count}`);
   });
 
   it('an area index: within, the rows whose point is in a window', async () => {

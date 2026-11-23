@@ -10,7 +10,8 @@
  * each against a direct oracle written with the host's calendar rather than
  * East's; the keys and contributions they generate; their declared types;
  * their refusals; what a series index carries where it is given a `value`
- * (#1710); and how a write keeps them — a series index equals its rebuild,
+ * (#1710); a summary with no key, the record's totals a tile, and its reader
+ * (#1732); and how a write keeps them — a series index equals its rebuild,
  * and a summary's changes, added to the totals it held, equal the totals a
  * rebuild sums. That every runtime files an event alike is e3-core's
  * series spec, which runs the programs on each.
@@ -826,6 +827,119 @@ describe('index.summary — its contributions and declaration', () => {
     assert.throws(() => jobSummary('hourly', { key: 'press', from: 'start', to: 'end', tile: 'hour' }), /e3\.record 'jobs': index\.summary 'hourly' takes a tile/);
     assert.throws(() => jobSummary('primary', { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.record 'jobs': index\.summary cannot be named 'primary'/);
   });
+
+  it('with no key, keeps the record\'s totals a tile: an event counted once under each tile it touches, under each combination of its leading values (#1732)', () => {
+    const def = jobSummary('jobs_week_totals', { from: 'start', to: 'end', tile: 'week' });
+    const byCrew = jobSummary('jobs_by_crew_week_totals', { on: ['crews'], from: 'start', to: 'end', tile: 'week' });
+    const contribute = East.compile(functionAt(def.keyFn, [StringType, JobRow], DictType(def.keyType, RecordSummaryTotalsType)), []);
+    const contributeByCrew = East.compile(functionAt(byCrew.keyFn, [StringType, JobRow], DictType(byCrew.keyType, RecordSummaryTotalsType)), []);
+    const contributions = DictType(def.keyType, RecordSummaryTotalsType);
+    const order = compareFor(def.keyType);
+    const oct5 = at('2026-10-05T00:00:00.000');
+    const oct12 = at('2026-10-12T00:00:00.000');
+    // Wednesday 06:00 to the next Tuesday 06:00: 114 hours of one week, 30 of the next — whichever press it runs on.
+    const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
+    assertEast(contributions, contribute('W-0001', row), new SortedMap([
+      [{ on: {}, tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: {}, tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
+    ], order), 'a week and the next, under no key');
+    assertEast(DictType(byCrew.keyType, RecordSummaryTotalsType), contributeByCrew('W-0001', row), new SortedMap([
+      [{ on: { crews: 'north' }, tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'north' }, tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: { crews: 'south' }, tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'south' }, tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
+    ], compareFor(byCrew.keyType)), 'once a crew');
+    assertEast(contributions, contribute('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedMap([
+      [{ on: {}, tile: oct5 }, { count: 1n, ms: 0n }],
+    ], order), 'an instant');
+    assertEast(contributions, contribute('W-0001', scheduled(null, null)), new SortedMap([], order), 'not yet scheduled');
+  });
+
+  it('with no key, types its key { on, tile } and declares no key (#1732)', () => {
+    const def = jobSummary('jobs_by_state_month_totals', { on: ['state'], from: 'start', to: 'end', tile: 'month' });
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType }> = def.keyType;
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType })),
+      'its leading fields under on, then the tile');
+    assert.deepEqual(def.summary, { from: 'start', to: 'end', tile: 'month' });
+    // Its declaration says it has no key, as its type does: a binding tells the record's totals from a resource's by it.
+    const key: undefined = def.summary.key;
+    assert.equal(key, undefined);
+    assert.equal(printType(def.valueType), printType(RecordSummaryTotalsType), 'its value is its totals');
+    assert.equal(def.multi, true, 'a row touches several tiles');
+    const unled = jobSummary('jobs_month_totals', { from: 'start', to: 'end', tile: 'month' });
+    assert.equal(printType(unled.keyType), printType(StructType({ on: StructType({}), tile: DateTimeType })), 'led by no field: its on the empty struct');
+    // The declared types, as the constructor's spec types them.
+    type Spec = { on: ['crews']; from: 'start'; to: 'end'; tile: 'day' };
+    const totals: SummaryKeyOf<Spec, typeof JobsType> = StructType({ on: StructType({ crews: StringType }), tile: DateTimeType });
+    const on: IndexOn<Spec> = ['crews'];
+    assert.ok(totals.type === 'Struct' && on.length === 1);
+  });
+
+  it('with no key, refuses an order and a value as one with a key does; and a series index takes a key (#1732)', () => {
+    // @ts-expect-error — a summary index keeps a total a tile, and takes no order
+    assert.throws(() => jobSummary('totals_in_time', { from: 'start', to: 'end', tile: 'week', order: 'time' }),
+      /e3\.record 'jobs': index\.summary 'totals_in_time' takes on, key, from, to, tile, not order — a summary index with no key keeps a total a tile: an order is a series index's/);
+    // @ts-expect-error — a summary index holds its totals, and takes no value
+    assert.throws(() => jobSummary('valued', { from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
+      /a summary index holds its totals, so it takes no value/);
+    assert.throws(() => jobSummary('totals_led_by_end', { on: ['end'], from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.summary 'totals_led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
+    // @ts-expect-error — a series index files each event by the key it is on
+    assert.throws(() => jobSeries('keyless', { from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.series 'keyless' takes a key — the field naming what an event is on, which a series index files each event by/);
+  });
+
+  it('with no key, its reader gives each tile\'s totals over a window under its leading fields, and refuses a key (#1732)', () => {
+    const rec = record('jobs', JobsType, {
+      initial: new Map(),
+      indexes: (index) => ({ jobs_by_state_week_totals: index.summary({ on: ['state'], from: 'start', to: 'end', tile: 'week' }) }),
+    });
+    const def = rec.indexes.jobs_by_state_week_totals;
+    const totals = indexInput(def);
+    const TileTotals = DictType(DateTimeType, RecordSummaryTotalsType);
+    const read = East.compile(East.function([totals.type, StringType, DateTimeType, DateTimeType], TileTotals, ($, entries, state, from, to) =>
+      totals.read(entries).totals({ on: { state }, from, to }).collect($)), []);
+    const rows = editedJobs(seededJobs());
+    const held = summed(def, [rows]);
+    // With the host's calendar: each week a window overlaps, and each job of the state touching it, once, with its share.
+    const expected = (state: string, from: bigint, to: bigint): SortedMap<Date, RecordSummaryTotals> => {
+      const out = new SortedMap<Date, RecordSummaryTotals>(undefined, compareFor(DateTimeType));
+      if (to <= from) return out;
+      const first = oracleStart('week', from);
+      const after = oracleNext('week', oracleStart('week', to - 1n));
+      for (const row of rows.values()) {
+        if (row.state !== state || row.start.type !== 'some') continue;
+        const start = millisecondsOf(row.start.value);
+        const end = row.end.type === 'some' ? millisecondsOf(row.end.value) : start;
+        for (const share of oracleShares('week', start, end)) {
+          if (share.tile < first || share.tile >= after) continue;
+          const tile = instant(share.tile);
+          const was = out.get(tile);
+          out.set(tile, { count: (was?.count ?? 0n) + 1n, ms: (was?.ms ?? 0n) + share.ms });
+        }
+      }
+      return out;
+    };
+    const windows: Array<[string, string]> = [
+      ['2026-10-05T00:00:00.000', '2026-10-12T00:00:00.000'], ['2026-10-07T09:00:00.000', '2026-10-07T10:00:00.000'],
+      ['2026-08-01T00:00:00.000', '2027-02-01T00:00:00.000'], ['2026-12-28T00:00:00.000', '2027-01-04T00:00:00.000'],
+      ['2026-10-12T00:00:00.000', '2026-10-12T00:00:00.000'], ['2026-10-19T00:00:00.000', '2026-10-12T00:00:00.000'],
+    ];
+    let tiles = 0;
+    for (const [from, to] of windows) {
+      for (const state of ['confirmed', 'proposed']) {
+        const want = expected(state, millisecondsOf(at(from)), millisecondsOf(at(to)));
+        assertEast(TileTotals, read(held as never, state, at(from), at(to)), want, `the ${state} jobs' totals of each week in [${from}, ${to})`);
+        tiles += want.size;
+      }
+    }
+    assert.ok(tiles > 30, `the windows hold weeks with jobs: ${tiles}`);
+    // A key's totals are a summary filed by it.
+    assert.throws(() => East.function([totals.type], TileTotals, ($, entries) =>
+      // @ts-expect-error — a summary with no key is read under its leading fields alone
+      totals.read(entries).totals({ on: { state: 'confirmed' }, key: 'P-1001', from: at('2026-10-05T00:00:00.000'), to: at('2026-10-12T00:00:00.000') }).collect($)),
+    /e3\.index 'jobs\.jobs_by_state_week_totals' totals: the summary keeps the record's totals a tile, under no key — it takes no `key`: a key's totals are a summary filed by it, index\.summary\(\{ key, … \}\)/);
+  });
 });
 
 // ── Through a write and a rebuild ────────────────────────────────────────────
@@ -879,6 +993,9 @@ describe('series and summary indexes — through a write and a rebuild', () => {
         jobs_by_press_day_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
         jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         jobs_by_crew_press_month_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
+        // With no key, the record's totals a tile (#1732): kept as a keyed summary's are.
+        jobs_week_totals: index.summary({ from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_crew_month_totals: index.summary({ on: ['crews'], from: 'start', to: 'end', tile: 'month' }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });

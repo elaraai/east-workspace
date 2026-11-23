@@ -21,7 +21,9 @@
  * the jobs that touch its week on its press and the time of it they cover.
  * Then a job moved to another week, read and totalled where it went; jobs a
  * hundred days and three years long, each read once; and a joined read, a
- * placement and a membership read of the summary refused.
+ * placement and a membership read of the summary refused. A summary with no
+ * key beside them keeps the record's totals a week, on any press, read as one
+ * range of weeks (#1732).
  *
  * And records whose rows nest what a series files (#1434), read through their
  * one nested series index: a block of machines' jobs over three weeks as a
@@ -71,6 +73,7 @@ import { templateWorkspace } from '../template.js';
 import {
   AssembliesType, AssemblyType, HallType, HallsType, MachineType, MachinesType, MemberType, NestedJobType,
   createNestedSeriesPackageZip, createSeriesRecordPackageZip, JOBS_FROM, JobPressLevelTileKeyType, JobPressWeekKeyType, JobRowType, JobsType,
+  JobWeekKeyType,
 } from '../fixtures.js';
 
 const PKG = 'series-record-pkg';
@@ -80,9 +83,10 @@ const jobsPath = [variant('field', 'records'), variant('field', 'jobs')];
 /** How many jobs the record holds: more than a segment's 4,096 entries at
  *  most, so the series spans segments, and its searches and runs cross them. */
 const JOBS = 6_000n;
-/** The series index, and the summary beside it. */
+/** The series index, the summary beside it, and the summary with no key: the record's totals a week (#1732). */
 const SERIES = 'jobs_by_press_week';
 const TOTALS = 'jobs_by_press_week_totals';
+const WEEK_TOTALS = 'jobs_week_totals';
 
 type Job = ValueTypeOf<typeof JobRowType>;
 type Jobs = ValueTypeOf<typeof JobsType>;
@@ -93,14 +97,18 @@ type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 const SeriesWindowType = ArrayType(StructType({ ik: JobPressLevelTileKeyType, key: StringType, value: JobRowType, row: OptionType(JobRowType) }));
 /** A summary window's entries: each press and week, standing for every job of it — its `key` Null — with its totals. */
 const TotalsWindowType = ArrayType(StructType({ ik: JobPressWeekKeyType, key: NullType, value: RecordSummaryTotalsType, row: OptionType(JobRowType) }));
+/** The summary with no key's window (#1732): each week, standing for every job of it on any press, with its totals. */
+const WeekTotalsWindowType = ArrayType(StructType({ ik: JobWeekKeyType, key: NullType, value: RecordSummaryTotalsType, row: OptionType(JobRowType) }));
 type SeriesEntry = ValueTypeOf<typeof SeriesWindowType>[number];
 type TotalsEntry = ValueTypeOf<typeof TotalsWindowType>[number];
+type WeekTotalsEntry = ValueTypeOf<typeof WeekTotalsWindowType>[number];
 
 const encodeInt = encodeBeast2For(IntegerType);
 const encodePatch = encodeBeast2For(PatchType(JobsType));
 const decodeJobs = decodeBeast2For(JobsType);
 const decodeSeriesWindow = decodeBeast2For(SeriesWindowType);
 const decodeTotalsWindow = decodeBeast2For(TotalsWindowType);
+const decodeWeekTotalsWindow = decodeBeast2For(WeekTotalsWindowType);
 const printDateTime = printFor(DateTimeType);
 const printString = printFor(StringType);
 /** A summary entry's key, `(ik=…, k=null)`, as a membership read names one. */
@@ -188,6 +196,18 @@ function totalsOf(jobs: Jobs): SortedMap<PressWeek, Totals> {
       const key = { on: {}, key: job.press, tile: week };
       const held = totals.get(key) ?? { count: 0n, ms: 0n };
       totals.set(key, { count: held.count + 1n, ms: held.ms + ms });
+    }
+  }
+  return totals;
+}
+
+/** The record's totals a week, worked out from its jobs (#1732): under each week's start, the jobs on any press touching it and the time of it they cover. */
+function weekTotalsOf(jobs: Jobs): Map<number, Totals> {
+  const totals = new Map<number, Totals>();
+  for (const job of jobs.values()) {
+    for (const { week, ms } of weeksOf(job)) {
+      const held = totals.get(week.getTime()) ?? { count: 0n, ms: 0n };
+      totals.set(week.getTime(), { count: held.count + 1n, ms: held.ms + ms });
     }
   }
   return totals;
@@ -449,6 +469,29 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     }
   };
 
+  /**
+   * The record's totals of the weeks from `from` to before `to`, read through the summary with no key (#1732) as a
+   * horizon reads them: one range of it — its `on` empty, so a bound is the week alone — then the run it selects.
+   */
+  const readWeekTotals = (ctx: TestContext, ws: string, hash: string, from: number, to: number): Promise<WeekTotalsEntry[]> =>
+    readRuns(ctx, ws, jobsPath, WEEK_TOTALS, [{ from: [printDateTime(new Date(from))], to: [printDateTime(new Date(to))] }], hash,
+      decodeWeekTotalsWindow);
+
+  /** Holds the record's totals read of the weeks from `from` to before `to` to the ones its jobs give, each once, none joined. */
+  const assertWeekTotals = (read: readonly WeekTotalsEntry[], jobs: Jobs, from: number, to: number): void => {
+    const expected = [...weekTotalsOf(jobs)].filter(([week]) => week >= from && week < to);
+    assert.ok(expected.length > 0, 'the jobs touch some of the weeks');
+    assert.equal(read.length, expected.length, 'a total for each of the weeks a job touches, and no other');
+    for (const entry of read) {
+      const at = printDateTime(entry.ik.tile);
+      const want = expected.find(([week]) => week === entry.ik.tile.getTime())?.[1];
+      assert.ok(want !== undefined, `the totals hold the week of ${at}, which a job touches`);
+      assert.ok(integerEqual(entry.value.count, want.count), `the jobs touching the week of ${at}, on any press: ${entry.value.count} read, ${want.count} there`);
+      assert.ok(integerEqual(entry.value.ms, want.ms), `the time they cover of it: ${entry.value.ms} ms read, ${want.ms} there`);
+      assert.ok(unjoined(entry.row, none), `the week of ${at} names no row`);
+    }
+  };
+
   /** Holds every total read to the ones the jobs give, each once, none joined. */
   const assertTotals = (read: readonly TotalsEntry[], jobs: Jobs): void => {
     const expected = totalsOf(jobs);
@@ -489,9 +532,11 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const opts = await ctx.opts();
       const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'jobs', opts);
       assert.deepEqual(sig.indexes.map(({ name, multi, summary, built }) => [name, multi, summary, built]),
-        [[SERIES, true, false, true], [TOTALS, true, true, true]]);
+        [[SERIES, true, false, true], [TOTALS, true, true, true], [WEEK_TOTALS, true, true, true]]);
       assert.ok(isTypeValueEqual(sig.indexes[0]!.keyType, toEastTypeValue(JobPressLevelTileKeyType)), 'the series is keyed by a press, a level, then a tile');
       assert.ok(isTypeValueEqual(sig.indexes[1]!.keyType, toEastTypeValue(JobPressWeekKeyType)), 'the summary by a press, then a week');
+      assert.ok(isTypeValueEqual(sig.indexes[2]!.keyType, toEastTypeValue(JobWeekKeyType)), 'the summary with no key by a week alone (#1732)');
+      assert.ok(isTypeValueEqual(sig.indexes[2]!.valueType, toEastTypeValue(RecordSummaryTotalsType)), 'it holds its totals too');
       assert.ok(isTypeValueEqual(sig.indexes[0]!.valueType, toEastTypeValue(JobRowType)), 'the series carries the row whole');
       assert.ok(isTypeValueEqual(sig.indexes[1]!.valueType, toEastTypeValue(RecordSummaryTotalsType)), 'the summary holds its totals');
       assert.ok(isTypeEqual(SeriesWindowType, indexWindowType(StringType, JobPressLevelTileKeyType, JobRowType, JobRowType)),
@@ -563,6 +608,25 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       }
     });
 
+    it('totals each week as the jobs on any press touching it, read as one range of the summary with no key, a span of weeks or a few (#1732)', async (t) => {
+      const { ctx, ws, hash, jobs } = await withJobs(t);
+      // The whole span: the weeks before the first job to well past the last one's end, in one search.
+      const first = weekHolding(JOBS_FROM.getTime());
+      const span = await readWeekTotals(ctx, ws, hash, first - 2 * WEEK_MS, first + 20 * WEEK_MS);
+      assertWeekTotals(span, jobs, first - 2 * WEEK_MS, first + 20 * WEEK_MS);
+      assert.ok(span.length >= 10, `ten weeks of jobs, a total each: ${span.length}`);
+      // One entry a week, whatever the presses: each the sum of the week's totals in the summary by press.
+      const byPress = await readTotals(ctx, ws, hash);
+      for (const entry of span) {
+        const week = byPress.filter((total) => total.ik.tile.getTime() === entry.ik.tile.getTime());
+        const count = week.reduce((sum, total) => sum + total.value.count, 0n);
+        assert.ok(week.length > 1 && integerEqual(entry.value.count, count),
+          `the week of ${printDateTime(entry.ik.tile)}: ${entry.value.count}, its ${week.length} presses' ${count}`);
+      }
+      // A few weeks inside it: their totals alone.
+      assertWeekTotals(await readWeekTotals(ctx, ws, hash, first + 3 * WEEK_MS, first + 5 * WEEK_MS), jobs, first + 3 * WEEK_MS, first + 5 * WEEK_MS);
+    });
+
     it('a job moved three weeks on leaves the week it left, in the series and the totals, and is read and totalled where it went', async (t) => {
       const { ctx, ws, hash, jobs } = await withJobs(t);
       const opts = await ctx.opts();
@@ -593,6 +657,9 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
         assert.ok(entry !== undefined && jobEqual(entry.value, next.get(moved)!), `it is read in the ${filed.level} of ${printDateTime(new Date(filed.tile))}, its row as moved`);
       }
       assertTotals(await readTotals(ctx, ws, movedHash), now);
+      // And the record's totals a week (#1732): the week it left counts one fewer, the one it went to one more.
+      const first = weekHolding(JOBS_FROM.getTime());
+      assertWeekTotals(await readWeekTotals(ctx, ws, movedHash, first - 2 * WEEK_MS, first + 20 * WEEK_MS), now, first - 2 * WEEK_MS, first + 20 * WEEK_MS);
     });
 
     it('reads a job a hundred days long, and one three years long, once each among a block\'s runs, each filed where its length fits', async (t) => {
