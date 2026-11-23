@@ -102,7 +102,7 @@ export {
 // hints, patches and types (`Record.column.*`, `Record.register.*`,
 // `Record.field`, `Record.patch`, `Record.Types`).
 export {
-    Record, type RecordNamespace, type RecordColumnSpec, type RecordColumnGroupInput, type RecordNounInput, type RecordCommon,
+    Record, type RecordNamespace, type RecordColumnSpec, type RecordColumnGroupInput, type RecordNounInput, type RecordCommon, type RecordTickOptions,
 } from './record/index.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';

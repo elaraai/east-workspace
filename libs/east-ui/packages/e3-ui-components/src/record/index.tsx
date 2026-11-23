@@ -48,6 +48,11 @@
  * the ticks with every draft (AD6), and a new search or filter drops them, so
  * Delete never takes a row the narrowing hides.
  *
+ * The select column shows where its ticks are acted on: Delete, or the app's
+ * `onTick`, which hears every ticked row's key after each change of the ticks
+ * — Add and Delete on or off, read only too (east-workspace#1737). With
+ * neither, there is no select column, as there is none on a phone.
+ *
  * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
  * the title column pinned at the left, the Sheet's pager stepping through the
@@ -69,7 +74,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { Box, useToken } from "@chakra-ui/react";
-import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
+import { SortedSet, StringType, compareFor, equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerWidth,
@@ -109,6 +114,9 @@ const payloadEquivalent = equivalentFor(RecordPayloadType);
 
 /** The select column's width, px (SL1): 20 in, the 14 box, 12 out. */
 const SELECT_PX = 46;
+
+/** The order of a set of row ids, as East orders their Strings. */
+const compareIds = compareFor(StringType);
 
 /**
  * The narrowest main gets beside a pinned inspector, px: wider than a phone's
@@ -161,9 +169,27 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const [rowHeight] = useToken("sizes", [`row.${density}`]);
     const rowPx = Number.parseInt(rowHeight ?? "", 10);
     const styles = useSlotStyles("record", { density });
-    // A read-only Record has no select column: nothing it ticks could be acted on.
     const readOnly = (getSomeorUndefined(value.sheet.readOnly) ?? false) || value.sheet.editing.onApply.type === "none";
     const [ticks] = useState(createRecordTicks);
+    // The select column shows where its ticks are acted on (east-workspace#1737): Delete, or the app's `onTick`.
+    const onTick = getSomeorUndefined(value.sheet.onTick);
+    const tickable = onTick !== undefined || (!readOnly && value.sheet.editing.edits.removeRows);
+    // The app hears the ticks: after each change, every ticked row's id — which the payload's function reads back as its
+    // key — in a microtask, as the Sheet calls `onSelect`. A change that leaves the same rows ticked says nothing.
+    const onTickRef = useRef(onTick);
+    onTickRef.current = onTick;
+    useEffect(() => {
+        let heard: ReadonlySet<string> = new Set();
+        return ticks.subscribe(() => {
+            const ids = [...ticks.held().keys()];
+            if (ids.length === heard.size && ids.every((id) => heard.has(id))) return;
+            heard = new Set(ids);
+            const call = onTickRef.current;
+            if (call === undefined) return;
+            const ticked = new SortedSet(ids, compareIds);
+            queueMicrotask(() => call(ticked));
+        });
+    }, [ticks]);
     const [status] = useState(createRecordStatus);
     // The grid is a phone's as its frame is, 560 wide or less — never as main is, which an overlaid inspector's rail
     // leaves narrower than the frame. Until the frame is laid out, the grid's own width decides.
@@ -231,7 +257,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const forms = getSomeorUndefined(value.inspector)?.forms;
     const host = useMemo((): SheetHost => ({
         grid: {
-            rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
+            rowPx, leadPx: tickable ? SELECT_PX : 0, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
             Strip: RecordStrip, onOpen: inspector ? onOpen : undefined,
         },
         phone,
@@ -240,7 +266,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         forms,
         // Whether its Autosave begins on, as its author says.
         autosave: value.autosave,
-    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
+    }), [rowPx, tickable, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
     const grid = useMemo((): RecordGrid => ({ styles, density, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, density, ticks, value.columnGroups, noun, title, inspector]);
@@ -318,6 +344,9 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     // The rows ticked: what Delete deletes and the status line counts — a row a paged record has dropped as the grid
     // scrolled on among them, its tick holding what the Sheet held of it (#1579).
     ticks.holdWith(entries.hold);
+    // A ticked row a gesture moves under another key keeps its tick, under the key it stands under now (east-workspace#1737).
+    const moved = entries.moved;
+    useEffect(() => { ticks.follow(moved); }, [moved, ticks]);
     const tickVersion = useSyncExternalStore(ticks.subscribe, ticks.version);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tickVersion moves with every tick: the ticks are a store read by its version.
     const ticked = useMemo(() => ticks.size(), [ticks, tickVersion]);

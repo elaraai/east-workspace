@@ -10,7 +10,7 @@
  * title, a person, a boolean, a toggle, a cycle, the time since a moment and
  * the last change the app kept. Every edit is a draft of the shared editing
  * session behind one history bar; Add drafts a record and Delete drafts a
- * removal.
+ * removal. The app hears the rows its select column ticks (`onTick`).
  *
  * Its rows come from one of two sources:
  * - `record`, an e3 record bound with its patch mutation: its entries, in key
@@ -42,6 +42,9 @@ import {
     some,
     type EastType,
     type ExprType,
+    type FunctionType,
+    type NullType,
+    type SetType,
     type StructType as StructTypeOf,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -189,6 +192,25 @@ export interface RecordCommon<R extends StructTypeOf, C> {
     name?: string;
 }
 
+/**
+ * What a Record's app hears of the rows its select column ticks (east-workspace#1737).
+ *
+ * @typeParam K - The record's key type
+ */
+export interface RecordTickOptions<K extends EastType> {
+    /**
+     * The ticked rows' keys, after each change of the ticks: a row's box ticked or unticked, the header's box ticking
+     * every row shown or unticking them, and the ticks the Record lets go itself — Delete's, Discard's, a new search's or
+     * filter's, a row Details deletes. Each change is one call with the whole Set as it now stands, at the record's key
+     * type, a ticked row a paged record has scrolled away from among it, and a ticked row an edit moves under another key
+     * (`rowKey`) under the key it stands under now — an Undo putting it back. The Record starts with none ticked, and calls
+     * it then for nothing. Given, the select column shows — Delete on or off, read only too — as it does wherever Delete
+     * is on; with neither, the Record has none, and on a phone it has none. Passed through untouched, never called at
+     * build: an East function over `SetType(K)`, or a bare lambda, which is built at that type.
+     */
+    onTick?: SubtypeExprOrValue<FunctionType<[SetType<K>], NullType>>;
+}
+
 // ============================================================================
 // The payload
 // ============================================================================
@@ -199,6 +221,7 @@ type RecordAnyProps = {
     title?: string;
     noun?: RecordNounInput;
     columnGroups?: readonly RecordColumnGroupInput<string>[];
+    onTick?: unknown;
 } & Record<string, unknown>;
 
 /** The Sheet's props a Record has no use for, each with what the Record does instead. */
@@ -233,11 +256,11 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `rowKey` on a Record handed no record, beside `newKey`, that builds no key of its key's type, or that reads the field `keyField` names; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; an `onTick` over anything but a Set of the record's keys; a `keyField` on a Record handed no record, or that is no field of its rows of its key's type; a `rowKey` on a Record handed no record, beside `newKey`, that builds no key of its key's type, or that reads the field `keyField` names; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
-    const { title, noun, columnGroups, ...sheet } = props as RecordAnyProps;
+    const { title, noun, columnGroups, onTick, ...sheet } = props as RecordAnyProps;
     for (const [prop, instead] of Object.entries(NOT_A_RECORD_PROP)) {
         if (prop in sheet) throw new Error(`Record: takes no \`${prop}\` — ${instead}`);
     }
@@ -271,7 +294,8 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
     let built: SheetPayloadParts;
     try {
         // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
-        built = createSheetPayload({ ...sheet, blanks: 0, ...(titleKey !== undefined && { narrow: { pin: titleKey } }) }, { recordKinds: true }) as unknown as SheetPayloadParts;
+        // The rows its select column ticks reach the app at the record's key type, read back from their ids as the Sheet's root reads a key (east-workspace#1737).
+        built = createSheetPayload({ ...sheet, blanks: 0, ...(titleKey !== undefined && { narrow: { pin: titleKey } }) }, { recordKinds: true, ...(onTick !== undefined ? { onTick } : {}) }) as unknown as SheetPayloadParts;
     } catch (e) {
         throw new Error(`Record: ${(e as Error).message.replace(/^Sheet: /, "")}`);
     }
@@ -333,7 +357,8 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
  * `record` by key (east-workspace#1622). Where the rows hold their own key in
  * a field, `keyField` names it, and a record the Record adds holds its key
  * there. Where the app builds a row's key from the row, `rowKey` does, and a row
- * stands under the key it builds.
+ * stands under the key it builds. `onTick` hears the keys of the rows its select
+ * column ticks, after each change of the ticks.
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
@@ -358,7 +383,7 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
         rowKey?: KindKeyBuilder<R, K>;
         slice?: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
+    } & RecordCommon<R, C> & RecordTickOptions<K> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 /**
  * `<Record slice={{ slice }} columns={{ … }} />`
@@ -371,7 +396,7 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
     props: {
         slice: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
+    } & RecordCommon<R, C> & RecordTickOptions<K> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 export function RecordTag(props: { columns: unknown }): UIElement {
     return RecordComponent.Root(createRecordPayload(props as { columns: unknown } & { [prop: string]: unknown }));

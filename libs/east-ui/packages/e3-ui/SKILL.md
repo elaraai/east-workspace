@@ -207,7 +207,8 @@ Task → What do you need?
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
     │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
     │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
-    │   ├─ What the host hears of the rows                    → onRowClick={fn(Record.Types.RowClick(K))} each click — the row's key at the record's key type, the column — a panel beside it reads · onSelect · selection, the Sheet's
+    │   ├─ No Add, no Delete, no edit at all                  → edits={{ insertRows: false }} (no Add, no Duplicate) · edits={{ removeRows: false }} (no Delete, in the toolbar or Details) · readOnly
+    │   ├─ What the host hears of the rows                    → onRowClick={fn(Record.Types.RowClick(K))} each click — the row's key at the record's key type, the column — a panel beside it reads · onTick={fn(SetType(K))} after each change of the ticks — every ticked row's key at the record's key type; the tick boxes show where Delete or onTick acts on them · onSelect · selection, the Sheet's
     │   └─ Narrow it — one rail, the record beside it        → slice={{ slice: Slice.bindRecords(key, { rows }) }} + record={record} (the record its `rows` source pages; without it, read only)
     │
     ├─ Schedule bound records on a calendar — the Calendar

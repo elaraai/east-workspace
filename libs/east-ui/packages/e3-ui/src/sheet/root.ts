@@ -437,6 +437,11 @@ export interface SheetInternalOptions {
      * what its key reads. One way a new entry's key is decided, the sheet's `newKey` the other: never both.
      */
     rowKey?: unknown;
+    /**
+     * A Record's app's function over its ticked rows' keys (`<Record onTick>`, east-workspace#1737), held to a Set of
+     * the rows' keys and handed the ticked rows' ids read back as their keys. `<Record>`'s build alone passes it.
+     */
+    onTick?: unknown;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -860,6 +865,35 @@ function rowClickOf(keyType: EastType, onRowClick: unknown, hold: SheetHold | un
         const heard = $.const(app);
         const parse = $.const(keyOf);
         $(heard({ key: parse(click.rowId), index: click.index, column: click.column }));
+    });
+    return hold !== undefined ? hold(wire) : wire;
+}
+
+/**
+ * The app's `onTick` on the wire (east-workspace#1737): held to a Set of the rows' keys, `keyType`'s, and wrapped so the
+ * Record's ticks — its rows by their ids, as every wire row is — reach it as their keys, each read back from its id as
+ * every builder reads a key's text ({@link keyOfText}). Never called here.
+ *
+ * @param keyType - The rows' key type: a record's own; `String` where the rows are identified by an id field
+ * @param onTick - The app's function over `SetType(K)`, or a bare lambda, built at that type
+ * @param hold - Binds the wrapper once in the block the sheet is built in, where it is built in one
+ * @returns The function the Record calls with its ticked rows' ids after each change of its ticks
+ * @throws {Error} When the function takes anything but a Set of the rows' keys, or gives anything but Null
+ */
+function tickOf(keyType: EastType, onTick: unknown, hold: SheetHold | undefined): ExprType<FunctionType<[SetType<StringType>], NullType>> {
+    const takes = SetType(keyType);
+    if (onTick instanceof Expr) {
+        const type = Expr.type(onTick) as EastType;
+        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, takes) || !isTypeEqual(type.output, NullType)) {
+            throw new Error(`Sheet: \`onTick\` hears the ticked rows' keys — East.function([SetType(K)], NullType, …), K the rows' key type, here ${printType(keyType)}`);
+        }
+    }
+    const app = East.value(onTick as SubtypeExprOrValue<FunctionType<[typeof takes], NullType>>, FunctionType([takes], NullType));
+    const keyOf = keyOfText(keyType);
+    const wire = East.function([SetType(StringType)], NullType, ($, ids) => {
+        const heard = $.const(app);
+        const parse = $.const(keyOf);
+        $(heard(ids.toSet(($2, id) => parse(id)) as ExprType<typeof takes>));
     });
     return hold !== undefined ? hold(wire) : wire;
 }
@@ -1407,6 +1441,9 @@ function buildSheet(
             : none,
         onRowClick:    rowClick !== undefined ? some(rowClick) : none,
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
+        // A Record's ticks (east-workspace#1737): the app's function held to the rows' key type, the ticked rows' ids read
+        // back as their keys.
+        onTick:        internal.onTick !== undefined ? some(tickOf(keyType ?? StringType, internal.onTick, internal.hold)) : none,
         newKey:        newKey !== undefined ? some(newKey) : none,
         group:         groupValue,
         readOnly:      opts.readOnly !== undefined ? some(opts.readOnly) : none,

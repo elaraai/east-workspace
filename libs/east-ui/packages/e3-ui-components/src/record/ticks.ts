@@ -12,6 +12,8 @@
  * A tick outlives its row's place among the rows read (#1579): a paged record
  * drops a row as the grid scrolls far from it, and its tick stays, holding
  * what the Sheet held of the row as it was ticked — so Delete takes it still.
+ * A tick follows its row as an edit moves it under another key (`rowKey`), and
+ * as an Undo puts it back (east-workspace#1737).
  *
  * @packageDocumentation
  */
@@ -43,6 +45,8 @@ export interface RecordTicks {
     held: () => ReadonlyMap<string, Held>;
     /** Where a tick takes what the Sheet holds of its row: the frame's, as the Sheet's rows stand. */
     holdWith: (hold: (id: string) => Held) => void;
+    /** Moves the tick of each row a gesture put under another key to the key it stands under now: each by the key it left. */
+    follow: (moves: ReadonlyMap<string, string>) => void;
 }
 
 /**
@@ -78,5 +82,12 @@ export function createRecordTicks(): RecordTicks {
         size: () => ticked.size,
         held: () => ticked,
         holdWith: (next) => { hold = next; },
+        follow: (moves) => {
+            if (![...ticked.keys()].some((id) => moves.has(id))) return;
+            change(new Map([...ticked].map(([id, held]) => {
+                const to = moves.get(id);
+                return to === undefined ? [id, held] as const : [to, hold(to)] as const;
+            })));
+        },
     };
 }

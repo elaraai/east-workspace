@@ -142,6 +142,13 @@ export interface SheetEntries {
      * version as it stands now, or `undefined` for a row not read. Stable.
      */
     hold: (id: string) => SheetEntryHold | undefined;
+    /**
+     * The rows the last gesture to move one put under another key, each by the key it left — over a record whose rows'
+     * keys the app builds from them (`rowKey`), or as an Undo or a Redo of such a gesture put them back: the session's
+     * map, a new one with each such gesture. What a host keeps by a row's id follows the row by it, as the ring does — a
+     * Record's ticks (east-workspace#1737).
+     */
+    moved: ReadonlyMap<string, string>;
 }
 
 /** What a host holds of a row to remove it later ({@link SheetEntries.hold}): its version — its draft, its wire row and its place. */

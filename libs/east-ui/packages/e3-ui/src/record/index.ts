@@ -40,6 +40,7 @@ export {
     type RecordColumnGroupInput,
     type RecordNounInput,
     type RecordCommon,
+    type RecordTickOptions,
 } from "./record.js";
 
 /**

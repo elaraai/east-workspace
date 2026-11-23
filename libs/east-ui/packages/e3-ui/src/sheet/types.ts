@@ -1358,6 +1358,7 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property onSelect - The ring moved
  * @property onRowClick - A pointer click on a row (east-workspace#1727) — never a key, nor a press that ticks, steps a cell, drags or takes an action: the author's `onRowClick`, its row read back from the row's id ({@link SheetRowClickType})
  * @property selection - Controlled selection when `some`
+ * @property onTick - A Record's ticked rows, after each change of its ticks (east-workspace#1737): their ids, which the app's `onTick` hears read back as the record's keys; `none` where the Record is given no `onTick`, and on every Sheet
  * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; with none, an Integer key's one past the largest (#1549); `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
  * @property readOnly - The whole sheet is read-only
@@ -1383,6 +1384,7 @@ export const SheetRootType = StructType({
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     onRowClick:    OptionType(FunctionType([SheetRowClickType], NullType)),
     selection:     OptionType(SheetSelectionType),
+    onTick:        OptionType(FunctionType([SetType(StringType)], NullType)),
     newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
     readOnly:      OptionType(BooleanType),
