@@ -184,7 +184,7 @@ export type SheetNotice =
      */
     | { id: "cantAdd"; what: "row" | "line" | "group"; noun: string | undefined; label: string }
     /**
-     * A row not added, or not moved, for its key, where the app builds a row's key from the row (`key`,
+     * A row not added, or not moved, for its key, where the app builds a row's key from the row (`rowKey`,
      * east-workspace#1709): what it is — a row, or a grouped sheet's group in the host's word — and why: the key it
      * builds is another row's, or none could be built. The gesture drafted nothing. `row` names the entry refused, by its
      * id: a row the sheet draws where the gesture would have moved one, which the grid marks; a row never added names

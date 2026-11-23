@@ -242,7 +242,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     // editor whose row left closes (#877). Only a move of the SOURCE's rows
     // is followed: the sheet's own writes put the ring where the new rows
     // have it — but for a gesture that put rows under other keys, where the
-    // app builds a row's key from the row (`key`): the rows stand in key
+    // app builds a row's key from the row (`rowKey`): the rows stand in key
     // order, so it moved them, and a place on a row follows it to the key it
     // stands under now. A padding row's place stays the gesture's to set.
     const rowSpaceSlots = useMemo(() => rowSpace.bodyIndexOf.map((bi) => slotOf(body[bi]!)), [rowSpace, body]);

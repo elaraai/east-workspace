@@ -572,7 +572,7 @@ status — the periods' published case, with the time when it holds one — and
 saves the periods, so a published week never sits over unsaved rows. A new
 duty's or target's key is its session's to make, as every builder's new rows'
 are (east-workspace#1709): the app's `newKey` where the kind gives one, the key
-its row builds where it gives `key` — a duty an edit changes what that reads
+its row builds where it gives `rowKey` — a duty an edit changes what that reads
 moving under the key it then builds — and else by the record's key type, past
 every key the Roster has read and drafted: a String key made up at random, an
 Integer key one past the largest.

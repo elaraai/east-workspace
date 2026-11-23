@@ -247,7 +247,7 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     linkEndRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
     /** Why Connect's draft doesn't land: the kind's record holds a link under the key this one's row builds. */
     linkHeld: (p: { kind: string }) => string;
-    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `key` failed. */
+    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `rowKey` failed. */
     linkUnkeyed: (p: { kind: string }) => string;
     /** Why Connect's draft doesn't land: the kind's new row failed as it was made. */
     linkFailed: (p: { kind: string }) => string;

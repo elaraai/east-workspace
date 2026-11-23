@@ -604,7 +604,7 @@ describe("an event kind's window that fails, on the footer's line (#1398)", () =
 });
 
 /**
- * The print works' jobs with its optimiser, each keyed by the key its customer builds (`key`, east-workspace#1709) — the
+ * The print works' jobs with its optimiser, each keyed by the key its customer builds (`rowKey`, east-workspace#1709) — the
  * field of its row its form edits — and the inspector a person types a job's customer in.
  */
 const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -622,7 +622,7 @@ const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" }, state: "state",
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                key: (j) => j.customer,
+                rowKey: (j) => j.customer,
             }),
         },
         library: [Plan.library.backlog()],

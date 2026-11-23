@@ -39,7 +39,7 @@
  *   while the answer is read; the app's own `ready` is asked beside it. A key
  *   the Flowchart holds already is refused as it is typed (`edits.ts`).
  * - **A new row's key (#1549)** is its kind's to make (`newKey`): built from
- *   the row by the kind's `key`; else by the app's own rule, the kind's
+ *   the row by the kind's `rowKey`; else by the app's own rule, the kind's
  *   `newKey`, given the keys taken — its session's to ask; else, keyed by
  *   String, the text the gesture makes up; by Integer, one past the largest
  *   the record, the drafts and the gesture hold — a kind read through its
@@ -169,7 +169,7 @@ export interface FlowchartMove {
 }
 
 /**
- * A row whose kind's `key` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
+ * A row whose kind's `rowKey` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
  * records nothing — the footer says no key can be made for it.
  */
 export interface FlowchartMoveFailed {
@@ -255,12 +255,12 @@ export interface FlowchartEditing {
     mintTransition(minted: ReadonlySet<string>): string;
     /**
      * A new row's key, as its kind makes one (#1549; the module docs): built from the row the edit makes, by the
-     * kind's `key`, refused where a row holds it; else by the app's rule, the kind's `newKey`; else, keyed by String,
+     * kind's `rowKey`, refused where a row holds it; else by the app's rule, the kind's `newKey`; else, keyed by String,
      * the text the gesture makes up; by Integer, one past the largest; by a type the form types, the text made up as a
      * placeholder; by any other, none.
      *
      * @param sort - The row's kind
-     * @param made - The edit making the row, under any key: what the kind's `key` builds its key from
+     * @param made - The edit making the row, under any key: what the kind's `rowKey` builds its key from
      * @param madeUp - The text the gesture makes up, unique by what it is told is taken: `lane-<n>`, `state-<n>`, a UUID
      * @param minted - The keys the gesture has made already
      * @returns The key, or why there is none — the app's rule giving a key a row holds, or failing, among them;
@@ -272,15 +272,15 @@ export interface FlowchartEditing {
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
      * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
      * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
-     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `key` built none of as the gesture
+     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `rowKey` built none of as the gesture
      * found it moves under the key the edit gives it, and one it fails on as the gesture leaves it refuses the gesture.
      *
      * @param edits - The gesture's edits
-     * @returns Each row it moves, and the key it moves under; or the row its kind's `key` failed on
+     * @returns Each row it moves, and the key it moves under; or the row its kind's `rowKey` failed on
      */
     moves(edits: readonly FlowchartEdit[]): readonly FlowchartMove[] | FlowchartMoveFailed;
     /**
-     * Whether a kind builds a new row's key from its row: its `key`, which a key field never edits (#1549).
+     * Whether a kind builds a new row's key from its row: its `rowKey`, which a key field never edits (#1549).
      *
      * @param sort - The kind
      */
@@ -330,7 +330,7 @@ const NO_MINTED: ReadonlySet<string> = new Set<string>();
 const NO_MOVES: readonly FlowchartMove[] = [];
 
 /**
- * The function a kind builds a new row's key from its row with (#1549): its `key`.
+ * The function a kind builds a new row's key from its row with (#1549): its `rowKey`.
  *
  * @param kind - The kind
  * @returns It; `undefined` for a kind that builds none — a decision's among them

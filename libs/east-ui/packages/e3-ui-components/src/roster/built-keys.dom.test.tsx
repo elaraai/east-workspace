@@ -5,7 +5,7 @@
  */
 
 /**
- * A Roster whose duty kind builds each duty's key from its row (`key`,
+ * A Roster whose duty kind builds each duty's key from its row (`rowKey`,
  * east-workspace#1709): the warehouse's duties keyed by their note. A duty's
  * own form that writes its note moves the duty under the key it then builds,
  * still selected, and Save writes it there; a note that builds a key another
@@ -70,7 +70,7 @@ const sameCover = equalFor(ex.WarehouseCover);
 
 /** How a test's Roster keys its duties: by the key a duty's row builds, by the app's own rule, or holding each one's key in a field. */
 type DutyKeys =
-    | { readonly key: (duty: ExprType<typeof ex.WarehouseDuty>) => ExprType<StringType> }
+    | { readonly rowKey: (duty: ExprType<typeof ex.WarehouseDuty>) => ExprType<StringType> }
     | { readonly newKey: true }
     | { readonly keyField: "note" };
 
@@ -131,7 +131,7 @@ const keyedRoster = (keys: DutyKeys | undefined, numbered: { readonly duties?: t
                 day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours",
                 ...(coverEntries === undefined ? {} : {
                     entries: coverEntries as never,
-                    key: ((row: ExprType<typeof ex.WarehouseCover>) => ({ day: row.day, team: row.team, shift: row.shift })) as never,
+                    rowKey: ((row: ExprType<typeof ex.WarehouseCover>) => ({ day: row.day, team: row.team, shift: row.shift })) as never,
                 }),
             }) }),
         });
@@ -139,7 +139,7 @@ const keyedRoster = (keys: DutyKeys | undefined, numbered: { readonly duties?: t
 });
 
 /** The duties keyed by their note. */
-const keyedByNote = keyedRoster({ key: (duty) => duty.note });
+const keyedByNote = keyedRoster({ rowKey: (duty) => duty.note });
 
 /** Requests Northside Staffing for Sunday's inbound night shift, Saves, and gives the duties as they were and as e3 then holds them. */
 async function requested(example: ReturnType<typeof keyedRoster>) {
@@ -166,7 +166,7 @@ describe("a Roster's new duty under the app's rule, and holding its key in a fie
     });
 });
 
-describe("a Roster over duties and cover targets keyed by number, given neither `key` nor `newKey` (east-workspace#1709)", () => {
+describe("a Roster over duties and cover targets keyed by number, given neither `rowKey` nor `newKey` (east-workspace#1709)", () => {
     test("ruling 10 — over duties keyed by number, a duty requested of an agency is one past the largest number the record holds — 8, past 3 and 7 — never a key made up, and Save writes it there", async () => {
         // Two of the warehouse's duties, numbered 3 and 7.
         const [first, second] = [...(await h.read(ex.rosterDuties)).values()];

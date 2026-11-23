@@ -320,7 +320,7 @@ optimiseCases<typeof ex.kilnBins.type.value>({
     // Each bin keyed by its measured spec: one the answer measures anew stands under it; one measured as another bin's key, refused.
     keyed: {
         mounted: async () => {
-            const { container } = await h.mount(kilnYard({ key: (bin) => bin.specMeasured, optimise: true }));
+            const { container } = await h.mount(kilnYard({ rowKey: (bin) => bin.specMeasured, optimise: true }));
             await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
             return container;
         },

@@ -8,7 +8,7 @@
  * one rule the Flowchart's kinds and the Schematic's follow, each over a
  * record of the app's keyed by any type a Dict takes (`kind-keys.ts`):
  *
- * - **built** from the row by the kind's `key`, refused where a row stands
+ * - **built** from the row by the kind's `rowKey`, refused where a row stands
  *   under it or building it fails;
  * - its **session**'s to make — by the app's own rule, the kind's `newKey`,
  *   given the keys taken, or, keyed by Integer, one past the largest — refused
@@ -46,14 +46,14 @@ export type NewRowKey =
     | { readonly taken: string }
     /** None: its kind's keys are of a type the form can't type — by the type's name — and its kind makes none. */
     | { readonly untyped: string }
-    /** None: no key could be made — its kind's `key` failed as it built one from the row, or the app's `newKey` failed. */
+    /** None: no key could be made — its kind's `rowKey` failed as it built one from the row, or the app's `newKey` failed. */
     | { readonly failed: true };
 
 /**
  * How a kind keys the rows it adds (see the module docs).
  *
  * @param kind - The kind
- * @param builds - Whether it builds a row's key from the row: its `key`
+ * @param builds - Whether it builds a row's key from the row: its `rowKey`
  * @returns The rule
  */
 export function newRowKeyRule(kind: Pick<NewRowKeyKind, "keyType" | "newKey">, builds: boolean): NewRowKeyRule {
@@ -71,11 +71,11 @@ export interface NewRowKeyArgs {
     readonly kind: NewRowKeyKind;
     /** The kind's slot, or its record's key, in the shared editing. */
     readonly slot: string;
-    /** The function the kind builds a row's key from its row with (`key`); `undefined` for a kind that builds none. */
+    /** The function the kind builds a row's key from its row with (`rowKey`); `undefined` for a kind that builds none. */
     readonly build: ((row: Uint8Array) => string) | undefined;
     /** The shared editing: its session makes a key by the app's rule, or one past the largest, and says why it made none. */
     readonly editing: Pick<ScheduleEditing, "mint" | "keyRefusal">;
-    /** The change making the row, under any key: the row its kind's `key` builds a key from. Asked only of a kind that builds one. */
+    /** The change making the row, under any key: the row its kind's `rowKey` builds a key from. Asked only of a kind that builds one. */
     readonly made: () => ScheduleChange | undefined;
     /** The keys the gesture has made already. */
     readonly minted: ReadonlySet<string>;

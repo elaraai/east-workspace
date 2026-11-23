@@ -58,7 +58,7 @@ export const recordSlotsByText = e3.record("record_slots_by_text", DictType(Stri
 });
 
 export const recordBuiltKeysSliced = example({
-    keywords: ["Record", "key", "built key", "key from the row", "row key", "natural key", "East.str", "Slice", "Slice.bindRecords", "rows", "Data.bindPaged", "indexes",
+    keywords: ["Record", "rowKey", "built key", "key from the row", "row key", "natural key", "East.str", "Slice", "Slice.bindRecords", "rows", "Data.bindPaged", "indexes",
         "index.on", "filter", "search", "narrowing", "paging", "newRow", "key taken", "refused"],
     description: "A record whose rows' keys the app builds from the row, paged and narrowed by the rail: stock locations keyed by a text their aisle and their bin build, read a page at a time through the indexes the rail filters by zone and by aisle and searches by what they hold. A bin typed over moves its location under the key it then builds, and a Save writes it there — its row leaving the narrowing where its new aisle is one the rail filters out, which the footer says; a bin another location has is refused, in the danger tone, the row marked where it stands",
     fn: East.function([], UIComponentType, (_$) => (
@@ -81,7 +81,7 @@ export const recordBuiltKeysSliced = example({
                         slice={{ slice }}
                         record={locations}
                         // A location's key, built from its row: its aisle and its bin, as one text.
-                        key={(location) => East.str`${location.aisle}-${location.bin}`}
+                        rowKey={(location) => East.str`${location.aisle}-${location.bin}`}
                         title="Stock locations"
                         noun={{ singular: "location", plural: "locations" }}
                         columns={{
@@ -121,9 +121,9 @@ export const recordSlotsByStruct = e3.record("record_slots_by_struct", DictType(
 });
 
 export const recordStructKeysSliced = example({
-    keywords: ["Record", "key", "built key", "key from the row", "struct key", "composite key", "keyType", "typed key", "StructType", "Slice", "Slice.bindRecords", "rows",
+    keywords: ["Record", "rowKey", "built key", "key from the row", "struct key", "composite key", "keyType", "typed key", "StructType", "Slice", "Slice.bindRecords", "rows",
         "Data.bindPaged", "indexes", "index.on", "filter", "search", "narrowing", "paging", "newRow", "key taken", "refused", "#1696"],
-    description: "recordBuiltKeysSliced over a key that is no text: the same stock locations, under the same rail, keyed by a struct of their aisle and their bin, which `key` builds from the row as a struct. A record keyed by any type a Dict takes is a source of the rail: it pages through its indexes, filters by zone and by aisle and searches by what its rows hold as a text-keyed one does; a bin typed over moves its location under the struct it then builds, a Save writes it there, and a bin another location has is refused. The grid holds a key as East prints it, and reads it back at its own type",
+    description: "recordBuiltKeysSliced over a key that is no text: the same stock locations, under the same rail, keyed by a struct of their aisle and their bin, which `rowKey` builds from the row as a struct. A record keyed by any type a Dict takes is a source of the rail: it pages through its indexes, filters by zone and by aisle and searches by what its rows hold as a text-keyed one does; a bin typed over moves its location under the struct it then builds, a Save writes it there, and a bin another location has is refused. The grid holds a key as East prints it, and reads it back at its own type",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const locations = $.let(Record.bind(recordSlotsByStruct));
@@ -143,7 +143,7 @@ export const recordStructKeysSliced = example({
                         slice={{ slice }}
                         record={locations}
                         // A location's key, built from its row at the record's key type: a struct of its aisle and its bin.
-                        key={(location) => ({ aisle: location.aisle, bin: location.bin })}
+                        rowKey={(location) => ({ aisle: location.aisle, bin: location.bin })}
                         title="Stock locations"
                         noun={{ singular: "location", plural: "locations" }}
                         columns={{

@@ -43,7 +43,7 @@ function keyed(kind: NewRowKeyKind, over: Partial<NewRowKeyArgs> & { readonly he
 }
 
 describe("how a kind keys the rows it adds (#1549, east-workspace#1709)", () => {
-    test("ruling 1 — a kind's `key` builds it; else the app's `newKey`, or one past the largest Integer, is its session's; else a text, a placeholder, or none by its key type", () => {
+    test("ruling 1 — a kind's `rowKey` builds it; else the app's `newKey`, or one past the largest Integer, is its session's; else a text, a placeholder, or none by its key type", () => {
         expect([STRING, INTEGER, DATE, BLOB].map((type) => newRowKeyRule(racks(type), true))).toEqual(["built", "built", "built", "built"]);
         expect([STRING, INTEGER, DATE, BLOB].map((type) => newRowKeyRule(racks(type, true), false))).toEqual(["session", "session", "session", "session"]);
         expect([STRING, INTEGER, DATE, BLOB].map((type) => newRowKeyRule(racks(type), false))).toEqual(["text", "session", "placeholder", "none"]);

@@ -289,12 +289,12 @@ describe("a record that changed under the sheet's edits (rule 12)", () => {
     });
 });
 
-/** The orders with the shop's optimiser, each keyed by the key its reference builds (`key`, east-workspace#1709). */
+/** The orders with the shop's optimiser, each keyed by the key its reference builds (`rowKey`, east-workspace#1709). */
 const keyedOrders = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const orders = $.let(Record.bind(opt.optimiseWorkOrders));
     const optimise = $.let(Func.bind(opt.setDueDates));
     return Sheet({
-        record: orders, name: "sheetOptimiseKeyed", optimise, key: (order) => order.reference,
+        record: orders, name: "sheetOptimiseKeyed", optimise, rowKey: (order) => order.reference,
         columns: {
             reference: Sheet.column.text(opt.OptimiseWorkOrder, { header: "Reference" }),
             job: Sheet.column.text(opt.OptimiseWorkOrder, { header: "Job" }),

@@ -57,8 +57,8 @@ export const keyedReservations = e3.record("calendar_keyed_reservations", DictTy
 
 export const calendarBuiltKeysSliced = example({
     inputs: [],
-    description: "calendarBuiltKeys under the rail, over a key that is no text: machine reservations keyed by a struct of their machine and their start, which `key` on the event kind builds from the row, read a period at a time through their record's interval indexes and narrowed by machine, crew and dates. A record keyed by any type a Dict takes is a source of the rail. A reservation moved to another start or another machine moves under the struct it then builds and is saved there; one that would build a key another reservation holds is refused, the Calendar naming the key; and one moved out of what the rail keeps leaves the view once saved, which the footer says",
-    keywords: ["Calendar", "Calendar.events", "Schedule.events", "key", "built key", "key from the row", "struct key", "composite key", "keyType", "typed key", "StructType", "Slice",
+    description: "calendarBuiltKeys under the rail, over a key that is no text: machine reservations keyed by a struct of their machine and their start, which `rowKey` on the event kind builds from the row, read a period at a time through their record's interval indexes and narrowed by machine, crew and dates. A record keyed by any type a Dict takes is a source of the rail. A reservation moved to another start or another machine moves under the struct it then builds and is saved there; one that would build a key another reservation holds is refused, the Calendar naming the key; and one moved out of what the rail keeps leaves the view once saved, which the footer says",
+    keywords: ["Calendar", "Calendar.events", "Schedule.events", "rowKey", "built key", "key from the row", "struct key", "composite key", "keyType", "typed key", "StructType", "Slice",
         "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "index.interval", "narrowing", "double booking", "key taken", "refused", "move", "Record.bind", "#1696"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(keyedMachines, []));
@@ -79,7 +79,7 @@ export const calendarBuiltKeysSliced = example({
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ reservation: Calendar.events(held, { name: "Reservation", icon: "calendar", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, entries,
                 // A reservation's key, built from its row at the record's key type: a struct of its machine and its start.
-                key: row => ({ machine: row.machine, start: row.start }),
+                rowKey: row => ({ machine: row.machine, start: row.start }),
             }) }}
             slice={{ slice, affordances: ["fields", "summary"] }} />
         </Box>;

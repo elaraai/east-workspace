@@ -19,7 +19,7 @@
  * incomplete — a field missing, text that could not be read — refuses the
  * answer whole, naming the row (rule 11): the function read it as saved. An
  * answer is an edit like any other (east-workspace#1709, ruling 14): where
- * the app builds a row's key from the row (`key`), a row whose key it changes
+ * the app builds a row's key from the row (`rowKey`), a row whose key it changes
  * moves under the key its row builds, with what the runs left on it, and one
  * that would stand under another row's key, or whose key fails as it is built,
  * refuses the answer whole, in the words the footer says a refused key in.

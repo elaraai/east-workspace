@@ -7,7 +7,7 @@
  * Example 16's Plan as the link kinds' tests mount it (#1541, U10): the works'
  * centres, their four event kinds and the flows between them — a link kind
  * over a record — with its inspector, and the Plan's own `canConnect`, the
- * flows' `key` or their `newKey`, the print jobs' `key` or their `keyField`,
+ * flows' `rowKey` or their `newKey`, the print jobs' `rowKey` or their `keyField`,
  * the flows' presets or a binding that reads them only where a test gives one.
  */
 
@@ -37,14 +37,14 @@ export interface FlowsPlanOptions {
      * of the print works', through a rail of its own; left out, none, no rail and no library.
      */
     templates?: boolean;
-    /** The flows' `key`, built from a new flow's row; left out, a String key made up. */
-    key?: (flow: ExprType<typeof ex.PrintFlow>) => ExprType<StringType>;
+    /** The flows' `rowKey`, built from a new flow's row; left out, a String key made up. */
+    rowKey?: (flow: ExprType<typeof ex.PrintFlow>) => ExprType<StringType>;
     /** The flows' `newKey`, the app's rule for a new flow's key, built inside the Plan's own block; left out, a String key made up. */
     newKey?: () => ExprType<FunctionType<[SetType<StringType>], StringType>>;
     /** Whether the flows are read only, bound with `Data.bind`; left out, bound with their patch door. */
     readOnly?: boolean;
-    /** The print jobs' `key`, built from a job's row; left out, a String key made up. */
-    jobKey?: (job: ExprType<typeof ex.PrintJob>) => ExprType<StringType>;
+    /** The print jobs' `rowKey`, built from a job's row; left out, a String key made up. */
+    jobRowKey?: (job: ExprType<typeof ex.PrintJob>) => ExprType<StringType>;
     /** The print jobs' `keyField`, the field a job holds its key in; left out, none. */
     jobKeyField?: "customer";
 }
@@ -55,7 +55,7 @@ export interface FlowsPlanOptions {
  * @param options - The Plan's veto, the flows' key or their rule for one, the print jobs' key or their key field, whether the flows have templates and whether they are read only
  * @returns The program, for the harness's `mount`
  */
-export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly = false, jobKey, jobKeyField }: FlowsPlanOptions = {}) {
+export function flowsPlan({ canConnect, templates = false, rowKey, newKey, readOnly = false, jobRowKey, jobKeyField }: FlowsPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const works = $.let(Record.bind(ex.planLinkWorks, []));
         const plates = $.let(Record.bind(ex.planLinkPlates));
@@ -90,7 +90,7 @@ export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly
                 }),
                 job: Schedule.events(jobs, {
                     name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
-                    ...(jobKey === undefined ? {} : { key: jobKey }),
+                    ...(jobRowKey === undefined ? {} : { rowKey: jobRowKey }),
                     ...(jobKeyField === undefined ? {} : { keyField: jobKeyField }),
                 }),
                 binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
@@ -102,7 +102,7 @@ export function flowsPlan({ canConnect, templates = false, key, newKey, readOnly
                     from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
                     to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
                     quantity: { field: "sheets", unit: "k sheets" },
-                    ...(key === undefined ? {} : { key }),
+                    ...(rowKey === undefined ? {} : { rowKey }),
                     ...(newKey === undefined ? {} : { newKey: $.const(newKey()) }),
                     ...(templates ? {
                         templates: Schedule.templates($.const(FLOW_PRESETS, DictType(StringType, FlowPreset)), { name: (preset) => preset.name, values: (preset) => preset.values }),

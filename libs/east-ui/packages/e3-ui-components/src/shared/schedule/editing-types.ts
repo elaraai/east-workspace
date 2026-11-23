@@ -162,7 +162,7 @@ export interface ScheduleEditingRecord {
     readonly entries: ValueTypeOf<typeof ScheduleKindType>["entries"];
     /** The app's rule for a new row's key (`newKey`), given the keys taken; none unless given, and its session makes one by its key's type. */
     readonly newKey?: ValueTypeOf<typeof ScheduleKindType>["newKey"] | undefined;
-    /** A row's key's text, built from its row (`key`): a new row stands under it, and a row moves under it as an edit changes what it reads; none unless given. */
+    /** A row's key's text, built from its row (`rowKey`): a new row stands under it, and a row moves under it as an edit changes what it reads; none unless given. */
     readonly rowKey?: ValueTypeOf<typeof ScheduleKindType>["rowKey"] | undefined;
     /** The app's check over its drafted rows, which holds Save, naming the row; none unless given. */
     readonly ready?: ValueTypeOf<typeof ScheduleKindType>["ready"] | undefined;
@@ -259,7 +259,7 @@ export type ScheduleLanded = ReadonlyMap<string, ScheduleLandedRows>;
 export type ScheduleRenumbered = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
 /**
- * Why a gesture added or moved no row (east-workspace#1709): the key its row builds (`key`), or the one the app's rule
+ * Why a gesture added or moved no row (east-workspace#1709): the key its row builds (`rowKey`), or the one the app's rule
  * gave (`newKey`), is `taken` — by the row of that key — making it `failed`, or rows that name the row by its key cannot
  * follow it (`named`).
  */
@@ -474,7 +474,7 @@ export interface ScheduleEditing<I extends Item = Item> {
     /**
      * A new event's key, as its text — its kind's session's to make
      * (`EditSession.mint`): for a kind that builds its keys from its rows
-     * (`key`), one made up to stand for the row until the gesture is recorded,
+     * (`rowKey`), one made up to stand for the row until the gesture is recorded,
      * which moves it under the key its row builds ({@link ScheduleEditing.renumbered});
      * by the app's own rule where its kind gives one
      * (`newKey`), given every key known taken — of a record read a window at
@@ -503,7 +503,7 @@ export interface ScheduleEditing<I extends Item = Item> {
      * record's row given whole, rewritten from the row as it stands, or
      * removed.
      *
-     * A kind that builds its keys from its rows (`key`) has each row stand under the key its row builds: a row the
+     * A kind that builds its keys from its rows (`rowKey`) has each row stand under the key its row builds: a row the
      * gesture makes, under whatever key it was made, and a row whose edit changes the key its row builds
      * ({@link ScheduleEditing.renumbered}). Where another row stands under that key, or building it fails, nothing of the
      * gesture is recorded, and {@link ScheduleEditing.keyRefusal} says why.

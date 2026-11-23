@@ -1479,7 +1479,7 @@ Each wire changed under this rule, with the kind it is.
   the Allocation's bins, each inside its builder's own kind) gains `newKey`
   and `rowKey`, after `entries`: the app's rule for a new row's key, given the
   keys taken, each as its text (`Option<Function([Set<String>], String)>`),
-  and the key's text the app's `key` builds from a row's bytes
+  and the key's text the app's `rowKey` builds from a row's bytes
   (`Option<Function([Blob], String)>`), `none` for a kind given neither. The
   Roster's cover targets (`RosterTargetsKindType`) gain the same two after
   `entries`, and the fields the Flowchart's and the Schematic's kinds and the
@@ -1488,7 +1488,7 @@ Each wire changed under this rule, with the kind it is.
   (`SheetEditingType`) gains `underKey` and `rowKey`, last: over a record
   whose entries hold their own key in a field (`keyField`), an entry's draft
   and wire row with a key's text put in that field and in the cell of any
-  column over it; over one whose keys the app builds from them (`key`), an
+  column over it; over one whose keys the app builds from them (`rowKey`), an
   entry's key's text from its bytes. A Plan's link kind (`PlanLinkKindType`)
   gains `write`, after `create`: a link's row with its ends written from the
   two events given, which is how a link follows an event it joins that moves

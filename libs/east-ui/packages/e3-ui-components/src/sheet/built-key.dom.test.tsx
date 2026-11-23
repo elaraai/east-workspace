@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * A sheet over a record whose rows' keys the app builds from them (`key`,
+ * A sheet over a record whose rows' keys the app builds from them (`rowKey`,
  * east-workspace#1709), in a browser, on e3: lanes keyed by a number their
  * aisle and their slot build. A lane typed into the blank row stands under
  * the key its row builds at once — a cell not typed yet read as empty — and
@@ -92,7 +92,7 @@ const lanesKeyed = East.function([], SheetPayloadType, ($) => {
     const held = $.let(Record.bind(lanes));
     return Sheet.Payload({
         record: held, name: "lanesKeyed",
-        key: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
+        rowKey: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
         columns: {
             aisle: Sheet.column.integer(Lane, { header: "Aisle" }),
             slot: Sheet.column.integer(Lane, { header: "Slot" }),
@@ -139,7 +139,7 @@ const lanesPaged = East.function([], SheetPayloadType, ($) => {
     }));
     return Sheet.Payload({
         record: held, name: "lanesPaged", slice: { slice }, edits: { insertRows: false },
-        key: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
+        rowKey: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
         columns: {
             aisle: Sheet.column.integer(Lane, { header: "Aisle" }),
             slot: Sheet.column.integer(Lane, { header: "Slot" }),

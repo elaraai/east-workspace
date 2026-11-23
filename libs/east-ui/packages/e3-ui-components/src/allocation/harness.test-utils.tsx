@@ -104,7 +104,7 @@ export function allocationHarness(): AllocationHarness {
  * on the day named. Given `halls`, it is the page for those kiln groups
  * (#1621): its kilns a source of the slice scoped to them, through their index
  * by group — every kiln still read whole, for the fits and the loads. Given
- * `key`, each bin is keyed by the key its row builds (east-workspace#1709);
+ * `rowKey`, each bin is keyed by the key its row builds (east-workspace#1709);
  * given `optimise`, the yard's optimiser is behind the Elara eye
  * (`allocation/optimise`, which the file deploys).
  *
@@ -114,10 +114,10 @@ export function allocationHarness(): AllocationHarness {
 export function kilnYard(options: {
     readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
     readonly weeks?: "monday" | "sunday"; readonly halls?: readonly string[];
-    readonly key?: (bin: ExprType<KilnBinType>) => ExprType<StringType>; readonly optimise?: boolean;
+    readonly rowKey?: (bin: ExprType<KilnBinType>) => ExprType<StringType>; readonly optimise?: boolean;
 } = {}): Example {
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks, halls = options.halls;
-    const keyed = options.key === undefined ? {} : { key: options.key };
+    const keyed = options.rowKey === undefined ? {} : { rowKey: options.rowKey };
     // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
     const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
         label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),

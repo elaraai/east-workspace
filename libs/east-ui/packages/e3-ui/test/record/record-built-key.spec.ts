@@ -5,7 +5,7 @@
 
 /**
  * The Record over rows keyed by the key their row builds (`recordBuiltKeys`):
- * the example evaluates with `key` given on the tag, reads its locations from
+ * the example evaluates with `rowKey` given on the tag, reads its locations from
  * e3, and declares the one record its Saves commit to, through the patch door.
  */
 
@@ -22,7 +22,7 @@ describeEast("Record — rows keyed by the key their row builds", test => {
 }, { platformFns: TestImpl });
 
 describe("the Record over rows keyed by the key their row builds", () => {
-    test("ruling 7 — given `key` on its tag, it reads its locations from e3, and declares the one record its Saves commit to", () => {
+    test("ruling 7 — given `rowKey` on its tag, it reads its locations from e3, and declares the one record its Saves commit to", () => {
         const manifest = deriveManifest(ex.recordBuiltKeys.fn);
         assert.notEqual(manifest.paths.length + manifest.pages.length, 0, "the locations are read from e3");
         assert.deepEqual([...new Set(manifest.records)], [ex.recordLocations.name]);

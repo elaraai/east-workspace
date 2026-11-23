@@ -99,7 +99,7 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
  * or the app's that warns past contract; the Shifts layout's Thursday,
  * or People by month alone, Week not offered; its month's marks lettered, as
  * by default, or not (`letters`, #1569); given `failingValues`, a new
- * week's own fields failing as they are made (#1526); given `key`, each duty
+ * week's own fields failing as they are made (#1526); given `rowKey`, each duty
  * keyed by the key its row builds (east-workspace#1709); and given `optimise`,
  * the warehouse's optimiser behind the Elara eye (`roster/optimise`, which the
  * file deploys).
@@ -109,7 +109,7 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
  */
 export function warehouseRoster(options: {
     readonly locked?: boolean; readonly fit?: "warehouse" | "contract"; readonly monthOnly?: boolean; readonly letters?: boolean; readonly failingValues?: boolean;
-    readonly key?: (duty: ExprType<typeof ex.WarehouseDuty>) => ExprType<StringType>; readonly optimise?: boolean;
+    readonly rowKey?: (duty: ExprType<typeof ex.WarehouseDuty>) => ExprType<StringType>; readonly optimise?: boolean;
 } = {}): Example {
     const locked = options.locked === true, contract = options.fit === "contract";
     const shown = options.monthOnly === true
@@ -197,7 +197,7 @@ export function warehouseRoster(options: {
             id: "warehouseRoster", slice: { slice }, fit, pay, currency: "AUD", check, inspector: true, ...(options.letters === undefined ? {} : { letters: options.letters }),
             week: { start: "sunday" }, ...shown, ...(optimise === undefined ? {} : { optimise }),
             events: { duty: Schedule.events(rota, {
-                name: "Duty", icon: "user-clock", entries, ...(options.key === undefined ? {} : { key: options.key }),
+                name: "Duty", icon: "user-clock", entries, ...(options.rowKey === undefined ? {} : { rowKey: options.rowKey }),
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
                 shift: "shift", group: "team", position: "role", activity: "task",
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),

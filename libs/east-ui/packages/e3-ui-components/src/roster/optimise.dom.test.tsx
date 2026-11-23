@@ -453,7 +453,7 @@ optimiseCases<typeof ex.WarehouseDuty>({
     // Thursday's shifts, each duty keyed by its note: C. Clover's early given a note stands under it; given A. Alder's key, refused.
     keyed: {
         mounted: async () => {
-            const { container } = await h.mount(warehouseRoster({ key: (duty) => duty.note, optimise: true }));
+            const { container } = await h.mount(warehouseRoster({ rowKey: (duty) => duty.note, optimise: true }));
             await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
             return container;
         },

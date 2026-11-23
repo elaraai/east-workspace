@@ -27,7 +27,7 @@ export interface RowMove {
     readonly to: string;
 }
 
-/** A row whose kind's `key` failed on it as a gesture's changes leave it: the gesture moves nothing, and is refused. */
+/** A row whose kind's `rowKey` failed on it as a gesture's changes leave it: the gesture moves nothing, and is refused. */
 export interface RowMoveFailed {
     /** The row, and what building its key threw. */
     readonly failed: { readonly kind: string; readonly key: string; readonly error: unknown };

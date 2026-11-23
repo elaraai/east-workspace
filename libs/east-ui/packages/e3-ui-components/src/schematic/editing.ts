@@ -36,7 +36,7 @@
  *   hands back, whole. A gesture any of whose rows its kind refuses records
  *   nothing.
  * - **A new row's key (#1549)** is its kind's to make (`newKey`): built from
- *   the row by the kind's `key`; else by the app's own rule, the kind's
+ *   the row by the kind's `rowKey`; else by the app's own rule, the kind's
  *   `newKey`, given the keys taken — its session's to ask; else, keyed by
  *   String, minted unique among
  *   every key the Schematic has read and drafted (`mintKey`, SC7); by Integer,
@@ -136,7 +136,7 @@ export interface SchematicMove {
 }
 
 /**
- * A row whose kind's `key` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
+ * A row whose kind's `rowKey` failed on it as a gesture leaves it (east-workspace#1709): the gesture moves no row, and
  * records nothing — the footer says no key can be made for it.
  */
 export interface SchematicMoveFailed {
@@ -195,11 +195,11 @@ export interface SchematicEditing {
     edited(record: string): boolean;
     /**
      * A new row's key, as its kind makes one (#1549; the module docs): built from the row the edit makes, by the kind's
-     * `key`, refused where a row stands under it; else by the app's rule, the kind's `newKey`; else, keyed by String,
+     * `rowKey`, refused where a row stands under it; else by the app's rule, the kind's `newKey`; else, keyed by String,
      * minted unique (SC7); by Integer, one past the largest; by a type the form types, a placeholder; by any other, none.
      *
      * @param made - The edit making the row — an item's, a link's or a net's — under any key: its kind's, and the row the
-     *   kind's `key` builds a key from
+     *   kind's `rowKey` builds a key from
      * @param minted - The keys the gesture has made already
      * @returns The key, or why there is none — the app's rule giving a key a row holds, or failing, among them;
      *   `undefined` while a kind read by key asks its record for its largest, or where the kind makes no row of the edit
@@ -225,15 +225,15 @@ export interface SchematicEditing {
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
      * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
      * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
-     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `key` built none of as the gesture
+     * By the one rule every builder follows (`shared/built-keys.ts`): a row its kind's `rowKey` built none of as the gesture
      * found it moves under the key the edit gives it, and one it fails on as the gesture leaves it refuses the gesture.
      *
      * @param edits - The gesture's edits
-     * @returns Each row it moves, and the key it moves under; or the row its kind's `key` failed on
+     * @returns Each row it moves, and the key it moves under; or the row its kind's `rowKey` failed on
      */
     moves(edits: readonly SchematicEdit[]): readonly SchematicMove[] | SchematicMoveFailed;
     /**
-     * Whether a kind builds a new row's key from its row: its `key` (#1549).
+     * Whether a kind builds a new row's key from its row: its `rowKey` (#1549).
      *
      * @param slot - The kind's slot
      */
@@ -275,7 +275,7 @@ function kindOf(value: Pick<SchematicValue, "items" | "zones" | "links" | "nets"
 }
 
 /**
- * The function a kind builds a new row's key from its row with (#1549): its `key`.
+ * The function a kind builds a new row's key from its row with (#1549): its `rowKey`.
  *
  * @param kind - The kind
  * @returns It; `undefined` for a kind that builds none — a zone's among them

@@ -37,13 +37,13 @@
  *   states naming a lane, follow (R9).
  * - **A new row's key is its kind's** (#1549, `editing.ts`' `newKey`): the
  *   text above where it is keyed by String; built from the row by its kind's
- *   `key`, a gesture refused that builds one a row holds; one past the largest
+ *   `rowKey`, a gesture refused that builds one a row holds; one past the largest
  *   by Integer; and by any other type a placeholder, made up as the text above,
  *   until the viewer types it — a gesture naming that row in another row's
  *   field refused until then. A kind whose key type the form can't type, and
  *   that builds none, adds no row: the gesture says why.
  * - **A key built from the row follows the row** (#1549, `followBuiltKeys`):
- *   a gesture writing the fields its kind's `key` reads moves the row under the
+ *   a gesture writing the fields its kind's `rowKey` reads moves the row under the
  *   key they build, and what names the row follows — refused, naming the row,
  *   where another row holds that key once the gesture is made, so a swap or a
  *   shift passes (#1581), where the key fails as it is built
@@ -154,7 +154,7 @@ export interface FlowchartHolding {
         minted?: ReadonlySet<string>) => FlowchartNewKey | undefined;
     /**
      * The rows a gesture moves under the keys their fields build once it writes them (#1549; `editing.ts`' `moves`), or
-     * the row its kind's `key` failed on as the gesture leaves it.
+     * the row its kind's `rowKey` failed on as the gesture leaves it.
      *
      * @param edits - The gesture's edits
      */
@@ -191,7 +191,7 @@ export type FlowchartRefusal =
     /** Its kind's keys are of a type the form can't type, by the type's name, and its kind builds none. */
     | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
     /**
-     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `key` failed on
+     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `rowKey` failed on
      * the row, or the app's `newKey` did.
      */
     | { readonly refusal: "unkeyed"; readonly sort: FlowchartSort }
@@ -870,7 +870,7 @@ function heldOnceMoved(holding: FlowchartHolding, moves: readonly FlowchartMove[
  * naming that key — one a row moves off is free, so a swap or a shift passes,
  * the row copied onto it replacing the one moving off, whose key it leaves
  * standing (#1581); so does a kind that may name a moving row the flowchart
- * doesn't hold whole (#1580), and a row its kind's `key` fails on as the
+ * doesn't hold whole (#1580), and a row its kind's `rowKey` fails on as the
  * gesture leaves it (east-workspace#1709), as in every builder.
  *
  * @param holding - What the gesture reads

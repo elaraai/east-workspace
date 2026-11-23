@@ -124,7 +124,7 @@ describe("a row stands under the key its row builds (east-workspace#1709)", () =
         expect("refused" in settled && "failed" in settled.refused.why && String(settled.refused.why.failed)).toBe("Error: no key for !");
     });
 
-    test("ruling 1 — a row its `key` fails on as it stood moves under the key the edit gives it: the edit that mends it is kept, never refused for what the row held before", () => {
+    test("ruling 1 — a row its `rowKey` fails on as it stood moves under the key the edit gives it: the edit that mends it is kept, never refused for what the row held before", () => {
         const entries = new Map<string, TouchedEntry<string>>([["R-7", { before: row("!"), after: row("12") }]]);
         expect(settleBuiltKeys(entries, ruleOver({ "R-7": "!" }))).toEqual({ all: new Map([["R-7", "12"]]), held: new Map([["R-7", "12"]]) });
         expect(held(entries)).toEqual([["R-7", null], ["12", "12"]]);

@@ -37,7 +37,7 @@
  * key still to be typed (#1549) — in a link's end or a net's side.
  *
  * **A key built from the row follows the row** (#1549, {@link followBuiltKeys}):
- * a gesture writing the fields its kind's `key` reads moves the row under the
+ * a gesture writing the fields its kind's `rowKey` reads moves the row under the
  * key they build, its details row with it, and the links and nets naming an
  * item follow — refused, naming the row, where another row holds that key
  * once the gesture is made, so a swap or a shift passes (#1581), where the
@@ -237,7 +237,7 @@ export type SchematicKeyRefusal =
     /** Its kind's keys are of a type the form can't type — by the type's name — and its kind builds none: by the kind's slot. */
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
     /**
-     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `key` failed on
+     * No key could be made for the row it adds, or for a row it changes (east-workspace#1709): its kind's `rowKey` failed on
      * the row, or the app's `newKey` did — by the kind's slot.
      */
     | { readonly refusal: "unkeyed"; readonly kind: string }
@@ -786,7 +786,7 @@ export interface SchematicKeyHolding {
     readonly kinds: EditKinds;
     /**
      * The rows a gesture moves under the keys their fields build once it writes them (`editing.ts`' `moves`), or the row
-     * its kind's `key` failed on as the gesture leaves it.
+     * its kind's `rowKey` failed on as the gesture leaves it.
      *
      * @param edits - The gesture's edits
      */
@@ -942,7 +942,7 @@ function heldOnceMoved(holding: SchematicKeyHolding, moves: readonly SchematicMo
  * or a net kind the Schematic doesn't hold whole may name refuses the gesture
  * too (#1580): what it leaves out would keep the old key; and so does a row
  * whose details, or the rows naming it, take no edit now (#1584), and a row
- * its kind's `key` fails on as the gesture leaves it (east-workspace#1709), as
+ * its kind's `rowKey` fails on as the gesture leaves it (east-workspace#1709), as
  * in every builder.
  *
  * @param holding - What the gesture reads

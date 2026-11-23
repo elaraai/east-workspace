@@ -22,7 +22,7 @@
  * Save takes it first; over tickets read a window at a time, the rule is told
  * the keys of the rows the page shows — what the builder draws, what its own
  * reads hold, or what its cells hold — beside those the session holds. And visits
- * whose kind builds each one's key from its row (`key`): a new visit stands
+ * whose kind builds each one's key from its row (`rowKey`): a new visit stands
  * under the key its row builds, an edit of what the key reads moves it, and a
  * key another visit holds refuses the gesture, saying which; a moved visit is
  * the visit it was, edited, until a new visit takes the key its move gave it —
@@ -103,7 +103,7 @@ const h = e3Harness({ "schedule/key-field": { racks, jobs, tickets, visits, show
 /** The visits' kind, which builds a visit's key from its row: its reference. */
 const visitsKind = East.function([], Schedule.Types.Kind, ($) => {
     const handle = $.let(Record.bind(visits));
-    return Schedule.events(handle, { name: "Visit", icon: "location-dot", title: "title", start: "start", end: "end", key: (visit) => visit.ref }).build("visits");
+    return Schedule.events(handle, { name: "Visit", icon: "location-dot", title: "title", start: "start", end: "end", rowKey: (visit) => visit.ref }).build("visits");
 });
 /** The tickets' kind, told the app's rule for a new ticket's key: the first T-n no ticket holds. */
 const ticketsKind = East.function([], Schedule.Types.Kind, ($) => {

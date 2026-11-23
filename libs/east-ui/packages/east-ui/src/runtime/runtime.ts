@@ -59,36 +59,28 @@ export type Fragment = typeof Fragment;
  * its own child normalization (see `@elaraai/east-ui`). A fragment is
  * routed through the shared child coalescer so it yields a well-typed children
  * value independent of the enclosing tag.
- *
- * A tag's `key` is no React key here — nothing reconciles these elements — so
- * it is one more prop: the compiler hands it apart from the others, and it
- * reaches the component among them, typed by the component's own props
- * (`<Record key={(row) => row.code}>`). One written after a spread the
- * compiler hands to {@link createElement} instead.
  */
 export function jsx(
     type: Component<unknown> | Fragment,
     props: { children?: unknown } | null,
-    key?: unknown,
 ): UIElement {
     if (type === Fragment) {
         // A fragment yields its coalesced children (a JS array or an East array
         // expression); the enclosing container re-coalesces it into place.
         return coalesceChildren(props?.children as ContainerChildrenType) as unknown as UIElement;
     }
-    return (type as Component<unknown>)((key === undefined ? props ?? {} : { ...props, key }) as unknown);
+    return (type as Component<unknown>)((props ?? {}) as unknown);
 }
 
 /** Static-children variant — identical behaviour for this runtime. */
 export const jsxs: typeof jsx = jsx;
 
-/** Development entry point — same behaviour, the compiler's source arguments ignored. */
+/** Development entry point — same behaviour, extra compiler args ignored. */
 export function jsxDEV(
     type: Component<unknown> | Fragment,
     props: { children?: unknown } | null,
-    key?: unknown,
 ): UIElement {
-    return jsx(type, props, key);
+    return jsx(type, props);
 }
 
 /**
@@ -106,16 +98,6 @@ export function h(
     else if (children.length > 1) merged.children = children;
     return jsx(type, merged);
 }
-
-/**
- * The compiler's entry point for a tag whose `key` is written after a spread
- * (`<Record {...shared} key={(row) => row.code} />`). There it calls
- * `createElement` of the import source's own root, in place of {@link jsx},
- * with the key among the props and the children after them — the classic
- * factory's own call — so the key reaches the component as it does from
- * {@link jsx}. `@elaraai/east-ui` and `@elaraai/e3-ui` each export it.
- */
-export const createElement: typeof h = h;
 
 /**
  * JSX type contract consumed by the compiler under

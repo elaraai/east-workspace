@@ -48,7 +48,7 @@ export const SheetUnsettableType = StructType({ field: StringType, label: String
  * id, and answers the two with the key in that field and in the cell of any
  * column over it: what a new entry is drafted as, and drafted again as where
  * its session gives it another key. `rowKey`, over a record whose entries'
- * keys the app builds from them (`key`), takes an entry as `entryType` bytes
+ * keys the app builds from them (`rowKey`), takes an entry as `entryType` bytes
  * and answers its key's text — a String key as itself, any other as East
  * prints it: the key a sheet makes a new entry under, and moves an entry to
  * as an edit changes what its key reads.

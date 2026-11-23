@@ -8,11 +8,11 @@
  * (`newKey`, east-workspace#1709), as every kind whose builder adds rows
  * declares one (`utils/record-kind.ts`' `KindRowKeys`): the rule goes on the
  * wire over the keys' text, a kind given none carries none, and `newKey`
- * beside `key` is refused, naming both. Then each builder's own declaration —
+ * beside `rowKey` is refused, naming both. Then each builder's own declaration —
  * the Flowchart's states, transitions and lanes, the Schematic's items, links
  * and nets, and the Plan's link kinds — takes the option, and a kind whose
  * rows are never typed and keyed by neither String nor Integer is declared
- * with `newKey` as with `key`. A kind whose builder adds no row — a
+ * with `newKey` as with `rowKey`. A kind whose builder adds no row — a
  * Schematic's zones — declares none of the key options.
  *
  * e3-ui's specs read and write no e3: each record is a handle made by hand
@@ -66,9 +66,9 @@ describe("a kind told the app's rule for a new key", () => {
         assert.equal(racksKind(racksByCode, StringType, {})().newKey.type, "none");
     });
 
-    test("ruling 2 — refuses `newKey` beside `key`, naming both: a new row's key is decided one way", () => {
-        assert.throws(() => racksKind(racksByCode, StringType, { newKey: nextOf("R"), key: (rack: ExprType<typeof Rack>) => rack.code }),
-            /Spec\.racks: `key` and `newKey` each decide a new row's key — give one: `key` builds it from the row, `newKey` makes it from the keys taken/);
+    test("ruling 2 — refuses `newKey` beside `rowKey`, naming both: a new row's key is decided one way", () => {
+        assert.throws(() => racksKind(racksByCode, StringType, { newKey: nextOf("R"), rowKey: (rack: ExprType<typeof Rack>) => rack.code }),
+            /Spec\.racks: `rowKey` and `newKey` each decide a new row's key — give one: `rowKey` builds it from the row, `newKey` makes it from the keys taken/);
     });
 
     test("ruling 1 — refuses a rule that is no function from the record's keys to one, naming both types", () => {
@@ -118,24 +118,24 @@ describe("every builder's kind that adds rows takes the app's rule for a new key
     ];
 
     for (const [name, declared] of told) {
-        test(`ruling 1 — ${name}: carries the rule, carries none told none, and refuses it beside \`key\``, () => {
+        test(`ruling 1 — ${name}: carries the rule, carries none told none, and refuses it beside \`rowKey\``, () => {
             const rule = ruleOf(($) => declared($, { newKey: nextOf("N") }));
             if (rule.type !== "some") assert.fail(`expected ${name} to carry its rule`);
             assert.equal(rule.value(taken("N-1")), "N-2");
             assert.equal(ruleOf(($) => declared($, {})).type, "none");
-            assert.throws(() => ruleOf(($) => declared($, { newKey: nextOf("N"), key: () => "N-0" })),
-                /`key` and `newKey` each decide a new row's key — give one/);
+            assert.throws(() => ruleOf(($) => declared($, { newKey: nextOf("N"), rowKey: () => "N-0" })),
+                /`rowKey` and `newKey` each decide a new row's key — give one/);
         });
     }
 
-    test("ruling 3 — transitions keyed by neither String nor Integer are declared with `newKey`, as with `key`: the rule keys what Connect makes", () => {
+    test("ruling 3 — transitions keyed by neither String nor Integer are declared with `newKey`, as with `rowKey`: the rule keys what Connect makes", () => {
         const direct = East.function([SetType(MoveKey)], MoveKey, (_$, _keys) => ({ from: "A", to: "B" }));
         const rule = ruleOf(($) => Flowchart.transitions($.let(movesByEnds()) as never, { from: "from", to: "to", newKey: direct } as never).build(undefined, false).newKey);
         if (rule.type !== "some") assert.fail("expected the transitions to carry their rule");
         // Over the keys' text: the key the rule gives, as East prints it.
         assert.equal(rule.value(taken()), '(from="A", to="B")');
         assert.throws(() => ruleOf(($) => Flowchart.transitions($.let(movesByEnds()) as never, { from: "from", to: "to" } as never).build(undefined, false).newKey),
-            /Flowchart\.transitions: the transitions are keyed by .*, and Connect makes one with no key typed — give `key`, building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer/);
+            /Flowchart\.transitions: the transitions are keyed by .*, and Connect makes one with no key typed — give `rowKey`, building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer/);
     });
 });
 

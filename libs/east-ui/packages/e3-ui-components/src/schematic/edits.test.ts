@@ -590,7 +590,7 @@ describe("a key built from the row follows the row (#1549)", () => {
         expect(followed.edits.map(printed)).toEqual([`move ${printRef(A01)} ${printString("A01-b")}`, `set ${printRef(ref("racks", "A01-b"))} ${printWrites([])}`]);
     });
 
-    test("east-workspace#1709 — a row its kind's `key` fails on as the gesture leaves it refuses the gesture, as in every builder: no key can be made for a row of its kind, and nothing is written", () => {
+    test("east-workspace#1709 — a row its kind's `rowKey` fails on as the gesture leaves it refuses the gesture, as in every builder: no key can be made for a row of its kind, and nothing is written", () => {
         expect(followBuiltKeys(holding({ moves: () => ({ failed: A01 }) }), [SET_A01])).toEqual({ refused: { refusal: "unkeyed", kind: "racks" } });
     });
 

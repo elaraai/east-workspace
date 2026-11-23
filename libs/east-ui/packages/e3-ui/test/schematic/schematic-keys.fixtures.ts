@@ -26,13 +26,13 @@
  * - **The floor's one card** (`floorCards`): Spare, which an oven, a bay or a
  *   crate made from it takes its name from.
  * - **Spots keyed by their row and their column** (`placedSpots`) — the key a
- *   kind's `key` builds from the row: 1-1, 1-2 and 2-1, and the rope along row
+ *   kind's `rowKey` builds from the row: 1-1, 1-2 and 2-1, and the rope along row
  *   1 between the first two (`keyedRopes`); and their cards (`spotCards`), one
  *   making a spot at 1-1 again, which 1-1 holds, and one at 2-2.
- * - **Pipes keyed by their ends** (`joinedPipes`) — the key a link kind's `key`
+ * - **Pipes keyed by their ends** (`joinedPipes`) — the key a link kind's `rowKey`
  *   builds from its ends: M2 to M1, which a pipe between them again would take.
  * - **Lines keyed by the mixers they feed** (`sidedLines`) — the key a net
- *   kind's `key` builds from its sides: none yet, so a Shift session makes one,
+ *   kind's `rowKey` builds from its sides: none yet, so a Shift session makes one,
  *   which moves as a drag adds a mixer to it.
  * - **Bays keyed by when each opens** (`timedBays`) — DateTime keys, which the
  *   viewer types for a new bay: the Early bay at 06:00, the chute from it to M2
@@ -43,7 +43,7 @@
  *   of two parts their kind builds none of: 2-0 and 0-2, each holding what one
  *   part typed alone, the other at its default, would be (#1581).
  * - **Tiles keyed by the cell their centre stands in** (`cellTiles`) — the key
- *   the tiles' `key` builds from where each stands, a cell 4 m wide: West in
+ *   the tiles' `rowKey` builds from where each stands, a cell 4 m wide: West in
  *   cell 2 and East in cell 3, side by side, so a drag of both one cell along
  *   moves West under East's key as East leaves it (#1581).
  *

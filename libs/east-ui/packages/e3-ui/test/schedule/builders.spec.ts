@@ -151,7 +151,7 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
             /the Allocation books each bin into one lane — `resource` names a String field, a key of the lanes' kind, and "bay" holds an Option of \.String/);
     });
 
-    test("ruling 10 — the Roster's duties and the Allocation's bins take a record keyed by any type: a String or an Integer key the builder makes, any other the app's `key` or `newKey` does, and without either the page is refused, saying which to give", () => {
+    test("ruling 10 — the Roster's duties and the Allocation's bins take a record keyed by any type: a String or an Integer key the builder makes, any other the app's `rowKey` or `newKey` does, and without either the page is refused, saying which to give", () => {
         const roster = (record: unknown, options: object = {}) => East.function([], NullType, ($) => {
             const bound = $.let(Record.bind(record as typeof plainDutiesRecord, ["patch"]));
             Schedule.events(bound as never, {
@@ -176,14 +176,14 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
         const datedDuties = e3.record("builders_spec_dated", DictType(DateTimeType, PlainDutyType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         const datedBins = e3.record("builders_spec_bins_dated", DictType(DateTimeType, BinType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.throws(() => roster(datedDuties), {
-            message: "Schedule.events: \"Duty\": the duties are keyed by .DateTime, and the Roster makes one with no key typed — give `key`, building one's key from its row, " +
+            message: "Schedule.events: \"Duty\": the duties are keyed by .DateTime, and the Roster makes one with no key typed — give `rowKey`, building one's key from its row, " +
                 "or `newKey`, making one from the keys taken, or key them by String or Integer",
         });
         assert.throws(() => allocation(datedBins), {
-            message: "Schedule.events: \"Bin\": the bins are keyed by .DateTime, and the Allocation makes one with no key typed — give `key`, building one's key from its row, " +
+            message: "Schedule.events: \"Bin\": the bins are keyed by .DateTime, and the Allocation makes one with no key typed — give `rowKey`, building one's key from its row, " +
                 "or `newKey`, making one from the keys taken, or key them by String or Integer",
         });
-        assert.doesNotThrow(() => roster(datedDuties, { key: (duty: { start: unknown }) => duty.start }), "a duty keyed by its start, as its `key` builds it");
+        assert.doesNotThrow(() => roster(datedDuties, { rowKey: (duty: { start: unknown }) => duty.start }), "a duty keyed by its start, as its `rowKey` builds it");
         assert.doesNotThrow(() => allocation(datedBins, { newKey: East.function([SetType(DateTimeType)], DateTimeType, (_$, _taken) => at("2027-05-11T00:00:00Z")) }),
             "a bin keyed by the app's own rule");
     });

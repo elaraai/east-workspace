@@ -6,7 +6,7 @@
 /**
  * The Record over rows keyed by the key their row builds, under the rail
  * (`recordBuiltKeysSliced`, `recordStructKeysSliced`): each example evaluates
- * with `key` and `slice` given on its tag, pages its locations through their
+ * with `rowKey` and `slice` given on its tag, pages its locations through their
  * record's indexes, and declares the one record its Saves commit to — keyed by
  * a text, and by a struct.
  */
@@ -29,7 +29,7 @@ describe("the Record over rows keyed by the key their row builds, under the rail
         ["a text key", ex.recordBuiltKeysSliced, ex.recordSlotsByText],
         ["a struct key (#1696)", ex.recordStructKeysSliced, ex.recordSlotsByStruct],
     ] as const) {
-        test(`${name} — given \`key\` and \`slice\` on its tag, it pages its locations from e3, and declares the one record its Saves commit to`, () => {
+        test(`${name} — given \`rowKey\` and \`slice\` on its tag, it pages its locations from e3, and declares the one record its Saves commit to`, () => {
             const manifest = deriveManifest(example.fn);
             assert.notEqual(manifest.pages.length, 0, "the locations are read a page at a time");
             assert.deepEqual([...new Set(manifest.records)], [record.name]);

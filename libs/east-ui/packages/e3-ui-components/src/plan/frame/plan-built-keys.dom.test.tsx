@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * A Plan whose event kind builds each event's key from its row (`key`,
+ * A Plan whose event kind builds each event's key from its row (`rowKey`,
  * east-workspace#1709), over the print works' jobs and the flows between them
  * (`flowsPlan`): a job whose key is built from its customer — the field of
  * its row its form edits. A customer typed in the inspector moves the job
@@ -67,7 +67,7 @@ async function typeCustomer(c: HTMLElement, customer: string) {
 
 const sameFlow = equalFor(ex.PrintFlow);
 /** The print jobs keyed by their customers. */
-const keyedByCustomer: FlowsPlanOptions = { jobKey: (print) => print.customer };
+const keyedByCustomer: FlowsPlanOptions = { jobRowKey: (print) => print.customer };
 
 describe("a Plan whose event kind builds each event's key from its row", () => {
     test("ruling 1 — a job whose customer is typed moves under the key its customer builds, still selected, the flows that name it written to name its new key in the same step; Save writes the job and both flows", async () => {
@@ -137,7 +137,7 @@ describe("a Plan whose event kind builds each event's key from its row", () => {
         try {
             // Each flow keyed by the sheets it moves, as East prints them: stored under their names, each stands apart from that key
             // until its sheets change.
-            const keyedBySheets: FlowsPlanOptions = { key: (flow) => flow.sheets.match({ some: (_$, sheets) => East.str`${sheets}k`, none: () => "none" }) };
+            const keyedBySheets: FlowsPlanOptions = { rowKey: (flow) => flow.sheets.match({ some: (_$, sheets) => East.str`${sheets}k`, none: () => "none" }) };
             const { container: c } = await h.mount(flowsPlan(keyedBySheets), { storageKey: "plan-keyed-flows" });
             await settle();
             fireEvent.click(c.querySelector(`${rowAt(A1)} [data-plan-control="links"]`)!);

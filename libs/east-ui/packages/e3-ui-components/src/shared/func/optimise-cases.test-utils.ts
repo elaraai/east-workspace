@@ -27,7 +27,7 @@
  * - **A key the optimiser gave, taken by another page's row before Save**: a
  *   conflict to choose, as for any key an app's function makes.
  * - **A key the row's fields build** (east-workspace#1709, ruling 14): over a
- *   record whose rows' keys the app builds from them (`key`), an answer is an
+ *   record whose rows' keys the app builds from them (`rowKey`), an answer is an
  *   edit like any other — a row whose key it changes moves under the key it
  *   then builds, the run's mark with it, and Save writes it there; one whose key
  *   would be another row's lands nothing, saying why in the words every refused
@@ -81,7 +81,7 @@ export interface OptimiseCases<R extends EastType> {
      */
     readonly outside?: { readonly to: (row: ValueTypeOf<R>) => ValueTypeOf<R>; readonly named: string; readonly standing?: string };
     /**
-     * The builder's page over the same record, its rows keyed by the key each builds from its fields (`key`,
+     * The builder's page over the same record, its rows keyed by the key each builds from its fields (`rowKey`,
      * east-workspace#1709) — and the answers ruling 14's case lands on it. Left out, the case is not run.
      */
     readonly keyed?: {

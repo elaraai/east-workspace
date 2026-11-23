@@ -191,7 +191,7 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
     useLayoutEffect(() => {
         const made = pendingInsertFocus.current;
         if (made === undefined) return;
-        // A row made where the app builds a row's key from the row (`key`) stands under the key it built by now, not the
+        // A row made where the app builds a row's key from the row (`rowKey`) stands under the key it built by now, not the
         // made-up one its gesture made it under.
         const target = { ...made, id: under(made.id) };
         pendingInsertFocus.current = target;

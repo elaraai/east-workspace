@@ -237,7 +237,7 @@ export function useScheduleEditing<I extends Item = Item>({
         const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
             (id, held) => fieldBreaches(heldTo(held), held).map((breach) => breachIssue(breach, id)), originals, app);
         // How its new entries are keyed (#1583, east-ui-components' `keys.ts`): its session makes each key, and holds it as
-        // its own until the entry is saved. A part that builds its keys from its rows (`key`) is given one made up, which
+        // its own until the entry is saved. A part that builds its keys from its rows (`rowKey`) is given one made up, which
         // stands for a new row only until its gesture is recorded: the recorder moves the row under the key it builds.
         // By the app's own rule where it gives one (`newKey`), given every key known
         // taken: a key it gives that is taken, or a rule that throws, makes none, and the gesture adds nothing. Else by
@@ -680,7 +680,7 @@ export function useScheduleEditing<I extends Item = Item>({
             return true;
         };
         if (!apply(changes)) return undefined;
-        // A part that builds its keys from its rows (`key`): each row the gesture leaves stands under the key its row
+        // A part that builds its keys from its rows (`rowKey`): each row the gesture leaves stands under the key its row
         // builds, by the one rule every builder follows (`../built-keys.ts`). A key another row stands under, or one
         // that fails as it is built, refuses the whole gesture.
         const settle = (): { readonly all: Map<string, Map<string, string>>; readonly held: Map<string, Map<string, string>> } | undefined => {

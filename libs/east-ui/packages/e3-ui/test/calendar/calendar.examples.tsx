@@ -702,8 +702,8 @@ export const calendarReservations = e3.record("calendar_reservations", DictType(
 
 export const calendarBuiltKeys = example({
     inputs: [],
-    description: "Events keyed by the key their row builds: machine reservations keyed by their machine and their start, with `key` on the event kind — a function of the row, held to the record's key type. A reservation moved to another start or another machine moves under the key it then builds, and one that would build a key another reservation holds is refused, the Calendar naming the key — so no machine is reserved twice for one start. A copy stands under the key its own row builds. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key.",
-    keywords: ["Calendar", "Calendar.events", "Schedule.events", "key", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "double booking", "key taken", "refused", "move", "Duplicate", "newKey", "keyField", "Record.bind"],
+    description: "Events keyed by the key their row builds: machine reservations keyed by their machine and their start, with `rowKey` on the event kind — a function of the row, held to the record's key type. A reservation moved to another start or another machine moves under the key it then builds, and one that would build a key another reservation holds is refused, the Calendar naming the key — so no machine is reserved twice for one start. A copy stands under the key its own row builds. Give `rowKey` or `newKey`, never both; `keyField` names a field of the row that holds its key.",
+    keywords: ["Calendar", "Calendar.events", "Schedule.events", "rowKey", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "double booking", "key taken", "refused", "move", "Duplicate", "newKey", "keyField", "Record.bind"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
         const reservations = $.let(Record.bind(calendarReservations));
@@ -711,7 +711,7 @@ export const calendarBuiltKeys = example({
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ reservation: Calendar.events(reservations, { name: "Reservation", icon: "calendar", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
                 // A reservation's key, built from its row: its machine and its start.
-                key: row => East.str`${row.machine}@${row.start}`,
+                rowKey: row => East.str`${row.machine}@${row.start}`,
             }) }} />
         </Box>;
     }}</Reactive>),

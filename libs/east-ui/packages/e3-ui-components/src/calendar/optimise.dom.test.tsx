@@ -266,7 +266,7 @@ describe("a job the Calendar does not hold (rule 8)", () => {
 });
 
 /**
- * The shop's jobs with its optimiser, each keyed by the key its title builds (`key`, east-workspace#1709), and the
+ * The shop's jobs with its optimiser, each keyed by the key its title builds (`rowKey`, east-workspace#1709), and the
  * inspector a person renames a job in.
  */
 const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -280,7 +280,7 @@ const keyedJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
         events: {
             job: Calendar.events(jobs, {
                 name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
-                backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due }, key: (row) => row.title,
+                backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due }, rowKey: (row) => row.title,
             }),
         },
     });

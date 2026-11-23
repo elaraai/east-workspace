@@ -4,7 +4,7 @@
  */
 
 /**
- * A row stands under the key its row builds (`key`, east-workspace#1709): the
+ * A row stands under the key its row builds (`rowKey`, east-workspace#1709): the
  * one rule every builder that records a gesture's entries follows where the
  * app builds a row's key from the row — the Sheet's and the Record's rows, and
  * every kind and record the shared Schedule editing writes — as
@@ -60,7 +60,7 @@ export interface BuiltKeyRule<W> {
      *
      * @param id - The key the entry stands under
      * @param version - The version
-     * @throws {Error} When the app's `key` fails
+     * @throws {Error} When the app's `rowKey` fails
      */
     readonly build: (id: string, version: EntryVersion<W>) => string;
     /**
@@ -138,7 +138,7 @@ export function builtKeyOf<V>(build: (row: V) => string, id: string, found: V | 
     }
     if (stringEqual(to, id)) return undefined;
     if (found !== undefined) {
-        // The key its row built before the gesture. One its `key` failed on built none: the edit that gives it a key
+        // The key its row built before the gesture. One its `rowKey` failed on built none: the edit that gives it a key
         // moves it, and is never refused for what the row held before.
         let was: string | undefined;
         try { was = build(found); } catch { was = undefined; }

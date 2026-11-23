@@ -263,7 +263,7 @@ export interface AllocationProps<R extends EastType = EastType, P extends EastTy
     /**
      * Exactly one event kind, the bins, an instant kind: `{ bin: Schedule.events(Record.bind(bins), { at, resource, arrival,
      * quantity, parts, hold, kind? }) }`. Its record may be keyed by any type: a String key the board makes up, an Integer
-     * one it counts on, and any other the kind's `key` or `newKey` makes.
+     * one it counts on, and any other the kind's `rowKey` or `newKey` makes.
      */
     events: Readonly<Record<string, ScheduleEventKind<EastType, R>>>;
     /**

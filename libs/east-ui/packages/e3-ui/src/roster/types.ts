@@ -541,7 +541,7 @@ export type RosterTargetEntryType = typeof RosterTargetEntryType;
  * @property editing - The shared session over the record: whole rows by their key, its patch door
  * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
  * @property newKey - The app's rule for a new target's key (`newKey`): given the keys taken, one that is not; `none`, the Roster makes one up
- * @property rowKey - A target's key, built from its row (`key`): what a new target is made under, and what a target moves to as an edit changes the fields it reads; `none`, it builds none
+ * @property rowKey - A target's key, built from its row (`rowKey`): what a new target is made under, and what a target moves to as an edit changes the fields it reads; `none`, it builds none
  * @property rows - The targets whose day falls in `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes
  * @property needed - A drafted row's hours needed (#1678), from its bytes and its shift's nominal hours: the targets' `needed`, or the sum of its `hours`

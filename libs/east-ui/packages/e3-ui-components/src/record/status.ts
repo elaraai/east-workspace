@@ -100,7 +100,7 @@ export function createRecordStatus(): RecordStatus {
  * What the drafts send as an Apply (AD4): the fields they change on rows the
  * record holds and on how many, the rows they add, and those they delete — a
  * new row a draft dropped again none of them. A row a gesture moved under
- * another key (`key`, east-workspace#1709) is the row it was, changed: counted
+ * another key (`rowKey`, east-workspace#1709) is the row it was, changed: counted
  * once, by the fields it changes against the row it began as — never as one
  * row added and one deleted.
  *

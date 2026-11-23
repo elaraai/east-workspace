@@ -95,10 +95,10 @@
  * their own key in a field too, `keyField` names it: an event a builder adds
  * holds its key there, and is saved with it. A new event's key is its
  * builder's to make, or the app's own rule's, `newKey`, as a Record's is — or
- * built from the event's row, `key`, the event moving under the key an edit
+ * built from the event's row, `rowKey`, the event moving under the key an edit
  * of the fields it reads builds: one of the two, or neither. A builder makes
  * a String key up and counts an Integer one on; the Roster's duties and the
- * Allocation's bins keyed by any other type take `key` or `newKey`, and are
+ * Allocation's bins keyed by any other type take `rowKey` or `newKey`, and are
  * refused where the page is built without either.
  *
  * @packageDocumentation
@@ -360,7 +360,7 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * their number, each job's `number` its key. An event a builder adds holds its key there from the first, whatever
      * its template's values give, and is saved with it: where another Save takes the key first and the builder gives
      * the event another, the field follows. An event the record holds already keeps what its field holds. The form shows
-     * the field read only, and no role writes it. The field is of the record's key type, and the kind's `key` never reads
+     * the field read only, and no role writes it. The field is of the record's key type, and the kind's `rowKey` never reads
      * it.
      */
     keyField?: RecordKeyField<K, R>;
@@ -376,7 +376,7 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * new event under, and what an event moves to as an edit changes the fields it reads — refused, naming it, when
      * another event holds that key. Never beside `newKey`.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
@@ -655,7 +655,7 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
      * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by neither String nor Integer and
-     *   given neither `key` nor `newKey`, a kind with no `shift`, `group` or `resource`, two of the Roster's roles naming
+     *   given neither `rowKey` nor `newKey`, a kind with no `shift`, `group` or `resource`, two of the Roster's roles naming
      *   one field, and a `values` giving other fields than the ones no role maps, or one of another type, naming it; and as
      *   `build` does
      */
@@ -673,7 +673,7 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
      * @throws {Error} For a span kind (`start` and `end`), a record keyed by neither String nor Integer and given neither
-     *   `key` nor `newKey`, a kind with no `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a
+     *   `rowKey` nor `newKey`, a kind with no `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a
      *   String key of one kind, two of the Allocation's roles naming one field, and a `values` giving other fields than
      *   the ones no role maps, or one of another type, naming it; and as `build` does
      */
@@ -694,7 +694,7 @@ interface AnyConfig {
     fields?: Readonly<Record<string, unknown>>;
     keyField?: string;
     newKey?: unknown;
-    key?: unknown;
+    rowKey?: unknown;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
     locked?: (row: unknown, key: unknown) => unknown;
@@ -775,7 +775,7 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
  *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a `keyField` that is no field
  *   of the row of the record's key type, or that one of the kind's roles writes; a `newKey` that is no East function from a
- *   Set of the record's keys to one; a `key` that builds another type than the record's key, reads the field `keyField`
+ *   Set of the record's keys to one; a `rowKey` that builds another type than the record's key, reads the field `keyField`
  *   names, or is given beside `newKey`; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
@@ -1121,7 +1121,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // Or built from its row, the event moving with it: one of the two, or neither.
     checkOneKeyRule(where, config);
     const newKey = config.newKey === undefined ? undefined : newKeyOf(keyType, where, config.newKey);
-    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.key, keyField);
+    const keyBuilt = keyBuilderOf(keyType, rowType, where, "an event", config.rowKey, keyField);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
     // records draws its roles in its own sections, so its form leaves out the fields they name too.
@@ -2060,7 +2060,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             return heldKind((once) => {
                 // A duty runs from its start to its end, on its slot's shift and group, rostered to someone, under a key the
-                // Roster makes — a String one made up, an Integer one counted on — or the app's `key` or `newKey` does.
+                // Roster makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (instantKind) {
                     throw new Error(`${where}: the Roster reads a duty's \`start\` and \`end\`; this kind is one instant (\`at\`) — give \`start\` and \`end\` in its place`);
                 }
@@ -2186,7 +2186,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
             return heldKind((once) => {
                 // A bin is one instant in one lane, booking an arrival, its quantity on its parts for its hold, under a key the
-                // Allocation makes — a String one made up, an Integer one counted on — or the app's `key` or `newKey` does.
+                // Allocation makes — a String one made up, an Integer one counted on — or the app's `rowKey` or `newKey` does.
                 if (!instantKind) {
                     throw new Error(`${where}: the Allocation's bins are an instant kind: give \`at\` in place of \`start\` and \`end\``);
                 }

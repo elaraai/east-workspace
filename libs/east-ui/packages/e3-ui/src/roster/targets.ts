@@ -20,16 +20,16 @@
  *   the edited row. Without it, the sum of the row's `hours`. It is the slot's
  *   `Requirement.needed`, which `Roster.coverage` reads.
  * - **New rows.** A slot with no row has no target. A target edit on such a
- *   slot inserts one, keyed as its `key` builds from its row, or by the
+ *   slot inserts one, keyed as its `rowKey` builds from its row, or by the
  *   app's own rule, `newKey` — one of the two — or else by a key the Roster
  *   makes, a String one made up and an Integer one past the largest, its
  *   unmapped fields the targets' `values` of its roles (#1526) — or, without
- *   them, their type's default. A record keyed by any other type takes `key`
- *   or `newKey`. A target whose `key` reads a field an edit changes moves
+ *   them, their type's default. A record keyed by any other type takes `rowKey`
+ *   or `newKey`. A target whose `rowKey` reads a field an edit changes moves
  *   under the key it then builds.
  * - **Key field.** Where a target's row holds its key in a field too,
  *   `keyField` names it: a target the Roster inserts holds the key it minted
- *   there, and is saved with it; no role writes the field, and `key` never
+ *   there, and is saved with it; no role writes the field, and `rowKey` never
  *   reads it.
  * - **Reads.** Through the Roster's slice, by its `targets` source — an
  *   interval index from the day to the day, its `range` the day field — and
@@ -92,7 +92,7 @@ export interface RosterTargetsConfig<R extends StructType, K extends EastType = 
     /**
      * The field of the row that holds the target's key, of the record's key type, for a record whose rows carry their
      * own. A target the Roster inserts holds the key it minted there, whatever `values` gives the field, and is saved with
-     * it; a target the record holds already keeps what its field holds. No role names the field, and `key` never reads it.
+     * it; a target the record holds already keeps what its field holds. No role names the field, and `rowKey` never reads it.
      */
     keyField?: RecordKeyField<K, R>;
     /**
@@ -106,7 +106,7 @@ export interface RosterTargetsConfig<R extends StructType, K extends EastType = 
      * Roster inserts a target under, and what a target moves to as an edit changes the fields it reads. Never beside
      * `newKey`.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
     /**
      * The app's own form for one target, in place of the Roster's — an East function over the row and a writer of the
      * edited row, `(row, update) => UIComponentType`, passed through untouched (never called at build).
@@ -186,11 +186,11 @@ function targetsNeeded(rowType: EastType, hours: string, given: unknown, where: 
  * @param config - The fields its roles name, the app's own form, and its read by key
  * @returns The targets, for the Roster's `targets`
  * @throws {Error} Naming the option: a record not bound with its patch mutation, or whose rows are no structs; a record
- *   keyed by neither String nor Integer, given neither `key` nor `newKey`; a role naming a field the row lacks, or a
+ *   keyed by neither String nor Integer, given neither `rowKey` nor `newKey`; a role naming a field the row lacks, or a
  *   field of another type; two roles naming one field; a `needed` that is no function of the row and a Float returning a
  *   Float; a `values` giving other fields than the ones no role maps, or one of another type, naming it; a `keyField`
  *   that is no field of the row of the record's key type, or that a role names; a `newKey` that is no East function from
- *   a Set of the record's keys to one; a `key` that builds another type than the record's key, reads the field
+ *   a Set of the record's keys to one; a `rowKey` that builds another type than the record's key, reads the field
  *   `keyField` names, or is given beside `newKey`; `entries` that is not a paged read of the record's own entries; and an
  *   `inspector` that is no East function `(row, update) => UIComponentType` over the row
  * @example
@@ -219,7 +219,7 @@ export function rosterTargets<R extends StructType, K extends EastType = StringT
     const where = "Roster.targets";
     const c = config as unknown as {
         day: string; group: string; shift: string; positions: string; hours: string; needed?: unknown; values?: unknown; keyField?: string;
-        newKey?: unknown; key?: unknown; inspector?: unknown; entries?: unknown;
+        newKey?: unknown; rowKey?: unknown; inspector?: unknown; entries?: unknown;
     };
     const handleType = Expr.type(record as unknown as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
@@ -278,7 +278,7 @@ export function rosterTargets<R extends StructType, K extends EastType = StringT
     // and else the Roster's, which makes a String key up and counts an Integer one on, and makes no key of another type.
     checkOneKeyRule(where, c);
     const newKey = c.newKey === undefined ? undefined : newKeyOf(keyType, where, c.newKey);
-    const keyBuilt = keyBuilderOf(keyType, rowType, where, "a target", c.key, keyField);
+    const keyBuilt = keyBuilderOf(keyType, rowType, where, "a target", c.rowKey, keyField);
     checkMadeKeys({ form: "record", keyType }, keyBuilt !== undefined || newKey !== undefined, where, "targets", "the Roster makes one");
 
     return {

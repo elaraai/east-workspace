@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * A board whose bin kind builds each bin's key from its row (`key`,
+ * A board whose bin kind builds each bin's key from its row (`rowKey`,
  * east-workspace#1709), over the smallest board's bins on e3 itself: a bin
  * keyed by its bay and how many kilns it is linked to. Unlinked, a bin moves
  * under the key it then builds, still selected, and Save writes it there; a
@@ -99,7 +99,7 @@ const sameKey = equalFor(StringType);
  * How a test's board keys its bins: by the key a bin's row builds, or by the app's own rule — the next `N-<n>`; or, over
  * the bins keyed by number, by the options given at their key type.
  */
-type BinKeys = { readonly key: (bin: ExprType<typeof fx.MoistureBin>) => ExprType<StringType> } | { readonly newKey: true }
+type BinKeys = { readonly rowKey: (bin: ExprType<typeof fx.MoistureBin>) => ExprType<StringType> } | { readonly newKey: true }
     | { readonly numbered: KindRowKeys<typeof fx.MoistureBin, IntegerType> };
 /** What a test's board is over: the bins and their fit, whether it has the Library, and whether the bins keyed by number are read a day at a time. */
 interface Over {
@@ -157,7 +157,7 @@ const yardKeyed = (keys: BinKeys | undefined, layout: "timeline" | "table", over
 }))) });
 
 /** The smallest board over the bins, each keyed by its bay and the kilns it is linked to: `B-2/1`. */
-const keyedYard = yardKeyed({ key: (bin) => East.str`${bin.bay}/${bin.kilns.size()}` }, "timeline");
+const keyedYard = yardKeyed({ rowKey: (bin) => East.str`${bin.bay}/${bin.kilns.size()}` }, "timeline");
 
 /** The smallest board's table over the coded bins, each holding its key in its code. */
 const codedYard = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -310,7 +310,7 @@ test.each([["read whole", false], ["read a day at a time", true]])("ruling 13 �
 
 test("ruling 13 — over bins keyed by the number their rows build, a free slot's reservation stands under the number its row builds — 100, on no kiln — as Reserve would make it", async () => {
     await numberedWeekBefore();
-    const { container: c } = await h.mount(yardKeyed({ numbered: { key: (bin) => bin.kilns.size().add(100n) } }, "table", { bins: numberedBins, fit: numberedFit }));
+    const { container: c } = await h.mount(yardKeyed({ numbered: { rowKey: (bin) => bin.kilns.size().add(100n) } }, "table", { bins: numberedBins, fit: numberedFit }));
     await selectSlot(c);
     await waitFor(() => expect(firstReserve(c)).not.toBeNull());
     expect(latestCall("place")?.ask).toEqual(variant("place", { subject: variant("bin", 100n), quantity: 0 }));

@@ -122,7 +122,7 @@ export function followRows(before: readonly (RowSlot | undefined)[], after: read
 }
 
 /**
- * A row space's places as they are named once a gesture has put rows under other keys (`key`, east-workspace#1709):
+ * A row space's places as they are named once a gesture has put rows under other keys (`rowKey`, east-workspace#1709):
  * what {@link followRows} follows them by. A row and a group go by the key each stands under now, and a group's
  * lines and its blank line with it — each is named after its group. A padding row's place is left out: where the ring
  * stands on one is the gesture's own to set.

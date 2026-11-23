@@ -26,13 +26,13 @@
  *   drawn with no template of its kind selected takes its kind's `values` of
  *   its ends or its sides (#1526), held at build to every field but those, or
  *   each field's default without them.
- * - **A new row's key** (#1549): an item's, a link's and a net's `key` builds
+ * - **A new row's key** (#1549): an item's, a link's and a net's `rowKey` builds
  *   it from the row, held at build to the record's key type, and the row moves
  *   with it as an edit changes what it reads; or its `newKey`, the app's own
  *   rule, makes it from the keys taken. A kind gives one or neither. With
  *   neither the renderer makes a String key up and counts an Integer one on
  *   from the largest. A link's key and a net's are never typed, so an editable
- *   kind keyed by any other type is refused without `key` or `newKey`. Where
+ *   kind keyed by any other type is refused without `rowKey` or `newKey`. Where
  *   a row holds its key in a field too, `keyField` names it. A zone is added
  *   through its record, never by the Schematic: its kind takes none of the
  *   three.
@@ -529,7 +529,7 @@ export interface SchematicItemsConfig<R extends StructType, X extends string, Y 
      * up, an Integer one is one past the largest, and any other the viewer types in the inspector. It never reads the
      * field `keyField` names.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
     /**
      * Hints for the inspector's form over the fields no role writes (`Fields`) — and over its centre and its box, which
      * Details leaves out of the form, drawing its centre as its position: a number hint on one holds it to its bounds as
@@ -590,9 +590,9 @@ export interface SchematicItems extends KindDeclaration<"items", typeof Schemati
  *   type; `x` and `y` of different types; an accessor returning another type; a `footprint` naming a field rather than
  *   an accessor building the shape (D35), or without `width` and `height`; a status, a meter, a metric or a second line
  *   given both here and by its details; details keyed by another type than the kind, naming both; templates written in
- *   the code, or giving other fields than every field but `x` and `y`; a `key` building another type than the kind's
+ *   the code, or giving other fields than every field but `x` and `y`; a `rowKey` building another type than the kind's
  *   key, naming both, or reading the field `keyField` names; a `newKey` that is no East function from a Set of the kind's
- *   keys to one, or one beside `key`; a
+ *   keys to one, or one beside `rowKey`; a
  *   `keyField` that is no field of the row of the kind's key type, or that a role writes; and a record that is no
  *   binding of a record of structs, a `Record.bind` without its patch door, or `entries` beside a read-only binding
  */
@@ -650,7 +650,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
         : checkedSchematicTemplates(templates, ValuesType, `\`${config.x}\` and \`${config.y}\``, where);
     // A new item's key, built from its row (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "an item", config.key, config.keyField);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "an item", config.rowKey, config.keyField);
 
     // One item's roles, from its row and its key.
     const rolesOf = East.function([rowType, bound.keyType], SchematicItemType, ($, row, key) => {
@@ -971,7 +971,7 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
      * Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest; an editable kind
      * keyed by any other type needs one of the two. It never reads the field `keyField` names.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes. */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -1034,8 +1034,8 @@ function edgeShown($: { const: (value: unknown) => unknown }, edge: EdgeRoles, r
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: an end of a type no Dict is keyed by — an
  *   Option among them, a link having both its ends — or whose `of` names no item slot, or for a variant field neither
  *   one nor a slot per case; `from` and `to` naming one field; a `values` giving other fields than every field but its
- *   ends, or one of another type, naming it; a `key` building another type than the kind's key, naming both, or reading
- *   the field `keyField` names; and an editable record keyed by neither String nor Integer given neither `key` nor
+ *   ends, or one of another type, naming it; a `rowKey` building another type than the kind's key, naming both, or reading
+ *   the field `keyField` names; and an editable record keyed by neither String nor Integer given neither `rowKey` nor
  *   `newKey`, whose new links nothing would key
  */
 export function schematicLinks<R extends StructType, FF extends SchematicEndField<R>, TF extends SchematicEndField<R>, K extends EastType = StringType>(
@@ -1056,7 +1056,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         : checkedSchematicTemplates(templates, ValuesType, `\`${from.field}\` and \`${to.field}\``, where);
     const valuesOf = scheduleNewValues(SchematicEndsType, rowType, ValuesType, config.values, where);
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key, config.keyField);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.rowKey, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
@@ -1189,7 +1189,7 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
      * `newKey`, a String key is made up and an Integer one is one past the largest; an editable kind keyed by any other
      * type needs one of the two. It never reads the field `keyField` names.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
     /** Hints for the inspector's form over the fields no role writes. */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -1214,9 +1214,9 @@ export interface SchematicNets extends KindDeclaration<"nets", typeof SchematicN
  * @returns The kind, for the Schematic's `nets`, by slot
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: a side of neither a Set nor an Array of a
  *   type a Dict may be keyed by, whose `of` names no item slot; both sides naming one field; a `values` giving other
- *   fields than every field but its sides, or one of another type, naming it; a `key` building another type than the
+ *   fields than every field but its sides, or one of another type, naming it; a `rowKey` building another type than the
  *   kind's key, naming both, or reading the field `keyField` names; and an editable record keyed by neither String nor
- *   Integer given neither `key` nor `newKey`, whose new nets nothing would key
+ *   Integer given neither `rowKey` nor `newKey`, whose new nets nothing would key
  */
 export function schematicNets<R extends StructType, SRC extends SchematicMembersField<R>, DST extends SchematicMembersField<R>, K extends EastType = StringType>(
     record: SchematicRecord<R, K>, config: SchematicNetsConfig<R, SRC, DST, K>,
@@ -1250,7 +1250,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         : checkedSchematicTemplates(templates, ValuesType, `\`${sources.field}\` and \`${destinations.field}\``, where);
     const valuesOf = scheduleNewValues(SchematicSidesType, rowType, ValuesType, config.values, where);
     // A new net's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a net", config.key, config.keyField);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a net", config.rowKey, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "nets", "Connect's Shift session makes one");
 
     // A side's members, as references to the items of its slot: each key its text, a String key as itself and any other

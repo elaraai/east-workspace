@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * A record whose rows' keys the app builds from them (`key`,
+ * A record whose rows' keys the app builds from them (`rowKey`,
  * east-workspace#1709), in a browser, on e3: racks keyed by the code a person
  * types. A rack Add drafts stands under the key its row builds at once, its
  * code still empty read as empty, and moves under its code as it is typed —
@@ -50,7 +50,7 @@ const racksOf = (inspector: boolean) => East.function([], UIComponentType, (_$) 
     const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Rack), () => Record.patch(Rack, { bay: "Dock" })));
     return Record({
         record: held,
-        key: (rack) => rack.code,
+        rowKey: (rack) => rack.code,
         title: "Racks",
         noun: { singular: "rack", plural: "racks" },
         columns: {

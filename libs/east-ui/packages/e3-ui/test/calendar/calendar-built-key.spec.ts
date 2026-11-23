@@ -5,7 +5,7 @@
 
 /**
  * The Calendar over reservations keyed by the key their row builds
- * (`calendarBuiltKeys`): the example evaluates with `key` given on its event
+ * (`calendarBuiltKeys`): the example evaluates with `rowKey` given on its event
  * kind, reads from e3, and binds the reservations' record, which its Saves
  * commit to, beside the machines' it reads.
  */
@@ -23,7 +23,7 @@ describeEast("Calendar — reservations keyed by the key their row builds", test
 }, { platformFns: TestImpl });
 
 describe("the Calendar over reservations keyed by the key their row builds", () => {
-    test("ruling 1 — given `key` on its event kind, it reads from e3 and binds the reservations' record, which its Saves commit to, beside the machines' it reads", () => {
+    test("ruling 1 — given `rowKey` on its event kind, it reads from e3 and binds the reservations' record, which its Saves commit to, beside the machines' it reads", () => {
         const manifest = deriveManifest(ex.calendarBuiltKeys.fn);
         assert.notEqual(manifest.paths.length + manifest.pages.length, 0, "the reservations and the machines are read from e3");
         assert.deepEqual([...new Set(manifest.records)].sort(), [ex.calendarMachines.name, ex.calendarReservations.name]);

@@ -5,7 +5,7 @@
 
 /**
  * The Plan's link kinds (#1541, U10): `Plan.links(record, { name, icon, from,
- * to, quantity?, fields?, key? })`, a kind of link over the app's own record.
+ * to, quantity?, fields?, rowKey? })`, a kind of link over the app's own record.
  * Each link is a row of the record, its key the link's identity, and each of
  * its ends a field holding the key of the event it joins — as a Schematic's
  * link names its items, and an event kind its resource.
@@ -29,7 +29,7 @@
  *   the cap the Plan's event kinds are drawn under (`SCHEDULE_EVENT_CAP`), and
  *   past it none is: the cap bounds what is drawn, not what is read.
  * - **A new link** takes its ends from the two events a Connect joins, and
- *   every other field its type's default. Its key is its kind's `key`'s,
+ *   every other field its type's default. Its key is its kind's `rowKey`'s,
  *   built from the row, or its `newKey`'s, made from the keys taken — one or
  *   neither; with neither it is made up for a String key and counted on for
  *   an Integer one, and a record keyed by any other type gives one of the
@@ -220,7 +220,7 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
      * under. Omitted, with no `newKey`, a String key is made up and an Integer one is one past the largest; an editable
      * kind keyed by any other type needs one of the two. It never reads the field `keyField` names.
      */
-    key?: KindKeyBuilder<R, K>;
+    rowKey?: KindKeyBuilder<R, K>;
 }
 
 /**
@@ -299,10 +299,10 @@ export function isPlanLinks(value: unknown): value is PlanLinks {
  * @throws {Error} Naming the option and the remedy: a record that is no binding of a record of structs by key, a
  *   paged binding, or a `Record.bind` without its patch door; no `icon`; an end that is no `{ field, of }`, names a
  *   field the row lacks or one of a type no Dict is keyed by, an Option, or an `of` that names no kind for a case; both
- *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `key` that builds
+ *   ends naming one field; a `quantity` field that is no Float nor an Option of one, or an end; a `rowKey` that builds
  *   another type than the record's key, or reads the field `keyField` names; a `newKey` that is no East function from
  *   a Set of the record's keys to one, or
- *   one beside `key`; an editable record keyed by neither String nor Integer, given neither; and a `keyField` that is no
+ *   one beside `rowKey`; an editable record keyed by neither String nor Integer, given neither; and a `keyField` that is no
  *   field of the row of the record's key type, or that an end names
  *
  * @example
@@ -560,7 +560,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         }
     }
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
-    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key, config.keyField);
+    const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.rowKey, config.keyField);
     checkMadeKeys(bound, keyBuilt !== undefined || config.newKey !== undefined, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
@@ -627,7 +627,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         build(slot) {
             const side = recordSide<R, K>(bound, undefined, undefined, {
                 ...(config.fields === undefined ? {} : { fields: config.fields }),
-                ...(config.key === undefined ? {} : { key: config.key }),
+                ...(config.rowKey === undefined ? {} : { rowKey: config.rowKey }),
                 ...(config.newKey === undefined ? {} : { newKey: config.newKey }),
                 ...(config.keyField === undefined ? {} : { keyField: config.keyField }),
             }, [from.field, to.field], where);

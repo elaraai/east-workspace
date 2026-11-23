@@ -338,7 +338,7 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorKeyRefused: (p: { name: string; key: string; why: "empty" | "taken" }) => string;
     /**
      * Why a kind adds no row (#1549) — on Duplicate's off line, "+ LANE"'s and "+ STATE"'s tooltips, a drop and the
-     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `key` to add them`; `name` as a
+     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `rowKey` to add them`; `name` as a
      * sentence says one of its rows, `type` its key type's name.
      */
     keysUntyped: (p: { name: string; type: string }) => string;
@@ -407,7 +407,7 @@ const quoted = printFor(StringType);
 const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 
 /** Why a kind adds no row (#1549): its rows' name as a sentence says one, and its key type's name. */
-const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
+const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`rowKey\` to add them`;
 
 /** Each field's label in the inspector's own forms. */
 const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } = {

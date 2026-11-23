@@ -20,7 +20,7 @@
  *   where the rail reads them — and a name is no number, which the box says.
  * - **A new row's key** is as its kind's key type makes it, each Saved under
  *   it: by number, one past the largest — + LANE, Duplicate and Connect; built
- *   by the kind's `key` — Connect's move under its ends, + STATE's step under
+ *   by the kind's `rowKey` — Connect's move under its ends, + STATE's step under
  *   its station and name, a row moving as an edit changes what its key reads,
  *   and a key another row holds refusing the gesture, naming that row; by
  *   DateTime, a placeholder — Save waiting, Issues listing it at its key field,
@@ -31,7 +31,7 @@
  *   its key type would make — read through the rail, the rule told the key of
  *   every row the rail's read holds.
  * - **A key that fails as it is built** (east-workspace#1709): a step renamed
- *   to a name its kind's `key` builds no key of is refused, the footer saying
+ *   to a name its kind's `rowKey` builds no key of is refused, the footer saying
  *   so, and nothing is recorded — as in every builder; and a step stored under
  *   a key its name builds none of moves under the key its new name builds.
  * - **A key that would move while rows that may name it aren't held**
@@ -80,7 +80,7 @@ const codedStations = e3.record("flowchart_coded_stations", DictType(StringType,
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
-/** A step keyed by the number its name reads as: the steps' `key` reads the name as one, and fails on a name that is none. */
+/** A step keyed by the number its name reads as: the steps' `rowKey` reads the name as one, and fails on a name that is none. */
 const NumberedStep = StructType({ name: StringType, station: IntegerType });
 /** The numbered steps at the bench: 10, named so; and one an app stored under 30 whose name, Proof, builds no key. */
 const numberedSteps = e3.record("flowchart_numbered_steps", DictType(IntegerType, NumberedStep), {
@@ -445,7 +445,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(codedStations.type)(withRows(stations, compareText, [["lane-3", { code: "lane-3", label: m.newLane({ n: 3, count: "3" }) }]])));
     });
 
-    test("keyed by their ends, Connect keys a move as the transitions' `key` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {
+    test("keyed by their ends, Connect keys a move as the transitions' `rowKey` builds it; an end changed moves it under its new ends, still selected; one that builds a key a move holds is refused, naming that move; and Save writes each under its key", async () => {
         const moves = await h.read(fx.joinedMoves);
         const ends = printFor(fx.MoveEnds);
         const c = await open(($) => {
@@ -454,7 +454,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
                 states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
-                transitions: Flowchart.transitions(movesBound, { name: "Move", from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }) }),
+                transitions: Flowchart.transitions(movesBound, { name: "Move", from: "from", to: "to", rowKey: (move) => ({ from: move.from, to: move.to }) }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
         });
@@ -480,14 +480,14 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.joinedMoves.type)(withRows(moves, compareFor(fx.MoveEnds), [[{ from: 2n, to: 11n }, { from: 2n, to: 11n }]])));
     });
 
-    test("keyed by station and name, + STATE keys a step as the states' `key` builds it, its editor asking its name alone; Duplicate, building a key a step holds, is refused, naming it; a rename moves the step under its new name; and Save writes each under its key", async () => {
+    test("keyed by station and name, + STATE keys a step as the states' `rowKey` builds it, its editor asking its name alone; Duplicate, building a key a step holds, is refused, naming it; a rename moves the step under its new name; and Save writes each under its key", async () => {
         const steps = await h.read(fx.placedSteps);
         const place = printFor(fx.StepPlace);
         const c = await open(($) => {
             const stepsBound = $.let(Record.bind(fx.placedSteps));
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
-                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => ({ station: step.station, name: step.name }) }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
         }, place({ station: 2n, name: "Weigh" }));
@@ -512,7 +512,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             const stepsBound = $.let(Record.bind(numberedSteps));
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
-                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => step.name.parse(IntegerType) }),
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => step.name.parse(IntegerType) }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
         }, "10");
@@ -617,7 +617,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         }, tray);
         const racks = m.keysUntyped({ name: "rack", type: "Blob" }), trays = m.keysUntyped({ name: "tray", type: "Blob" });
         expect([racks, trays]).toEqual([
-            "Racks are keyed by Blob, which can't be typed — give the kind `key` to add them", "Trays are keyed by Blob, which can't be typed — give the kind `key` to add them",
+            "Racks are keyed by Blob, which can't be typed — give the kind `rowKey` to add them", "Trays are keyed by Blob, which can't be typed — give the kind `rowKey` to add them",
         ]);
         // + LANE: off, its tooltip saying why.
         const add = c.querySelector("[data-flowchart-addlane]")!;
@@ -726,7 +726,7 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
                 slice: { slice },
-                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => ({ station: step.station, name: step.name }) }),
                 transitions: Flowchart.transitions(movesBound, { from: "from", to: "to", entries: moveEntries }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
@@ -772,7 +772,7 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
                 return {
                     slice: { slice },
                     narrowed,
-                    states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                    states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => ({ station: step.station, name: step.name }) }),
                     transitions: Flowchart.transitions(movesBound, { from: "from", to: "to", entries: moveEntries }),
                     lanes: Flowchart.lanes(stationsBound, { label: "label" }),
                 };
@@ -795,7 +795,7 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
             const stationsBound = $.let(Record.bind(fx.labelledStations));
             return {
                 states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
-                lanes: Flowchart.lanes(stationsBound, { label: "label", key: (station) => station.label }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", rowKey: (station) => station.label }),
             };
         }, "1");
         // Weigh renamed, and its Save held on its way to e3.
@@ -888,7 +888,7 @@ describe("a key of several parts, and a key stored apart from its fields (#1581)
             const stepsBound = $.let(Record.bind(fx.placedSteps));
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
-                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => ({ station: step.station, name: step.name }) }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
         }, place({ station: 2n, name: "Fold" }));
@@ -911,7 +911,7 @@ describe("an edit in Details a key refuses goes back to what the row holds, sayi
             const stepsBound = $.let(Record.bind(fx.placedSteps));
             const stationsBound = $.let(Data.bind(fx.keyedStations));
             return {
-                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", rowKey: (step) => ({ station: step.station, name: step.name }) }),
                 lanes: Flowchart.lanes(stationsBound, { label: "label" }),
             };
         }, place({ station: 2n, name: "Weigh" }));

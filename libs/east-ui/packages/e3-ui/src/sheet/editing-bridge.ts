@@ -38,8 +38,8 @@ export interface SheetEditingInput {
     unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
     /** The field of a record's entries that holds each one's key, checked against the record — e3-ui's record forms only. */
     keyField?: string | undefined;
-    /** An entry's key, built from the entry by the app (`key`) — e3-ui's record forms only. */
-    key?: unknown;
+    /** An entry's key, built from the entry by the app (`rowKey`) — e3-ui's record forms only. */
+    rowKey?: unknown;
 }
 
 /**
@@ -222,12 +222,12 @@ function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: s
             };
         });
     }
-    // An entry's key the app builds from the entry (`key`): on the wire, the entry's bytes to its key's text — what a
+    // An entry's key the app builds from the entry (`rowKey`): on the wire, the entry's bytes to its key's text — what a
     // sheet makes a new entry under, and moves an entry to as an edit changes what its key reads.
-    if (input.key !== undefined && (keyType === undefined || draftType.type !== "Struct")) {
-        throw new Error("Sheet: `key` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
+    if (input.rowKey !== undefined && (keyType === undefined || draftType.type !== "Struct")) {
+        throw new Error("Sheet: `rowKey` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key");
     }
-    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.key, keyField);
+    const rowKey = keyType === undefined ? undefined : keyBuilderOf(keyType, rowType, "Sheet", bridge.group === undefined ? "a row" : "a group", input.rowKey, keyField);
     const readyGroupExpr = input.ready?.group;
     if (readyGroupExpr !== undefined && field === undefined) throw new Error("Sheet: ready.group requires a group declaration");
     // A group's check takes its DraftGroup; the renderer sends the entry's

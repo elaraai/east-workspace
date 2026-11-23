@@ -188,7 +188,7 @@ describe("a template's item, or a backlog row, lands at the point (SC12, SC4)", 
 
     test("a kind that adds no item — its keys of a type the form can't type, building none — refuses its templates wherever they rest, saying why; its backlog's rows still place (#1549)", () => {
         const untyped: SchematicDropContext = { ...CTX, untyped: (slot) => (slot === "racks" ? "Blob" : undefined) };
-        const said = "Racks are keyed by Blob, which can't be typed — give the kind `key` to add them";
+        const said = "Racks are keyed by Blob, which can't be typed — give the kind `rowKey` to add them";
         for (const where of [point(6.04, 2.91), NOWHERE]) {
             const plan = planDrop(R42, where, untyped);
             expect([plan.kind, dropCaption(plan, words, "m"), dropRefusal(plan, words)], atText(where)).toEqual(["refused", said, said]);

@@ -208,7 +208,7 @@ Task → What do you need?
     ├─ Draw a state-transition flow over the app's records — the Flowchart
     │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record) (lanes and decisions: small records, read whole)
-    │   ├─ Records keyed by any type a Dict takes              → a field naming a kind's row holds that kind's key type, checked at build · a new row's key: the kind's key: (row) => … builds it from the row; without one, a String's is made up, an Integer's one past the largest, and any other's typed in the inspector before Save — an editable transition kind keyed so needs key
+    │   ├─ Records keyed by any type a Dict takes              → a field naming a kind's row holds that kind's key type, checked at build · a new row's key: the kind's rowKey: (row) => … builds it from the row; without one, a String's is made up, an Integer's one past the largest, and any other's typed in the inspector before Save — an editable transition kind keyed so needs rowKey
     │   ├─ Narrow its states, transitions and cards — one rail → slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(record, { indexes }) }, transitions: { … }, <a cards list's source>? }, { presets? }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ What a narrowing leaves out: gone, or faded         → narrowed="hide" (the default) · narrowed="dim"
     │   ├─ What its cards and labels draw from the app's rows  → details: Flowchart.details(rows, { details: [Flowchart.figure(f), .tags(f), .histogram(f, { unit }), .list(f)] }) on Flowchart.states / .transitions — rows keyed as the kind's, bound as it is read (Data.bind, or Data.bindPaged beside a kind read through its source)
@@ -227,7 +227,7 @@ Task → What do you need?
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record)
-    │   ├─ Records keyed by any type a Dict takes              → as the Flowchart's, new keys too — an item's typed, a link kind's or a net kind's key; a link's end and a net's side hold their items' key type, a variant's each case its slot's
+    │   ├─ Records keyed by any type a Dict takes              → as the Flowchart's, new keys too — an item's typed, a link kind's or a net kind's rowKey; a link's end and a net's side hold their items' key type, a variant's each case its slot's
     │   ├─ A link or net drawn with no template: its fields    → the kind's values: (ends) => ({ … }), over Schematic.Types.Ends (a net's, Sides)
     │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ A floor too large to read whole: a window at a time → its source lists index.area({ x, y, width, height, at: "centre", cell }); past 5,000 rows in view, their density
@@ -388,7 +388,7 @@ and saves nothing. A draft that no longer fits its record ends the call
 - **A new row's key is decided the same way on every builder**, on what adds
   the row: the `<Sheet>` / `<Record>` tag, `Schedule.events`, `Roster.targets`,
   `Plan.links`, a Flowchart's or a Schematic's kind. `newKey` is the app's rule,
-  an East function from the keys taken to a new one. `key: (row) => …` builds it
+  an East function from the keys taken to a new one. `rowKey: (row) => …` builds it
   from the row: a row an edit changes the key of moves under it, and a key
   another row holds is refused on the page. Give one, never both. `keyField`
   names a field of the row that holds its key, which the builder writes and no

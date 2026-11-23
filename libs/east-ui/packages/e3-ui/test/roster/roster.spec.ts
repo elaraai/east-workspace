@@ -407,15 +407,15 @@ describe("Roster.targets", () => {
             /Roster\.targets: `entries` reads one target by its key beside the Roster's slice's `targets` source/);
     });
 
-    test("ruling 10 — the targets take a record keyed by any type: a String or an Integer key the Roster makes, any other the app's `key` or `newKey` does, and without either the page is refused, saying which to give", () => {
+    test("ruling 10 — the targets take a record keyed by any type: a String or an Integer key the Roster makes, any other the app's `rowKey` or `newKey` does, and without either the page is refused, saying which to give", () => {
         const byNumber = e3.record("roster_spec_cover_by_number", DictType(IntegerType, WarehouseCover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.doesNotThrow(() => targets(roles, byNumber), "keyed by Integer: a new target is one past the largest");
         const byDay = e3.record("roster_spec_cover_by_day", DictType(DateTimeType, WarehouseCover), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
         assert.throws(() => targets(roles, byDay), {
-            message: "Roster.targets: the targets are keyed by .DateTime, and the Roster makes one with no key typed — give `key`, building one's key from its row, " +
+            message: "Roster.targets: the targets are keyed by .DateTime, and the Roster makes one with no key typed — give `rowKey`, building one's key from its row, " +
                 "or `newKey`, making one from the keys taken, or key them by String or Integer",
         });
-        assert.doesNotThrow(() => targets({ ...roles, key: (row: ExprType<typeof WarehouseCover>) => row.day }, byDay), "keyed by its day, as its `key` builds it");
+        assert.doesNotThrow(() => targets({ ...roles, rowKey: (row: ExprType<typeof WarehouseCover>) => row.day }, byDay), "keyed by its day, as its `rowKey` builds it");
         assert.doesNotThrow(() => targets({ ...roles, newKey: East.function([SetType(DateTimeType)], DateTimeType, (_$, _taken) => new Date("2028-03-06T00:00:00Z")) }, byDay),
             "keyed by the app's own rule");
     });

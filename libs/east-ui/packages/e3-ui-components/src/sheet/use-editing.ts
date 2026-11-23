@@ -13,7 +13,7 @@
  * until their source reads them again; and a row changed here that the rows,
  * read again, hold no more — another session removed it — standing where it
  * stood until its session has read it by its key (`standing-rows.ts`). Over a
- * record whose rows' keys the app builds from them (`key`,
+ * record whose rows' keys the app builds from them (`rowKey`,
  * east-workspace#1709), each gesture leaves every row it made or changed under
  * the key its row builds — a row it moved standing in the place of the row it
  * was, until its source reads it again.
@@ -121,7 +121,7 @@ export interface SheetEditingResult {
      * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1). A gesture with a new entry, or
      * a new line, the app left a field of empty that no person can set (#1536) throws {@link SheetRefused}, and nothing
      * is drafted; so does one that would leave a row under a key another row stands under, or whose key fails as it is
-     * built, where the app builds a row's key from the row (`key`). An entry the sheet no longer draws — scrolled out of the rows read, or out of a narrowing's — begins
+     * built, where the app builds a row's key from the row (`rowKey`). An entry the sheet no longer draws — scrolled out of the rows read, or out of a narrowing's — begins
      * from the version a host `held` of it while it was drawn (#1579): what removing a row ticked there takes.
      */
     record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>) => boolean;
@@ -130,7 +130,7 @@ export interface SheetEditingResult {
      * (#1409), each entry's draft and wire row given — as one transaction of
      * the origin and label named. Answers whether the session recorded it.
      * They are an edit like any other (east-workspace#1709, ruling 14): where the app builds a row's key from the row
-     * (`key`), each stands under the key its row builds — an answer that changes what a row's key reads moves the row —
+     * (`rowKey`), each stands under the key its row builds — an answer that changes what a row's key reads moves the row —
      * and versions that would leave a row under a key another row stands under, or whose key fails as it is built, throw
      * {@link SheetRefused}, and nothing is drafted, as for a gesture's.
      */
@@ -167,7 +167,7 @@ export interface SheetEditingResult {
     readByKeys: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
     /**
      * Each entry the last gesture to move one put under another key, by the key it left — over a record whose rows' keys
-     * the app builds from them (`key`), where the gesture made a row or changed what a row's key reads — or the last
+     * the app builds from them (`rowKey`), where the gesture made a row or changed what a row's key reads — or the last
      * Undo or Redo of such a gesture put back under the key it had, whichever came last. What the ring keeps to its row
      * by.
      */
@@ -276,7 +276,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             return keyedAs?.(next, moved) ?? moved;
         };
     }, [editing, wireOf, keyedAs]);
-    // The key an entry's row builds, where the app builds a row's key from the row (`key`): from the entry as far as its
+    // The key an entry's row builds, where the app builds a row's key from the row (`rowKey`): from the entry as far as its
     // draft holds it, each field still empty read as its type's empty value — so a row is keyed from the gesture that
     // makes it, whatever of it is typed first.
     const builtKey = useMemo(() => {
@@ -525,7 +525,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         };
         const stood = stoodRef.current;
         const stands = new Map<string, number>();
-        // A row a gesture moved under another key (`key`, east-workspace#1709) is the row it was: where the rows drawn hold
+        // A row a gesture moved under another key (`rowKey`, east-workspace#1709) is the row it was: where the rows drawn hold
         // it under the key it began under, it stands in that row's place under its new one, until its source reads it
         // again — never at the end of the rows, where a row the drafts add stands, off a paged sheet's view. Each such
         // row's key, by the key of the row whose place it stands in.

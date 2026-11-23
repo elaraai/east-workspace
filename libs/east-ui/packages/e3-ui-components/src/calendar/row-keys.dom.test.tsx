@@ -7,7 +7,7 @@
  * A new event's key under each of the three options a kind takes
  * (east-workspace#1709), in the Calendar itself, over bookings on e3: a
  * booking duplicated — the copy an hour on from the one it copies — is keyed by
- * the app's own rule (`newKey`), by the key its row builds (`key`), or holds
+ * the app's own rule (`newKey`), by the key its row builds (`rowKey`), or holds
  * the key its session makes in its own field (`keyField`); and Save writes it
  * so. Where the app's rule gives a key a booking holds, the copy is refused,
  * and its Details say which key; over a record read a window at a time, the
@@ -122,7 +122,7 @@ const built = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     const rows = $.let(Record.bind(bookings, ["patch"]));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
         events: { booking: Calendar.events(rows, {
-            name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", key: (booking) => East.str`${booking.title}@${booking.start.getHour()}`,
+            name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", rowKey: (booking) => East.str`${booking.title}@${booking.start.getHour()}`,
         }) } });
 }))) };
 
@@ -180,7 +180,7 @@ const numberedByKey = { fn: East.function([], UIComponentType, (_$) => Reactive.
 const byRef = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const rows = $.let(Record.bind(bookings, ["patch"]));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
-        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", key: (booking) => booking.ref }) } });
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", rowKey: (booking) => booking.ref }) } });
 }))) };
 
 /** `byRef`'s day read a window at a time, through a rail's source over the bookings' interval index, each booking by its key. */
@@ -190,7 +190,7 @@ const byRefRailed = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     const indexed = $.let(Data.bindPaged(bookings, { indexes: ["calendar_keyed_bookings_by_time"] }));
     const slice = $.let(Slice.bindRecords("test.calendar.refKeys", { booking: { source: indexed, fields: { start: { label: "Dates" } }, range: "start" } }));
     return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
-        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, key: (booking) => booking.ref }) } });
+        events: { booking: Calendar.events(rows, { name: "Booking", icon: "calendar", title: "title", start: "start", end: "end", entries, rowKey: (booking) => booking.ref }) } });
 }))) };
 
 /** The day of the bookings keyed by number, their record read whole. */
@@ -268,7 +268,7 @@ describe("a Calendar's new event under each of the three key options (east-works
         expect([[...rows.keys()], sameBooking(rows.get("B-2")!, { ref: "B-1", title: "Safety check", start: TEN, end: ELEVEN })]).toEqual([["B-1", "B-2"], true]);
     });
 
-    test("ruling 1 — keyed as its row builds (`key`), a booking duplicated stands under the key its own row builds — its title and the hour the copy starts — and Save writes it there", async () => {
+    test("ruling 1 — keyed as its row builds (`rowKey`), a booking duplicated stands under the key its own row builds — its title and the hour the copy starts — and Save writes it there", async () => {
         const { container: c } = await h.mount(built);
         await duplicate(c);
         expect(event(c, "booking", "Safety check@10")).not.toBeNull();

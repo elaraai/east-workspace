@@ -18,7 +18,7 @@
  * the operations the landing draws and the provenance says (`data-op`,
  * `Was {previous} · Elara run #n`), kept until Apply. An answer is an edit
  * like any other (east-workspace#1709, ruling 14): where the app builds a
- * row's key from its fields (`key`), the step moves a row whose key the answer
+ * row's key from its fields (`rowKey`), the step moves a row whose key the answer
  * changed under the key it then builds, and what the run leaves on the row is
  * kept under that key; a step a row's key refuses says why, in the words every
  * refused key is said in.

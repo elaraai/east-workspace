@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * Where a place of the row space stands once a gesture has put rows under
- * other keys (`key`, east-workspace#1709): what the ring, a range and an open
+ * other keys (`rowKey`, east-workspace#1709): what the ring, a range and an open
  * editor follow. A row follows to the key it stands under now; a group that
  * moved takes its lines and its blank line with it, each named after its
  * group; and a padding row's place is the gesture's own to set.

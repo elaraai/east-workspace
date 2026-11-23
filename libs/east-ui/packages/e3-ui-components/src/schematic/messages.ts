@@ -166,7 +166,7 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     placeholderRefused: (p: { kind: string }) => string;
     /**
      * Why a kind adds no row (#1549) — on a template's card, a drop's ghost and the footer: `Racks are keyed by Blob,
-     * which can't be typed — give the kind `key` to add them`; `name` is the kind's, as running text writes it, `type` its
+     * which can't be typed — give the kind `rowKey` to add them`; `name` is the kind's, as running text writes it, `type` its
      * key type's name.
      */
     keysUntyped: (p: { name: string; type: string }) => string;
@@ -403,7 +403,7 @@ const membersOf = ({ names, more }: SchematicMembers): string => (more === undef
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Why a kind adds no row (#1549): its name as running text writes it, and its key type's name. */
-const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
+const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`rowKey\` to add them`;
 
 /** What an issue says, in English. */
 function issueText(p: SchematicIssueWord): string {

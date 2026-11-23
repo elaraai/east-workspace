@@ -477,8 +477,8 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property templatesSource - The slice's source its cards follow
  * @property details - Its details over the app's rows keyed as the states are, read only, drawn on each card and in the
  *   inspector (#1507); `none` for states with none, which keep today's cards
- * @property rowKey - A new state's key's text, from its row's bytes — the kind's `key` (#1549): what a drop, Duplicate and
- *   "+ STATE" make one under, and what a state moves to as an edit changes what it reads; `none` without `key`
+ * @property rowKey - A new state's key's text, from its row's bytes — the kind's `rowKey` (#1549): what a drop, Duplicate and
+ *   "+ STATE" make one under, and what a state moves to as an edit changes what it reads; `none` without `rowKey`
  * @property keyType - Its record's key type: what each key's text is printed from and read back at (#1549)
  */
 export const FlowchartStateKindType = StructType({
@@ -514,8 +514,8 @@ export type FlowchartStateKindType = typeof FlowchartStateKindType;
  * @property templatesSource - The slice's source its cards follow
  * @property details - Its details over the app's rows keyed as the transitions are, read only, drawn as lines under each
  *   label's evidence and in the inspector (#1507); `none` for transitions with none
- * @property rowKey - A new transition's key's text, from its row's bytes — the kind's `key` (#1549): what Connect makes one
- *   under, and what a transition moves to as an edit of its ends changes what it reads; `none` without `key`
+ * @property rowKey - A new transition's key's text, from its row's bytes — the kind's `rowKey` (#1549): what Connect makes one
+ *   under, and what a transition moves to as an edit of its ends changes what it reads; `none` without `rowKey`
  * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartTransitionKindType = StructType({
@@ -546,8 +546,8 @@ export type FlowchartTransitionKindType = typeof FlowchartTransitionKindType;
  * @property create - A new lane from its label and its order, every other field a card's values, or its type's default; `none` as `write` refuses
  * @property templates - Its cards, the Lanes tab's
  * @property templatesSource - The slice's source its cards follow
- * @property rowKey - A new lane's key's text, from its row's bytes — the kind's `key` (#1549): what + LANE and a card dropped
- *   on the band row make one under, and what a lane moves to as an edit changes what it reads; `none` without `key`
+ * @property rowKey - A new lane's key's text, from its row's bytes — the kind's `rowKey` (#1549): what + LANE and a card dropped
+ *   on the band row make one under, and what a lane moves to as an edit changes what it reads; `none` without `rowKey`
  * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartLaneKindType = StructType({

@@ -14,7 +14,7 @@
  *   at the field's type, refusing a text no key prints as.
  * - An accessor, a card and the details hear a key at its own type, the details keyed as their kind is.
  * - A row made with no card takes its own fields from its kind's `values` of what the gesture decided of it.
- * - A kind's `key` builds a new row's key from its row, held to the record's key type; an editable kind of rows whose key
+ * - A kind's `rowKey` builds a new row's key from its row, held to the record's key type; an editable kind of rows whose key
  *   is never typed, keyed by neither String nor Integer, needs it.
  * - Each role is a field of a type a Dict may be keyed by, checked when the code compiles; where both kinds are known,
  *   the Flowchart checks it against the other kind's key type, refusing a mismatch by the role, the field, both kinds
@@ -237,7 +237,7 @@ describe("the bakery's line: each kind keyed by its own type, every key as its t
                 transitions: Flowchart.transitions(moves, {
                     from: "from", to: "to", decision: "rule",
                     // A move's key is the two steps it joins.
-                    key: (move) => ({ from: move.from, to: move.to }),
+                    rowKey: (move) => ({ from: move.from, to: move.to }),
                     // A move drawn on the canvas: its note names the step it was drawn from.
                     values: (made) => ({
                         note: made.from.match({
@@ -309,10 +309,10 @@ describe("the bakery's line: each kind keyed by its own type, every key as its t
         assert.equal(rows.value.get(moveText({ from: 9n, to: 10n }))!.roles.decision.type, "none");
     });
 
-    test("a move's `key` builds a new move's key from its row, as East prints its two ends; the steps give none", () => {
+    test("a move's `rowKey` builds a new move's key from its row, as East prints its two ends; the steps give none", () => {
         if (bakery.transitions.type !== "some") assert.fail("the moves cross");
         const rowKey = bakery.transitions.value.rowKey;
-        if (rowKey.type !== "some") assert.fail("the moves give `key`");
+        if (rowKey.type !== "some") assert.fail("the moves give `rowKey`");
         assert.equal(rowKey.value(moveBytes({ from: 10n, to: 2n, rule: none, note: none })), moveText({ from: 10n, to: 2n }));
         assert.equal(bakery.states.rowKey.type, "none", "an Integer key is one past the largest");
     });
@@ -505,9 +505,9 @@ function typeChecks($: BlockBuilder<UIComponentType>): void {
     PublicFlowchart.lanes(stations, { label: "label", order: "seq" });
     PublicFlowchart.decisions(rules, { label: (rule, key) => East.str`${rule.name} ${key.add(1n)}`, queue: "queue" });
     // A new move's key, built from its row at the moves' key type.
-    PublicFlowchart.transitions(moves, { from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }) });
+    PublicFlowchart.transitions(moves, { from: "from", to: "to", rowKey: (move) => ({ from: move.from, to: move.to }) });
     // @ts-expect-error — the moves are keyed by the two steps they join: one step's number is no move's key
-    PublicFlowchart.transitions(moves, { from: "from", to: "to", key: (move) => move.from });
+    PublicFlowchart.transitions(moves, { from: "from", to: "to", rowKey: (move) => move.from });
     // @ts-expect-error — `note` is an Option of a String and `from` an Integer: a transition's ends hold a state's key each, of one type
     PublicFlowchart.transitions(moves, { from: "from", to: "note" });
     // @ts-expect-error — `slots` is an Array: a state's lane holds its lane's key, of a type a Dict may be keyed by
@@ -579,24 +579,24 @@ describe("a role naming another kind's row holds that kind's key (#1549)", () =>
 // A new row's key
 // ============================================================================
 
-describe("a new row's key: a kind's `key` builds it from its row (#1549)", () => {
-    test("a `key` building another type than the record's key is refused, naming both", () => {
+describe("a new row's key: a kind's `rowKey` builds it from its row (#1549)", () => {
+    test("a `rowKey` building another type than the record's key is refused, naming both", () => {
         refused(() => East.function([], UIComponentType, ($) => PublicFlowchart({
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
-            transitions: Flowchart.transitions($.let(Data.bind(lineMoves)), { from: "from", to: "to", key: ((move: ExprType<typeof Move>) => move.from) as never }),
-        })), `Flowchart.transitions: \`key\` builds a transition's key, of the record's key type ${printType(MoveKey)} — and this one builds .Integer`);
+            transitions: Flowchart.transitions($.let(Data.bind(lineMoves)), { from: "from", to: "to", rowKey: ((move: ExprType<typeof Move>) => move.from) as never }),
+        })), `Flowchart.transitions: \`rowKey\` builds a transition's key, of the record's key type ${printType(MoveKey)} — and this one builds .Integer`);
     });
 
-    test("editable transitions keyed by neither String nor Integer need `key`: nothing else keys what Connect makes", () => {
+    test("editable transitions keyed by neither String nor Integer need `rowKey`: nothing else keys what Connect makes", () => {
         refused(() => East.function([], UIComponentType, ($) => PublicFlowchart({
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
             transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to" }),
-        })), `Flowchart.transitions: the transitions are keyed by ${printType(MoveKey)}, and Connect makes one with no key typed — give \`key\`, ` +
+        })), `Flowchart.transitions: the transitions are keyed by ${printType(MoveKey)}, and Connect makes one with no key typed — give \`rowKey\`, ` +
             "building one's key from its row, or `newKey`, making one from the keys taken, or key them by String or Integer");
-        // Given `key`, they build; read only, they need none.
+        // Given `rowKey`, they build; read only, they need none.
         East.function([], UIComponentType, ($) => PublicFlowchart({
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
-            transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }) }),
+            transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to", rowKey: (move) => ({ from: move.from, to: move.to }) }),
         }));
         East.function([], UIComponentType, ($) => PublicFlowchart({
             states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),

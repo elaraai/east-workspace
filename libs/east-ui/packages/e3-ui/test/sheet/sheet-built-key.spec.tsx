@@ -6,7 +6,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 
 /**
- * A record whose rows' keys the app builds from them (`key`,
+ * A record whose rows' keys the app builds from them (`rowKey`,
  * east-workspace#1709), as a Sheet and a Record are told it: what the sheet
  * carries to keep each row under the key it builds — an entry's bytes to its
  * key's text (`rowKey`) — the one rule beside `newKey`, the field `keyField`
@@ -84,7 +84,7 @@ describe("a sheet told how its record's rows are keyed from them", () => {
     test("ruling 1 — carries `rowKey`: a row's bytes to its key's text, a String key as itself; a sheet told none carries none", () => {
         const keyed = East.compile(East.function([], Sheet.Types.Root, ($) => {
             const held = $.const(RACKS, racksType);
-            return createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, key: (rack: { code: unknown }) => rack.code });
+            return createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, rowKey: (rack: { code: unknown }) => rack.code });
         }), [])();
         assert.equal(rowKeyOf(keyed)(encodeBeast2For(Rack)({ code: "R-9", bay: "South" })), "R-9");
         // A row whose cell is still empty builds what the empty cell builds.
@@ -101,63 +101,63 @@ describe("a sheet told how its record's rows are keyed from them", () => {
             const held = $.const(LANES, lanesType);
             return createSheetRootWith(held, LANE_COLUMNS, {}, {
                 keyOrdered: true, applyKeyed: lanesSaved,
-                key: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
+                rowKey: (lane: { aisle: { multiply: (by: bigint) => { add: (n: unknown) => unknown } }; slot: unknown }) => lane.aisle.multiply(100n).add(lane.slot),
             });
         }), [])();
         assert.equal(rowKeyOf(lanes)(encodeBeast2For(Lane)({ aisle: 3n, slot: 7n })), "307");
         const moves = East.compile(East.function([], Sheet.Types.Root, ($) => {
             const held = $.const(MOVES, movesType);
             return createSheetRootWith(held, MOVE_COLUMNS, {}, {
-                keyOrdered: true, applyKeyed: movesSaved, key: (move: { from: unknown; to: unknown }) => ({ from: move.from, to: move.to }),
+                keyOrdered: true, applyKeyed: movesSaved, rowKey: (move: { from: unknown; to: unknown }) => ({ from: move.from, to: move.to }),
             });
         }), [])();
         assert.ok(equalFor(StringType)(rowKeyOf(moves)(encodeBeast2For(Move)({ from: "R-2", to: "R-5", crates: 1n })), printFor(Ends)({ from: "R-2", to: "R-5" })));
     });
 
-    test("ruling 6 — a sheet told `key` carries no `newKey`: no key is made up or counted on for a row to stand under", () => {
-        const build = (key: unknown) => East.compile(East.function([], Sheet.Types.Root, ($) => {
+    test("ruling 6 — a sheet told `rowKey` carries no `newKey`: no key is made up or counted on for a row to stand under", () => {
+        const build = (rowKey: unknown) => East.compile(East.function([], Sheet.Types.Root, ($) => {
             const held = $.const(LANES, lanesType);
-            return createSheetRootWith(held, LANE_COLUMNS, {}, { keyOrdered: true, applyKeyed: lanesSaved, key });
+            return createSheetRootWith(held, LANE_COLUMNS, {}, { keyOrdered: true, applyKeyed: lanesSaved, rowKey });
         }), [])();
         assert.equal(build((lane: { slot: unknown }) => lane.slot).newKey.type, "none");
         // Told neither, an Integer key is one past the largest, as before.
         assert.equal(build(undefined).newKey.type, "some");
     });
 
-    test("ruling 3 — a record keyed by neither String nor Integer builds with `key`; given neither way to decide a new row's key it is refused, naming both", () => {
-        const build = (key: unknown) => East.function([], NullType, ($) => {
+    test("ruling 3 — a record keyed by neither String nor Integer builds with `rowKey`; given neither way to decide a new row's key it is refused, naming both", () => {
+        const build = (rowKey: unknown) => East.function([], NullType, ($) => {
             const held = $.const(MOVES, movesType);
-            $(createSheetRootWith(held, MOVE_COLUMNS, {}, { keyOrdered: true, applyKeyed: movesSaved, key }));
+            $(createSheetRootWith(held, MOVE_COLUMNS, {}, { keyOrdered: true, applyKeyed: movesSaved, rowKey }));
         });
         build((move: { from: unknown; to: unknown }) => ({ from: move.from, to: move.to }));
         assert.throws(() => build(undefined),
-            /the rows are keyed by \.Struct \[.*\], and a new row's key is made only for a String key or an Integer one — pass `key`, building a new row's key from the row, or `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+            /the rows are keyed by \.Struct \[.*\], and a new row's key is made only for a String key or an Integer one — pass `rowKey`, building a new row's key from the row, or `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
     });
 
-    test("ruling 2 — `key` beside `newKey` is refused, naming both", () => {
+    test("ruling 2 — `rowKey` beside `newKey` is refused, naming both", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             const held = $.const(RACKS, racksType);
             $(createSheetRootWith(held, COLUMNS, { newKey: East.function([SetType(StringType)], StringType, (_$, keys) => East.str`R-${keys.size()}`) },
-                { keyOrdered: true, applyKeyed: saved, key: (rack: { code: unknown }) => rack.code }));
-        }), /Sheet: `key` and `newKey` each decide a new row's key — give one: `key` builds it from the row, `newKey` makes it from the keys taken/);
+                { keyOrdered: true, applyKeyed: saved, rowKey: (rack: { code: unknown }) => rack.code }));
+        }), /Sheet: `rowKey` and `newKey` each decide a new row's key — give one: `rowKey` builds it from the row, `newKey` makes it from the keys taken/);
     });
 
-    test("ruling 1 — a `key` that builds another type than the record's key is refused, naming both; and one that is no function", () => {
-        const build = (key: unknown) => East.function([], NullType, ($) => {
+    test("ruling 1 — a `rowKey` that builds another type than the record's key is refused, naming both; and one that is no function", () => {
+        const build = (rowKey: unknown) => East.function([], NullType, ($) => {
             const held = $.const(RACKS, racksType);
-            $(createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, key }));
+            $(createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, rowKey }));
         });
-        assert.throws(() => build((rack: { code: { length: () => unknown } }) => rack.code.length()), /Sheet: `key` builds a row's key, of the record's key type \.String — and this one builds \.Integer/);
-        assert.throws(() => build("code"), /Sheet: `key` builds a row's key from its row, \(row\) => …/);
+        assert.throws(() => build((rack: { code: { length: () => unknown } }) => rack.code.length()), /Sheet: `rowKey` builds a row's key, of the record's key type \.String — and this one builds \.Integer/);
+        assert.throws(() => build("code"), /Sheet: `rowKey` builds a row's key from its row, \(row\) => …/);
     });
 
-    test("ruling 8 — a `key` that reads the field `keyField` names is refused, naming both: the field holds a copy of the key, so no key is built from it", () => {
-        const build = (key: unknown) => East.function([], NullType, ($) => {
+    test("ruling 8 — a `rowKey` that reads the field `keyField` names is refused, naming both: the field holds a copy of the key, so no key is built from it", () => {
+        const build = (rowKey: unknown) => East.function([], NullType, ($) => {
             const held = $.const(RACKS, racksType);
-            $(createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, keyField: "code", key }));
+            $(createSheetRootWith(held, COLUMNS, {}, { keyOrdered: true, applyKeyed: saved, keyField: "code", rowKey }));
         });
         assert.throws(() => build((rack: { code: unknown }) => rack.code),
-            /Sheet: `key` reads "code", the field `keyField` names — that field holds a copy of a row's key, kept there by its builder, so no key is built from it: leave `keyField` out, and `key` alone keys each one by what the field holds/);
+            /Sheet: `rowKey` reads "code", the field `keyField` names — that field holds a copy of a row's key, kept there by its builder, so no key is built from it: leave `keyField` out, and `rowKey` alone keys each one by what the field holds/);
         // A key built from another field stands beside it.
         build((rack: { bay: unknown }) => rack.bay);
     });
@@ -166,7 +166,7 @@ describe("a sheet told how its record's rows are keyed from them", () => {
         const root = East.compile(East.function([], Sheet.Types.Root, ($) => {
             const held = $.const(ORDERS, ordersType);
             return createSheetRootWith(held, LINES, { group: Sheet.group(Order, "lines", { title: "customer" }), newGroup: East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(Order), (_$, _at) => ({ ref: none, customer: none, lines: none })) },
-                { keyOrdered: true, applyKeyed: ordersSaved, key: (order: { ref: unknown }) => order.ref });
+                { keyOrdered: true, applyKeyed: ordersSaved, rowKey: (order: { ref: unknown }) => order.ref });
         }), [])();
         assert.equal(rowKeyOf(root)(encodeBeast2For(Order)({ ref: "O-7", customer: "Osprey", lines: [] })), "O-7");
     });
@@ -174,43 +174,43 @@ describe("a sheet told how its record's rows are keyed from them", () => {
     test("ruling 1 — is refused over rows that are no record's own entries: an Array's, identified by `id`", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             const held = $.const([...RACKS.values()], ArrayType(Rack));
-            $(createSheetRootWith(held, { bay: COLUMNS.bay }, { id: "code" }, { key: (rack: { code: unknown }) => rack.code }));
-        }), /Sheet: `key` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key/);
+            $(createSheetRootWith(held, { bay: COLUMNS.bay }, { id: "code" }, { rowKey: (rack: { code: unknown }) => rack.code }));
+        }), /Sheet: `rowKey` builds the key of a record's own entries — its rows, or its groups — which a sheet over them reads by key/);
     });
 });
 
-describe("<Sheet> and <Record> with `key`", () => {
-    test("ruling 7 — the tag's `key` reaches the sheet: `<Sheet record key>` and `<Record record key>` build, and a key the sheet refuses is refused through the tag", () => {
+describe("<Sheet> and <Record> with `rowKey`", () => {
+    test("ruling 7 — the tag's `rowKey` reaches the sheet: `<Sheet record rowKey>` and `<Record record rowKey>` build, and a key the sheet refuses is refused through the tag", () => {
         inBlock(($) => {
             const held = $.let(Record.bind(racks));
             // The tags as an app writes them: built here, their props checked by the compiler.
-            void <Sheet record={held} columns={COLUMNS} key={(rack) => rack.code} />;
-            void <Record record={held} columns={{ code: Record.column.title(Rack, { header: "Code" }), bay: Record.column.text(Rack, { header: "Bay" }) }} key={(rack) => rack.code} />;
+            void <Sheet record={held} columns={COLUMNS} rowKey={(rack) => rack.code} />;
+            void <Record record={held} columns={{ code: Record.column.title(Rack, { header: "Code" }), bay: Record.column.text(Rack, { header: "Bay" }) }} rowKey={(rack) => rack.code} />;
         });
-        // A key of another type than the record's reaches the sheet too, and is refused there: the tag's `key` is no React key, dropped.
+        // A key of another type than the record's reaches the sheet too, and is refused there.
         assert.throws(() => inBlock(($) => {
             const held = $.let(Record.bind(racks));
             // @ts-expect-error — the racks are keyed by a String, and this builds an Integer
-            void <Sheet record={held} columns={COLUMNS} key={(rack) => rack.code.length()} />;
-        }), /Sheet: `key` builds a row's key, of the record's key type \.String — and this one builds \.Integer/);
+            void <Sheet record={held} columns={COLUMNS} rowKey={(rack) => rack.code.length()} />;
+        }), /Sheet: `rowKey` builds a row's key, of the record's key type \.String — and this one builds \.Integer/);
     });
 
-    test("ruling 8 — each tag told `keyField` and a `key` that reads it is refused in its own name: `<Sheet record keyField key>` and `<Record record keyField key>`", () => {
+    test("ruling 8 — each tag told `keyField` and a `rowKey` that reads it is refused in its own name: `<Sheet record keyField rowKey>` and `<Record record keyField rowKey>`", () => {
         assert.throws(() => inBlock(($) => {
             const held = $.let(Record.bind(racks));
-            void <Sheet record={held} columns={COLUMNS} keyField="code" key={(rack) => rack.code} />;
-        }), /Sheet: `key` reads "code", the field `keyField` names/);
+            void <Sheet record={held} columns={COLUMNS} keyField="code" rowKey={(rack) => rack.code} />;
+        }), /Sheet: `rowKey` reads "code", the field `keyField` names/);
         assert.throws(() => inBlock(($) => {
             const held = $.let(Record.bind(racks));
-            void <Record record={held} columns={{ code: Record.column.title(Rack, { header: "Code" }), bay: Record.column.text(Rack, { header: "Bay" }) }} keyField="code" key={(rack) => rack.code} />;
-        }), /Record: `key` reads "code", the field `keyField` names/);
+            void <Record record={held} columns={{ code: Record.column.title(Rack, { header: "Code" }), bay: Record.column.text(Rack, { header: "Bay" }) }} keyField="code" rowKey={(rack) => rack.code} />;
+        }), /Record: `rowKey` reads "code", the field `keyField` names/);
     });
 
     test("ruling 1 — a Sheet handed no record takes none, and names `record`; nor one over one entry's rows", () => {
         assert.throws(() => inBlock(($) => {
             const held = $.const([...RACKS.values()], ArrayType(Rack));
-            return Sheet.Payload({ data: held, id: "code", columns: { bay: COLUMNS.bay }, key: (rack: { code: unknown }) => rack.code });
-        }), /Sheet: `key` builds a row's key from the row, for the rows a sheet adds to the record it is handed — pass `record`; `data`'s rows are identified by `id`/);
+            return Sheet.Payload({ data: held, id: "code", columns: { bay: COLUMNS.bay }, rowKey: (rack: { code: unknown }) => rack.code });
+        }), /Sheet: `rowKey` builds a row's key from the row, for the rows a sheet adds to the record it is handed — pass `record`; `data`'s rows are identified by `id`/);
         const Week = StructType({ rows: ArrayType(StructType({ id: StringType, task: StringType })) });
         const weeks = e3.record("built_key_weeks", DictType(StringType, Week), {
             initial: new Map(),
@@ -220,14 +220,14 @@ describe("<Sheet> and <Record> with `key`", () => {
         });
         assert.throws(() => inBlock(($) => Sheet.Payload({
             record: $.let(Record.bind(weeks)), entry: { key: "W42", rows: "rows", id: "id" },
-            columns: { task: Sheet.column.text(Week.fields.rows.value, { header: "Task" }) }, key: (row: { id: unknown }) => row.id,
-        })), /Sheet: `key` builds a row's key from the row, for the rows a sheet adds to the record it is handed — and with `entry` the rows are one entry's, identified by `entry\.id`: leave it out/);
+            columns: { task: Sheet.column.text(Week.fields.rows.value, { header: "Task" }) }, rowKey: (row: { id: unknown }) => row.id,
+        })), /Sheet: `rowKey` builds a row's key from the row, for the rows a sheet adds to the record it is handed — and with `entry` the rows are one entry's, identified by `entry\.id`: leave it out/);
     });
 
-    test("ruling 2 — a Record given `key` beside `newKey` is refused in its own name", () => {
+    test("ruling 2 — a Record given `rowKey` beside `newKey` is refused in its own name", () => {
         assert.throws(() => inBlock(($) => Record.Payload({
             record: $.let(Record.bind(racks)), columns: { code: Record.column.title(Rack, { header: "Code" }) },
-            key: (rack: { code: unknown }) => rack.code, newKey: East.function([SetType(StringType)], StringType, (_$, keys) => East.str`R-${keys.size()}`),
-        })), /Record: `key` and `newKey` each decide a new row's key — give one/);
+            rowKey: (rack: { code: unknown }) => rack.code, newKey: East.function([SetType(StringType)], StringType, (_$, keys) => East.str`R-${keys.size()}`),
+        })), /Record: `rowKey` and `newKey` each decide a new row's key — give one/);
     });
 });

@@ -1432,8 +1432,8 @@ export const recordLocations = e3.record("record_locations", DictType(StringType
 });
 
 export const recordBuiltKeys = example({
-    keywords: ["Record", "key", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "newRow", "Record.patch", "Add", "duplicate key", "key taken", "refused"],
-    description: "A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `key` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `key` or `newKey`, never both; `keyField` names a field of the row that holds its key",
+    keywords: ["Record", "rowKey", "built key", "key from the row", "row key", "composite key", "natural key", "East.str", "newRow", "Record.patch", "Add", "duplicate key", "key taken", "refused"],
+    description: "A record whose rows' keys the app builds from the row: stock locations keyed by their aisle and their bin. `rowKey` on the tag builds a row's key from the row, so a location Add drafts is keyed at once by what its cells hold, moves under the key it then builds as its aisle or its bin is typed — in the step of the edit, which Undo takes back with it — and is saved there; one that would build a key another location holds is refused, the status line naming the key. `newRow` gives a new location its aisle. Give `rowKey` or `newKey`, never both; `keyField` names a field of the row that holds its key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const locations = $.let(Record.bind(recordLocations));
@@ -1444,7 +1444,7 @@ export const recordBuiltKeys = example({
                     <Record
                         record={locations}
                         // A location's key, built from its row: its aisle and its bin.
-                        key={(location) => East.str`${location.aisle}-${location.bin}`}
+                        rowKey={(location) => East.str`${location.aisle}-${location.bin}`}
                         title="Stock locations"
                         noun={{ singular: "location", plural: "locations" }}
                         columns={{

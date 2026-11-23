@@ -14,7 +14,7 @@
  * collection, or returned — reads every field.
  *
  * What a Plan holds its series' functions to over paged rows, and what holds
- * a kind's `key` off the field its `keyField` names.
+ * a kind's `rowKey` off the field its `keyField` names.
  *
  * @packageDocumentation
  */

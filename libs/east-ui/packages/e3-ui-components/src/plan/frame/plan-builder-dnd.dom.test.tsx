@@ -1226,9 +1226,9 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         expect([held.size, made]).toEqual([17, ["FL-18"]]);
     });
 
-    test("a `key` that fails for the two events makes no link: the ghost says no key can be made, and the drop draws nothing", async () => {
+    test("a `rowKey` that fails for the two events makes no link: the ghost says no key can be made, and the drop draws nothing", async () => {
         // A flow's key, its plates' key: a flow from a job has none, and its key fails.
-        const keyed = flowsPlan({ key: (flow) => flow.from.unwrap("plate") });
+        const keyed = flowsPlan({ rowKey: (flow) => flow.from.unwrap("plate") });
         const { container: c } = await h.mount(keyed, DRAG);
         await settle();
         await press(tool(c, "Connect"));

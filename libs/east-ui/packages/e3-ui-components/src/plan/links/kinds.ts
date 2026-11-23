@@ -114,7 +114,7 @@ export interface PlanLinkEnd {
 
 /**
  * Why a kind makes no link between two events: its `start` or its `end` holds no event of that kind — or, at its
- * `end`, no key that event's prints as; no `key` can be made for it, or its `key` failed as it was built; the record
+ * `end`, no key that event's prints as; no `key` can be made for it, or its `rowKey` failed as it was built; the record
  * `held`s a link under the key its row builds; or its new row `failed` as it was made.
  */
 export type PlanConnectRefusal = "start" | "end" | "key" | "held" | "failed";
@@ -146,7 +146,7 @@ export function connectLink(
 ): PlanConnectMade | { readonly refused: PlanConnectRefusal } {
     if (!holdsSlot(kind.ends.from, ends.from.kind)) return { refused: "start" };
     if (!holdsSlot(kind.ends.to, ends.to.kind)) return { refused: "end" };
-    // The kind's own functions, run as a drag rests: its row, and the author's `key` over it. One that throws makes no
+    // The kind's own functions, run as a drag rests: its row, and the author's `rowKey` over it. One that throws makes no
     // link, and says so, where it would otherwise throw out of the drag.
     let made: ReturnType<PlanLinkKindValue["create"]>;
     try {
