@@ -42,7 +42,9 @@ import { usePlanWords } from "../words.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
-import { laneBand, laneIndexAt, type LaneBand } from "./lanes.js";
+import { laneBand, laneIndexAt, laneRooms, laneRulesPath, type LaneBand } from "./lanes.js";
+import { dayRulesPath } from "../../shared/time/rules.js";
+import { useLaidOutSize } from "../../shared/use-laid-out-size.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -62,38 +64,38 @@ export interface PlanGutterLane {
 const NO_LANES: readonly { readonly key: string }[] = [];
 
 /**
- * The plot's bucket-column separators, O(1) DOM per row (#616).
+ * The plot's rules, O(1) DOM per row (#616): one SVG the plot's laid-out size,
+ * its lines on whole pixels (#1735) — each day's rule its last pixel, the last
+ * day's the plot's own edge (`shared/time/rules.ts`), so every day has the
+ * same room — over a buckets row's lane rules, drawn first so they lie under
+ * the day rules. A 100-row × 500-bucket canvas is 100 SVGs, never 50,000
+ * lines. Laid out before the browser paints; where nothing lays it out
+ * (jsdom), it draws no line.
  *
- * Equal-width buckets (hour / day / week — every high-count resolution) paint
- * ALL interior separators as one repeating gradient on a single element: it
- * starts at the FIRST interior edge and tiles at one bucket width, so no line
- * lands on the plot's own boundaries. A 100-row × 500-bucket canvas used to
- * mount ~50k separator divs; this is 100. Unequal buckets (month / quarter —
- * clipped edge buckets, low counts by construction) keep the per-edge divs.
+ * @param props.lanes - A buckets row's lanes, whose rules it draws under the day rules; none for any other row
  */
-export function GridSeparators({ styles }: { styles: Styles }) {
+export function GridSeparators({ styles, lanes = 0 }: { styles: Styles; lanes?: number }) {
     const scale = usePlanScale();
-    const n = scale.buckets.length;
-    if (n < 2) return null;
-    const w0 = scale.buckets[0]!.x1 - scale.buckets[0]!.x0;
-    const uniform = scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
-    if (uniform) {
-        return (
-            <Box css={styles.gridSep} data-plan-axisline data-plan-gridsep
-                style={{
-                    left: `${scale.buckets[0]!.x1 * 100}%`,
-                    // One bucket width, in THIS element's own space: it spans
-                    // n−1 buckets, so a tile is 1/(n−1) of it.
-                    backgroundImage: `repeating-linear-gradient(to right, var(--chakra-colors-border-subtle) 0 1px, transparent 1px calc(100% / ${n - 1}))`,
-                }} />
-        );
-    }
+    const ref = useRef<HTMLDivElement | null>(null);
+    const drawn = scale.buckets.length > 1 || lanes > 1;
+    const size = useLaidOutSize(ref, drawn);
+    const width = size?.width;
+    const height = size?.height;
+    const days = useMemo(() => (width === undefined || height === undefined ? "" : dayRulesPath(scale.buckets, width, height)),
+        [scale.buckets, width, height]);
+    // The plot is its row less the row's rule: the lanes share the row's height.
+    const laneLines = useMemo(() => (width === undefined || height === undefined || lanes < 2 ? "" : laneRulesPath(laneRooms(height + 1, lanes), width)),
+        [lanes, width, height]);
+    if (!drawn) return null;
     return (
-        <>
-            {scale.buckets.slice(0, -1).map((b, i) => (
-                <Box key={i} css={styles.gridCol} data-plan-axisline style={{ left: `${b.x1 * 100}%` }} />
-            ))}
-        </>
+        <Box ref={ref} css={styles.gridSep} data-plan-axisline data-plan-gridsep>
+            {width !== undefined && height !== undefined && (
+                <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
+                    {laneLines !== "" && <path d={laneLines} data-plan-lane-rules="" />}
+                    {days !== "" && <path d={days} data-plan-day-rules="" />}
+                </svg>
+            )}
+        </Box>
     );
 }
 
@@ -762,7 +764,11 @@ export function RowShell({
             >
                 {/* Under everything the plot draws after it — the rules, the marks, the now line (#1398, CL2). */}
                 {unread === true && <LoadingWash />}
-                {noGrid !== true && <GridSeparators styles={styles} />}
+                {noGrid !== true && (
+                    <GridSeparators styles={styles}
+                        // A buckets row's lane rules lie under its day rules (#1735); a strip's and an expanded row's none.
+                        lanes={row.kind.type === "buckets" && ctx !== true && !expanded ? row.kind.value.lanes.length : 0} />
+                )}
                 {drop !== undefined && (
                     <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview>
                         {/* A moved element's span, where the band draws it (#825). */}

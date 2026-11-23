@@ -35,7 +35,7 @@ export const elementsSlots = [
 
 /**
  * A lock's square (#1541, U9): Font Awesome's lock, 8px, in a bar or a chip — even, as a bar's 20px (16px dense) and
- * a chip's 18px are, so it centres on whole pixels; a tile's icons are 8px too.
+ * a chip's 18px are, so it centres on whole pixels; a tile's lock is 8px tall too, in its 20px (#1735).
  */
 export const PLAN_LOCK_W = "8px";
 

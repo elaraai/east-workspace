@@ -330,7 +330,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Plan mark's label", at(plan, "markLabel"), "15px"],
         ["a Plan chart tick", at(plan, "chartTickLeft"), "14px"],
         ["a Plan segment's label", at(plan, "segmentPart"), "var(--plan-segment-h)"],
-        ["a Plan tile", at(plan, "tile"), "calc(var(--plan-tile-h) - 4px)"],
+        // A tile's line is its own height (#1735): its label, trimmed to its cap height, centred in it — 6 | 8 | 6 at 1×.
+        ["a Plan tile", at(plan, "tile"), "var(--plan-tile-h)"],
         ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
         ["a Plan chip", at(plan, "cardChip"), "calc(var(--plan-chip-h) - 4px)"],
         ["the Plan's `← All rows`", at(plan, "focusBack"), "19px"],
@@ -395,11 +396,17 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
     });
 
     test("a box whose height its recipe does not know is a size container, its words' line its own height", () => {
-        expect(at(plan, "cell").containerType).toBe("size");
+        // A bucket cell holds no words: its tiles stand at the whole pixels its row sets (#1735).
         expect(at(plan, "heatCell").containerType).toBe("size");
         expect(at(avatarSlotRecipe.base, "root").containerType).toBe("size");
         // A compact Calendar event, as tall as its duration (#1646's review); a month's chip keeps its own line.
         expect(at(calendarSlotRecipe.base, "event", "&[data-compact]:not([data-chip])").containerType).toBe("size");
+    });
+
+    test("a Plan tile's label and its `+n` chip's count are trimmed to their cap height where the browser can, so each centres in its tile's room as the spec measures it (#1735)", () => {
+        const trim = { textBox: "trim-both cap alphabetic" };
+        expect(at(plan, "tileLabel", "@supports (text-box: trim-both cap alphabetic)")).toEqual(trim);
+        expect(at(plan, "tileMore", "& > [data-tile-more-count]", "& > *", "@supports (text-box: trim-both cap alphabetic)")).toEqual(trim);
     });
 
     test("the Sheet's action cell takes the line of its room's parity, which the Sheet's cell says beside its own (#1646's review)", () => {

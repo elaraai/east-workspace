@@ -121,14 +121,15 @@ describe("the works' page (planPressTasks)", () => {
         expect(tasksOn(c, entry("press", "P04"))).toEqual([]);
     });
 
-    test("both lanes of a kind's row are drawn on a day with no task, each named once in the row's gutter (#1680's review)", async () => {
+    test("both lanes of a kind's row stand on a day with no task, each named once in the row's gutter (#1680's review, #1735)", async () => {
         const { container: c } = await h.mount(ex.planPressTasks);
         await settle();
         await waitFor(() => expect(task(c, "T-01", WASH_3)).not.toBeNull());
         const row = c.querySelector<HTMLElement>(rowAt(WASH_3))!;
-        // Saturday 10 October holds no task of the blankets': its morning and its afternoon are drawn all the same — each
-        // lane's wash runs across every day — and no empty cell stands there to say so.
-        expect(row.querySelectorAll("[data-plan-cellwash]")).toHaveLength(2);
+        // Its morning and its afternoon, 25px each — 24 of room and a rule, the rule between them drawn under the day
+        // rules by the row's grid, which a browser lays out (the showcase's spec measures it) — and Saturday 10 October,
+        // with no task of the blankets', has no empty cell standing there to say so.
+        expect(row.getAttribute("data-plan-h")).toBe("50");
         expect(row.querySelector('[data-plan-cell="5:0"], [data-plan-cell="5:1"]')).toBeNull();
         // Each lane is named once, on its line of the gutter, never in every cell.
         expect([...row.querySelectorAll("[data-plan-lane]")].map((caption) => caption.textContent)).toEqual(["AM", "PM"]);

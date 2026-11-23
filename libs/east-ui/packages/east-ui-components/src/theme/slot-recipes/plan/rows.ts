@@ -23,7 +23,7 @@ import { linkRibbons, linkSelectedInk } from "../links/ribbons.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
-    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
+    "row", "gutterCell", "plot", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
     "gutterSub", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret", "statusDot",
     "rowControls", "rowControl", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
@@ -181,30 +181,19 @@ export const rowsBase = {
         // takes, so a press dragged off it selected the canvas's words (#1680's review).
         "& :is([data-run], [data-chip], [data-event], [data-mark], [data-plan-mark])": { userSelect: "none" },
     },
-    // A single bucket's background grid line (column separators). The
-    // expand render's `axis` treatment washes / suppresses them INSIDE
-    // the expanded row only ("keep" is the bare default).
-    gridCol: {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        width: 0,
-        borderLeftWidth: "1px",
-        borderLeftColor: "border.subtle",
-        pointerEvents: "none",
-        "[data-axis='dim'] &": { opacity: 0.4 },
-        "[data-axis='off'] &": { display: "none" },
-    },
-    // ALL interior separators of an equal-bucket row as ONE element
-    // (#616): a repeating gradient at one bucket width, starting at the
-    // first interior edge (the renderer sets `left` + the tile size). The
-    // per-edge `gridCol` divs remain the unequal-bucket fallback.
+    // The plot's rules as ONE element (#616): an SVG the plot's size, its
+    // lines on whole pixels (#1735) — each day's rule its last pixel, in the
+    // rule's ink, over a buckets row's lane rules, the rule's ink mixed half
+    // into the paper. The renderer writes only the SVG's size and its paths.
+    // The expand render's `axis` treatment washes / suppresses them INSIDE the
+    // expanded row only ("keep" is the bare default).
     gridSep: {
         position: "absolute",
-        top: 0,
-        bottom: 0,
-        right: 0,
+        inset: 0,
         pointerEvents: "none",
+        "& > svg": { display: "block", fill: "none", strokeWidth: 1, shapeRendering: "crispEdges" },
+        "& [data-plan-day-rules]": { stroke: "{colors.border.subtle}" },
+        "& [data-plan-lane-rules]": { stroke: "color-mix(in srgb, {colors.border.subtle} 50%, {colors.bg.surface})" },
         "[data-axis='dim'] &": { opacity: 0.4 },
         "[data-axis='off'] &": { display: "none" },
     },

@@ -154,14 +154,16 @@ describe("Plan rowHeight (§8)", () => {
         expect(rowHeight(visible(row(flat)), false, new Set())).toBe(ROW_H);   // single series never grows
     });
 
-    test("laned bucket rows grow to fit their stacked lane cells", () => {
-        const laned = variant("buckets", {
-            lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
-            events: [], markers: [],
+    test("a buckets row is 25px a lane — 24 of room and a rule under each — one lane where it declares none, dense or not; a two-line gutter floors it as any row (#1735)", () => {
+        const lanes = (keys: string[]) => variant("buckets", {
+            lanes: keys.map((key) => ({ key, label: some(key.toUpperCase()) })), events: [], markers: [],
         });
-        const unlaned = variant("buckets", { lanes: [], events: [], markers: [] });
-        expect(rowHeight(visible(row(laned)), false, new Set())).toBe(52);      // 6 + 2×22 + 2
-        expect(rowHeight(visible(row(unlaned)), false, new Set())).toBe(ROW_H);
+        expect(rowHeight(visible(row(lanes(["am", "pm"]))), false, new Set())).toBe(50);
+        expect(rowHeight(visible(row(lanes(["am", "pm", "eve"]))), false, new Set())).toBe(75);
+        expect(rowHeight(visible(row(lanes([]))), false, new Set())).toBe(25);
+        expect(rowHeight(visible(row(lanes([]))), true, new Set())).toBe(25);
+        expect(rowHeight(visible(row(lanes([]), { sub: "fleet" })), false, new Set())).toBe(ROW_H_STACKED);
+        expect(rowHeight(visible(row(lanes(["am", "pm"]), { sub: "fleet" })), false, new Set())).toBe(50);
     });
 
     test("group bands: 26 expanded, 28 as a collapsed summary strip", () => {

@@ -25,6 +25,9 @@ export const timeRulerBase = {
         display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0,
         whiteSpace: "nowrap", overflow: "visible", borderLeftWidth: "1px", borderColor: "border.subtle",
         "&:first-child": { borderLeftWidth: 0 },
+        // The Plan's ruler (#1735): each period's line its last pixel, as the plot's day rules are, the renderer placing
+        // the ticks on whole pixels — the last period's line the track's own edge.
+        "[data-plan-ruler] > &": { borderLeftWidth: 0, borderRightWidth: "1px", "&:last-child": { borderRightWidth: 0 } },
         "&[data-align='start']": { justifyContent: "flex-start" },
         "&[data-align='end']": { justifyContent: "flex-end" },
         "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },

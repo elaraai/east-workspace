@@ -167,7 +167,7 @@ describe("Plan row-layer memoization (#616)", () => {
 });
 
 describe("Plan DOM scale (#616)", () => {
-    test("separator DOM is O(rows): one gradient per row; the shared two-tier ruler has no per-bucket grid separators", () => {
+    test("separator DOM is O(rows): one element of rules per row (#1735: an SVG of whole-pixel lines); the shared two-tier ruler has no per-bucket grid separators", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([])),
             planRow("m2", spanKind([])),
@@ -183,7 +183,7 @@ describe("Plan DOM scale (#616)", () => {
         expect(container.querySelectorAll("[data-plan-gridsep]")).toHaveLength(3);
     });
 
-    test("bucket cells mount only where OCCUPIED; the empty wash is one band per lane", () => {
+    test("bucket cells mount only where OCCUPIED, and draw no wash of their own: the rules under the row are the grid (#1735)", () => {
         const { container } = renderPlan(planRoot([
             planRow("van", variant("buckets", {
                 lanes: [],
@@ -194,10 +194,9 @@ describe("Plan DOM scale (#616)", () => {
                 markers: [{ at: t(new Date("2026-07-20Z")), lane: none, status: variant("danger", null), message: "short" }],
             })),
         ]), "plan-616-cells");
-        // 12 buckets: 2 event cells + 1 marker cell mount — not 12 — and the
-        // empty-cell wash paints as one gradient band.
+        // 12 buckets: 2 event cells + 1 marker cell mount — not 12 — and no wash band: the row's rules are its grid.
         expect(container.querySelectorAll("[data-plan-cell]")).toHaveLength(3);
-        expect(container.querySelectorAll("[data-plan-cellwash]")).toHaveLength(1);
+        expect(container.querySelectorAll("[data-plan-cellwash]")).toHaveLength(0);
         // The marker cell still rings and pins its icon.
         expect(container.querySelector('[data-over="danger"]')).toBeTruthy();
         // A captioned lane mounts no more: its caption is its gutter line's (#1680's review) — the lanes test.

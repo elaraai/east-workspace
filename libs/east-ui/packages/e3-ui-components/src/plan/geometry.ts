@@ -14,18 +14,19 @@
  * == rendered px" invariant rests on the two agreeing; before this they were
  * three hand-kept copies (model constants, recipe pixels, inline heights).
  *
- * The widths are the narrowest a bar, a chip and a bucket cell draw, and each
- * mark's glyph across (`--plan-bar-min-w`, …): a link's end meets an element
- * where it draws (#1258), so the ribbons lay out from the same numbers the
- * recipe draws the elements at.
+ * The widths are the narrowest a bar and a chip draw, and each mark's glyph
+ * across (`--plan-bar-min-w`, …): a link's end meets an element where it draws
+ * (#1258), so the ribbons lay out from the same numbers the recipe draws the
+ * elements at. A bucket cell has no floor: it is its day's room, on whole
+ * pixels (#1735).
  *
  * @packageDocumentation
  */
 
 /**
- * How far a bucket cell sits in from its bucket's edges and its lane's, and a
- * cards chip from its own ends, each side (px). The renderers place both by it,
- * and a link meets either where it draws (#1258).
+ * How far a bucket tile stands inside its day's rules (#1735), and a cards chip
+ * in from its own ends, each side (px). The renderers place both by it, and a
+ * link meets a chip where it draws (#1258).
  */
 export const PLAN_CELL_INSET = 2;
 
@@ -68,15 +69,14 @@ export interface PlanGeometry {
     /** A vertical multi-series table row: {@link PlanGeometry.tablePad} + one line per series. */
     tableLine: number;
     tablePad: number;
-    /** A laned bucket row: 2 × `lanePad` + one `laneCell` per lane + a `laneGap` between. */
-    laneCell: number;
-    laneGap: number;
-    lanePad: number;
+    /** A buckets row's lane (#1735): the room its tiles stand in, a {@link PlanGeometry.rule} under each — the last
+     *  lane's the row's own — so a row is `(lane + rule) ×` its lanes, one where it declares none. */
+    lane: number;
     /** A span run bar. */
     bar: number;
     /** A collapsed parent's rollup band. */
     rollBar: number;
-    /** A bucket tile. */
+    /** A bucket tile (#1735): 2px inside its lane's room above and below. */
     tile: number;
     /** A cards chip. */
     chip: number;
@@ -108,14 +108,13 @@ export interface PlanGeometry {
     barMinWidth: number;
     /** The narrowest a cards chip draws, its padding and ring inside it. */
     chipMinWidth: number;
-    /** The narrowest a bucket cell draws, its padding inside it. */
-    cellMinWidth: number;
-    /** A tile's floor (#1266): the narrowest it draws where its cell has the
-     *  room, and what a folding cell keeps beside its `+n` chip (#1267). */
+    /** A tile's floor (#1266): the narrowest slot a cell cuts its day into —
+     *  a day whose slots would fall under it cuts fewer, its `+n` taking what
+     *  has none (#1267, #1735). */
     tileMinWidth: number;
     /** The narrowest a tile draws at all, its padding given way: a proposal's
-     *  two 1.5px rings (#1276). A cell that leaves its tiles less room draws
-     *  none of them, and shows its `+n` chip alone. */
+     *  two 1.5px rings (#1276). A day that leaves a tile less room draws its
+     *  lone tile as a mark across it, several as their `+n` alone. */
     tileLeastWidth: number;
     /** A milestone's dot, across and down. */
     markDotWidth: number;
@@ -147,17 +146,17 @@ const DEFAULT: PlanGeometry = {
     heatRow: 32, heatInset: 3, heatCellMin: 16,
     strip: 16, stripMark: 7,
     tableLine: 11, tablePad: 6,
-    laneCell: 22, laneGap: 2, lanePad: 3,
+    lane: 24,
     bar: 20, rollBar: 12,
-    tile: 16, chip: 18, weight: 20, segment: 20,
+    tile: 20, chip: 18, weight: 20, segment: 20,
     brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 28,
     narrowStrip: 24,
     failedBandMin: 64,
     markTriangle: 9,
     // A bar's padding is 7 each side and its look's dashed ring 1.5 (17); a
-    // chip's 9 and 1.5 (21); a cell's 6 each side (12). A tile's padding gives
-    // way to its room, down to its two 1.5px rings (3).
-    barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12, tileMinWidth: 20, tileLeastWidth: 3,
+    // chip's 9 and 1.5 (21). A tile's padding gives way to its slot, down to
+    // its two 1.5px rings (3).
+    barMinWidth: 18, chipMinWidth: 22, tileMinWidth: 20, tileLeastWidth: 3,
     markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
     // A bar's label: Chivo Mono at the bar's 11px draws every glyph 7 across (measured in the showcase, #1680's review).
     barPadWidth: 7, barPadLockedWidth: 4, barGapWidth: 4, lockWidth: 8, barGlyphWidth: 7,

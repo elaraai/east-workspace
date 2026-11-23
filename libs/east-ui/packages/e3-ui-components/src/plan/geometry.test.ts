@@ -95,11 +95,11 @@ describe("the Plan geometry table (#817)", () => {
     });
 
     test("each width a link's end meets an element by is drawn from its variable, never a pixel literal (#1258)", () => {
-        // The narrowest bar, chip and cell.
+        // The narrowest bar and chip; a bucket cell has none, its day's room on whole pixels, which the links share (#1735).
         expect(slot("bar").minWidth).toBe(v("barMinWidth"));
         expect(slot("cardChip").minWidth).toBe(v("chipMinWidth"));
-        expect(slot("cell").minWidth).toBe(v("cellMinWidth"));
-        // A tile's padding gives way to its room down to the least a tile draws, which the fold reads too (#1276).
+        expect(slot("cell").minWidth).toBeUndefined();
+        // A tile's padding gives way to its slot down to the least a tile draws, which its slots read too (#1276).
         expect(String(slot("tile").paddingInline)).toContain(v("tileLeastWidth"));
         // Each mark's glyph: the dot, an event row's diamond, the triangle (its
         // borders are its size), and the icon's box.

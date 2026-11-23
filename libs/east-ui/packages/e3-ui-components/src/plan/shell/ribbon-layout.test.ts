@@ -512,16 +512,16 @@ describe("where a link's end meets its row (#1192)", () => {
             expect(short.leftX).toBe(xOf(hour("2026-08-03T06:00")) + PLAN_CELL_INSET);
         });
 
-        test("a tile's cell in from its bucket and its lane by the cell inset — its own lane's, or the whole cell its bucket shares", () => {
-            const x0 = xOf(at("2026-07-06")) + PLAN_CELL_INSET;
-            const x1 = xOf(at("2026-07-13")) - PLAN_CELL_INSET;
+        test("a tile's cell: its bucket's room on the plot's whole pixels, and its lanes' — its own lane's, or the whole cell its bucket shares (#1735)", () => {
+            // The week of 6 July is 83.3 to 166.7 of the plot's 1000: its room from pixel 83 to 166, the pixel before its
+            // rule. Down, the row's one lane: 31 of room over the row's rule.
             expect(endAt("tiles", "e")).toEqual({
-                leftX: x0, rightX: x1, top: 64 + PLAN_CELL_INSET, bottom: 64 + 31 - PLAN_CELL_INSET, row: { top: 64, bottom: 96 },
+                leftX: PLOT.left + 83, rightX: PLOT.left + 166, top: 64, bottom: 64 + 31, row: { top: 64, bottom: 96 },
             });
-            // The laned row's plot cell is 51 tall: the second lane's cell is its lower half, in by the inset.
-            const half = 51 / 2;
-            expect(endAt("laned", "in2")).toMatchObject({ top: 96 + half + PLAN_CELL_INSET, bottom: 96 + 2 * half - PLAN_CELL_INSET });
-            expect(endAt("laned", "beside")).toMatchObject({ top: 96 + PLAN_CELL_INSET, bottom: 96 + 51 - PLAN_CELL_INSET });
+            // The laned row is 52 tall, its lanes 26 apart: the second lane's room is 25 from 26 down; the whole cell is
+            // both, the rule between them inside it.
+            expect(endAt("laned", "in2")).toMatchObject({ top: 96 + 26, bottom: 96 + 26 + 25 });
+            expect(endAt("laned", "beside")).toMatchObject({ top: 96, bottom: 96 + 51 });
         });
 
         test("a mark across its glyph, centred on its instant: the dot, the turned diamond, the triangle, the icon's box", () => {

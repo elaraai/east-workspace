@@ -342,7 +342,7 @@ export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
 // #817) — the table the recipe reads too, as CSS variables. These names are
 // its default-density entries, kept for the code and tests that name them.
 
-/** Default span/bucket/cards/table row height. Tables share it: numerals need
+/** Default span/cards/table row height — a buckets row is its lanes' (#1735). Tables share it: numerals need
  *  no less room than a bar does, and a table row at the dense height beside
  *  default rows read as a mistake. */
 export const ROW_H = PLAN_GEOMETRY.default.row;
@@ -549,12 +549,10 @@ export function factsHeight(
         case "heat": return floor(g.heatRow);
         case "table":
             return f.kind.lines > 1 ? floor(Math.max(g.row, g.tablePad + f.kind.lines * g.tableLine)) : floor(g.row);
-        case "buckets": {
-            // Laned rows grow — the Planner cell grid: a cell per lane, a gap
-            // between, lane padding above and below (§4·K2).
-            const n = f.kind.lanes;
-            return n > 1 ? floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap) : floor(g.row);
-        }
+        case "buckets":
+            // A lane its tiles stand in (#1735): its 24px room and the 1px rule under it — the last lane's the row's
+            // own — so a row is 25 × its lanes, one lane where it declares none.
+            return floor(Math.max(1, f.kind.lanes) * (g.lane + g.rule));
         case "row": return floor(g.row);
     }
 }
