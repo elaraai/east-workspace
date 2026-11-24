@@ -263,9 +263,11 @@ describe("Plan UI state survives a remount (#813)", () => {
         expect(again.container.querySelector(rowSel("b1"))).toBeNull();
     });
 
-    test("the gutter's width, where the viewer moved its rule, comes back with the same storageKey; below 220px a row's controls fold (#1680's review)", () => {
+    test("the gutter's width, where the viewer moved its rule, comes back with the same storageKey (#1680's review); at its narrowest a row's line is the line it is at every width, the canvas marking nothing for it (#1749)", () => {
         const handle = () => screen.getByRole("separator", { name: "Width of the row names" });
         const widthOf = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-plan-body]")!.style.getPropertyValue("--plan-gutter-w");
+        /** What the canvas says of its gutter, for its rows to draw by: its width, and nothing else. */
+        const marks = (c: HTMLElement) => [...c.querySelector("[data-plan-body]")!.attributes].map((a) => a.name).filter((name) => name.includes("gutter"));
         const first = renderPlan(planRoot(rows()), "plan-gutter");
         expect([handle().getAttribute("aria-valuenow"), widthOf(first.container)]).toEqual(["240", "240px"]);
         fireEvent.keyDown(handle(), { key: "End" });
@@ -273,15 +275,15 @@ describe("Plan UI state survives a remount (#813)", () => {
         first.unmount();
         const second = renderPlan(planRoot(rows()), "plan-gutter");
         expect([handle().getAttribute("aria-valuenow"), widthOf(second.container)]).toEqual(["360", "360px"]);
-        expect(second.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(false);
+        expect(marks(second.container)).toEqual([]);
         fireEvent.keyDown(handle(), { key: "Home" });
         expect([handle().getAttribute("aria-valuenow"), widthOf(second.container)]).toEqual(["168", "168px"]);
-        expect(second.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(true);
+        expect(marks(second.container)).toEqual([]);
         second.unmount();
-        // Drawn narrow from its first frame: the controls fold where nothing has moved the rule yet.
+        // Drawn at its narrowest from its first frame, as it was left.
         const third = renderPlan(planRoot(rows()), "plan-gutter");
         expect([handle().getAttribute("aria-valuenow"), widthOf(third.container)]).toEqual(["168", "168px"]);
-        expect(third.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(true);
+        expect(marks(third.container)).toEqual([]);
         third.unmount();
         // Another canvas's gutter is its own.
         renderPlan(planRoot(rows()), "plan-gutter-other");

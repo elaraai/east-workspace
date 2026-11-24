@@ -5,7 +5,7 @@
 
 import { expect } from "playwright/test";
 import { test } from "./kept-page";
-import { openExample, PLAN_EVENT_EXAMPLES } from "./plan-page";
+import { clickRowControl, openExample, PLAN_EVENT_EXAMPLES } from "./plan-page";
 import { cutText, rulerFaults } from "./plan-text";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
@@ -65,11 +65,10 @@ for (const theme of LAYOUT_THEMES) {
                 };
             });
             await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
-            const toggle = chart.locator('[data-plan-control="expand"]');
-            await toggle.click();
+            await clickRowControl(chart, "expand");
             await expect(chart).toHaveAttribute("aria-expanded", "true");
             await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
-            await toggle.click();
+            await clickRowControl(chart, "expand");
             await expect(chart).toHaveAttribute("aria-expanded", "false");
         }
         let fold = entry.locator('[data-plan-fold-all]');

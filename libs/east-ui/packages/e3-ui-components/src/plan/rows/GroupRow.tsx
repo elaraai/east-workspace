@@ -27,7 +27,7 @@ import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
-import { statusText } from "../a11y.js";
+import { PlanStatusIcon } from "./StatusIcon.js";
 import { usePlanWords } from "../words.js";
 import { rowItemKey, type PlanRowDiagnostic, type PlanRowValue } from "../model.js";
 import type { PlanGridRow } from "../root/grid.js";
@@ -142,21 +142,20 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
-            {/* Open, the band's name spans the whole row — caret · caption · meta · value · dot, left to right — over
-                its empty plot; collapsed, it is the rows' gutter grid, its caption, meta and value over the name and value
-                cells, its dot in the dot cell, beside the strip (#1680's review). Value then dot, as on rows. */}
-            <Box css={styles.groupName} role="rowheader" data-open={collapsed ? undefined : ""} style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
+            {/* The band's name is the rows' gutter grid, open or collapsed (#1749): its caret, its caption and meta in the
+                name's cell, its status and value in the value slot — where a row's stand at its level. */}
+            <Box css={styles.groupName} role="rowheader" style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>
                 <Box as="span" data-plan-gutter="title">
                     <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{row.gutter.label}</Box>
                     {meta !== undefined && <Box as="span" css={styles.groupMeta} data-plan-gutter="meta">{meta}</Box>}
+                </Box>
+                <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                    <PlanStatusIcon tone={statusTone} styles={styles} />
                     {value !== undefined && <Box as="span" css={styles.gutterValue} data-plan-gutter="value">{value}</Box>}
                 </Box>
-                {statusTone !== undefined
-                    ? <Box as="span" css={styles.statusDot} data-tone={statusTone} role="img" aria-label={statusText(statusTone, words)} />
-                    : <Box as="span" />}
             </Box>
             <BandPlot styles={styles}>
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}

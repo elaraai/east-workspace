@@ -16,36 +16,33 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { fontAwesomeSize } from "../../icon-size.js";
 import { centredLine } from "../../one-line-box.js";
 import { planElementFocus, planRowFocus } from "./focus.js";
 import { timeHeaderText } from "../time/axis.js";
 import { linkRibbons, linkSelectedInk } from "../links/ribbons.js";
+import { wholeOrNone } from "./whole-or-none.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
     "row", "gutterCell", "plot", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
-    "gutterSub", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret", "statusDot",
-    "rowControls", "rowControl", "ribbons", "expandRowBand",
+    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret",
+    "statusIcon", "statusDot", "rowControls", "rowControl", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
     "stickyParent", "stickyPath",
 ] as const;
 
 /**
- * The gutter's line, one grid with fixed slots (#1680's review): caret · name · value · dot · controls. A row that
- * folds has its caret's cell; a leaf has none (`data-leaf`), its name at its level's indent. A row keeps its value, dot
- * and two control slots whether it has them or not, so every value, dot and control stands at one x, down the canvas.
- * Only the name gives way.
+ * The gutter's line, one grid (#1749): caret · name · value slot. A row that folds has its caret's cell; a leaf has
+ * none (`data-leaf`), its name at its level's indent. Every line keeps its value slot — a status at its start, a value
+ * at its end — whether it has them or not, so every status and value stands at one x, down the canvas, whichever rows
+ * are loaded. Only the name gives way. A level indents by the caret's cell and the gap after it, which the renderer
+ * sets, so a member's words start where its parent's do.
  */
-const GUTTER_COLUMNS = "14px minmax(0, 1fr) 48px 8px 48px";
+const GUTTER_COLUMNS = "14px minmax(0, 1fr) 56px";
 
 /** A leaf's line: no caret's cell. */
-const GUTTER_COLUMNS_LEAF = "minmax(0, 1fr) 48px 8px 48px";
-
-/** The gutter's line below 220px (#1680's review): the controls' column goes, and they show on the row's hover alone. */
-const GUTTER_COLUMNS_NARROW = "14px minmax(0, 1fr) 48px 8px 0px";
-
-/** A leaf's line below 220px. */
-const GUTTER_COLUMNS_LEAF_NARROW = "minmax(0, 1fr) 48px 8px 0px";
+const GUTTER_COLUMNS_LEAF = "minmax(0, 1fr) 56px";
 
 /** The gutter's line as one grid: its columns, the gap between them, and its cells centred on the line. */
 const gutterGrid = {
@@ -53,11 +50,23 @@ const gutterGrid = {
     gridTemplateColumns: GUTTER_COLUMNS,
     columnGap: "6px",
     alignItems: "center",
-    "[data-plan-gutter-narrow] &": { gridTemplateColumns: GUTTER_COLUMNS_NARROW },
-    "&[data-leaf]": {
-        gridTemplateColumns: GUTTER_COLUMNS_LEAF,
-        "[data-plan-gutter-narrow] &": { gridTemplateColumns: GUTTER_COLUMNS_LEAF_NARROW },
-    },
+    "&[data-leaf]": { gridTemplateColumns: GUTTER_COLUMNS_LEAF },
+} satisfies SystemStyleObject;
+
+/**
+ * A name's cell (#1680's review): the label, then its meta inline. The label's column is its words, up to the whole
+ * cell, and the meta has what the label leaves it — so the meta gives way first, wholly, and only then the label,
+ * which is cut for nothing less than its own length: a share of the shortfall, as two shrinking items split it, cut
+ * a label to its ellipsis for a fraction of a pixel while its meta still stood. The gap before the meta is the meta's
+ * own padding, inside its column, so it goes as the meta does.
+ */
+const nameCell = {
+    display: "grid",
+    gridTemplateColumns: "fit-content(100%) minmax(0, 1fr)",
+    alignItems: "center",
+    minWidth: 0,
+    overflow: "hidden",
+    "& > * + *": { paddingInlineStart: "6px" },
 } satisfies SystemStyleObject;
 
 /**
@@ -84,7 +93,7 @@ const HEADING_LINE = centredLine(23, 15);
 /**
  * A row's name voice, one for every row whatever its kind (#949, the production Planner's `.planner-rh` name): mono
  * 11 / 500 in the ink, tabular, on the East scale (#1680's review) — its line's, and each of a laned row's lines'.
- * The line clips nothing itself: its name and value cells do, and its controls stand over its 17px.
+ * The line clips nothing itself: its name's cell and its value slot do, and the row's controls stand over it.
  */
 const gutterVoice = {
     fontFamily: "mono",
@@ -95,8 +104,31 @@ const gutterVoice = {
     whiteSpace: "nowrap",
 } satisfies SystemStyleObject;
 
-/** What a row control stands over its line either side: its 24px less the line's 17px, halved (#1680's review). */
-const CONTROL_OVER_LINE = "-3.5px";
+/** A row's room: its height less its rule. */
+const ROW_ROOM = "calc(var(--plan-row-h) - var(--plan-rule-h))";
+
+/**
+ * A row control's height: an sm button's — or the row's room where that is less, a dense row's, so a control never
+ * stands over its row's rule.
+ */
+const CONTROL_H = `min(24px, ${ROW_ROOM})`;
+
+/**
+ * Where the row's controls start against their line's top (#1749): their box is a control's height, taller than the
+ * line by an odd number of pixels, and the odd one goes over the line — so in a row's room, where the line stands on a
+ * whole pixel, the box does too, with a pixel more under it than over it, as every part of the line has. Where the
+ * room is less than a control — a dense row — the box is the room, from its top.
+ */
+const CONTROLS_OVER_LINE = `max(-4px, calc((${GUTTER_LINE} - ${ROW_ROOM}) / 2))`;
+
+/**
+ * The focused row's tint coming in (#591): the row's ground, and its controls' over the value slot, which wear it — so
+ * the two change as one.
+ */
+const TINT_IN = {
+    transition: "background 380ms cubic-bezier(0.16, 1, 0.3, 1)",
+    "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+} satisfies SystemStyleObject;
 
 /**
  * The gutter's handle across (#1680's review): the gutter's right rule and the padding before it — 8px under a fine
@@ -115,41 +147,42 @@ export const rowsBase = {
         // Inside the row's height — its plot cell is the row less this (#818).
         borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
-        background: "bg.surface",
-        "&[data-collapsible]": { background: "bg.panel" },
+        // Its ground, as one variable each state below sets (#1749): the row's
+        // controls, drawn over its value slot, are filled with it, so they
+        // cover what is under them in whatever the row wears. The recipe's
+        // own, never one of the geometry variables the canvas writes.
+        "--row-bg": "{colors.bg.surface}",
+        background: "var(--row-bg)",
+        "&[data-collapsible]": { "--row-bg": "{colors.bg.panel}" },
         // The last visible member of an open group (#949): a closing rule
         // in the strong ink, so the rows after it read as outside it.
         "&[data-group-end]": { borderBottomColor: "border.strong" },
         // A drafted row (#880) — the Sheet's marks: an 8 % warn wash while a
         // draft of its entry changed it, danger while a check refuses the
         // entry. Before the selection tint, which wins over both.
-        "&[data-draft]": { background: "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
-        "&[data-invalid]": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
+        "&[data-draft]": { "--row-bg": "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
+        "&[data-invalid]": { "--row-bg": "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
         // Selection tint — the one selection colour.
-        "&[data-selected]": { background: "{colors.brandTint}" },
+        "&[data-selected]": { "--row-bg": "{colors.brandTint}" },
         // Table-row emphasis (K5): footer = 2px top rule; header = panel wash.
         "&[data-emphasis='footer']": { borderTopWidth: "2px", borderTopColor: "border.strong" },
-        "&[data-emphasis='header']": { background: "bg.panel" },
+        "&[data-emphasis='header']": { "--row-bg": "{colors.bg.panel}" },
         // ── R2 context strip (#591) ──
         // "Collapse, never remove": an unfocused row keeps its place, its
         // order and its marks — it just stops competing for attention.
         // The 16px height comes from `rowHeight`; this is the rest.
         "&[data-ctx]": {
-            background: "bg.panel",
+            "--row-bg": "{colors.bg.panel}",
             cursor: "pointer",
             overflow: "hidden",
-            "&:hover": { background: "{colors.brandTint}" },
+            "&:hover": { "--row-bg": "{colors.brandTint}" },
         },
         // ── R2 the FOCUSED row (#591) ──
         // The row grows to hold its render, so the tint runs across the
         // gutter AND the plot as one band — that continuity is what reads
         // as "this row has the canvas" rather than "a panel opened below
         // a row".
-        "&[data-expanded]": {
-            background: "{colors.brandTint}",
-            transition: "background 380ms cubic-bezier(0.16, 1, 0.3, 1)",
-            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-        },
+        "&[data-expanded]": { "--row-bg": "{colors.brandTint}", ...TINT_IN },
         // The grid's one tab stop, on the keyboard (#819).
         ...planRowFocus,
     },
@@ -267,8 +300,6 @@ export const rowsBase = {
         // centres on no whole pixel there (#1638), and a pixel over the line starts it 6px under the room's top, its
         // digits on the rows a tile's stand on.
         ...EVEN_ROOM,
-        // What its controls are placed against below a 220px gutter.
-        position: "relative",
         // In a strip every name reads as an id — one 10px mono line is
         // all 16px can carry, and uniformity is what makes the stack
         // scannable.
@@ -284,13 +315,7 @@ export const rowsBase = {
     },
     // The name's cell (#1680's review): the label, then its meta inline — the
     // meta gives way first, then the label.
-    gutterNameCell: {
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        minWidth: 0,
-        overflow: "hidden",
-    },
+    gutterNameCell: nameCell,
     // The row's label — the one item of its line that gives way: it
     // truncates before the value, the status and the row's controls (#1258).
     gutterLabel: {
@@ -315,12 +340,40 @@ export const rowsBase = {
         textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
     },
-    // The value slot (#949) — mono 11.5 / 600, tabular, at its cell's end: one
-    // x on every row (#1680's review). A strip drops it, but for a pinned row
-    // a links focus does not gather, which keeps it (`data-keep`).
+    // The value slot (#1749), the line's last cell: a status at its start,
+    // then a value — or a lane's caption — at its end, each at one x on every
+    // line of the canvas.
+    gutterSlot: {
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        minWidth: 0,
+        // What the row's controls are placed against: they cover the slot.
+        position: "relative",
+        // The value in it: at its end, in the room its status leaves — whole,
+        // or not drawn. Its line is the name's, which a value wider than its
+        // room wraps off, out of sight, so a number is never cut short. Never
+        // in a band's capitals.
+        "& > [data-plan-gutter='value']": {
+            flex: "1 1 0%",
+            minWidth: 0,
+            height: GUTTER_LINE,
+            lineHeight: GUTTER_LINE,
+            display: "flex",
+            justifyContent: "flex-end",
+            ...wholeOrNone,
+            textOverflow: "clip",
+            textTransform: "none",
+            letterSpacing: "normal",
+        },
+    },
+    // A value's voice (#949) — the name's face, semibold, tabular: a row's
+    // and a band's in the gutter's value slot, which draws it whole or not at
+    // all, and a phone card's in its head. A strip drops it, but for a pinned
+    // row a links focus does not gather, which keeps it (`data-keep`).
     gutterValue: {
         fontFamily: "mono",
-        fontSize: "11.5px",
+        fontSize: "11px",
         fontWeight: "semibold",
         color: "fg.default",
         fontVariantNumeric: "tabular-nums",
@@ -360,7 +413,7 @@ export const rowsBase = {
     },
     // A laned row's gutter (#1680's review): one gutter line per lane, the
     // lane's height, laid over the cell where the lane's cells are — its
-    // caption in the line's value cell — in the row's voice.
+    // caption in the line's value slot — in the row's voice.
     gutterLane: {
         ...gutterVoice,
         ...gutterGrid,
@@ -375,14 +428,14 @@ export const rowsBase = {
         boxSizing: "border-box",
         ...EVEN_ROOM,
     },
-    // A lane's caption: mono 9.5 / 600 in the label ink, at its value cell's end — the fourth column from the line's
-    // end, whether the line has a caret's cell or not.
+    // A lane's caption (#1749): semibold in the label ink at the value slot's end, beside its lane — in the room the
+    // row's status leaves it on the first line.
     gutterLaneCaption: {
-        gridColumn: "-4 / -3",
-        justifySelf: "end",
-        maxWidth: "100%",
+        flex: "1 1 0%",
+        minWidth: 0,
+        textAlign: "right",
         fontFamily: "mono",
-        fontSize: "9.5px",
+        fontSize: "10px",
         fontWeight: "semibold",
         color: "fg.subtle",
         whiteSpace: "nowrap",
@@ -429,9 +482,25 @@ export const rowsBase = {
         transition: "transform 0.15s",
         "&[data-collapsed]": { transform: "rotate(-90deg)" },
     },
-    // A row's status: an 8px dot in its own cell (#1680's review), after the
-    // value — 5px in a strip, but for a pinned row a links focus does not
-    // gather, which keeps its dot as it is (`data-keep`).
+    // A row's status, and a group band's (#1749): its tone's icon at the value
+    // slot's start, one x down the canvas, told by its shape as by its ink. A
+    // neutral status draws none. A pixel under it stands it on a whole pixel
+    // of its line, the odd one below. A strip's is its marks' height, but for
+    // a pinned row a links focus does not gather, which keeps its icon as it
+    // is (`data-keep`).
+    statusIcon: {
+        ...fontAwesomeSize("12px"),
+        display: "inline-flex",
+        flex: "none",
+        marginBottom: "1px",
+        "&[data-tone='warning']": { color: "{colors.status.warn}" },
+        "&[data-tone='danger']":  { color: "{colors.status.neg}" },
+        "&[data-tone='success']": { color: "{colors.status.pos}" },
+        "&[data-tone='info']":    { color: "{colors.status.info}" },
+        // Its marks' height centres on the strip's line as it is.
+        "&[data-ctx]:not([data-keep])": { ...fontAwesomeSize("var(--plan-strip-mark-h)"), marginBottom: 0 },
+    },
+    // A phone card's status: a dot in its head, in its tone's colour.
     statusDot: {
         width: "8px",
         height: "8px",
@@ -443,49 +512,42 @@ export const rowsBase = {
         "&[data-tone='success']": { background: "{colors.status.pos}" },
         "&[data-tone='info']":    { background: "{colors.status.info}" },
         "&[data-tone='neutral']": { background: "fg.subtle" },
-        "&[data-ctx]:not([data-keep])": { width: "5px", height: "5px" },
     },
     // ── Row focus (R1 links / R2 expand) — the row-scoped controls
-    //    (`Plan links.html`, #1258): sm ghost buttons in the gutter line's last
-    //    cell, two slots in a fixed order — links, then expand — whether a row
-    //    has them or not, so they read down the canvas as two icon columns
-    //    (#1680's review). They are always shown — ruled by the user over the
-    //    spec's hover reveal, so a row says it has links before it is
-    //    hovered — and a pressed one wears the brand tint. Below a 220px
-    //    gutter they fold to the row's hover, the one thing that gives way
-    //    before the name. Never in a strip. ──
+    //    (`Plan links.html`, #1258): sm ghost buttons that take no column of
+    //    the gutter's line (#1749). They stand over its value slot, at its
+    //    end, two places in a fixed order — links, then expand — whether a row
+    //    has one or both, so a pointer moving down the rows finds each at one
+    //    x; their box is the slot's width, filled with the row's own ground,
+    //    so it covers the status and the value under it. Shown on the row's
+    //    hover, on a focus within it, on its selection, and on the focal row
+    //    of an open focus (`data-focal`), where a pressed one wears the brand
+    //    tint; hidden otherwise, and never in a strip. ──
     rowControls: {
+        position: "absolute",
+        insetInline: 0,
+        top: CONTROLS_OVER_LINE,
+        height: CONTROL_H,
         display: "grid",
         gridTemplateColumns: "24px 24px",
-        alignItems: "center",
-        width: "48px",
+        justifyContent: "end",
+        background: "var(--row-bg)",
         // Over the links (z 5): a loopback turning in the gutter passes under them.
-        position: "relative",
         zIndex: 6,
-        // Below a 220px gutter: over the line's end, centred on it, its buttons' own height.
-        "[data-plan-gutter-narrow] &": {
-            position: "absolute",
-            right: 0,
-            top: "50%",
-            transform: "translateY(-50%)",
-            paddingBlock: "3.5px",
-            opacity: 0,
-            background: "bg.surface",
-            borderRadius: "md",
-        },
-        "[data-plan-gutter-narrow] [data-plan-row]:is(:hover, :focus-within) &": { opacity: 1 },
+        visibility: "hidden",
+        "[data-plan-row]:is(:hover, :focus-within, [data-selected]) &": { visibility: "visible" },
+        "&[data-focal]": { visibility: "visible" },
+        // On the focused row its ground comes in with the row's, never ahead of it.
+        "[data-plan-row][data-expanded] &": TINT_IN,
         // A strip is one click target — returning. Row controls inside it
         // would compete with that, and there is no room for them anyway.
         "&[data-ctx]": { display: "none" },
     },
-    // An sm ghost icon button: 24px, the muted ink; hovered the subtle paper
-    // and the ink; pressed the brand tint and the brand's pressed ink. It
-    // stands 3.5px over its line either side, so the line keeps its whole
-    // 17px (#1638) and the button is centred on it (#1680's review).
+    // An sm ghost icon button, the muted ink; hovered the subtle paper and the
+    // ink; pressed the brand tint and the brand's pressed ink.
     rowControl: {
         width: "24px",
-        height: "24px",
-        marginBlock: CONTROL_OVER_LINE,
+        height: CONTROL_H,
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
@@ -603,8 +665,9 @@ export const rowsBase = {
     // No `alignItems: center` here — grid items must STRETCH so the plot
     // cell keeps the band's height and the collapsed summary strip's
     // absolute cells stay visible; the name cell centers its own content.
-    // An OPEN band's name spans the whole row, over its empty plot, which
-    // stays in the row's first line under it for the now line (#1680's review).
+    // A heading that lies across the whole row — a links focus's band's —
+    // is over its empty plot, which stays in the row's first line under it
+    // for the now line (#1680's review).
     groupBand: {
         display: "grid",
         minHeight: "var(--plan-group-h)",
@@ -622,40 +685,39 @@ export const rowsBase = {
     // A group band's name — the band caption, the one heading voice (only a
     // group's: a collapsible row keeps the row's, #1680's review). Its line is
     // 15px for whatever stands on it (#1638), centred in the band's 25px over
-    // its rule. Collapsed, it is the rows' gutter grid — its caption and meta
-    // over the name and value cells, its dot in the dot cell — beside the
-    // strip; open, it spans the whole row: caret · caption · meta · value ·
-    // dot, left to right, so nothing truncates.
+    // its rule. It is the rows' gutter grid, open or collapsed (#1749) — its
+    // caret, its caption and meta in the name's cell, its status and value in
+    // the value slot — so a band's words, its status and its value stand where
+    // a row's do at its level. A heading that says no value — a links focus's
+    // band's, the sticky parent's path (`data-across`) — lies across the whole
+    // row instead, left to right, so nothing truncates.
     groupName: {
         ...timeHeaderText,
         lineHeight: HEADING_LINE,
         position: "relative",
         ...gutterGrid,
         padding: "0 12px",
+        // The gutter's rule is not drawn on a band; its place is kept, so a
+        // band's value slot ends where a row's does.
+        borderRightWidth: "1px",
+        borderRightColor: "transparent",
         whiteSpace: "nowrap",
         overflow: "hidden",
-        // The caption and its meta and value: the name and value cells, one line.
-        "& > [data-plan-gutter='title']": {
-            gridColumn: "2 / span 2",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            minWidth: 0,
-            overflow: "hidden",
-        },
-        "& > [data-plan-gutter='title'] > [data-plan-gutter='value']": { marginLeft: "auto" },
-        "&[data-open]": {
+        // The caption and its meta: the name's cell, one line.
+        "& > [data-plan-gutter='title']": nameCell,
+        "&[data-across]": {
             display: "flex",
             alignItems: "center",
             gap: "6px",
             gridColumn: "1 / -1",
             gridRow: 1,
             zIndex: 1,
-            "& > [data-plan-gutter='title'] > [data-plan-gutter='value']": { marginLeft: 0 },
         },
     },
     // The unit slot on a group band — the row metas' 10 / 400 label ink;
-    // the group name's uppercase/tracking must NOT leak into it.
+    // the group name's uppercase/tracking must NOT leak into it. It gives way
+    // before the caption does, as a row's meta before its label (#1749): the
+    // name's cell gives it what the caption leaves.
     groupMeta: {
         fontFamily: "mono",
         fontSize: "10px",
@@ -664,6 +726,9 @@ export const rowsBase = {
         whiteSpace: "nowrap",
         textTransform: "none",
         letterSpacing: "normal",
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
     },
     // What a links focus's role band with no rows says beside its caption —
     // `none` (#1680's review): the design system's word for a value that is

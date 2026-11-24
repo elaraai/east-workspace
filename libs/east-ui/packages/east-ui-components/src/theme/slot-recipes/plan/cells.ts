@@ -23,6 +23,7 @@ import { STATE_EDGE, lifecycleStates } from "./states.js";
 import { planElementConflicts, planElementOverlap, planElementStatus } from "./status.js";
 import { planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 import { PLAN_LOCK_W, planLabelAfterLock } from "./elements.js";
+import { wholeOrNone } from "./whole-or-none.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -39,18 +40,6 @@ export const cellsSlots = [
     "tile", "tileLabel", "tileMore", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
-
-/**
- * A cell that draws a number whole or not at all (#1269): a wrapping row whose
- * first line a strut holds at the cell's height, so a number wider than the
- * line wraps below it, out of sight in the cell's clip — never cut, never
- * ellipsized. The cell's hover then says it.
- */
-const wholeOrNone = {
-    flexWrap: "wrap",
-    alignContent: "flex-start",
-    "&::before": { content: '""', height: "100%" },
-} satisfies SystemStyleObject;
 
 /** The inset ring a confirmed tile and a confirmed chip draw: 1px of the brand, which every ring round it keeps inside. */
 const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";

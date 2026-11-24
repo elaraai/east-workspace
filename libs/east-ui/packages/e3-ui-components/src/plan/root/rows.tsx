@@ -160,8 +160,8 @@ export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
     return (
         <Box css={styles.stickyParent} style={{ gridTemplateColumns: gridTemplate }}
             data-plan-sticky={parent.key} aria-hidden="true" onClick={onGo}>
-            {/* An open band's heading, across the whole row (#1680's review): its path, then its name. */}
-            <Box css={styles.groupName} data-open="">
+            {/* A heading across the whole row (#1680's review): its path, then its name. */}
+            <Box css={styles.groupName} data-across="">
                 {path.map((a) => <Box as="span" key={a.key} css={styles.stickyPath}>{a.gutter.label}</Box>)}
                 <Box as="span">{parent.gutter.label}</Box>
             </Box>
@@ -203,10 +203,10 @@ export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
             // A role's band opens nothing: no click, no hand.
             data-static={others ? undefined : ""}
             onClick={others ? () => dispatch({ t: "focus.others" }) : undefined}>
-            {/* Its heading spans the row whether the band is open or not, its plot in the row's first line under it,
-                so the band, folded, is never marked so: its caret says it, as `aria-expanded` does. At the first
+            {/* Its heading lies across the row whether the band is open or not, its plot in the row's first line under
+                it, so the band, folded, is never marked so: its caret says it, as `aria-expanded` does. At the first
                 level, the recipe's own padding. */}
-            <Box css={styles.groupName} role="rowheader" data-open="">
+            <Box css={styles.groupName} role="rowheader" data-across="">
                 <Box as="span" css={styles.caret} data-collapsed={others && !band.open ? "" : undefined}>
                     {others && <FontAwesomeIcon icon={faCaretDown} />}
                 </Box>

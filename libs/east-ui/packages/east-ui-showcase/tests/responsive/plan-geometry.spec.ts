@@ -28,7 +28,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, linkKey, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, clickRowControl, linkKey, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
 import { cutNumbers, cutText, rulerFaults } from "./plan-text";
 import { printWorksBars } from "./plan-builder-page";
 
@@ -338,49 +338,60 @@ const linkFigures = (root: Element, want: { weights: readonly number[]; slots: n
     }
     // The layers.
     const z = (el: Element | null) => (el === null ? "absent" : getComputedStyle(el).zIndex);
-    const zs = { links: z(layer), controls: z(root.querySelector("[data-plan-control]")?.parentElement ?? null), now: z(root.querySelector("[data-plan-row] [data-plan-now]")) };
+    const zs = { links: z(layer), controls: z(root.querySelector("[data-plan-controls]")), now: z(root.querySelector("[data-plan-row] [data-plan-now]")) };
     if (zs.links !== "5" || zs.controls !== "6" || zs.now !== "7") out.push(`layers ${JSON.stringify(zs)}, want links 5, controls 6, now 7`);
     return out;
 };
 
 /**
- * Each row control drawn otherwise than #1258 draws it — the user's ruling
- * over `Plan links.html`'s hover reveal: 24px sm ghost buttons, no ring, at the
- * end of the row's gutter line, after its label, value and status, inside the
- * gutter cell and centred on the line — and always shown, so a row says it has
- * links before it is hovered.
+ * The rows' controls as they are laid out (#1258, #1749), and the rows that show theirs. A row's controls take no
+ * column of its gutter line: their box lies over the line's value slot — the slot's width, a control's 24px tall, 4
+ * over the slot's line, inside the row and the gutter cell — on the row's own ground, so it covers the status and
+ * the value under it and nothing of the row's name. It holds two places at its end, links then expand, each a 24px sm
+ * ghost button with no ring, or empty where the row has no such control. `faults` says each box laid out otherwise;
+ * `shown` names the rows whose box is visible.
  */
-const rowControlsLaidOut = (root: Element): string[] => {
-    const out: string[] = [];
-    const boxes = [...new Set([...root.querySelectorAll("[data-plan-control]")].map((c) => c.parentElement!))];
-    if (boxes.length === 0) return ["no row control"];
+const rowControls = (root: Element): { faults: string[]; shown: string[] } => {
+    const faults: string[] = [];
+    const shown: string[] = [];
+    const near = (a: number, b: number) => Math.abs(a - b) <= 0.5;
+    const boxes = [...root.querySelectorAll("[data-plan-controls]")].filter((box) => getComputedStyle(box).display !== "none");
+    if (boxes.length === 0) faults.push("no row control");
     for (const box of boxes) {
-        const row = box.closest("[data-plan-row]")!.getAttribute("data-plan-row")!;
-        const cell = box.closest("[role='rowheader']")!;
-        const line = box.closest("[data-plan-gutter='name']")!;
-        let opacity = 1;
-        for (let el: Element | null = box; el !== null && el !== cell; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
-        if (Math.abs(opacity - 1) > 0.01 || getComputedStyle(box).visibility !== "visible") out.push(`${row}: its controls are hidden (opacity ${opacity.toFixed(2)})`);
+        const rowEl = box.closest("[data-plan-row]")!;
+        const row = rowEl.getAttribute("data-plan-row")!;
+        if (getComputedStyle(box).visibility === "visible") shown.push(row);
+        const slot = box.parentElement!;
+        if (slot.getAttribute("data-plan-gutter") !== "slot") { faults.push(`${row}: its controls are not in its line's value slot`); continue; }
         const b = box.getBoundingClientRect();
+        const s = slot.getBoundingClientRect();
+        const r = rowEl.getBoundingClientRect();
+        if (!near(b.left, s.left) || !near(b.right, s.right)) faults.push(`${row}: its controls span ${b.left}–${b.right}px, its value slot ${s.left}–${s.right}px`);
+        if (!near(b.height, 24) || !near(s.top - b.top, 4)) faults.push(`${row}: its controls are ${b.height}px tall, ${s.top - b.top}px over its slot's line, want 24 and 4`);
+        if (b.top < r.top - 0.5 || b.bottom > r.bottom + 0.5) faults.push(`${row}: its controls leave the row`);
+        const cell = box.closest("[role='rowheader']")!;
         const cs = getComputedStyle(cell);
         const end = cell.getBoundingClientRect().right - Number.parseFloat(cs.borderRightWidth) - Number.parseFloat(cs.paddingRight);
-        if (Math.abs(end - b.right) > 0.5) out.push(`${row}: its controls end ${(end - b.right).toFixed(1)}px short of its gutter line's end`);
-        const l = line.getBoundingClientRect();
-        if (Math.abs((b.top + b.bottom) / 2 - (l.top + l.bottom) / 2) > 0.5) out.push(`${row}: its controls are off its line`);
-        // Its name — its label and meta — its value and its status, each in its own cell before them (#1680's review).
-        for (const part of ["title", "label", "value"]) {
-            const before = line.querySelector(`[data-plan-gutter='${part}']`);
-            if (before !== null && before.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its ${part} runs under its controls`);
-        }
-        const dot = line.querySelector(":scope > [data-tone]");
-        if (dot !== null && dot.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its status runs under its controls`);
-        for (const btn of box.querySelectorAll("[data-plan-control]")) {
-            const r = btn.getBoundingClientRect();
-            if (Math.abs(r.width - 24) > 0.5 || Math.abs(r.height - 24) > 0.5) out.push(`${row}: a control ${r.width}×${r.height}, want 24×24`);
-            if (getComputedStyle(btn).boxShadow !== "none") out.push(`${row}: a ring round a control`);
-        }
+        if (!near(end, b.right)) faults.push(`${row}: its controls end ${(end - b.right).toFixed(1)}px short of its gutter line's end`);
+        // On the row's own ground, whatever the row wears.
+        const [ground, rowGround] = [getComputedStyle(box).backgroundColor, getComputedStyle(rowEl).backgroundColor];
+        if (ground !== rowGround) faults.push(`${row}: its controls are on ${ground}, the row on ${rowGround}`);
+        // Its name — its label and meta — ends before them.
+        const title = slot.parentElement!.querySelector("[data-plan-gutter='title']");
+        if (title !== null && title.getBoundingClientRect().right > b.left + 0.5) faults.push(`${row}: its name runs under its controls`);
+        // Two places at the box's end: links, then expand.
+        const places = [...box.children];
+        if (places.length !== 2) { faults.push(`${row}: ${places.length} places for its controls, want 2`); continue; }
+        places.forEach((place, i) => {
+            const kind = ["links", "expand"][i]!;
+            const p = place.getBoundingClientRect();
+            if (!near(p.width, 24) || !near(p.height, 24) || !near(b.right - p.right, 24 * (1 - i))) faults.push(`${row}: its ${kind} place is ${p.width}×${p.height}, ending ${b.right - p.right}px before the box's end`);
+            const held = place.getAttribute("data-plan-control");
+            if (held !== null && held !== kind) faults.push(`${row}: its ${held} control in the ${kind} place`);
+            if (held !== null && getComputedStyle(place).boxShadow !== "none") faults.push(`${row}: a ring round its ${kind} control`);
+        });
     }
-    return out;
+    return { faults, shown };
 };
 
 /**
@@ -406,12 +417,13 @@ const focusBody = (root: Element) => {
         }),
         strips: [...root.querySelectorAll("[data-plan-row][data-ctx]")].map((el) => {
             const value = el.querySelector("[data-plan-gutter='value']");
-            const dot = el.querySelector("[data-tone]");
+            // Its gutter's status icon: a plot's tone cells carry a tone too.
+            const status = el.querySelector("[role='rowheader'] [role='img'][data-tone]");
             return {
                 row: el.getAttribute("data-plan-row"),
                 h: h(el),
                 value: value === null || getComputedStyle(value).display === "none" ? null : text(value),
-                dot: dot === null || getComputedStyle(dot).display === "none" ? null : `${dot.getBoundingClientRect().width}px`,
+                status: status === null || getComputedStyle(status).display === "none" ? null : `${status.getBoundingClientRect().width}px`,
             };
         }),
     };
@@ -439,11 +451,10 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         const spark = entry.locator(rowSel("spark", "spark"));
         const rest = Number(await spark.getAttribute("data-plan-h"));
         // The expandable spark's expand control is its toggle: a caret only folds (#1680's review).
-        const toggle = spark.locator('[data-plan-control="expand"]');
-        await toggle.click();
+        await clickRowControl(spark, "expand");
         await expect(spark).not.toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "expanded").toEqual([]);
-        await toggle.click();
+        await clickRowControl(spark, "expand");
         await expect(spark).toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "at rest").toEqual([]);
     });
@@ -492,7 +503,7 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         // Wide enough that a strip's week holds its marks apart beside the 240px gutter (#1680's review, #1735).
         await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
-        await entry.locator('[data-plan-control="links"]').first().click();
+        await clickRowControl(entry.locator("[data-plan-row]:has([data-plan-control='links'])").first(), "links");
         // A links focus's bands are measured items too — they carry the model's height (#1680's review).
         await expect(entry.locator("[data-plan-focusband][data-plan-h]").first()).toBeVisible();
         await expect.poll(() => mismatches(entry), "R1").toEqual([]);
@@ -502,7 +513,7 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         await expect(others).toHaveAttribute("aria-expanded", "true");
         await expect.poll(() => mismatches(entry), "R1, the others open").toEqual([]);
         await entry.locator("[data-plan-focusback]").click();
-        await entry.locator('[data-plan-control="expand"]').first().click();
+        await clickRowControl(entry.locator("[data-plan-row]:has([data-plan-control='expand'])").first(), "expand");
         await expect(entry.locator("[data-plan-row][data-ctx][data-plan-h]").first()).toBeVisible();
         await expect(entry.locator("[data-plan-row][data-expanded][data-plan-h]")).toHaveCount(1);
         await expect.poll(() => mismatches(entry), "R2").toEqual([]);
@@ -566,7 +577,7 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
     /** H1-P09's links focus as its body draws it ({@link focusBody}): its one upstream row; itself, its hall on its sub
      *  line; the two contract presses both ways, each saying Contract A, which tells Contract A's H1-P03 from Hall 1's;
      *  the delivery; and the 29 other data rows folded. The pinned on-time KPI is a 16 strip that keeps its value and its
-     *  8px status. */
+     *  status icon, at the size a row draws it. */
     const FOCUS_BODY: ReturnType<typeof focusBody> = {
         body: [
             "upstream 26 · Upstream 1", `${rowId("flavours", "H1-P07")} 32 · —`,
@@ -575,7 +586,7 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
             "downstream 26 · Downstream 1", `${rowId("delivery", "dlv")} 32 · —`,
             "others 26 · Other rows 29",
         ],
-        strips: [{ row: rowId("ontime", "ontime"), h: 16, value: "94.2%", dot: "8px" }],
+        strips: [{ row: rowId("ontime", "ontime"), h: 16, value: "94.2%", status: "12px" }],
     };
     /** The desktop project's width, and a laptop's. */
     const WIDTHS = [1280, 1024] as const;
@@ -595,7 +606,7 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
             });
         }
         if (css !== undefined) await page.addStyleTag({ content: css });
-        await entry.locator(`${focus.row} [data-plan-control="links"]`).click();
+        await clickRowControl(entry.locator(focus.row), "links");
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(focus.weights.length);
         // Away from every link and row: nothing lit, no control hovered.
         await page.mouse.move(0, 0);
@@ -852,9 +863,9 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect(g).not.toHaveAttribute("data-lit", "");
     });
 
-    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every gathered row's controls end inside its gutter cell after its label, value and status, and each press says its hall first on its second line, whole (#1277, #1680's review)", async ({ page }) => {
+    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every gathered row's controls lie over its line's value slot, at its end, inside its gutter cell, and each press says its hall first on its second line, whole (#1277, #1680's review, #1749)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[1], 1280);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(async () => (await entry.evaluate(rowControls)).faults).toEqual([]);
         for (const press of ["H1-P03", "H1-P04"]) {
             const sub = entry.locator(`${rowSel("presses", "Hall 1", press)} [data-plan-gutter='sub']`);
             await expect(sub, press).toHaveText(/^Hall 1( · |$)/);
@@ -862,18 +873,23 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         }
     });
 
-    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's controls end inside its line with its value shown and its label whole (#1277)", async ({ page }) => {
+    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's value stands whole in its line's value slot, its label whole, and its controls lie over the slot (#1277, #1749)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(async () => (await entry.evaluate(rowControls)).faults).toEqual([]);
         const row = entry.locator(rowSel("flavours", "H1-P07"));
         const read = () => row.evaluate((el) => {
             const line = el.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect();
             const value = el.querySelector<HTMLElement>("[data-plan-gutter='value']")!;
             const v = value.getBoundingClientRect();
+            const words = document.createRange();
+            words.selectNodeContents(value);
+            const w = words.getBoundingClientRect();
             const label = el.querySelector<HTMLElement>("[data-plan-gutter='label']")!;
             return {
                 value: value.textContent,
-                valueShown: getComputedStyle(value).display !== "none" && v.left >= line.left - 0.5 && v.right <= line.right + 0.5,
+                // Whole, on its line: a value wider than its room is wrapped off the line, out of sight (#1749).
+                valueShown: getComputedStyle(value).display !== "none" && v.left >= line.left - 0.5 && v.right <= line.right + 0.5
+                    && w.left >= v.left - 0.5 && w.right <= v.right + 0.5 && w.top >= v.top - 0.5 && w.bottom <= v.bottom + 0.5,
                 labelWhole: label.scrollWidth <= label.clientWidth,
             };
         });
@@ -1274,73 +1290,100 @@ test.describe("Plan element text on a phone (#1269)", { tag: "@mobile" }, () => 
 });
 
 /**
- * A row's controls (#1258): 24px sm ghost buttons at the end of its gutter
- * line, after its value, no ring — and always shown (the user's ruling over
- * `Plan links.html`'s hover reveal), a pressed one in the brand tint; never
- * under 480; the canvas's tooltip names each.
+ * A row's controls (#1258, #1749): sm ghost buttons that take no column of its
+ * gutter line. They lie over its value slot, at its end — links, then expand —
+ * on the row's own ground, while the row is hovered, holds the focus or is
+ * selected, and on the focal row of an open focus, where the pressed one wears
+ * the brand tint; hidden otherwise, so a row at rest shows its status and its
+ * value. Never under 480; the canvas's tooltip names each.
  */
-test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
+test.describe("Plan row controls (#1258, #1749)", { tag: "@desktop" }, () => {
 
-    test("planTargetState: a row's controls show at rest, at the end of its gutter line after its value; the canvas's tooltip names each; pressed, one wears the press and every row's controls stay shown", async ({ page }) => {
+    test("planTargetState: no row shows its controls at rest; hovered, a row shows its own over its value slot, 24 tall and 3 under the top of a 32 row; the canvas's tooltip names each; pressed, one wears the press and its row keeps its controls with the pointer and the focus gone; every row back, none shows", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const row = entry.locator(rowSel("detail", "H1-P09"));
-        // Away from every row, nothing hovered or focused: every row's controls show.
+        const id = rowId("detail", "H1-P09");
+        // Away from every row, nothing hovered, focused or selected: no row shows its controls, each laid out over its slot.
         await page.mouse.move(0, 0);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [] });
+        // In a 32 row they are a control tall, in the middle of the row's room over its rule, the odd pixel under them.
+        expect(await entry.locator(rowSel("flavours", "H1-P07")).evaluate((el) => {
+            const box = el.querySelector("[data-plan-controls]")!.getBoundingClientRect();
+            const r = el.getBoundingClientRect();
+            return { row: r.height, top: box.top - r.top, height: box.height };
+        })).toEqual({ row: 32, top: 3, height: 24 });
+        // The pointer on the row: its controls, and no other row's.
+        await row.locator("[role='rowheader']").hover();
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [id] });
         const control = row.locator("[data-plan-control='links']");
         await control.hover();
         await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("Focus linked rows");
-        // Pressed: the press marks it, with the pointer gone and the focus elsewhere.
+        // Pressed: the press marks it, and its row keeps its controls with the pointer gone and the focus elsewhere.
         await control.click();
         await expect(entry.locator("[data-plan-focusbar='links']")).toBeVisible();
         await expect(control).toHaveAttribute("aria-pressed", "true");
         await expect(control).toHaveAttribute("data-active", "");
         await control.evaluate((el) => (el as HTMLElement).blur());
         await page.mouse.move(0, 0);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
-        // Every row back: nothing pressed, every control still shown.
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [id] });
+        // Every row back: nothing pressed, and no row shows its controls.
         await entry.locator("[data-plan-focusback]").click();
         await page.mouse.move(0, 0);
         await expect(entry.locator("[data-plan-control][aria-pressed='true']")).toHaveCount(0);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [] });
     });
 
-    test("planTargetState: an expanded chart row's control stays on its gutter's first line, and the chart's ticks lie inside its plot, clear of the gutter", async ({ page }) => {
+    test("planTargetState: a row the keyboard is on shows its controls, and a row selected keeps them with the pointer gone", async ({ page }) => {
+        const entry = await openExample(page, "planTargetState");
+        await page.mouse.move(0, 0);
+        const row = entry.locator(rowSel("detail", "H1-P09"));
+        await row.focus();
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("detail", "H1-P09")] });
+        // A click on another row's plot, clear of its bars, selects it: the focus and the controls go with it.
+        const other = entry.locator(rowSel("flavours", "H1-P07"));
+        const plot = (await other.locator("[data-plan-plot]").boundingBox())!;
+        await page.mouse.click(plot.x + plot.width - 6, plot.y + plot.height / 2);
+        await page.mouse.move(0, 0);
+        await expect(other).toHaveAttribute("data-selected", "");
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("flavours", "H1-P07")] });
+    });
+
+    test("planTargetState: an expanded chart row keeps its control over its gutter's first line with the pointer and the focus gone, and the chart's ticks lie inside its plot, clear of the gutter", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const chart = entry.locator(rowSel("ontime", "ontime"));
-        const control = chart.locator('[data-plan-control="expand"]');
-        await control.click();
+        await clickRowControl(chart, "expand");
         await expect(chart).toHaveAttribute("data-expanded", "");
-        await control.evaluate((el) => (el as HTMLElement).blur());
+        await chart.locator('[data-plan-control="expand"]').evaluate((el) => (el as HTMLElement).blur());
         await page.mouse.move(0, 0);
         const read = () => chart.evaluate((row) => {
-            const box = row.querySelector("[data-plan-control]")!.parentElement!;
-            const p = box.getBoundingClientRect();
-            const line = box.closest("[data-plan-gutter='name']")!.getBoundingClientRect();
             const plot = row.querySelector("[data-plan-plot]")!.getBoundingClientRect();
             const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
             return {
-                opacity: getComputedStyle(box).opacity,
-                onLine: Math.abs((p.top + p.bottom) / 2 - (line.top + line.bottom) / 2) <= 0.5,
                 ticks: ticks.length,
                 // Each tick inside the plot's left edge, where the gutter's value never sits (#1680's review).
                 inPlot: ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
             };
         });
-        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, inPlot: true });
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(read).toEqual({ ticks: 2, inPlot: true });
+        // The focal row of the open focus: its box over its first line's slot, shown; every other row is a strip, with none.
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("ontime", "ontime")] });
     });
 });
 
-/** A row's controls where nothing hovers (#1258): shown at rest, as everywhere —
- *  and, below 480, where the narrow layout is in charge, none at all. */
-test.describe("Plan row controls on touch (#1258)", { tag: "@mobile" }, () => {
+/** A row's controls where nothing hovers (#1258, #1749): none at rest, as everywhere, and a tap on a row — which selects
+ *  it — brings its own; below 480, where the narrow layout is in charge, none at all. */
+test.describe("Plan row controls on touch (#1258, #1749)", { tag: "@mobile" }, () => {
 
-    test("planTargetState on a touch screen wide enough for rows: every row's controls show at rest", async ({ page }) => {
+    test("planTargetState on a touch screen wide enough for rows: no row shows its controls at rest, a tap on a row brings its own, and a tap on one opens its focus", async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
         const entry = await openExample(page, "planTargetState");
         expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "the screen cannot hover").toBe(true);
-        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [] });
+        const row = entry.locator(rowSel("detail", "H1-P09"));
+        await row.locator("[role='rowheader']").tap();
+        await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("detail", "H1-P09")] });
+        await row.locator("[data-plan-control='links']").tap();
+        await expect(entry.locator("[data-plan-focusbar='links']")).toBeVisible();
     });
 
     test("planTargetState below 480: the narrow layout draws no row control", async ({ page }) => {

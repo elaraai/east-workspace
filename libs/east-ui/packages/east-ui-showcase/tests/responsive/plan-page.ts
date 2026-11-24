@@ -57,6 +57,18 @@ export const drawnSel = (series: string, ...path: string[]): string => {
     return `:is([data-plan-row=${id}], [data-plan-card=${id}])`;
 };
 
+/**
+ * Clicks one of a row's controls, as a viewer does (#1749): a row draws its controls over its line's value slot while
+ * it is hovered, focused or selected, so the pointer goes onto its gutter first, which shows them.
+ *
+ * @param row - The row
+ * @param kind - Which control: its links focus, or its expand
+ */
+export async function clickRowControl(row: Locator, kind: "links" | "expand"): Promise<void> {
+    await row.locator("[role='rowheader']").hover();
+    await row.locator(`[data-plan-control="${kind}"]`).click();
+}
+
 /** Open one example's page and return its entry (the virtualized doc row
  *  holding its anchor and its live canvas) — a Plan example unless another
  *  examples file is named, in the light theme unless another is named. */

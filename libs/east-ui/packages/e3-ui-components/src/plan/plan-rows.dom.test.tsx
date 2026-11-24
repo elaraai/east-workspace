@@ -71,14 +71,15 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
 }
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean; status?: string }): PlanWireRow {
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none,
+        pinned: false, height: none,
+        status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
@@ -264,48 +265,80 @@ describe("Plan group strips (§5)", () => {
     });
 });
 
-describe("the gutter line (#1680's review)", () => {
-    test("a row's line holds its cells in one order — a caret's cell where the row folds, a leaf none; then the name, value, dot, and the links and expand slots, each whether the row has it or not; a level is 8px; an open band's name spans its row", () => {
+describe("the gutter line (#1749)", () => {
+    test("a row's line is one grid — a caret's cell where the row folds, a leaf none; then its name, and its value slot: its status's icon, its value, and its controls over them, links then expand, each in its place whether the row has the other or not; a level is the caret's cell and its gap; a band's name is the rows' grid, open or folded", () => {
         const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const confirmed = variant("confirmed", null);
         const { container } = renderPlan(planRoot([
-            planRow("hall1", band, { gutter: gutter("HALL 1", { meta: "2 rows", value: "9" }) }),
-            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), confirmed)]), { parent: "hall1", gutter: gutter("m1", { value: "12k/h", meta: "sheets" }) }),
+            planRow("hall1", band, { gutter: gutter("HALL 1", { meta: "2 rows", value: "9" }), status: "danger" }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), confirmed)]), {
+                parent: "hall1", gutter: gutter("m1", { value: "12k/h", meta: "sheets" }), status: "warning",
+            }),
             planRow("m2", spanKind([run("r2", new Date("2026-07-13Z"), new Date("2026-07-27Z"), confirmed)]), {
-                parent: "hall1", expand: { height: none, axis: variant("keep", null) },
+                parent: "hall1", expand: { height: none, axis: variant("keep", null) }, status: "neutral",
             }),
             planRow("net", tableKindOf([], { aggregate: true })),
             planRow("wk", tableKindOf([tableCell(new Date("2026-06-29Z"), 96)]), { parent: "net" }),
         ], {
             links: [{ key: "r1>r2", from: { row: rowId("m1"), run: "r1" }, to: { row: rowId("m1"), run: "r1" }, quantity: none }],
             expandRender: () => variant("Text", { value: "R", style: none }),
-        }), "plan-1680-gutter");
+        }), "plan-1749-gutter");
         const line = (key: string) => container.querySelector(`${rowSel(key)} [role='rowheader'] > [data-plan-gutter='name']`)!;
-        /** A line's cells: what each holds — a caret, a part of the gutter by its name, the dot's place, or (last) the two control slots. */
-        const cells = (key: string) => [...line(key).children].map((cell, i, all) => (i === all.length - 1
-            ? [...cell.children].map((slot) => slot.getAttribute("data-plan-control") ?? "").join("|")
-            : cell.getAttribute("data-plan-gutter") ?? (cell.querySelector("svg") !== null ? "caret" : cell.getAttribute("role") === "img" ? "dot" : "")));
+        /** A line's cells, and a band's name's: a caret, or a part of the gutter by its name. */
+        const cells = (of: Element) => [...of.children].map((cell) => cell.getAttribute("data-plan-gutter") ?? (cell.querySelector("svg") !== null ? "caret" : ""));
+        /** What a value slot holds, in order: a status's icon by its tone, a part of the gutter by its name, and the controls' two places. */
+        const held = (of: Element) => [...of.querySelector(":scope > [data-plan-gutter='slot']")!.children].map((part) => (part.hasAttribute("data-plan-controls")
+            ? [...part.children].map((place) => place.getAttribute("data-plan-control") ?? "").join("|")
+            : part.getAttribute("role") === "img" ? `status:${part.getAttribute("data-tone")}` : part.getAttribute("data-plan-gutter") ?? ""));
         // A leaf folds nothing: no caret's cell, and its line says so, for the grid without one.
-        expect(cells("m1")).toEqual(["title", "value", "", "links|"]);
-        expect(cells("m2")).toEqual(["title", "value", "", "|expand"]);
-        expect(cells("net")).toEqual(["caret", "title", "value", "", "|"]);
+        expect([cells(line("m1")), cells(line("m2")), cells(line("net"))]).toEqual([["title", "slot"], ["title", "slot"], ["caret", "title", "slot"]]);
         expect([line("m1").hasAttribute("data-leaf"), line("m2").hasAttribute("data-leaf"), line("net").hasAttribute("data-leaf")]).toEqual([true, true, false]);
-        // The value at its own cell — empty where the row has none — and the meta inline after the label, in the name's cell.
-        const value = (key: string) => line(key).querySelector(":scope > [data-plan-gutter='value']")!.textContent;
+        // The value slot: a status's icon at its start — a neutral status draws none — then the value, there whether the
+        // row has one or not; and the row's controls over them, two places in one order — none on a row with no control.
+        expect([held(line("m1")), held(line("m2")), held(line("net"))]).toEqual([["status:warning", "value", "links|"], ["value", "|expand"], ["value"]]);
+        const value = (key: string) => line(key).querySelector("[data-plan-gutter='slot'] > [data-plan-gutter='value']")!.textContent;
         expect([value("m1"), value("m2")]).toEqual(["12k/h", ""]);
+        // The meta inline after the label, in the name's cell.
         expect(line("m1").querySelector("[data-plan-gutter='title'] > [data-plan-gutter='meta']")!.textContent).toBe("sheets");
-        // A level's indent is 8px: a member's line starts 8px past its parent's, its name at the indent where it is a leaf.
+        // A level's indent is the caret's cell and the gap after it: a member's line starts that far past its parent's,
+        // so its words start where its parent's do.
         const indent = (key: string, attr = "data-plan-row") =>
             (container.querySelector(`${rowSel(key, attr)} [role='rowheader']`) as HTMLElement).style.paddingLeft;
-        expect([indent("hall1", "data-plan-group"), indent("m1"), indent("net"), indent("wk")]).toEqual(["12px", "20px", "12px", "20px"]);
-        // An open band's name spans its row; folded, it stands in the rows' gutter grid.
+        expect([indent("hall1", "data-plan-group"), indent("m1"), indent("net"), indent("wk")]).toEqual(["12px", "32px", "12px", "32px"]);
+        // A band's name is the rows' grid, open or folded, never a heading across its row: its caption and its meta in
+        // its name's cell, its status and its value in its value slot.
         const name = () => container.querySelector(`${rowSel("hall1", "data-plan-group")} [role='rowheader']`)!;
-        expect(name().hasAttribute("data-open")).toBe(true);
+        const said = () => ({
+            across: name().hasAttribute("data-across"), cells: cells(name()), slot: held(name()),
+            title: [...name().querySelectorAll("[data-plan-gutter='title'] > [data-plan-gutter]")].map((part) => part.getAttribute("data-plan-gutter")),
+        });
+        const banded = { across: false, cells: ["caret", "title", "slot"], slot: ["status:danger", "value"], title: ["label", "meta"] };
+        expect(said()).toEqual(banded);
         fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
-        expect(name().hasAttribute("data-open")).toBe(false);
-        // Its caption, its meta and its value, in that order, in its name's cell.
-        expect([...name().querySelectorAll("[data-plan-gutter]")].map((part) => part.getAttribute("data-plan-gutter")))
-            .toEqual(["title", "label", "meta", "value"]);
+        expect(said()).toEqual(banded);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
+        // A row's controls are drawn while one of them is pressed, whatever the pointer is over: its row is the focus's.
+        const controls = () => line("m1").querySelector("[data-plan-controls]")!;
+        expect(controls().hasAttribute("data-focal")).toBe(false);
+        fireEvent.click(controls().querySelector("[data-plan-control='links']")!);
+        expect([controls().hasAttribute("data-focal"), controls().querySelector("[data-plan-control='links']")!.getAttribute("aria-pressed")]).toEqual([true, "true"]);
+    });
+
+    test("a status is its tone's icon, told by its shape — a triangle for a warning, a ringed mark for a danger, a check for a success, a ringed i for a note — and named for a reader by its status; a neutral status draws none", () => {
+        const tones = ["warning", "danger", "success", "info", "neutral"];
+        const { container } = renderPlan(planRoot(tones.map((tone) => planRow(tone, spanKind([]), { status: tone }))), "plan-1749-status");
+        /** A row's status as drawn: its tone, its icon's glyph and its name. */
+        const drawn = (key: string) => {
+            const icon = container.querySelector(`${rowSel(key)} [data-plan-gutter='slot'] > [role='img']`);
+            return icon === null ? null : [icon.getAttribute("data-tone"), icon.querySelector("svg")!.getAttribute("data-icon"), icon.getAttribute("aria-label")];
+        };
+        expect(Object.fromEntries(tones.map((tone) => [tone, drawn(tone)]))).toEqual({
+            warning: ["warning", "triangle-exclamation", "Status: warning"],
+            danger: ["danger", "circle-exclamation", "Status: danger"],
+            success: ["success", "check", "Status: success"],
+            info: ["info", "circle-info", "Status: info"],
+            neutral: null,
+        });
     });
 });
 

@@ -7,10 +7,10 @@
  * The alignment contract, mechanically (`Plan Spec.md` §3): every body row is
  * one two-column grid — the fixed gutter cell and a plot of `n` buckets — so
  * every kind aligns by construction. The shell renders the gutter identity
- * vocabulary (name / id / sub / value / meta / swatches / status dot / caret,
- * one grid of fixed cells, an 8px indent per level), the plot's bucket grid
- * lines, and the shared now / cursor hairlines; the kind renderer supplies the
- * plot content.
+ * vocabulary (name / id / sub / value / meta / swatches / status / caret, one
+ * grid of caret, name and value slot, a level's indent the caret's cell and
+ * its gap), the plot's bucket grid lines, and the shared now / cursor
+ * hairlines; the kind renderer supplies the plot content.
  *
  * It is also a treegrid ROW (#819): `role="row"` at its level, selected and
  * expanded as it is, its gutter the `rowheader` and its plot a `gridcell`,
@@ -37,20 +37,21 @@ import type { PlanEventDrop } from "../edit/event-drag.js";
 import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
-import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
 import { laneBand, laneIndexAt, laneRooms, laneRulesPath } from "./lanes.js";
+import { PlanStatusIcon } from "./StatusIcon.js";
 import { dayRulesPath } from "../../shared/time/rules.js";
 import { useLaidOutSize } from "../../shared/use-laid-out-size.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Indent per nesting level (px, #1680's review): a row that folds has its
- *  caret's cell, a leaf none, so a leaf's name starts at its level's indent. */
-export const INDENT_PX = 8;
+/** Indent per nesting level, in px (#1749): the caret's cell and the gap
+ *  after it, so a member's words start where its parent's do — a row that
+ *  folds has its caret's cell, a leaf none, its name at its level's indent. */
+export const INDENT_PX = 20;
 
 /**
  * A laned row's lane, as its gutter line draws it (#1680's review): its caption. The row places the line in the lane's
@@ -158,12 +159,13 @@ export interface RowShellProps {
     emphasis?: "header" | "footer" | undefined;
     /** Suppress the bucket grid lines (rows drawing their own canvas). */
     noGrid?: boolean;
-    /** Row-scoped focus controls (R1 links / R2 expand) — 24px ghost buttons
-     *  in the gutter line's two control slots, links then expand, always
-     *  shown, a pressed one in the brand tint (`Plan links.html`, #1258). An
-     *  expandable chart's spark ↔ chart is its expand control's (#1680's review). */
+    /** Row-scoped focus controls (R1 links / R2 expand) — ghost buttons over
+     *  the gutter line's value slot, links then expand, shown on the row's
+     *  hover, focus and selection and while one is pressed, which wears the
+     *  brand tint (`Plan links.html`, #1258, #1749). An expandable chart's
+     *  spark ↔ chart is its expand control's (#1680's review). */
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
-    /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value cell. */
+    /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value slot. */
     lanes?: readonly PlanGutterLane[] | undefined;
     /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
      *  line says them, then its own sub — which tells two rows of one name apart. */
@@ -181,11 +183,11 @@ export interface RowShellProps {
     bandHeight?: number | undefined;
     /** R2 context strip (#591) — this row is not the focus, so it compresses
      *  to 16px and its marks to 7px on the same axis. Never removed: order,
-     *  scroll position and the status dot survive, and the strip itself is
-     *  the return click target. */
+     *  scroll position and the status survive, and the strip itself is the
+     *  return click target. */
     ctx?: boolean | undefined;
-    /** A strip that keeps its value and its status dot in their cells — a pinned row a links focus does not gather
-     *  (#1680's review). */
+    /** A strip that keeps its value and its status as they are in the value slot — a pinned row a links focus does not
+     *  gather (#1680's review). */
     keep?: boolean | undefined;
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
@@ -600,12 +602,14 @@ export function RowShell({
         dropRef(el);
     }, [dropRef]);
 
-    // ── The gutter line (§3; #1680's review) ──────────────────────────────
-    // One grid with fixed slots: the caret's cell on a row that folds — a leaf
-    // has none, its name at its level's indent (`data-leaf`) — the name — the
-    // label, then the meta inline — the value, the status dot, and the two
-    // control slots, links then expand, on every row. So every value, dot and
-    // control stands at one x, down the canvas; only the name gives way.
+    // ── The gutter line (§3; #1749) ───────────────────────────────────────
+    // One grid: the caret's cell on a row that folds — a leaf has none, its
+    // name at its level's indent (`data-leaf`) — the name — the label, then the
+    // meta inline — and the value slot, the row's status at its start and its
+    // value at its end, on every row. So every status and value stands at one
+    // x, down the canvas; only the name gives way. The row's controls take no
+    // cell: they stand over the value slot, links then expand, each in its
+    // place whether the row has the other or not.
     const control = (kind: "links" | "expand"): ReactNode => {
         const c = controls?.find((one) => one.kind === kind);
         if (c === undefined) return <Box as="span" />;
@@ -624,16 +628,20 @@ export function RowShell({
             </Box>
         );
     };
-    // The line's cells after the name's — each always there: the value, the status dot, and the controls. A strip drops
-    // its value and dot, but for a pinned row a links focus does not gather (`keep`).
+    // The value slot's two parts. The status is its tone's icon, which its name says (#819); the value is always
+    // there, whole or not drawn. A strip drops its value and shrinks its status, but for a pinned row a links focus
+    // does not gather (`keep`).
+    const statusCell = <PlanStatusIcon tone={statusTone} styles={styles} ctx={ctxAttr} keep={keepAttr} />;
     const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-keep={keepAttr} data-plan-gutter="value">{value}</Box>;
-    // The dot's colour IS the status — its name says it (#819).
-    const dotCell = statusTone !== undefined
-        ? <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} data-keep={keepAttr} role="img" aria-label={statusText(statusTone, words)} />
-        : <Box as="span" />;
-    // Row controls (R1/R2) — always shown (#1258), each named by the canvas's tooltip (`root/overlays.tsx`); a control
-    // click never selects or toggles the row. Out of the tab order: the row's Tab walk reaches them (#819).
-    const controlsCell = <Box css={styles.rowControls} data-ctx={ctxAttr}>{control("links")}{control("expand")}</Box>;
+    // Row controls (R1/R2), over the value slot of a row that has one — on its hover, focus and selection, and while
+    // one of them is pressed: the focal row of an open focus (`data-focal`). Each is named by the canvas's tooltip
+    // (`root/overlays.tsx`); a control click never selects or toggles the row. Out of the tab order: the row's Tab walk
+    // reaches them (#819).
+    const controlsCell = controls === undefined || controls.length === 0 ? null : (
+        <Box as="span" css={styles.rowControls} data-ctx={ctxAttr} data-plan-controls data-focal={controls.some((c) => c.active) ? "" : undefined}>
+            {control("links")}{control("expand")}
+        </Box>
+    );
     // A leaf folds nothing: no caret's cell, and its lines say so, for the grid without one.
     const leafAttr = caret === undefined ? "" : undefined;
     const caretCell = caret === undefined ? null : (
@@ -647,7 +655,7 @@ export function RowShell({
             {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
         </Box>
     );
-    // A laned row (#1680's review): a gutter line per lane, the lane's height, its caption in the value cell — the
+    // A laned row (#1680's review): a gutter line per lane, the lane's height, its caption in the value slot — the
     // name's on the first, the sub on the second — in place of a caption in every cell.
     const laned = gutterLanes !== undefined && gutterLanes.length > 1 && ctx !== true && !expanded
         && gutterLanes.some((lane) => lane.caption !== undefined) ? gutterLanes : undefined;
@@ -701,8 +709,9 @@ export function RowShell({
                     : undefined}
             >
                 {laned !== undefined ? laned.map((lane, i) => (
-                    // A lane's line, laid over the cell where its cells sit: the name's line first, the sub on the
-                    // second, and each lane's caption in its value cell — the first's, where it has none, the row's value.
+                    // A lane's line, laid over the cell where its cells sit: the name's line first, with the row's
+                    // status and its controls, the sub on the second, and each lane's caption in its value slot — the
+                    // first's, where it has none, the row's value.
                     <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
                         data-plan-even-room={rooms?.[i] === undefined ? undefined : evenRoom(rooms[i].room)}
                         style={{ left: `${12 + depth * INDENT_PX}px`, top: `${rooms?.[i]?.top ?? 0}px`, height: `${rooms?.[i]?.room ?? 0}px` }}>
@@ -712,10 +721,12 @@ export function RowShell({
                                 {i === 1 && sub !== undefined && <Box as="span" css={styles.gutterMeta} data-plan-gutter="sub">{sub}</Box>}
                             </Box>
                         )}
-                        {i === 0 && lane.caption === undefined ? valueCell
-                            : <Box as="span" css={styles.gutterLaneCaption} data-plan-lane={i}>{lane.caption}</Box>}
-                        {i === 0 ? dotCell : <Box as="span" />}
-                        {i === 0 ? controlsCell : <Box as="span" />}
+                        <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                            {i === 0 && statusCell}
+                            {i === 0 && lane.caption === undefined ? valueCell
+                                : <Box as="span" css={styles.gutterLaneCaption} data-plan-lane={i}>{lane.caption}</Box>}
+                            {i === 0 && controlsCell}
+                        </Box>
                     </Box>
                 )) : (
                     <>
@@ -723,9 +734,11 @@ export function RowShell({
                             data-plan-even-room={nameRoom}>
                             {caretCell}
                             {nameCell}
-                            {valueCell}
-                            {dotCell}
-                            {controlsCell}
+                            <Box as="span" css={styles.gutterSlot} data-plan-gutter="slot">
+                                {statusCell}
+                                {valueCell}
+                                {controlsCell}
+                            </Box>
                         </Box>
                         {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</Box>}
                     </>

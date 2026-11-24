@@ -262,8 +262,6 @@ const GUTTER_W = 240;
 /** The narrowest a drag takes the gutter (px), and the widest. */
 const GUTTER_MIN = 168;
 const GUTTER_MAX = 360;
-/** Below this width (px) a row's controls fold to its hover, so its name keeps its room (#1680's review). */
-const GUTTER_NARROW_BELOW = 220;
 /** The rows' columns: the gutter at the width its rule's drag writes (`--plan-gutter-w`), then the plot. */
 const GUTTER_TEMPLATE = `var(${PLAN_GUTTER_VAR}) 1fr`;
 
@@ -1049,13 +1047,8 @@ export function usePlanCanvas({
     const { state: draggedGutter, setState: keepGutter } = usePersistedState<number | null>(`${storageKey}.gutter`, null, keptGutter);
     const gutterW = clampGutter(draggedGutter ?? declaredGutter, gutterRange);
     const gridTemplate = GUTTER_TEMPLATE;
-    // A drag's width, written where the rows read it — and whether their controls fold — with no render.
-    const applyGutter = useCallback((width: number) => {
-        const el = focusBodyRef.current;
-        if (el === null) return;
-        el.style.setProperty(PLAN_GUTTER_VAR, `${width}px`);
-        el.toggleAttribute("data-plan-gutter-narrow", width < GUTTER_NARROW_BELOW);
-    }, []);
+    // A drag's width, written where the rows read it, with no render.
+    const applyGutter = useCallback((width: number) => { focusBodyRef.current?.style.setProperty(PLAN_GUTTER_VAR, `${width}px`); }, []);
     // While the rule moves the links stand where it was: they go until it is let go (the `ribbons` slot).
     const dragGutter = useCallback((on: boolean) => { focusBodyRef.current?.toggleAttribute("data-plan-gutter-dragging", on); }, []);
     const commitGutter = useCallback((width: number) => keepGutter(width), [keepGutter]);
@@ -2424,10 +2417,8 @@ export function usePlanCanvas({
             data-plan-bounded={frameFills ? "" : undefined}
             // The narrow layout is in charge (its recipe rules key on it).
             data-plan-narrow={narrow ? "" : undefined}
-            // The gutter's width, where the rows' template and its rule read it — and, below 220px, a row's
-            // controls fold to its hover (#1680's review).
+            // The gutter's width, where the rows' template and its rule read it.
             style={GUTTER_STYLE(gutterW)}
-            data-plan-gutter-narrow={!narrow && gutterW < GUTTER_NARROW_BELOW ? "" : undefined}
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}

@@ -21,7 +21,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EXAMPLES, clickRowControl, openExample, planBox, rowSel, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
 /** The Plan examples that draw a ruler over rows. */
@@ -174,8 +174,9 @@ async function violations(entry: Locator): Promise<string[]> {
         for (const el of body.querySelectorAll("[data-plan-row] :is([data-plan-gutter='name'], [data-plan-gutter='lane'])")) {
             type(el, "row name", { size: 11, weight: "500", mono: true, upper: false, color: T.ink, tnum: true });
         }
+        // A value is the name's size, semibold (#1749) — a row's, and a band's, which never takes the band's capitals.
         for (const el of body.querySelectorAll("[data-plan-gutter='value']")) {
-            type(el, "gutter value", { size: 11.5, weight: "600", mono: true, tnum: true });
+            type(el, "gutter value", { size: 11, weight: "600", mono: true, upper: false, color: T.ink, tnum: true });
         }
         for (const el of body.querySelectorAll("[data-plan-gutter='sub'], [data-plan-gutter='meta']")) {
             type(el, "gutter unit", { size: 10, weight: "400", mono: true, color: T.ink4 });
@@ -282,8 +283,9 @@ async function violations(entry: Locator): Promise<string[]> {
             let j = gi + 1;
             for (; j < rows.length && Number(rows[j]!.getAttribute("aria-level")) > level; j++) last = rows[j];
             if (last === undefined) return;
-            // A member's line starts one level in from its group's: 8px (#1680's review). A row that folds has its
-            // caret's 14px cell and the line's 6px gap before its name; a leaf none, its name where its line starts.
+            // A member's line starts one level in from its group's: a caret's 14px cell and the line's 6px gap, so its
+            // words start where its group's do (#1749). A row that folds has its own caret's cell and gap before its
+            // name; a leaf none, its name where its line starts.
             const first = rows[gi + 1]!;
             const lineOf = (row: Element) => {
                 const head = row.querySelector("[role='rowheader']");
@@ -291,7 +293,7 @@ async function violations(entry: Locator): Promise<string[]> {
             };
             const gs = lineOf(g);
             const ms = lineOf(first);
-            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 8) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 8`);
+            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 20) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 20`);
             const ml = first.querySelector("[data-plan-gutter='title']")?.getBoundingClientRect().left;
             const caret = first.querySelector("[role='rowheader'] [data-leaf]") === null ? 20 : 0;
             if (ms !== undefined && ml !== undefined && Math.abs(ml - ms - caret) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - ms).toFixed(1)}px past its line, want ${caret}`);
@@ -397,7 +399,7 @@ test.describe("Visual invariants — the Plan", () => {
 
         test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, its role bands — a group band's paper and caption, the band the others fold into the only one with a hand — and its pressed control in their tokens (#1258, #1680's review)`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES, theme);
-            await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
+            await clickRowControl(entry.locator(rowSel("detail", "H1-P09")), "links");
             await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
             await page.mouse.move(0, 0);
             const T = {
