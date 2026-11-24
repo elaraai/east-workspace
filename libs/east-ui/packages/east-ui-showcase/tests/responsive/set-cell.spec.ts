@@ -14,7 +14,9 @@
  * typed, which stays in view, and a chip's × takes its member out, the editor
  * open on the rest. On a phone the bottom container edits a set cell in the
  * form's tags editor, the register's other members suggested, its chips the
- * design system's touch size: 34 tall, each × a 34 square at its end.
+ * design system's touch size: 34 tall, each × a 34 square at its end; as the
+ * editor grows the row it edits stays in view, and the notice a phone's footer
+ * lays over main's foot never covers it.
  *
  * Run: `pnpm exec playwright test set-cell`.
  */
@@ -179,5 +181,39 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
             };
         });
         expect(drawn).toEqual({ chips: Array(3).fill({ h: 34, x: [34, 34], atEnd: true }), gaps: [8], input: 34, whole: true });
+    });
+
+    test("on a phone the row a set editor edits stays in view as the editor grows, and a notice laid over main's foot never covers the editor @mobile", async ({ page }) => {
+        const entry = await open(page, EVERY_KIND);
+        const cell = recordCell(entry, "P-0408", "certificates");
+        await cell.click();
+        const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
+        await expect(editor).toBeVisible();
+        // A notice — the copy's — which the phone's footer lays over main's foot while it speaks.
+        await page.keyboard.press("ControlOrMeta+c");
+        await expect(entry.locator('[data-slot="footerLive"][data-footer-live]')).toHaveText(/^Copied /);
+        const input = editor.locator('[data-scope="tags-input"][data-part="input"]');
+        for (const word of ["fork", "conf", "work"]) {
+            await input.click();
+            await input.pressSequentially(word);
+            await input.press("Enter");
+        }
+        await expect(editor.locator('[data-scope="tags-input"][data-part="item-text"]')).toHaveText(["Forklift", "Confined space", "Working at height"]);
+        await expect(entry.locator('[data-slot="footerLive"][data-footer-live]')).toHaveText(/^Copied /);
+        await settled(page);
+        // What a tap lands on: across the edited cell's top, middle and foot, the cell — neither the header over its row nor
+        // the editor under it — and on the editor's last pixels, the editor, never the notice's band.
+        const drawn = await entry.evaluate((root) => {
+            const edited = root.querySelector('[data-record] [data-slot="row"][data-row-id="P-0408"] [data-slot="cell"][data-key="certificates"]')!;
+            const e = edited.getBoundingClientRect();
+            const control = root.querySelector('[data-cell-tags] [data-scope="tags-input"][data-part="control"]')!;
+            const c = control.getBoundingClientRect();
+            const lands = (el: Element, x: number, y: number) => { const hit = document.elementFromPoint(x, y); return hit !== null && el.contains(hit); };
+            return {
+                row: [e.top + 2, (e.top + e.bottom) / 2, e.bottom - 2].map((y) => lands(edited, (e.left + e.right) / 2, y)),
+                editorFoot: [2, 6, 10].map((dy) => lands(control, c.left + 12, c.bottom - dy)),
+            };
+        });
+        expect(drawn).toEqual({ row: [true, true, true], editorFoot: [true, true, true] });
     });
 });

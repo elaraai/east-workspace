@@ -5,8 +5,9 @@
 
 /**
  * The rows' scroll: what it reports to the paging or the lens, the open editor laid over its cell, the frame's widths and
- * the number column's, the band and the line that stick under the header, a keyboard move's reveal of its column, and the
- * slide of the rows a fold or an opening moves.
+ * the number column's, the band and the line that stick under the header, a keyboard move's reveal of its column, a
+ * phone's ring row kept in view as the rows give way to what opens under them, and the slide of the rows a fold or an
+ * opening moves.
  *
  * @packageDocumentation
  */
@@ -32,6 +33,9 @@ const NOTHING: ReadonlySet<string> = new Set();
 /** How long rows slide after a gesture that folds or opens (ms) — a little past the slide itself. */
 const MOVE_MS = 320;
 
+/** A frame is taken as grown shorter, and a row as cut by its foot, past this many CSS px. */
+const SHORTER_PX = 0.5;
+
 /**
  * Lays the rows out in their scroll, and follows it (see the module docs).
  *
@@ -53,7 +57,7 @@ export function useSheetScroll(sheetDecode: SheetDecode, sheetSession: SheetSess
         viewport,
     } = sheetDecode;
     const { folds, geometry, lens, lensDrawn, paging, rows, total, ui } = sheetSession;
-    const { body, endPosition } = sheetBody;
+    const { body, endPosition, rowSpace } = sheetBody;
     const { viewportRef } = sheetMachine;
     const { editorFocus, revealSeq } = sheetEffects;
     const {
@@ -290,6 +294,34 @@ export function useSheetScroll(sheetDecode: SheetDecode, sheetSession: SheetSess
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a keyboard move is the trigger; the ring and the frame are read as they are then
     }, [revealSeq]);
+    // A phone's rows give way to what opens under them (X7) — a cell's editor, the action bar, as each opens and grows —
+    // but never the ring's row: as the frame grows shorter, the row they stand for stays in view by the least scroll,
+    // under the header and the band that sticks there, if it was in view before. A row scrolled away stays where the
+    // viewer put it, and a sheet with no ring placed moves for none.
+    const ringAt = useRef<number | undefined>(undefined);
+    ringAt.current = ui.ringless ? undefined : rowSpace.bodyIndexOf[ui.sel.r];
+    useLayoutEffect(() => {
+        if (!phoneFrame || viewFrame === undefined || typeof ResizeObserver === "undefined") return undefined;
+        let tall = viewFrame.clientHeight;
+        const observer = new ResizeObserver(() => {
+            const was = tall;
+            tall = viewFrame.clientHeight;
+            const at = ringAt.current;
+            const head = headerRef.current;
+            if (tall >= was - SHORTER_PX || at === undefined || head === null) return;
+            const row = mountedBoxes(viewFrame).get(at);
+            if (row === undefined) return;
+            const bandCopy = head.querySelector<HTMLElement>("[data-slot=stickyBand]");
+            const top = head.getBoundingClientRect().bottom + (bandCopy !== null ? bandCopy.getBoundingClientRect().height : 0);
+            const frameTop = viewFrame.getBoundingClientRect().top + viewFrame.clientTop;
+            const foot = frameTop + tall;
+            // In view before the frame grew shorter, and cut by its foot now: its foot shown, its top never under the header.
+            if (row.bottom <= top || row.top >= frameTop + was || row.bottom <= foot + SHORTER_PX) return;
+            viewFrame.scrollTop += Math.min(row.bottom - foot, Math.max(0, row.top - top));
+        });
+        observer.observe(viewFrame);
+        return () => observer.disconnect();
+    }, [phoneFrame, viewFrame]);
     /**
      * Bring a sticking line out from under its copy: the rows
      * scroll until the line's own row sits just under the band, where the
