@@ -60,7 +60,9 @@
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
  * `sizes.row` tokens, and its header row the same. Its ages count to one
- * clock, the browser's, read again each minute (`clock.tsx`). ⌘Z undoes and
+ * clock, the browser's, read again each minute, and their days and weeks to
+ * one day, the one its cells from data are read and written at: the page's
+ * `day`, else the viewer's own (`clock.tsx`). ⌘Z undoes and
  * ⇧⌘Z redoes from anywhere in the frame, as the Sheet's do. It fills its
  * parent and draws no border.
  *
@@ -88,7 +90,7 @@ import { indexColumns, indexRegisters } from "../sheet/model.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { RecordClock, useRecordNow } from "./clock.js";
+import { RecordClock, useRecordTime } from "./clock.js";
 import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
 import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, titleColumnOf, useRecordGrid, type RecordGrid } from "./grid.js";
 import { RecordDetails, RecordInspectorProvider, recordIssueWhere, type RecordFocus, type RecordInspector } from "./inspector.js";
@@ -246,9 +248,11 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
     const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
+    // The day the page sets, where it sets one: what the Record's clock gives its cells from data and its ages.
+    const day = getSomeorUndefined(value.day);
     return (
         <SheetMessagesProvider messages={RECORD_SHEET_MESSAGES}>
-            <RecordClock>
+            <RecordClock day={day}>
                 <RecordGridProvider value={grid}>
                     <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
                         <RecordInspectorProvider value={inspection}>
@@ -299,7 +303,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
     const inspect = useSheetInspect();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const { noun, title } = useRecordGrid();
@@ -368,7 +372,7 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown but a new one, and the legend.
     const count = shown === undefined || total === undefined ? undefined
         : rm.shownOf({ shown: words.number(shown), total: words.number(total), n: total, noun: noun.singular, nouns: noun.plural });
-    const stale = entries.whole ? staleNoteOf(columns, entries.rows, entries.changes, now, words) : undefined;
+    const stale = entries.whole ? staleNoteOf(columns, entries.rows, entries.changes, time, words) : undefined;
     const legend = useMemo(() => legendOf(columns, registers), [columns, registers]);
     // An issue's place in a banner: its row, named as the Issues tab names it — a Record's rows have no lines.
     const where = useCallback((issue: EditIssue) => issueWhere(issue, placeOf.current(issue)), [issueWhere]);

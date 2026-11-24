@@ -196,8 +196,9 @@ export interface SheetColumnBaseConfig<R extends StructType, T extends EastType>
  * ({@link SheetFromDataInput}).
  *
  * @remarks
- * The day is the Record's clock: the browser's local calendar date, at UTC
- * midnight, which turns over without a rebuild.
+ * The day is the Record's: the day its page sets (`day`), as the page gives
+ * it, else the browser's local calendar date at UTC midnight, which turns
+ * over without a rebuild.
  *
  * @typeParam R - The host's row type
  */
@@ -232,9 +233,9 @@ export type SheetMarkInput<R extends StructType> = SubtypeExprOrValue<FunctionTy
  * tab naming it by its member. An issue naming the field the columns write
  * (`hours`) holds Apply, and marks no cell.
  *
- * The day each function takes is the Record's clock: the browser's local
- * calendar date, at UTC midnight. A Record draws columns from data; a Sheet
- * refuses them.
+ * The day each function takes is the Record's: the day its page sets
+ * (`day`), as the page gives it, else the browser's local calendar date at
+ * UTC midnight. A Record draws columns from data; a Sheet refuses them.
  *
  * @typeParam T - The kind's value: what one cell holds
  * @property each - A register's name — a column per member — or `{ field: "Header", … }`, a column per field of the struct the column reads
@@ -649,9 +650,10 @@ export interface RecordCycleStepsConfig<R extends StructType, V extends VariantT
  * @remarks
  * `since` reads the row; the count is taken as the cell is drawn. Hours run to
  * the browser's clock. Days and weeks are the calendar's: from the moment's
- * date to the viewer's own day — the Record's day, as a column read at the
- * day has it — so a count turns over at the viewer's midnight, without a
- * rebuild, whatever time of day the moment holds. As a column from data
+ * date to the Record's day, as a column read at the day has it — the day its
+ * page sets (`day`), else the viewer's own, so a count turns over at the
+ * viewer's midnight, without a rebuild — whatever time of day the moment
+ * holds. As a column from data
  * ({@link SheetFromDataInput}) it names its `field`, and each member's value
  * is the moment its count starts from, in place of `since`.
  *
@@ -987,7 +989,8 @@ export function cycle<R extends StructType>(rowType: R, over: string | VariantTy
 
 /**
  * An age column — `Record.column.age(R, { since })`: the hours since a moment
- * the row holds, or the days or weeks since its date, to the viewer's own day.
+ * the row holds, or the days or weeks since its date to the Record's day — the
+ * day its page sets, else the viewer's own.
  * Keyed by a name of its own; read only.
  * With `each` and the `field` it reads, a column per member of a register or
  * per field of a struct, each member's value the moment its count starts from

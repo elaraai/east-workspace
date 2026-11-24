@@ -70,7 +70,7 @@ import { actionColumnOf } from "../sheet/actions/model.js";
 import { useSheetWords } from "../sheet/words.js";
 import type { SheetRowValue } from "../sheet/values.js";
 import { chipWidths, recordCell } from "./cells.js";
-import { useRecordNow } from "./clock.js";
+import { useRecordTime } from "./clock.js";
 import { recordMessages as m } from "./messages.js";
 import type { RecordNoun } from "./status.js";
 import type { RecordTicks } from "./ticks.js";
@@ -193,8 +193,8 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
     // The select column, where the grid lays it out: a read-only Record has none, nor a phone's frame.
     const lead = layout.lead;
     const pinned = layout.pinPx > 0;
-    // The clock, read once for the row's every age; the row draws again as it moves.
-    const now = useRecordNow();
+    // The clock and the day, read once for the row's every age; the row draws again as either moves.
+    const time = useRecordTime();
     const chips = useMemo(() => chipWidths(columns, registers), [columns, registers]);
     const id = row?.id;
     // A tick shows where the select column does: on a phone a row is picked by its title.
@@ -262,7 +262,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 const summary = action !== undefined ? row?.cells.get(action.summary) : undefined;
                 // A Record kind's cell, and what it says on hover; a Sheet kind's is the Sheet's (C11).
                 const view = row === undefined || required ? undefined
-                    : recordCell({ styles, meta, row, cell, registers, changes, now, words, chip: chips.get(meta.key) });
+                    : recordCell({ styles, meta, row, cell, registers, changes, time, words, chip: chips.get(meta.key) });
                 // A mark's words: in an empty cell in its place — but an action cell's, whose state draws whatever it holds — else
                 // after the value; a lock's as the Tag either way.
                 const alone = mark !== undefined && action === undefined && cellIsBlank(cell);

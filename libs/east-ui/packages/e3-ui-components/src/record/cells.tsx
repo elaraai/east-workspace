@@ -16,7 +16,8 @@
  *   label, a scale's member up the heat ramp and any other in its tone's
  *   wash; or the mark look, a scale's pips — a toggle's one — or a valence's
  *   dot and word;
- * - **age** (C7) — whole units to the Record's clock, a dot once it is stale;
+ * - **age** (C7) — whole units to the Record's clock, days and weeks to its
+ *   day, a dot once it is stale;
  * - **audit** (C8, C9) — the date, and in blame mode the verb and who; while
  *   the row's drafts change its fields, PENDING and how many;
  * - **an absent value** (C10) — in the column's words, else a dash.
@@ -38,7 +39,7 @@ import type { SheetRowChanges } from "../sheet/index.js";
 import { resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
 import type { SheetCellValue, SheetRowValue } from "../sheet/values.js";
 import type { SheetWords } from "../sheet/words.js";
-import { ageOf } from "./clock.js";
+import { ageOf, type RecordTime } from "./clock.js";
 import { recordMessages as m } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
@@ -66,8 +67,8 @@ export interface RecordCellInput {
     registers: SheetRegisterIndex;
     /** What the row's drafts changed; `undefined` for a row no gesture has touched. */
     changes: SheetRowChanges | undefined;
-    /** The Record's now: what an age counts to. */
-    now: Date;
+    /** The Record's time: what an age counts to. */
+    time: RecordTime;
     /** The Sheet's words: the counts in the viewer's language. */
     words: SheetWords;
     /** A cycle's or a toggle's chip's least width in characters: its column's widest label. */
@@ -142,7 +143,7 @@ export function chipWidths(columns: SheetColumnIndex, registers: SheetRegisterIn
  * @returns What the cell draws and says on hover; `undefined` for a Sheet kind, which the Sheet's cell content draws
  */
 export function recordCell(input: RecordCellInput): RecordCellView | undefined {
-    const { styles, meta, row, cell, registers, changes, now, words, chip } = input;
+    const { styles, meta, row, cell, registers, changes, time, words, chip } = input;
     const kind = meta.raw.kind;
     // A chip's least width: its column's widest label, at the chip's own face.
     const chipStyle = { "--record-chip-ch": chip ?? 0 } as CSSProperties;
@@ -252,7 +253,7 @@ export function recordCell(input: RecordCellInput): RecordCellView | undefined {
             };
         }
         case "age": {
-            const age = changes?.added === true ? undefined : ageOf(meta, cell, now);
+            const age = changes?.added === true ? undefined : ageOf(meta, cell, time);
             // The column's own words for no moment say themselves on hover too, where a narrow column ends them in an ellipsis.
             const absent = getSomeorUndefined(kind.value.absent);
             if (age === undefined) return { content: <Box as="span" css={styles.absent} data-slot="absent">{absent ?? m.absent()}</Box>, title: absent };

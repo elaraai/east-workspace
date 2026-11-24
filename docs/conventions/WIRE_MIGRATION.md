@@ -1700,3 +1700,15 @@ Each wire changed under this rule, with the kind it is.
     feature, so an agent from before it is given every URL on the advertised
     origin, and an agent that names it, under a source from before it, is
     told of none and fetches from the source's origin alone.
+- **e3-ui's `Record` takes the page's day (#1746)** — package-borne. The
+  `Record` extension's payload gains `day`, after `autosave`: the day the
+  page sets (`Option<DateTime>`), as the page gives it, `none` where it sets
+  none. The renderer reads a row's cells at that day (the root's `cellsAt`),
+  writes a gesture's cells from data at it (`SheetEditingType`'s `decode`)
+  and counts an age's days and weeks to it, in place of the browser's local
+  calendar date at UTC midnight. A UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's
+  output is not stored state, and a column from data reads and writes a
+  field the app's record already holds, as it holds it, so no repository
+  upgrade step ships with it.

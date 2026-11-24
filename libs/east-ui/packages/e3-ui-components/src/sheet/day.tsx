@@ -5,18 +5,18 @@
 
 /**
  * The day a sheet reads and writes its columns from data at (#1559): the
- * browser's local calendar date, at UTC midnight — the `day` an app's `read`,
- * `write` and `mark` are given, so a column keyed by date reads the day the
- * viewer is in, wherever they are. A host with a clock of its own gives it
- * ({@link SheetDayProvider}) — the Record's, so its cells from data turn over
- * with its age cells — and a sheet under none keeps its own, read again at each
- * whole minute while it reads anything at the day, and drawn again only when
- * the day turns.
+ * `day` an app's `read`, `write` and `mark` are given. A host gives its own
+ * ({@link SheetDayProvider}) — the Record's: the day its page sets, as the
+ * page gives it, else its clock's, so its cells from data turn over with its
+ * age cells (#1746). A sheet under none keeps its own: the browser's local
+ * calendar date, at UTC midnight, so a column keyed by date reads the day the
+ * viewer is in, wherever they are — read again at each whole minute while it
+ * reads anything at the day, and drawn again only when the day turns.
  *
  * @packageDocumentation
  */
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { DateTimeType, equalFor } from "@elaraai/east";
 
 const SheetDayContext = createContext<Date | undefined>(undefined);
@@ -24,7 +24,8 @@ const dayEqual = equalFor(DateTimeType);
 const MINUTE_MS = 60_000;
 
 /**
- * The day an instant falls on, as a sheet's columns from data are given it: its local calendar date, at UTC midnight.
+ * The viewer's day an instant falls on, as a sheet's columns from data are given it where no page sets one: its local
+ * calendar date, at UTC midnight.
  *
  * @param now - The instant
  * @returns Its day
@@ -37,15 +38,13 @@ export function sheetDayOf(now: Date): Date {
 }
 
 /**
- * Gives the sheets under it the day of a host's clock — one `Date` while the day holds, so a sheet reads its columns
- * from data again only as the day turns, however often the clock moves.
+ * Gives the sheets under it a host's day — one `Date` while the day holds, as the host keeps it, so a sheet reads its
+ * columns from data again only as the day changes, however often the host's clock moves.
  *
- * @param props - The host's now, and the parts under it
+ * @param props - The host's day, and the parts under it
  * @returns The provider
  */
-export function SheetDayProvider({ now, children }: { now: Date; children: ReactNode }) {
-    const ms = sheetDayOf(now).getTime();
-    const day = useMemo(() => new Date(ms), [ms]);
+export function SheetDayProvider({ day, children }: { day: Date; children: ReactNode }) {
     return <SheetDayContext.Provider value={day}>{children}</SheetDayContext.Provider>;
 }
 

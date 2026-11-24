@@ -884,7 +884,7 @@ export type SheetLookLiteral = "chip" | "mark";
  * What an age column counts.
  *
  * @property hours - Whole hours, to the browser's clock
- * @property days - Days, from the moment's date to the viewer's own day: one more at each of their midnights
+ * @property days - Days, from the moment's date to the Record's day — the day its page sets, else the viewer's own: one more at each of their midnights
  * @property weeks - Whole weeks of those days
  */
 export const SheetAgeUnitType = VariantType({ hours: NullType, days: NullType, weeks: NullType });
@@ -939,7 +939,7 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property boolean - A checkbox; a Record's
  * @property toggle - Two states on a Boolean, each a word; a Record's
  * @property cycle - A register's members, stepped by a click — a `scale` steps up the heat ramp, otherwise each member's tone; a Record's
- * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the viewer's own day: `elapsed(since, at)` — `at` the clock's instant for hours, the viewer's day at UTC midnight for days and weeks — warning at `stale`; read only, a Record's
+ * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the Record's day: `elapsed(since, at)` — `at` the clock's instant for hours; for days and weeks the day the Record's page sets, as it gives it, else the viewer's day at UTC midnight — warning at `stale`; read only, a Record's
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
@@ -1320,7 +1320,7 @@ export type SheetReadFromType = typeof SheetReadFromType;
  * @property footer - Footer items
  * @property style - The gutter width
  * @property narrow - On a phone: any column it pins, and how many it shows at once ({@link SheetNarrowType})
- * @property cellsAt - A row's cells at a day, the browser's local calendar date at UTC midnight, read over its draft or its entry: each column from data's, its member's value through the column's `read`, and every column's marks ({@link SheetMarkCellsType}); `none` where no column reads any. A row from the source holds none of them, so its projection stays pure, as an age cell's count does
+ * @property cellsAt - A row's cells at a day — a Record's, the day its page sets, else the browser's local calendar date at UTC midnight — read over its draft or its entry: each column from data's, its member's value through the column's `read`, and every column's marks ({@link SheetMarkCellsType}); `none` where no column reads any. A row from the source holds none of them, so its projection stays pure, as an age cell's count does
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,

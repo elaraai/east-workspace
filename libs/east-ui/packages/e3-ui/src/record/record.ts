@@ -21,6 +21,11 @@
  *   record is handed beside it, `record`, as in the first form, and edits are
  *   committed through it (east-workspace#1622); without it, read only.
  *
+ * Its columns from data read and write their cells at its day, and its ages in
+ * days and weeks count to it: the day the page sets, `day`, as the page gives
+ * it — else the viewer's own, the browser's local calendar date at UTC
+ * midnight, which turns over at their midnight (east-workspace#1746).
+ *
  * The Record is an interface. Its payload holds the Sheet's root — the grid,
  * the rows and the session, built by the very code `<Sheet>` builds it with,
  * its title column the one a phone pins at the left — beside what only a
@@ -33,6 +38,7 @@
 import {
     ArrayType,
     BooleanType,
+    DateTimeType,
     East,
     Expr,
     OptionType,
@@ -79,6 +85,7 @@ type SheetPayloadParts = ExprType<StructType<{
  * @property history - Over `record`, its commits; `none` over the rail's rows
  * @property missing - The entry's key while the record does not hold it — never, for a Record over the record's own entries
  * @property autosave - Whether its Autosave begins on
+ * @property day - The day its columns from data are read and written at, and its ages in days and weeks count to, as the page gives it; `none`, the viewer's own — the browser's local calendar date at UTC midnight
  * @property name - Names the Record, when a surface holds two
  */
 export const RecordPayloadType = StructType({
@@ -90,6 +97,7 @@ export const RecordPayloadType = StructType({
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     autosave: BooleanType,
+    day: OptionType(DateTimeType),
     name: OptionType(StringType),
 });
 
@@ -182,6 +190,18 @@ export interface RecordCommon<R extends StructTypeOf, C> {
      * set and the Record, and stands over it.
      */
     autosave?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * The day the Record's columns from data read and write their cells at — each one's `read`, `write` and `mark`
+     * handed it as the page gives it, never rounded — and its ages in days and weeks count to: a value, or an
+     * expression, a reactive state's `read()` or a dataset's value, so a page plans as at a day that is not the
+     * viewer's today. As it changes, every row's cells from data are read again at the new day, with no rebuild, and
+     * the drafts stay: a draft is the row's field, so a drafted field shows as read at the new day, Undo takes back
+     * each edit whatever day it was made at, and Save commits the fields. Left out, the viewer's own day: the browser's
+     * local calendar date at UTC midnight, which turns over at their midnight. An age in hours counts to the browser's
+     * clock either way. The Record draws nothing for the day: the page shows the day it sets, and lets a person change
+     * it if it wants to.
+     */
+    day?: SubtypeExprOrValue<DateTimeType>;
     /** Names the Record — needed only when one surface holds two. */
     name?: string;
 }
@@ -196,6 +216,7 @@ type RecordAnyProps = {
     title?: string;
     noun?: RecordNounInput;
     columnGroups?: readonly RecordColumnGroupInput<string>[];
+    day?: SubtypeExprOrValue<DateTimeType>;
 } & Record<string, unknown>;
 
 /** The Sheet's props a Record has no use for, each with what the Record does instead. */
@@ -234,7 +255,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
-    const { title, noun, columnGroups, ...sheet } = props as RecordAnyProps;
+    const { title, noun, columnGroups, day, ...sheet } = props as RecordAnyProps;
     for (const [prop, instead] of Object.entries(NOT_A_RECORD_PROP)) {
         if (prop in sheet) throw new Error(`Record: takes no \`${prop}\` — ${instead}`);
     }
@@ -276,6 +297,7 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
     const own = {
         title: title === undefined ? none : some(title),
         noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
+        day: day === undefined ? none : some(day),
     };
     const startsAt = new Map((columnGroups ?? []).map((group) => [group.columnKeys[0]!, group]));
     const GroupsType = RecordPayloadType.fields.columnGroups;
