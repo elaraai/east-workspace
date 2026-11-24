@@ -46,6 +46,7 @@ from east.types.types import (
     is_vector_type,
 )
 from east.types.values import EastBlob, EastMatrix, EastVector
+from east.utils._identity import pair_met, same_value, type_can_cycle
 
 # Type ordering: lower number means comes first
 TYPE_ORDER = {
@@ -133,7 +134,8 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     Note:
         - Handles special cases like NaN equality for floats
-        - Detects cycles in recursive structures
+        - Detects cycles in recursive structures: a pair of containers met
+          again, known by East's identity (``east.utils._identity``), counts equal
         - Uses structural equality for all types
     """
     from east.types.values import EastArray, EastDict, EastSet
@@ -222,25 +224,19 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     if is_array_type(type_val):
         value_comparer = equal_for(type_val.value, type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_array(x: EastArray, y: EastArray, ctx=None) -> bool:
             # Fast path - same object
             if x is y:
                 return True
 
-            # Create context if needed (top-level call)
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True  # Cycle - we're re-encountering this pair
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
 
             # Compare lengths
             if len(x) != len(y):
@@ -263,25 +259,19 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     if is_dict_type(type_val):
         value_comparer = equal_for(type_val.value["value"], type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_dict(x: EastDict, y: EastDict, ctx=None) -> bool:
             # Fast path - same object
             if x is y:
                 return True
 
-            # Create context if needed
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True  # Cycle
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
 
             # Compare sizes
             if len(x) != len(y):
@@ -303,25 +293,19 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
         from east.types.values import EastRef
 
         inner_comparer = equal_for(type_val.value, type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_ref(x: EastRef, y: EastRef, ctx=None) -> bool:
             # Fast path - same identity
             if x is y:
                 return True
 
-            # Create context if needed (top-level call)
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True  # Cycle - already comparing
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
 
             # Compare inner values
             return inner_comparer(x.value, y.value, ctx)
@@ -332,21 +316,8 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
         field_comparers: list[tuple[str, Any]] = []
 
         def equal_struct(x, y, ctx=None) -> bool:
-            # Create context if needed
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True  # Cycle
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
-
-            # Compare fields - handle both dict and EastStruct
+            # Compare fields - handle both dict and EastStruct. Never marked: a cycle passes a
+            # container, and a struct read is a new object every time
             for field_name, comparer in field_comparers:
                 x_val = x[field_name]
                 y_val = y[field_name]
@@ -375,21 +346,7 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
             if x_tag != y_tag:
                 return False
 
-            # Create context if needed
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True  # Cycle
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
-
-            # Compare values
+            # Compare values; never marked, as a struct is not
             return case_comparers[x_tag](x_val, y_val, ctx)
 
         for case_struct in type_val.value:
@@ -434,9 +391,10 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 def is_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
     """Create an identity comparer for a given type.
 
-    Identity comparison uses Python `is` for mutables (Array, Set, Dict),
-    value comparison for immutables (primitives, EastBlob), and field-by-field
-    comparison for structs and variants.
+    Identity comparison uses East's identity for mutables (Array, Set, Dict,
+    Ref, Vector, Matrix), which every read of a value east-c holds shares
+    (``east.utils._identity``); value comparison for immutables (primitives,
+    EastBlob); and field-by-field comparison for structs and variants.
 
     Args:
         type_val: The East type to create a comparer for
@@ -487,29 +445,13 @@ def is_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
         return is_blob
 
-    if is_vector_type(type_val):
+    if is_vector_type(type_val) or is_matrix_type(type_val):
         # `is` compares by identity; value equality is via Equal/equal_for
-        return lambda x, y, _ctx=None: x is y
+        return same_value
 
-    if is_matrix_type(type_val):
-        # `is` compares by identity; value equality is via Equal/equal_for
-        return lambda x, y, _ctx=None: x is y
-
-    if is_array_type(type_val):
+    if is_array_type(type_val) or is_set_type(type_val) or is_dict_type(type_val) or is_ref_type(type_val):
         # Mutable: identity comparison
-        return lambda x, y, _ctx=None: x is y
-
-    if is_set_type(type_val):
-        # Mutable: identity comparison
-        return lambda x, y, _ctx=None: x is y
-
-    if is_dict_type(type_val):
-        # Mutable: identity comparison
-        return lambda x, y, _ctx=None: x is y
-
-    if is_ref_type(type_val):
-        # Mutable types compared by identity
-        return lambda x, y, _ctx=None: x is y
+        return same_value
 
     if is_struct_type(type_val):
         # Build field comparers
@@ -694,23 +636,19 @@ def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
     if is_array_type(type_val):
         value_comparer: Any = None
+        marks = type_can_cycle(type_val)
 
         def compare_array(x: list, y: list, ctx: dict | None = None) -> int:
             # Fast path
             if x is y:
                 return 0
 
-            # Cycle detection
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0  # Cycle
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
 
             # Lexicographic comparison
             min_len = min(len(x), len(y))
@@ -770,23 +708,19 @@ def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
         # Dicts are assumed to be sorted by key
         key_comparer = compare_for(type_val.value["key"], type_ctx)
         value_comparer_dict: Any = None
+        marks = type_can_cycle(type_val)
 
         def compare_dict(x: dict, y: dict, ctx: dict | None = None) -> int:
             # Fast path
             if x is y:
                 return 0
 
-            # Cycle detection
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0  # Cycle
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
 
             # Co-iterate (dicts maintain sorted order by key)
             x_iter = iter(x.items())
@@ -825,25 +759,19 @@ def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
 
         # Get inner value comparer
         inner_comparer: Any = None
+        marks = type_can_cycle(type_val)
 
         def compare_ref(x: EastRef, y: EastRef, ctx: dict | None = None) -> int:
             # Fast path - same identity
             if x is y:
                 return 0
 
-            # Create context if needed
-            if ctx is None:
-                ctx = {}
-
-            # Check if we've visited this pair (cycle detection)
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0  # Cycle - treat as equal
-
-            # Mark as visited
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
 
             # Compare inner values
             return inner_comparer(x.value, y.value, ctx)

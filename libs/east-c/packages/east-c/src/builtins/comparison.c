@@ -10,6 +10,7 @@
 #include "east/types.h"
 #include "east/values.h"
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,39 +20,104 @@
 /*                                                                     */
 /*  Tracks visited (a, b) pointer pairs to handle circular references  */
 /*  in mutable container types (Array, Dict, Ref, Struct, Variant).    */
+/*  The first CYCLE_INLINE pairs are held in place and scanned, so a    */
+/*  small value's comparison allocates nothing; the pairs past them go */
+/*  in an open-addressed table, so a comparison's work stays linear in */
+/*  the containers it compares, as TypeScript's Map keeps it. (A list  */
+/*  scanned whole for each pair made two arrays of 100,000 records     */
+/*  some 5e9 pointer checks.)                                          */
 /* ------------------------------------------------------------------ */
 
+#define CYCLE_INLINE 16
+#define CYCLE_TABLE_MIN 64
+
 typedef struct {
-    struct {
-        EastValue *a;
-        EastValue *b;
-    } *pairs;
-    size_t len, cap;
+    EastValue *a;
+    EastValue *b;
+} CyclePair;
+
+typedef struct {
+    CyclePair inline_pairs[CYCLE_INLINE]; /* the first pairs marked */
+    size_t inline_len;
+    CyclePair *table; /* the pairs past them; a NULL `a` is an empty slot */
+    size_t table_len; /* the pairs it holds */
+    size_t table_cap; /* its slots: a power of two, or 0 */
 } CycleCtx;
 
 static void cycle_init(CycleCtx *c)
 {
-    c->pairs = NULL;
-    c->len = 0;
-    c->cap = 0;
+    c->inline_len = 0;
+    c->table = NULL;
+    c->table_len = 0;
+    c->table_cap = 0;
 }
 static void cycle_free(CycleCtx *c)
 {
-    free(c->pairs);
+    free(c->table);
 }
 
-/* Returns true if this pair was already visited (cycle detected) */
+/* A pair's place in the table: splitmix64's finaliser over the two pointers. */
+static size_t cycle_hash(const EastValue *a, const EastValue *b)
+{
+    uint64_t x = (uint64_t)(uintptr_t)a ^ ((uint64_t)(uintptr_t)b * 0x9E3779B97F4A7C15ull);
+    x ^= x >> 30;
+    x *= 0xBF58476D1CE4E5B9ull;
+    x ^= x >> 27;
+    x *= 0x94D049BB133111EBull;
+    x ^= x >> 31;
+    return (size_t)x;
+}
+
+/* Puts a pair the table does not hold into it; the table has an empty slot. */
+static void cycle_table_put(CyclePair *table, size_t cap, EastValue *a, EastValue *b)
+{
+    size_t mask = cap - 1;
+    size_t i = cycle_hash(a, b) & mask;
+    while (table[i].a)
+        i = (i + 1) & mask;
+    table[i].a = a;
+    table[i].b = b;
+}
+
+/* Doubles the table, or makes its first, the pairs it holds moved over.
+ * False when out of memory, the table as it was. */
+static bool cycle_table_grow(CycleCtx *c)
+{
+    if (c->table_cap > SIZE_MAX / 2 / sizeof(CyclePair)) return false;
+    size_t cap = c->table_cap ? c->table_cap * 2 : CYCLE_TABLE_MIN;
+    CyclePair *table = calloc(cap, sizeof(CyclePair));
+    if (!table) return false;
+    for (size_t i = 0; i < c->table_cap; i++)
+        if (c->table[i].a) cycle_table_put(table, cap, c->table[i].a, c->table[i].b);
+    free(c->table);
+    c->table = table;
+    c->table_cap = cap;
+    return true;
+}
+
+/* Returns true if this pair was already visited (cycle detected); else marks it */
 static bool cycle_check_and_mark(CycleCtx *c, EastValue *a, EastValue *b)
 {
-    for (size_t i = 0; i < c->len; i++)
-        if (c->pairs[i].a == a && c->pairs[i].b == b) return true;
-    if (c->len >= c->cap) {
-        c->cap = c->cap ? c->cap * 2 : 8;
-        c->pairs = realloc(c->pairs, c->cap * sizeof(c->pairs[0]));
+    for (size_t i = 0; i < c->inline_len; i++)
+        if (c->inline_pairs[i].a == a && c->inline_pairs[i].b == b) return true;
+    if (c->inline_len < CYCLE_INLINE) {
+        c->inline_pairs[c->inline_len].a = a;
+        c->inline_pairs[c->inline_len].b = b;
+        c->inline_len++;
+        return false;
     }
-    c->pairs[c->len].a = a;
-    c->pairs[c->len].b = b;
-    c->len++;
+    if (c->table_cap) {
+        size_t mask = c->table_cap - 1;
+        for (size_t i = cycle_hash(a, b) & mask; c->table[i].a; i = (i + 1) & mask)
+            if (c->table[i].a == a && c->table[i].b == b) return true;
+    }
+    /* Marked, the table kept at most half full. Short of memory to grow it, a
+     * pair goes in while one slot stays empty, so every probe ends; past
+     * that it is compared unmarked, as a value holding no cycle needs. */
+    if ((c->table_len + 1) * 2 > c->table_cap) cycle_table_grow(c);
+    if (c->table_len + 1 >= c->table_cap) return false;
+    cycle_table_put(c->table, c->table_cap, a, b);
+    c->table_len++;
     return false;
 }
 
@@ -144,6 +210,9 @@ static bool is_for(EastType *type, EastValue *a, EastValue *b)
 /* ------------------------------------------------------------------ */
 /*  equal_for — deep equality with cycle detection                     */
 /*  Function: always true. Float: Object.is (NaN==NaN, +0!=-0).       */
+/*  A paged collection compares as the collection it pages, as        */
+/*  east_value_equal reads one; one that fails to hydrate equals only */
+/*  itself.                                                            */
 /* ------------------------------------------------------------------ */
 
 static bool equal_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx *ctx);
@@ -152,6 +221,12 @@ static bool equal_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx 
 {
     if (a == b) return true;
     if (!a || !b) return false;
+    if (a->kind == EAST_VAL_PAGED || b->kind == EAST_VAL_PAGED) {
+        EastValue *ha = a->kind == EAST_VAL_PAGED ? east_paged_hydrated(a) : a;
+        EastValue *hb = b->kind == EAST_VAL_PAGED ? east_paged_hydrated(b) : b;
+        if (!ha || !hb) return false;
+        return equal_for_impl(type, ha, hb, ctx);
+    }
 
     switch (type->kind) {
     case EAST_TYPE_NEVER:
@@ -271,6 +346,11 @@ static bool equal_for(EastType *type, EastValue *a, EastValue *b)
     bool result = equal_for_impl(type, a, b, &ctx);
     cycle_free(&ctx);
     return result;
+}
+
+bool east_value_equal_for(EastType *type, EastValue *a, EastValue *b)
+{
+    return type ? equal_for(type, a, b) : east_value_equal(a, b);
 }
 
 /* ------------------------------------------------------------------ */

@@ -17,7 +17,7 @@ import { printFor } from "../serialization/east.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import type { ref } from "../containers/ref.js";
-import { type ApplyContext, ConflictError } from "./types.js";
+import { type ApplyContext, ConflictError, equalWithin } from "./types.js";
 
 export function applyFor(type: EastTypeValue, ctx?: ApplyContext): (base: any, patch: any) => any;
 export function applyFor<T extends EastType>(type: T): (base: ValueTypeOf<T>, patch: any) => ValueTypeOf<T>;
@@ -122,7 +122,7 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
     ctx.types.push(t);
 
     elementApply = applyFor(t.value, ctx);
-    elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
+    elementEqual = equalWithin(t.value as EastTypeValue, ctx.equal);
     elementPrint = printFor(t.value as EastTypeValue, ctx.print);
     ctx.apply.pop();
     ctx.types.pop();
@@ -233,7 +233,7 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
     ctx.types.push(t);
 
     valueApply = applyFor(t.value.value, ctx);
-    valueEqual = equalFor(t.value.value as EastTypeValue, ctx.equal);
+    valueEqual = equalWithin(t.value.value as EastTypeValue, ctx.equal);
     // Keys can't be recursive, so no context needed
     keyPrint = printFor(t.value.key as EastTypeValue);
     // Values may contain recursive references, use print context
@@ -360,17 +360,24 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     return ret;
   } else if (t.type === "Recursive") {
-    // Recursive types use replace-only semantics - only unchanged and replace patches
+    // Recursive types use replace-only semantics - only unchanged and replace patches. A replace names the whole value
+    // it replaces, as every other type's does: applied to any other value, it is a conflict, not a write. Its equality is
+    // the one a container around it registered as it built its own, where one did (`equalWithin`).
+    const equal = equalWithin(t, ctx.equal);
     return (base: any, patch: VariantValue) => {
       if (patch.type === "unchanged") {
         return base;
       } else if (patch.type === "replace") {
+        if (!equal(base, patch.value.before)) {
+          throw new ConflictError("Cannot apply replace - base recursive value does not match expected");
+        }
         return patch.value.after;
       } else {
         throw new Error(`Invalid patch type for recursive type: ${patch.type}`);
       }
     };
   } else if (t.type === "Function" || t.type === "AsyncFunction") {
+    // A replace of a function is not checked: equality calls every two functions equal, so there is nothing to check.
     return (base: any, patch: VariantValue) => {
       if (patch.type === "unchanged") {
         return base;

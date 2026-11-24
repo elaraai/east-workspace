@@ -49,6 +49,15 @@ bool east_builtin_serves_paged(const char *name);
 // never by a clock.
 size_t east_diff_array_compares(void);
 
+// East's equality of two values of a type, as the `Equal` builtin computes it:
+// a float by Object.is, every function equal to every function, a variant by
+// its case's name, a paged collection as the collection it pages. It keeps the
+// pairs of containers it has compared, so two values that hold themselves
+// compare as their TypeScript twins do, in time linear in their containers,
+// where east_value_equal, which keeps none, recurses until the stack runs out.
+// A NULL type compares by east_value_equal.
+bool east_value_equal_for(EastType *type, EastValue *a, EastValue *b);
+
 // Individual module registration
 void east_register_integer_builtins(BuiltinRegistry *reg);
 void east_register_float_builtins(BuiltinRegistry *reg);

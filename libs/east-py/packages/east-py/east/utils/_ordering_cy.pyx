@@ -35,6 +35,7 @@ from east.types.types import (
     is_vector_type,
 )
 from east.types.values import EastBlob, EastMatrix, EastVector
+from east.utils._identity import pair_met, same_value, type_can_cycle
 
 
 # =========================================================================
@@ -283,19 +284,18 @@ def cy_compare_for(type_val, type_ctx=None):
 
     if is_array_type(type_val):
         value_comparer = [None]
+        marks = type_can_cycle(type_val)
 
         def compare_array(x, y, ctx=None):
             cdef int min_len, i, c, lx, ly
             if x is y:
                 return 0
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
 
             lx = len(x)
             ly = len(y)
@@ -351,18 +351,17 @@ def cy_compare_for(type_val, type_ctx=None):
     if is_dict_type(type_val):
         key_comparer = cy_compare_for(type_val.value["key"], type_ctx)
         value_comparer_dict = [None]
+        marks = type_can_cycle(type_val)
 
         def compare_dict(x, y, ctx=None):
             if x is y:
                 return 0
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
 
             x_iter = iter(x.items())
             y_iter = iter(y.items())
@@ -397,18 +396,17 @@ def cy_compare_for(type_val, type_ctx=None):
     if is_ref_type(type_val):
         from east.types.values import EastRef
         inner_comparer = [None]
+        marks = type_can_cycle(type_val)
 
         def compare_ref(x, y, ctx=None):
             if x is y:
                 return 0
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return 0
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return 0
             return inner_comparer[0](x.value, y.value, ctx)
 
         inner_comparer[0] = cy_compare_for(type_val.value, type_ctx)
@@ -561,19 +559,18 @@ def cy_equal_for(type_val, type_ctx=None):
 
     if is_array_type(type_val):
         value_comparer = cy_equal_for(type_val.value, type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_array(x, y, ctx=None):
             cdef int i
             if x is y:
                 return True
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
             if len(x) != len(y):
                 return False
             for i in range(len(x)):
@@ -594,18 +591,17 @@ def cy_equal_for(type_val, type_ctx=None):
 
     if is_dict_type(type_val):
         value_comparer = cy_equal_for(type_val.value["value"], type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_dict(x, y, ctx=None):
             if x is y:
                 return True
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
             if len(x) != len(y):
                 return False
             for key, x_val in x.items():
@@ -620,18 +616,17 @@ def cy_equal_for(type_val, type_ctx=None):
     if is_ref_type(type_val):
         from east.types.values import EastRef
         inner_comparer = cy_equal_for(type_val.value, type_ctx)
+        marks = type_can_cycle(type_val)
 
         def equal_ref(x, y, ctx=None):
             if x is y:
                 return True
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # A value that can hold itself: a pair met again counts equal (cycle detection)
+            if marks:
+                if ctx is None:
+                    ctx = {}
+                if pair_met(ctx, x, y):
+                    return True
             return inner_comparer(x.value, y.value, ctx)
 
         return equal_ref
@@ -640,14 +635,7 @@ def cy_equal_for(type_val, type_ctx=None):
         field_comparers = []
 
         def equal_struct(x, y, ctx=None):
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # Never marked: a cycle passes a container, and a struct read is a new object every time
             for field_name, comparer in field_comparers:
                 if not comparer(x[field_name], y[field_name], ctx):
                     return False
@@ -667,14 +655,7 @@ def cy_equal_for(type_val, type_ctx=None):
             y_tag = y["type"]
             if x_tag != y_tag:
                 return False
-            if ctx is None:
-                ctx = {}
-            x_id = id(x)
-            if x_id in ctx and id(y) in ctx[x_id]:
-                return True
-            if x_id not in ctx:
-                ctx[x_id] = set()
-            ctx[x_id].add(id(y))
+            # Never marked, as a struct is not
             return case_comparers[x_tag](x["value"], y["value"], ctx)
 
         for case_struct in type_val.value:
@@ -766,23 +747,11 @@ def cy_is_for(type_val, type_ctx=None):
             return all(a == b for a, b in zip(x, y, strict=True))
         return is_blob
 
-    if is_vector_type(type_val):
-        return lambda x, y, _ctx=None: x is y
+    if is_vector_type(type_val) or is_matrix_type(type_val):
+        return same_value
 
-    if is_matrix_type(type_val):
-        return lambda x, y, _ctx=None: x is y
-
-    if is_array_type(type_val):
-        return lambda x, y, _ctx=None: x is y
-
-    if is_set_type(type_val):
-        return lambda x, y, _ctx=None: x is y
-
-    if is_dict_type(type_val):
-        return lambda x, y, _ctx=None: x is y
-
-    if is_ref_type(type_val):
-        return lambda x, y, _ctx=None: x is y
+    if is_array_type(type_val) or is_set_type(type_val) or is_dict_type(type_val) or is_ref_type(type_val):
+        return same_value
 
     if is_struct_type(type_val):
         field_comparers = []
