@@ -5,7 +5,7 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
+import { PLAN_STATUS_ITEM, bottomPanelFaults, footerRailStyle, frameAt, planFooterRail, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
@@ -553,7 +553,6 @@ for (const theme of LAYOUT_THEMES) {
         const grip = frame.locator('[data-roster-grip]').first(); await grip.scrollIntoViewIfNeeded(); await page.mouse.move(0, 0);
         expect(await grip.evaluate(el => Number(getComputedStyle(el).opacity))).toBe(0);
         await grip.hover(); expect(await grip.evaluate(el => Number(getComputedStyle(el).opacity))).toBeLessThan(0.6);
-        const railStyle = (rail: Locator) => rail.evaluate(el => { const s = getComputedStyle(el), item = getComputedStyle(el.firstElementChild!); return { height: el.getBoundingClientRect().height, background: s.backgroundColor, border: s.borderTop, padding: s.padding, gap: s.gap, family: item.fontFamily, size: item.fontSize, weight: item.fontWeight, tracking: item.letterSpacing, casing: item.textTransform, color: item.color }; });
         const proposal = frame.locator('[data-roster-main] [data-roster-proposal="s317"]');
         expect(await proposal.evaluate(el => { const s = getComputedStyle(el); return { height: el.getBoundingClientRect().height, border: s.borderTopStyle, background: s.backgroundColor }; })).toEqual({ height: 26, border: 'dashed', background: 'rgba(0, 0, 0, 0)' });
         expect(await proposal.getByRole('button', { name: 'N. Ochre', exact: true }).evaluate(el => getComputedStyle(el).fontStyle)).toBe('italic');
@@ -565,7 +564,8 @@ for (const theme of LAYOUT_THEMES) {
         await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(5);
         await expect(footer.locator(':scope > :not([data-roster-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
         await expect(footer.locator(':scope > [data-footer-line]')).toHaveAttribute('data-idle', '');
-        const actual = await railStyle(footer); expect(actual.height).toBe(28);
+        // Every builder's rail (east-workspace#1748): a legend item in the voice a status item takes on every rail.
+        const actual = await footerRailStyle(footer, '[data-roster-legend]'); expect(actual.height).toBe(28);
         const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
             const b = el.getBoundingClientRect(), grid = el.parentElement!.getBoundingClientRect();
             return { left: Math.abs(b.left - grid.left) < 1, width: Math.abs(b.width - grid.width) < 1, align: getComputedStyle(el).textAlign };
@@ -602,11 +602,9 @@ for (const theme of LAYOUT_THEMES) {
         await scroll.evaluate(el => { el.scrollLeft = 200; });
         expect(await scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
         expect((await groupBands()).every(b => b.left && b.width && b.align === 'left')).toBe(true);
-        await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
-        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
-        await planEntry.scrollIntoViewIfNeeded(); await settled(page);
-        const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
-        expect(await railStyle(plan)).toEqual(actual);
+        // The Plan's rail, and a status item of its author's, in the voice of the Roster's legend items.
+        const plan = await planFooterRail(page); await settled(page);
+        await expect.poll(() => footerRailStyle(plan, PLAN_STATUS_ITEM)).toEqual(actual);
     });
     test(`the one rail over people and activities stands at every width, nothing leaving the toolbar (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
