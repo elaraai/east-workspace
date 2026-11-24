@@ -185,9 +185,14 @@ test.describe("a Plan read a window at a time (#1199)", () => {
 for (const theme of LAYOUT_THEMES) {
     test(`planWindows key search: unloaded suggestions, exact jumps and contained field controls — ${theme} @narrow`, async ({ page }) => {
         const entry = await openExample(page, "planWindows", WINDOWS, theme);
+        // The toolbar folds the search to its icon where it has no room for the box: on a phone, and beside a navigator
+        // that keeps its arrows (#1740) — its box then in the popover the icon opens, which a pick closes. The Plan's
+        // own narrow layout is another matter: its list of cards, on a phone.
         const icon = entry.locator('[data-key-search="icon"]');
-        const narrow = await icon.isVisible();
-        if (narrow) await icon.click();
+        const folded = await icon.isVisible();
+        const popover = page.locator("[data-key-search='popover']");
+        if (folded) await icon.click();
+        const narrow = await entry.locator("[data-plan-body][data-plan-narrow]").count() > 0;
         // A phone's Search Records: a view of its own, each match a row whose tap lands it and closes the view.
         const view = page.locator("[data-key-search-phone]");
         if (await view.isVisible()) {
@@ -219,6 +224,11 @@ for (const theme of LAYOUT_THEMES) {
             });
         })).toBe(true);
         await option.click();
+        // Folded, the box is opened again: it holds the search still, and says which match the canvas stands on.
+        if (folded) {
+            await expect(popover).toBeHidden();
+            await icon.click();
+        }
         await expect(search.getByRole("status")).toHaveText("1 of 10");
         // The key is visible beside the readable press label, including in the phone's list.
         await expect(entry.locator('[data-frame-slot="main"]')).toContainText("P-2870");

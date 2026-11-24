@@ -153,7 +153,7 @@ describe("the works' page (planPressTasks)", () => {
         await waitFor(() => expect(fact(c, "events")).toBe("5"));
     });
 
-    test("the horizon holds the window the canvas shows, though the tasks fill four days of it: the stated four weeks on the strip, narrowed and widened back, and a day past the tasks keeps a window (#1680's review)", async () => {
+    test("the horizon holds the window the canvas shows, though the tasks fill four days of it: the stated four weeks on the strip, narrowed and widened back, and the four weeks past the tasks keep a window (#1680's review)", async () => {
         const { container: c } = await h.mount(ex.planPressTasks);
         await settle();
         const band = () => c.querySelector<HTMLElement>("[data-slot='horizon']");
@@ -173,13 +173,11 @@ describe("the works' page (planPressTasks)", () => {
         await settle();
         await waitFor(() => expect(said()).toBe("Oct 5, 2026 – Nov 1, 2026"));
         expect(at()).toEqual(["0", "100"]);
-        // Six days on, the window starts past every task: it is the canvas's still, and on the strip.
-        const next = within(slot(c, "toolbar")!).getAllByRole("button", { name: /^Next / })[0]!;
-        for (let i = 0; i < 6; i++) {
-            fireEvent.click(next);
-            await settle();
-        }
-        await waitFor(() => expect(said()).toBe("Oct 11, 2026 – Nov 7, 2026"));
+        // The navigator's arrow steps the window by its own length (#1740): the next four weeks start past every task, and
+        // the window is the canvas's still, and on the strip.
+        fireEvent.click(within(slot(c, "toolbar")!).getAllByRole("button", { name: /^Next / })[0]!);
+        await settle();
+        await waitFor(() => expect(said()).toBe("Nov 2, 2026 – Nov 29, 2026"));
     });
 
     test("the machines are read a page at a time through their indexes, and the tasks a cell at a time by their press", async () => {

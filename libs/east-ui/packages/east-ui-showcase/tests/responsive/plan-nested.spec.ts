@@ -249,13 +249,24 @@ const GESTURES = {
             await page.keyboard.press("]");
         }
     },
-    // To a month: the toolbar's resolution, at 1440; on a phone, the View's resolution, which the navigator holds there.
+    // To a month: the toolbar's resolution, at 1440 — its strip, or the menu its button opens where the toolbar folds it,
+    // as it does beside a navigator that keeps its arrows (#1740); on a phone, the View's resolution, which the
+    // navigator holds there.
     zoom: async (page: Page, entry: Locator, narrow: boolean) => {
+        const toolbar = entry.locator("[data-frame-slot='toolbar']");
         if (narrow) {
-            await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
+            await toolbar.getByRole("button", { name: "View", exact: true }).click();
             await page.getByRole("radio", { name: /^month$/i }).click();
             await page.keyboard.press("Escape");
-        } else await entry.locator("[data-frame-slot='toolbar']").getByRole("radio", { name: /^month$/i }).click();
+            return;
+        }
+        const folded = toolbar.getByRole("button", { name: "Resolution", exact: true });
+        if (await folded.count() === 0) {
+            await toolbar.getByRole("radio", { name: /^month$/i }).click();
+            return;
+        }
+        await folded.click();
+        await page.getByRole("menuitem", { name: /^month$/i }).click();
     },
 } as const;
 
