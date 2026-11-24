@@ -157,14 +157,20 @@ export function integer<P extends StructType>(_groupType: P, field: string, conf
     return cell("integer", field as SheetFieldKey<P>, config);
 }
 
-/** A reference band cell — `Sheet.group.cell.reference(P, register, "field", cfg)`: a lookup over a flat member list, on a `String` / `Option<String>` field. */
-export function reference<P extends StructType>(_groupType: P, register: string, field: SheetFieldOf<P, StringType>, config: SheetGroupCellBaseConfig = {}): SheetGroupCell<P> {
-    return cell("reference", field as SheetFieldKey<P>, config, { register });
+/**
+ * A reference band cell — `Sheet.group.cell.reference(P, register, "field", cfg)`: a lookup over a flat member list, on
+ * a field holding one member's key — of the register's key type, or its Option (east-workspace#1747).
+ */
+export function reference<P extends StructType>(_groupType: P, register: string, field: SheetFieldKey<P>, config: SheetGroupCellBaseConfig = {}): SheetGroupCell<P> {
+    return cell("reference", field, config, { register });
 }
 
-/** An enum band cell — `Sheet.group.cell.enum(P, register, "field", cfg)`: an upper-cased register word with its valence dot, on a `String` / `Option<String>` field. */
-export function enumCell<P extends StructType>(_groupType: P, register: string, field: SheetFieldOf<P, StringType>, config: SheetGroupCellBaseConfig = {}): SheetGroupCell<P> {
-    return cell("enum", field as SheetFieldKey<P>, config, { register });
+/**
+ * An enum band cell — `Sheet.group.cell.enum(P, register, "field", cfg)`: an upper-cased register word with its
+ * valence dot, on a field holding one member's key — of the register's key type, or its Option (east-workspace#1747).
+ */
+export function enumCell<P extends StructType>(_groupType: P, register: string, field: SheetFieldKey<P>, config: SheetGroupCellBaseConfig = {}): SheetGroupCell<P> {
+    return cell("enum", field, config, { register });
 }
 
 /** A stamped band cell — `Sheet.group.cell.stamped(P, "field", cfg)`: a read-only code an upstream system owns, on a `String` / `Option<String>` field. */

@@ -405,6 +405,26 @@ export function keyOfText(keyType: EastType): ExprType<FunctionType<[StringType]
 }
 
 /**
+ * A key from its text, as {@link keyOfText} reads it, or `none` for a text no
+ * key of the type prints as, where that read fails: what a row's id names in a
+ * keyed source, and the key a Sheet's cell holds the text of, read back at its
+ * field's type (east-workspace#1747).
+ *
+ * @param keyType - The key's type
+ * @returns `(text)` → `some(key)`, or `none`
+ */
+export function keyOfTextOrNone(keyType: EastType): ExprType<FunctionType<[StringType], OptionType<EastType>>> {
+    if (keyType.type === "String") {
+        return East.function([StringType], OptionType(StringType), (_$, id) => some(id)) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
+    }
+    return East.function([StringType], OptionType(keyType), ($, id) => {
+        const key = $.let(none, OptionType(keyType));
+        $.try(($2) => { $2.assign(key, some(id.parse(keyType))); }).catch((_$2) => {});
+        return key;
+    }) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
+}
+
+/**
  * One entry of a record read by its key (#1199): its read still in flight, the
  * key the record does not hold, or the entry held — its row.
  *

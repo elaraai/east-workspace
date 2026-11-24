@@ -478,12 +478,19 @@ describe("the columns map's typing", () => {
     test("a kind on a field it cannot sit on", () => {
         assert.throws(() => Record({
             record: Record.bind(ex.recordCrew),
-            registers: { levels: Record.register.members(East.value(["0"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) },
             columns: {
-                // @ts-expect-error — a cycle sits on a String field
-                inducted: Record.column.cycle(ex.Crew, "levels"),
+                // @ts-expect-error — a toggle sits on a Boolean field
+                name: Record.column.toggle(ex.Crew, { on: "yes", off: "no" }),
             },
-        }), /^Error: Record: cycle column "inducted" must sit on a String/);
+        }), /^Error: Record: toggle column "name" must sit on a Boolean/);
+    });
+
+    test("a column holding a register's key, on a field of another type than its keys — which the register decides, so the page refuses it as it builds, naming the register's key type (#1747)", () => {
+        assert.throws(() => Record({
+            record: Record.bind(ex.recordCrew),
+            registers: { levels: Record.register.members(East.value(["0"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) },
+            columns: { inducted: Record.column.cycle(ex.Crew, "levels") },
+        }), /^Error: Record: cycle column "inducted" holds a key of the register "levels", keyed by String — it sits on a field of that type, or its Option, and "inducted" holds Boolean$/);
     });
 
     test("a cycle over a variant one of whose cases holds data", () => {

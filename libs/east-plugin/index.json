@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1410,
-    "totalFiles": 230,
+    "totalEntries": 1411,
+    "totalFiles": 231,
     "packages": {
       "east": 595,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 310,
-      "e3-ui": 243,
+      "e3-ui": 244,
       "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -45800,6 +45800,45 @@
         "tsx"
       ],
       "source": "// recordBuiltKeysSliced over a key that is no text: the same stock locations, under the same rail, keyed by a struct of their aisle and their bin, which `rowKey` builds from the row as a struct. A record keyed by any type a Dict takes is a source of the rail: it pages through its indexes, filters by zone and by aisle and searches by what its rows hold as a text-keyed one does; a bin typed over moves its location under the struct it then builds, a Save writes it there, and a bin another location has is refused. The grid holds a key as East prints it, and reads it back at its own type\n// inputs: []\n/** A stock location: what it holds, the aisle and the bin its key is built from, and the zone its aisle is in. */\nexport const StockSlot = StructType({ item: StringType, aisle: StringType, bin: IntegerType, zone: StringType });\n\n/** A location's key as a struct: its aisle and its bin. */\nexport const StockSlotKey = StructType({ aisle: StringType, bin: IntegerType });\n\n/** What the bins of an aisle hold, bin by bin. */\nconst HELD = [\"Pallet wrap\", \"Strapping\", \"Corner boards\", \"Labels\", \"Tape\", \"Void fill\", \"Cartons\", \"Dividers\"] as const;\n\n/** The aisles, each with the zone it is in. */\nconst AISLES = [[\"A\", \"Dry\"], [\"B\", \"Dry\"], [\"C\", \"Chilled\"], [\"D\", \"Chilled\"]] as const;\n\n/** Four aisles of eight bins: aisles A and B in the dry zone, C and D in the chilled one. */\nfunction stockSlots(): ValueTypeOf<typeof StockSlot>[] {\n    return AISLES.flatMap(([aisle, zone]) => HELD.map((item, at) => ({ item: `${item} ${aisle}${at + 1}`, aisle, bin: BigInt(at + 1), zone })));\n}\n\n/** The same locations keyed by a struct: their aisle and their bin. A Dict over struct keys is a SortedMap, in East's order. */\nexport const recordSlotsByStruct = e3.record(\"record_slots_by_struct\", DictType(StockSlotKey, StockSlot), {\n    initial: new SortedMap<ValueTypeOf<typeof StockSlotKey>, ValueTypeOf<typeof StockSlot>>(\n        stockSlots().map((slot) => [{ aisle: slot.aisle, bin: slot.bin }, slot] as const), compareFor(StockSlotKey)),\n    indexes: (index) => ({\n        // What the rail filters and searches by.\n        record_slots_by_struct_zone: index.on([\"zone\"]),\n        record_slots_by_struct_aisle: index.on([\"aisle\"]),\n        record_slots_by_struct_item: index.on([\"item\"]),\n    }),\n    mutations: (mutation) => ({\n        // The locations' patch door — every Save commits through it, each location by its struct key.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const locations = $.let(Record.bind(recordSlotsByStruct));\n            // The rail's `rows` source, as the text-keyed locations': the indexes are of the rows' fields, whatever keys them.\n            const slice = $.let(Slice.bindRecords(\"record.slots.struct\", {\n                rows: {\n                    source: Data.bindPaged(recordSlotsByStruct, { indexes: [\"record_slots_by_struct_zone\", \"record_slots_by_struct_aisle\", \"record_slots_by_struct_item\"] }),\n                    label: \"Locations\",\n                    fields: { zone: { label: \"Zone\", hints: [\"Dry\", \"Chilled\"] }, aisle: { label: \"Aisle\", hints: [\"A\", \"B\", \"C\", \"D\"] }, item: { label: \"Holds\" } },\n                    search: [\"item\"],\n                },\n            }));\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(StockSlot), (_$) => Record.patch(StockSlot, { zone: \"Dry\" })));\n            return (\n                <Box height=\"520px\">\n                    <Record\n                        slice={{ slice }}\n                        record={locations}\n                        // A location's key, built from its row at the record's key type: a struct of its aisle and its bin.\n                        rowKey={(location) => ({ aisle: location.aisle, bin: location.bin })}\n                        title=\"Stock locations\"\n                        noun={{ singular: \"location\", plural: \"locations\" }}\n                        columns={{\n                            item:  Record.column.title(StockSlot, { header: \"Holds\", width: \"200px\" }),\n                            aisle: Record.column.text(StockSlot, { header: \"Aisle\", width: \"96px\" }),\n                            bin:   Record.column.integer(StockSlot, { header: \"Bin\", width: \"96px\" }),\n                            zone:  Record.column.text(StockSlot, { header: \"Zone\", width: \"120px\" }),\n                        }}\n                        newRow={newRow}\n                        name=\"recordStructKeysSliced\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record-register-keys.examples.tsx:recordMachinesByLine",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record-register-keys.examples.tsx",
+      "suite": "",
+      "test": "A Record whose registers are keyed by number: machines each naming the line they run on by the line's number, the operator on them by badge number (or no one) and the shift they run by its number in the day. Each register reads its Dict's own Integer key as its members' keys — `key: (_line, number) => number` — and the enum, person and cycle columns over them sit on Integer fields, and an Option of one: each shows its members' names, offers them in the register's order, and keeps the number, so a pick writes the Integer and Save's patch carries it. A number no member has (the sander's line 4) shows as East prints it, marked",
+      "keywords": [
+        "Record",
+        "register",
+        "Record.register.members",
+        "Integer key",
+        "number key",
+        "typed key",
+        "key type",
+        "Dict",
+        "enum",
+        "person",
+        "cycle",
+        "reference",
+        "dropdown",
+        "label",
+        "keeps the key",
+        "Option",
+        "unassigned",
+        "no member",
+        "#1747"
+      ],
+      "imports": [
+        "import { DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A Record whose registers are keyed by number: machines each naming the line they run on by the line's number, the operator on them by badge number (or no one) and the shift they run by its number in the day. Each register reads its Dict's own Integer key as its members' keys — `key: (_line, number) => number` — and the enum, person and cycle columns over them sit on Integer fields, and an Option of one: each shows its members' names, offers them in the register's order, and keeps the number, so a pick writes the Integer and Save's patch carries it. A number no member has (the sander's line 4) shows as East prints it, marked\n// inputs: []\n/** A production line, keyed by its number. */\nexport const Line = StructType({ name: StringType });\n\n/** An operator, keyed by badge number. */\nexport const Operator = StructType({ name: StringType });\n\n/** A shift, keyed by its number in the day. */\nexport const Shift = StructType({ name: StringType });\n\n/** A machine: the line it runs on, the operator on it — or no one — and the shift it runs, each by its number. */\nexport const Machine = StructType({ name: StringType, line: IntegerType, operator: OptionType(IntegerType), shift: IntegerType });\n\n/** The lines, by number. */\nexport const recordLines = e3.record(\"record_register_lines\", DictType(IntegerType, Line), {\n    initial: new Map([[1n, { name: \"Assembly\" }], [2n, { name: \"Packing\" }], [3n, { name: \"Finishing\" }]]),\n});\n\n/** The operators, by badge number. */\nexport const recordOperators = e3.record(\"record_register_operators\", DictType(IntegerType, Operator), {\n    initial: new Map([[104n, { name: \"A. Morgan\" }], [117n, { name: \"B. Ellis\" }], [121n, { name: \"C. Patel\" }]]),\n});\n\n/** The shifts, by their number in the day. */\nexport const recordShifts = e3.record(\"record_register_shifts\", DictType(IntegerType, Shift), {\n    initial: new Map([[1n, { name: \"Early\" }], [2n, { name: \"Late\" }], [3n, { name: \"Night\" }]]),\n});\n\n/** The machines. The sander names line 4, which no line has. */\nexport const recordMachines = e3.record(\"record_register_machines\", DictType(StringType, Machine), {\n    initial: new Map([\n        [\"M-10\", { name: \"Press A\", line: 1n, operator: some(104n), shift: 1n }],\n        [\"M-11\", { name: \"Press B\", line: 1n, operator: none, shift: 2n }],\n        [\"M-20\", { name: \"Wrapper\", line: 2n, operator: some(117n), shift: 1n }],\n        [\"M-30\", { name: \"Sander\", line: 4n, operator: some(121n), shift: 3n }],\n    ]),\n    mutations: (mutation) => ({\n        // The machines' patch door — every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const machines = $.let(Record.bind(recordMachines));\n            const lines = $.let(Data.bind(recordLines));\n            const operators = $.let(Data.bind(recordOperators));\n            const shifts = $.let(Data.bind(recordShifts));\n            return (\n                <Box height=\"360px\">\n                    <Record\n                        record={machines}\n                        title=\"Machines\"\n                        noun={{ singular: \"machine\", plural: \"machines\" }}\n                        registers={{\n                            // Each keyed by its Dict's own Integer key: a line by its number, an operator by badge, a shift by its number in the day.\n                            lines: Record.register.members(lines.read(), { kind: \"line\", key: (_line, number) => number, label: (line) => line.name }),\n                            operators: Record.register.members(operators.read(), {\n                                kind: \"operator\", key: (_operator, badge) => badge, label: (operator) => operator.name, meta: (_operator, badge) => some(East.str`badge ${badge}`),\n                            }),\n                            shifts: Record.register.members(shifts.read(), { kind: \"shift\", key: (_shift, number) => number, label: (shift) => shift.name }),\n                        }}\n                        columns={{\n                            name:     Record.column.title(Machine, { header: \"Machine\", width: \"180px\" }),\n                            // A dropdown of the lines' names over an Integer field: a pick writes the line's number.\n                            line:     Record.column.enum(Machine, \"lines\", { header: \"Line\", width: \"160px\" }),\n                            // An operator by badge, or no one: an Option of the register's key.\n                            operator: Record.column.person(Machine, \"operators\", { header: \"Operator\", width: \"180px\", unassigned: \"No one\" }),\n                            // A click steps to the next shift, in the register's order.\n                            shift:    Record.column.cycle(Machine, \"shifts\", { header: \"Shift\", width: \"120px\" }),\n                        }}\n                        name=\"recordMachinesByLine\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordBasic",

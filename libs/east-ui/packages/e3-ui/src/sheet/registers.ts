@@ -9,6 +9,13 @@
  * (Plan's `derive` move, `Sheet Spec.md` §3.3). There is no attribute bag:
  * a value another declaration needs is read off a TYPED row by an accessor.
  *
+ * A register's members are keyed by any type a Dict may be keyed by
+ * (east-workspace#1747): an Integer line number, a DateTime, a struct. The
+ * register carries its key type, and a column over it holds one member's key in
+ * a field of that type. On the wire a key is its text — a String key as itself,
+ * any other as East prints it — as every builder's wire spells a key
+ * (`schedule/window.ts`), and the bridge reads it back at the field's type.
+ *
  * @packageDocumentation
  */
 
@@ -25,48 +32,67 @@ import {
     SetType,
     StringType,
     StructType,
+    isImmutableType,
+    isTypeEqual,
     none,
 } from "@elaraai/east";
 
 import { StatusValueType } from "@elaraai/east-ui";
+import { keyText, typeText } from "../schedule/window.js";
 import { SheetRegisterMemberType } from "./types.js";
 import { SheetRegisterMembersType } from "./link.js";
 
-/** A built register — its members, as an expression. What `Sheet.register.*` returns and `registers={…}` takes. */
-export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
+/**
+ * A built register — what `Sheet.register.*` returns and `registers={…}` takes:
+ * its members, and the type of their keys, which a column over it holds one of
+ * (east-workspace#1747).
+ *
+ * @property members - The members, in the register's order, each key as its text: a String key as itself, any other as East prints it
+ * @property keyType - The type of the members' keys — what `key` returns
+ */
+export interface SheetRegisterValue {
+    /** The members, in the register's order, each key as its text. */
+    readonly members: ExprType<ArrayType<SheetRegisterMemberType>>;
+    /** The type of the members' keys. */
+    readonly keyType: EastType;
+}
 
 /**
  * The accessors `Sheet.register.members` reifies over one data ENTRY — its
- * value and its key (`(_v, k) => k` is the normal spelling over a `Dict`;
- * over an `Array` the key is the index, printed).
+ * value and its key: over a `Dict`, the entry's key at the Dict's own key type
+ * (`(_v, k) => k` is the normal spelling); over an `Array`, the index, printed.
  *
  * @typeParam T - The data's element type
+ * @typeParam K - The entry's key, as the accessors take it: a Dict's key type, or an Array's index as a String
  * @property kind - The member kind (`"machine"`, `"bay"`, `"family"`)
- * @property key - What a cell holds and the grammar resolves — accessor
+ * @property key - The member's identity, of any type a Dict may be keyed by: what a cell holds, in a field of that type, and the grammar resolves — accessor
  * @property label - What a cell, a chip and the menu show, and typed text resolves too — accessor
  * @property aliases - Alternative spellings — accessor returning the field's array
  * @property meta - Chip meta — accessor returning the field's `Option`
- * @property parent - The parent key — accessor returning the field's `Option`
+ * @property parent - The parent's key as its text (a String key as itself, any other as East prints it) — accessor returning the field's `Option`
  * @property tone - An `enum` member's valence — accessor returning the field's `Option`
  */
-export interface SheetMembersConfig<T extends EastType> {
+export interface SheetMembersConfig<T extends EastType, K extends EastType = StringType> {
     /** The member kind. */
     kind: string;
-    /** What a cell holds and the grammar resolves — the member's identity. */
-    key: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
+    /**
+     * The member's identity, of any type a Dict may be keyed by — every member of one register's of one type: what a
+     * cell holds, in a field of that type or its Option, and the grammar resolves.
+     */
+    key: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<EastType>;
     /**
      * What a cell, a chip and the menu show — and a spelling typed text resolves, beside the key and the aliases.
      * Two members may show one label: typed, the first is meant; a pick from the menu or the strip tells them apart.
      */
-    label: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
+    label: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** Alternative spellings the grammar and typed text also resolve. */
-    aliases?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<ArrayType<StringType>>;
+    aliases?: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<ArrayType<StringType>>;
     /** Chip meta — return the field's `Option`. */
-    meta?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** The parent key — return the field's `Option`. */
-    parent?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
+    meta?: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
+    /** The parent's key as its text — return the field's `Option`. */
+    parent?: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
     /** The valence dot — return the field's `Option`. */
-    tone?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StatusValueType>>;
+    tone?: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StatusValueType>>;
 }
 
 /**
@@ -130,10 +156,18 @@ export const groupMembers = East.function([SheetRegisterMembersType, SheetRegist
  * fold, first occurrence wins — a countable-by-attribute kind (`"CNC router"`
  * from every machine of that family) declares one member per distinct value.
  *
+ * The members' keys are of the type `key` returns, any type a Dict may be keyed
+ * by (east-workspace#1747), and the register carries it: a column over the
+ * register holds one member's key in a field of that type, or its Option. Over a
+ * Dict the accessors take each entry's key at the Dict's own type; over an Array,
+ * its index printed.
+ *
+ * @typeParam K - The Dict's key type
  * @typeParam T - The data's element type
- * @param data - The rows — an `Array<T>` or a `Dict<String, T>` value or expression
+ * @param data - The rows — a `Dict<K, T>` value or expression, or an `Array<T>` one
  * @param config - The accessors ({@link SheetMembersConfig})
- * @returns The members, as an expression
+ * @returns The register: its members, and their keys' type
+ * @throws {Error} For data that is no Array or Dict, and a `key` returning a type no Dict is keyed by
  *
  * @example
  * ```tsx
@@ -238,24 +272,46 @@ export const groupMembers = East.function([SheetRegisterMembersType, SheetRegist
  * ));
  * ```
  */
+export function createMembers<K extends EastType, T extends EastType>(
+    data: SubtypeExprOrValue<DictType<K, T>>,
+    config: SheetMembersConfig<T, K>,
+): SheetRegisterValue;
+/**
+ * Projects an Array's rows into register members — `Sheet.register.members`,
+ * as over a Dict, the accessors taking each row's index printed.
+ *
+ * @typeParam T - The data's element type
+ * @param data - The rows — an `Array<T>` value or expression
+ * @param config - The accessors ({@link SheetMembersConfig})
+ * @returns The register: its members, and their keys' type
+ * @throws {Error} For a `key` returning a type no Dict is keyed by
+ */
 export function createMembers<T extends EastType>(
-    data: SubtypeExprOrValue<ArrayType<T>> | SubtypeExprOrValue<DictType<StringType, T>>,
+    data: SubtypeExprOrValue<ArrayType<T>>,
     config: SheetMembersConfig<T>,
-): SheetRegisterValue {
-    const expr = East.value(data as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
+): SheetRegisterValue;
+export function createMembers(data: unknown, config: unknown): SheetRegisterValue {
+    const expr = East.value(data as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     // The data is an Array or a Dict whatever the cast above says: widen to
     // read its real East type.
-    const t = Expr.type(expr) as EastType;
+    const t = Expr.type(expr as never) as EastType;
     if (t.type !== "Array" && t.type !== "Dict") {
-        throw new Error(`Sheet.register.members: data must be an Array or a Dict<String, T> — got a ${t.type}`);
-    }
-    if (t.type === "Dict" && (t.key as EastType).type !== "String") {
-        throw new Error("Sheet.register.members: a keyed register must be a Dict<String, T> — its keys ride to the accessors as the second argument");
+        throw new Error(`Sheet.register.members: data must be an Array or a Dict — got a ${t.type}`);
     }
     const elem: EastType = t.value;
-    const cfg = config as unknown as SheetMembersConfig<EastType>;
-    const describe = East.function([elem, StringType], SheetRegisterMemberType, (_$, v, k) => ({
-        key:     cfg.key(v, k),
+    // The entry's key as the accessors take it: a Dict's at its own type, an Array's index printed.
+    const entryKey: EastType = t.type === "Dict" ? t.key : StringType;
+    const cfg = config as SheetMembersConfig<EastType, EastType>;
+    // The members' key type: what `key` returns, read off it reified alone.
+    const probe = East.function([elem, entryKey], undefined, (_$, v, k) => cfg.key(v, k) as SubtypeExprOrValue<EastType>);
+    const keyType = (Expr.type(probe as never) as FunctionType).output as EastType;
+    if (!isImmutableType(keyType)) {
+        throw new Error(`Sheet.register.members: "${cfg.kind}"'s \`key\` returns ${typeText(keyType)} — a member's key is of a type a Dict may be keyed by`);
+    }
+    // Each key as its text: a String as itself, any other as East prints it.
+    const text = keyText(keyType);
+    const describe = East.function([elem, entryKey], SheetRegisterMemberType, (_$, v, k) => ({
+        key:     text(East.value(cfg.key(v, k) as SubtypeExprOrValue<EastType>, keyType) as ExprType<EastType>),
         label:   cfg.label(v, k),
         kind:    cfg.kind,
         aliases: cfg.aliases !== undefined ? cfg.aliases(v, k) : East.value([], ArrayType(StringType)),
@@ -264,23 +320,33 @@ export function createMembers<T extends EastType>(
         tone:    cfg.tone !== undefined ? cfg.tone(v, k) : East.value(none, OptionType(StatusValueType)),
     }));
     const list = t.type === "Dict"
-        ? (expr as unknown as ExprType<DictType<StringType, EastType>>).toArray((_$, v, k) => describe(v, k))
-        : expr.map((_$, v, i) => describe(v, East.print(i)));
-    return dedupeMembers(list as ExprType<ArrayType<SheetRegisterMemberType>>);
+        ? (expr as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, v, k) => describe(v, k))
+        : (expr as unknown as ExprType<ArrayType<EastType>>).map((_$, v, i) => describe(v, East.print(i)));
+    return { members: dedupeMembers(list as ExprType<ArrayType<SheetRegisterMemberType>>), keyType };
 }
 
 /**
  * Joins member sets of different kinds into one register — `Sheet.register.concat`.
+ * Every member of one register is keyed by one type, which a column over it
+ * holds (east-workspace#1747).
  *
  * @param parts - The member sets, in order
- * @returns The concatenated members
+ * @returns The register: the members concatenated, and their keys' type
+ * @throws {Error} Naming the two key types, where two of the parts are keyed by different ones
  */
 export function concatMembers(parts: SheetRegisterValue[]): SheetRegisterValue {
-    if (parts.length === 0) return East.value([], SheetRegisterMembersType);
-    return parts.slice(1).reduce<SheetRegisterValue>(
-        (acc, p) => acc.concat(p) as SheetRegisterValue,
-        parts[0] as SheetRegisterValue,
-    );
+    const [first, ...rest] = parts;
+    if (first === undefined) return { members: East.value([], SheetRegisterMembersType), keyType: StringType };
+    for (const [at, part] of rest.entries()) {
+        if (!isTypeEqual(part.keyType, first.keyType)) {
+            throw new Error(`Sheet.register.concat: register 1 is keyed by ${typeText(first.keyType)} and register ${at + 2} by ${typeText(part.keyType)} — ` +
+                "the members of one register share one key type, which a column over it holds");
+        }
+    }
+    return {
+        members: rest.reduce((all, part) => all.concat(part.members) as ExprType<ArrayType<SheetRegisterMemberType>>, first.members),
+        keyType: first.keyType,
+    };
 }
 
 /**
@@ -306,8 +372,8 @@ export interface SheetDriverConfig<D extends StructType> {
  * @remarks
  * The typed parts (`rowType`, `data`, `keyFn`) never reach the IR: the root
  * applies a column's `uom` / `sides` accessors over `data` and the bridge
- * folds `data` into the `ctx.driver` lookup. Only `column` and `members`
- * ride ({@link SheetDriverType}).
+ * folds `data` into the `ctx.driver` lookup. Only `column` and its
+ * register's members ride ({@link SheetDriverType}).
  *
  */
 export interface SheetDriverValue {
@@ -319,8 +385,8 @@ export interface SheetDriverValue {
     readonly data: ExprType<ArrayType<StructType>>;
     /** The reified key accessor. */
     readonly keyFn: ExprType<FunctionType<[StructType], StringType>>;
-    /** The driver's register members. */
-    readonly members: SheetRegisterValue;
+    /** The driver's register: its members, keyed by String. */
+    readonly register: SheetRegisterValue;
 }
 
 /**
@@ -844,12 +910,12 @@ export function createDriver<D extends StructType>(
     const rowType = t.value as StructType;
     const cfg = config as unknown as SheetDriverConfig<StructType>;
     const keyFn = East.function([rowType], StringType, (_$, d) => cfg.key(d));
-    const members = createMembers(expr, {
+    const register = createMembers(expr, {
         kind:  column,
         key:   (d) => keyFn(d),
         label: (d) => cfg.label(d),
         ...(cfg.aliases !== undefined ? { aliases: (d: ExprType<StructType>) => cfg.aliases!(d) } : {}),
         ...(cfg.meta !== undefined ? { meta: (d: ExprType<StructType>) => cfg.meta!(d) } : {}),
     });
-    return { column, rowType, data: expr, keyFn, members };
+    return { column, rowType, data: expr, keyFn, register };
 }

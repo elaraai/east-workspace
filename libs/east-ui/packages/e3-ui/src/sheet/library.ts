@@ -11,9 +11,9 @@
  * hides) and `Sheet.library.tab(data, { … })`, cards of the author's own.
  * Left out, or empty, the sheet has no library pane.
  *
- * An author's tab reads its rows as `Sheet.register.members` does — an
- * `Array<T>` or a `Dict<String, T>`, its accessors reified ONCE into a
- * describe function the map then calls — and its `drop` returns what a
+ * An author's tab reads its rows — an `Array<T>`, or a `Dict<String, T>` —
+ * through accessors as `Sheet.register.members` does, reified ONCE into a
+ * describe function the map then calls; and its `drop` returns what a
  * dropped card sets, as a template's `values` do: `Sheet.patch` over the row
  * type lands on a row, over the group type on a band. The patch crosses the
  * closed payload as the cells it sets through the sheet's editable columns
@@ -104,9 +104,8 @@ export type SheetLibraryTabType = typeof SheetLibraryTabType;
 
 /**
  * An author's tab: its name and icon, and the accessors over one entry of its
- * data — its value and its key — as `Sheet.register.members` takes them
- * (`(_v, k) => k` over a `Dict`; over an `Array` the key is the index,
- * printed).
+ * data — its value and its key, a String: `(_v, k) => k` over a
+ * `Dict<String, T>`; over an `Array` the key is the index, printed.
  *
  * @typeParam T - The data's element type
  * @typeParam P - The patch `drop` returns: `Sheet.Types.Patch` of the row type, or of the group type
