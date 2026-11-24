@@ -13,7 +13,8 @@
  * In the open editor the members keep one line, scrolling under what is
  * typed, which stays in view, and a chip's × takes its member out, the editor
  * open on the rest. On a phone the bottom container edits a set cell in the
- * form's tags editor, the register's other members suggested.
+ * form's tags editor, the register's other members suggested, its chips the
+ * design system's touch size: 34 tall, each × a 34 square at its end.
  *
  * Run: `pnpm exec playwright test set-cell`.
  */
@@ -157,5 +158,26 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
         await settled(page);
         expect(membersOf((await linesOf(entry)).find((l) => l.at === "P-0401/certificates"))).toEqual(["Forklift", "Confined space", "First aid"]);
         expect(await faultsOf(entry)).toEqual([]);
+        // The design system's touch chips, in this panel alone: each 34 tall, 8 apart on its row, its × a 34 square at its
+        // full height and its very end; the box a tag is typed into as tall; and the control whole, its foot in sight.
+        const drawn = await editor.evaluate((el) => {
+            const box = (x: Element) => x.getBoundingClientRect();
+            const chips = [...el.querySelectorAll('[data-scope="tags-input"][data-part="item-preview"]')].map((chip) => {
+                const c = box(chip);
+                const x = box(chip.querySelector('[data-part="item-delete-trigger"]')!);
+                const atEnd = Math.abs(x.right - c.right) < 0.5 && Math.abs(x.top - c.top) < 0.5 && Math.abs(x.bottom - c.bottom) < 0.5;
+                return { h: Math.round(c.height), x: [Math.round(x.width), Math.round(x.height)], atEnd, left: c.left, right: c.right, top: c.top };
+            });
+            const gaps: number[] = [];
+            for (let i = 1; i < chips.length; i++) if (Math.abs(chips[i]!.top - chips[i - 1]!.top) < 0.5) gaps.push(Math.round(chips[i]!.left - chips[i - 1]!.right));
+            const control = box(el.querySelector('[data-scope="tags-input"][data-part="control"]')!);
+            const foot = document.elementFromPoint(control.left + 12, control.bottom - 2);
+            return {
+                chips: chips.map(({ h, x, atEnd }) => ({ h, x, atEnd })), gaps,
+                input: Math.round(box(el.querySelector('[data-scope="tags-input"][data-part="input"]')!).height),
+                whole: foot !== null && el.contains(foot),
+            };
+        });
+        expect(drawn).toEqual({ chips: Array(3).fill({ h: 34, x: [34, 34], atEnd: true }), gaps: [8], input: 34, whole: true });
     });
 });
