@@ -7,10 +7,12 @@
  * Reading a builder's frame (#1125) in the page, for the specs of the
  * builders laid out with it — Studio's builder and the query builder: where
  * its regions, its panes and their sheets sit, whether the scrim shows, and a
- * tap on the scrim. Every box is the page's own, in client px.
+ * tap on the scrim — and every builder's footer, one rail (east-workspace#1748):
+ * its style and an item's, and the Plan's rail they are held to. Every box is
+ * the page's own, in client px.
  */
 
-import type { Locator, Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
 
 /** A box, in client px. */
 export interface Box {
@@ -172,4 +174,55 @@ export function bottomPanelFaults(frame: Locator): Promise<string[]> {
         }
         return out;
     });
+}
+
+/** A builder's footer rail as the page draws it, and an item of it: every builder's footer is one rail (east-workspace#1748). */
+export interface FooterRailStyle {
+    readonly height: number;
+    readonly background: string;
+    readonly border: string;
+    readonly padding: string;
+    readonly gap: string;
+    readonly family: string;
+    readonly size: string;
+    readonly weight: string;
+    readonly tracking: string;
+    readonly casing: string;
+    readonly color: string;
+}
+
+/** The Plan's footer's children that are no status item: its counts, the "…" a cut legend ends with, and the loading line. */
+export const PLAN_STATUS_ITEM = ":not([data-plan-count]):not([data-footer-more]):not([data-footer-line])";
+
+/**
+ * A builder's footer rail, and one item of it in its kind's voice: the rail's height, paper, rule, padding and gap, and
+ * the item's face, size, weight, tracking, casing and colour.
+ *
+ * @param rail - The footer's rail
+ * @param item - The item, as a selector of the rail's own children: the first that matches
+ * @returns The rail's style and the item's
+ */
+export function footerRailStyle(rail: Locator, item: string): Promise<FooterRailStyle> {
+    return rail.evaluate((el, selector) => {
+        const s = getComputedStyle(el), voice = getComputedStyle(el.querySelector(`:scope > ${selector}`)!);
+        return { height: el.getBoundingClientRect().height, background: s.backgroundColor, border: s.borderTop, padding: s.padding, gap: s.gap,
+            family: voice.fontFamily, size: voice.fontSize, weight: voice.fontWeight, tracking: voice.letterSpacing, casing: voice.textTransform, color: voice.color };
+    }, item);
+}
+
+/**
+ * The Plan's footer rail, which every builder's is held to: its number axis's (`planNumberAxis`), whose author's status
+ * item — `8 STEPS · NOW 5` — speaks in the voice every rail's status and legend items take; read it with
+ * {@link PLAN_STATUS_ITEM}.
+ *
+ * @param page - The page, which it leaves on the Plan's example
+ * @returns The rail, in view
+ */
+export async function planFooterRail(page: Page): Promise<Locator> {
+    await page.evaluate(() => { location.hash = "#e3/plan/plan/planNumberAxis"; });
+    const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/plan/plan/planNumberAxis"]') });
+    await entry.scrollIntoViewIfNeeded();
+    const rail = entry.locator('[data-plan-frame] [data-frame-slot="footer"] [data-slot="footer"]').first();
+    await expect(rail).toBeVisible({ timeout: 30_000 });
+    return rail;
 }

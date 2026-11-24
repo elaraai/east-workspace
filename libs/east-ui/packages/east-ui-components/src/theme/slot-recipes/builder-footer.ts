@@ -141,7 +141,8 @@ export const FOOTER_RAIL = {
  *     never wraps, it fits.
  *   - item: a status or a legend item, mono 10/600 in capitals at 0.1em in `fg.subtle`, in a tone where the app gives
  *     one or in the danger ink while it says a gesture was refused, at the rail's end with `data-end`; a legend item's
- *     mark — the builder's own swatch, icon or chip — 6px before its words, an odd one with `RAIL_ODD_MARK`.
+ *     mark — the builder's own swatch, icon or chip — 8px before its words, as the design's legend item lays them out,
+ *     an odd one with `RAIL_ODD_MARK`.
  *   - count: counts and notes in the footer's voice, mono 10.5 tabular in `fg.muted`, a figure in `<b>` 600 in ink, a
  *     part in a tone where the app gives one, at the rail's end with `data-end`.
  *   - hint, hintSep: a key hint's words, mono 10 at 0.04em in `fg.subtle`, each run on with ` · `, its spaces kept.
@@ -162,7 +163,8 @@ export const builderFooterSlotRecipe = defineSlotRecipe({
         item: {
             display: "inline-flex",
             alignItems: "center",
-            gap: "6px",
+            // A legend item's mark, then its words 8px on: the design's legend item.
+            gap: "8px",
             flexShrink: 0,
             ...ITEM_VOICE,
             fontWeight: "semibold",

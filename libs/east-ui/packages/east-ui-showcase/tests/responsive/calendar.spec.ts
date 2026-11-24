@@ -6,7 +6,7 @@
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
+import { PLAN_STATUS_ITEM, bottomPanelFaults, footerRailStyle, frameAt, planFooterRail, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
@@ -240,14 +240,7 @@ for (const theme of LAYOUT_THEMES) {
         await page.keyboard.press('Escape');
         // Every builder's rail (east-workspace#1748): the rail itself, and an item of it in its kind's voice — a legend item
         // the voice a status item takes on every rail.
-        const railStyle = async (rail: Locator, item: string) => rail.evaluate((el, selector) => {
-            const s = getComputedStyle(el); const first = getComputedStyle(el.querySelector(`:scope > ${selector}`)!);
-            return { height: el.getBoundingClientRect().height, background: s.backgroundColor,
-                border: s.borderTop, padding: s.padding, gap: s.gap,
-                family: first.fontFamily, size: first.fontSize, weight: first.fontWeight,
-                tracking: first.letterSpacing, casing: first.textTransform, color: first.color };
-        }, item);
-        const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'), '[data-calendar-legend]');
+        const calendarFooter = await footerRailStyle(frame.locator('[data-calendar-footer]'), '[data-calendar-legend]');
         await expect(frame.locator('[data-calendar-footer] > [data-calendar-legend]')).toHaveCount(3);
         // Beside the legend only the "…" a cut legend ends with, and the one loading line, saying nothing at rest (#1398).
         await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
@@ -263,13 +256,9 @@ for (const theme of LAYOUT_THEMES) {
             .filter(item => item.scrollWidth > item.clientWidth + 1 || item.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5)
             .map(item => item.textContent))).toEqual([]);
         // The Plan's rail, and a status item of its author's — `8 STEPS · NOW 5` — in the voice of the Calendar's legend items.
-        await page.evaluate(() => { location.hash = '#e3/plan/plan/planNumberAxis'; });
-        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan/planNumberAxis"]') });
-        await planEntry.scrollIntoViewIfNeeded();
-        const plan = planEntry.locator('[data-plan-frame] [data-frame-slot="footer"] [data-slot="footer"]').first();
-        await expect(plan).toBeVisible({ timeout: 30_000 });
+        const plan = await planFooterRail(page);
         await settled(page);
-        await expect.poll(() => railStyle(plan, ':not([data-plan-count]):not([data-footer-more]):not([data-footer-line])')).toEqual(calendarFooter);
+        await expect.poll(() => footerRailStyle(plan, PLAN_STATUS_ITEM)).toEqual(calendarFooter);
     });
 
     test(`indexed events inspect by key and save without losing fields (${theme})`, async ({ page }, info) => {
