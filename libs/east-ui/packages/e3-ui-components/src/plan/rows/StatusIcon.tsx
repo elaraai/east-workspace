@@ -19,11 +19,11 @@ import type { PlanRowValue } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** A status's tone, by its case's name. */
-export type PlanStatusTone = Extract<PlanRowValue["status"], { type: "some" }>["value"]["type"];
+/** A status's tone, by its case's name — the row's own, where the theme's recipe names its tones for itself. */
+type Tone = Extract<PlanRowValue["status"], { type: "some" }>["value"]["type"];
 
 /** Each tone's icon; a neutral status says nothing to mark, and draws none. */
-const STATUS_ICONS: Readonly<Record<PlanStatusTone, IconDefinition | undefined>> = {
+const STATUS_ICONS: Readonly<Record<Tone, IconDefinition | undefined>> = {
     warning: faTriangleExclamation,
     danger: faCircleExclamation,
     success: faCheck,
@@ -40,7 +40,7 @@ const STATUS_ICONS: Readonly<Record<PlanStatusTone, IconDefinition | undefined>>
  * @param props.keep - `""` in a strip that keeps its value and its status as they are
  */
 export function PlanStatusIcon({ tone, styles, ctx, keep }: {
-    tone: PlanStatusTone | undefined;
+    tone: Tone | undefined;
     styles: Styles;
     ctx?: "" | undefined;
     keep?: "" | undefined;
