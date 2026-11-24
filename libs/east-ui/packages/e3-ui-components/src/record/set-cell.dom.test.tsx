@@ -9,8 +9,10 @@
  * takes its member out, and Backspace with nothing typed picks the last member
  * and a second takes it — never back into the editor as words to delete; on a
  * phone the bottom container edits the cell in the form's tags editor, its
- * members as tags and the register's others suggested, each tag added or taken
- * away written as the grid writes the cell, one step while it stays open.
+ * members as tags and the register's others suggested as chips under it, never
+ * the browser's list — a phone's frame has no desktop-style popover — each tag
+ * typed, pressed or taken away written as the grid writes the cell, one step
+ * while it stays open.
  */
 
 import { describe, expect, test } from "vitest";
@@ -51,8 +53,14 @@ async function openEditor(container: HTMLElement, cell: () => HTMLElement): Prom
     return input;
 }
 
-/** The history's Undo. */
-const undoOf = (container: HTMLElement) => within(slot(container, "toolbar")!).getByRole("button", { name: editingMessages.undo() });
+/** The history's Undo — on a phone's frame in the toolbar's second row, where the history stands there. */
+const undoOf = (container: HTMLElement) =>
+    within(slot(container, "sessionRow") ?? slot(container, "toolbar")!).getByRole("button", { name: editingMessages.undo() });
+/** The members a phone's tags editor suggests, as the chips under it name them — and never a browser's list. */
+const suggestedIn = (editor: HTMLElement) => {
+    expect(editor.querySelector("datalist")).toBeNull();
+    return [...editor.querySelectorAll("[data-tags-suggestion]")].map((chip) => chip.textContent);
+};
 
 describe("a set cell's members, edited whole (east-workspace#1741)", () => {
     test("in the open editor each chip's × takes its member out, the editor staying open on the rest; ⏎ writes what is left, and Undo puts it back", async () => {
@@ -104,8 +112,8 @@ describe("a set cell's members, edited whole (east-workspace#1741)", () => {
         expect(named(editorIn(cell())!, true)).toEqual(["First aid"]);
     });
 
-    test("on a phone the bottom container edits it in the form's tags editor: its members as tags, the register's others suggested; a tag added or taken away is written as the grid writes the cell, and both are one step (SH10, SH10.1)", async () => {
-        const restore = touchFrame(390);
+    test("on a phone the bottom container edits it in the form's tags editor: its members as tags, the register's others suggested as chips; a tag typed, pressed or taken away is written as the grid writes the cell, and all are one step (SH10, SH10.1)", async () => {
+        const restore = touchFrame(390, { builder: true });
         try {
             const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-phone" });
             const user = userEvent.setup();
@@ -114,9 +122,8 @@ describe("a set cell's members, edited whole (east-workspace#1741)", () => {
             const editor = () => container.querySelector<HTMLElement>('[data-record] [data-sheet-cell-editor="certificates"] [data-cell-tags]');
             await waitFor(() => expect(editor()).not.toBeNull());
             const tags = () => [...editor()!.querySelectorAll("[data-scope=tags-input][data-part=item-text]")].map((tag) => tag.textContent);
-            const suggested = () => [...editor()!.querySelectorAll("datalist option")].map((option) => option.getAttribute("value"));
             expect(tags()).toEqual(["Forklift", "Confined space"]);
-            expect(suggested()).toEqual(["First aid", "Working at height"]);
+            expect(suggestedIn(editor()!)).toEqual(["First aid", "Working at height"]);
             // Typed as in the cell: `first` is First aid, the candidate it starts.
             const input = editor()!.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
             await user.click(input);
@@ -124,13 +131,19 @@ describe("a set cell's members, edited whole (east-workspace#1741)", () => {
             await settle();
             await waitFor(() => expect(named(cell())).toEqual(["Forklift", "Confined space", "First aid"]));
             expect(tags()).toEqual(["Forklift", "Confined space", "First aid"]);
-            expect(suggested()).toEqual(["Working at height"]);
+            expect(suggestedIn(editor()!)).toEqual(["Working at height"]);
+            // A suggestion pressed is taken, as the desktop's strip takes a chip.
+            await user.click(within(editor()!).getByRole("button", { name: "Working at height" }));
+            await settle();
+            await waitFor(() => expect(named(cell())).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]));
+            expect(suggestedIn(editor()!)).toEqual([]);
             const forklift = [...editor()!.querySelectorAll("[data-scope=tags-input][data-part=item]")]
                 .find((item) => item.querySelector("[data-part=item-text]")?.textContent === "Forklift")!;
             await act(async () => { fireEvent.click(forklift.querySelector("[data-part=item-delete-trigger]")!); });
             await settle();
-            await waitFor(() => expect(named(cell())).toEqual(["Confined space", "First aid"]));
-            expect(tags()).toEqual(["Confined space", "First aid"]);
+            await waitFor(() => expect(named(cell())).toEqual(["Confined space", "First aid", "Working at height"]));
+            expect(tags()).toEqual(["Confined space", "First aid", "Working at height"]);
+            expect(suggestedIn(editor()!)).toEqual(["Forklift"]);
             await pressOn(undoOf(container));
             expect(named(cell())).toEqual(["Forklift", "Confined space"]);
         } finally {
@@ -139,15 +152,14 @@ describe("a set cell's members, edited whole (east-workspace#1741)", () => {
     });
 
     test("on a phone an empty set's tags editor holds no tag and suggests every member", async () => {
-        const restore = touchFrame(390);
+        const restore = touchFrame(390, { builder: true });
         try {
             const { container } = await h.mount(ex.recordEveryKind, { storageKey: "set-cell-phone-empty" });
             await pressOn(certificates(container, 1));
             const editor = () => container.querySelector<HTMLElement>('[data-record] [data-sheet-cell-editor="certificates"] [data-cell-tags]');
             await waitFor(() => expect(editor()).not.toBeNull());
             expect(editor()!.querySelectorAll("[data-scope=tags-input][data-part=item]")).toHaveLength(0);
-            expect([...editor()!.querySelectorAll("datalist option")].map((option) => option.getAttribute("value")))
-                .toEqual(["Forklift", "Confined space", "First aid", "Working at height"]);
+            expect(suggestedIn(editor()!)).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]);
         } finally {
             restore();
         }

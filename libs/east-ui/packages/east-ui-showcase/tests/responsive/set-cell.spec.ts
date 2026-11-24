@@ -13,10 +13,14 @@
  * In the open editor the members keep one line, scrolling under what is
  * typed, which stays in view, and a chip's × takes its member out, the editor
  * open on the rest. On a phone the bottom container edits a set cell in the
- * form's tags editor, the register's other members suggested, its chips the
- * design system's touch size: 34 tall, each × a 34 square at its end; as the
- * editor grows the row it edits stays in view, and the notice a phone's footer
- * lays over main's foot never covers it.
+ * form's tags editor, its chips the design system's touch size: 34 tall, each
+ * × a 34 square at its end; the register's other members are suggested as
+ * touch chips under it — never the browser's list, a phone having no
+ * desktop-style popover — what is typed narrowing them and a press taking one,
+ * the box keeping the focus, its placeholder whole and its words in the field
+ * chrome's body face. As the editor grows the row it edits stays in view —
+ * whole while the room holds it, its top under the header once it does not —
+ * and the notice a phone's footer lays over main's foot never covers it.
  *
  * Run: `pnpm exec playwright test set-cell`.
  */
@@ -97,6 +101,20 @@ async function open(page: Page, route: string): Promise<Locator> {
 /** A Record's cell, by its row's key and its column's. */
 const recordCell = (entry: Locator, id: string, key: string) => entry.locator(`[data-record] [data-slot="row"][data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`);
 
+/** A tags editor's box as drawn: whether its placeholder's words fit inside its padding whole, and whether its face is mono. */
+const typedBoxOf = (editor: Locator) => editor.evaluate((el) => {
+    const input = el.querySelector<HTMLInputElement>('[data-scope="tags-input"][data-part="input"]')!;
+    const style = getComputedStyle(input);
+    const probe = document.createElement("span");
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${style.font}`;
+    probe.textContent = input.placeholder;
+    document.body.appendChild(probe);
+    const words = probe.getBoundingClientRect().width;
+    probe.remove();
+    const room = input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    return { placeholderWhole: words <= room + 0.5, mono: /mono/i.test(style.fontFamily) };
+});
+
 test.describe("A set cell on one line (east-workspace#1741)", () => {
     for (const route of [EVERY_KIND, WORKSHOP]) {
         test(`${route}: every chip line on one line inside its row, each chip whole or, alone, shortened with "…", a +N naming the rest`, async ({ page }) => {
@@ -143,25 +161,35 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
         await expect(entry.locator('[data-record-strip] [data-slot="stripText"]')).toHaveText("Confined space, First aid, Working at height");
     });
 
-    test("on a phone a set cell's editor is the form's tags editor, the register's other members suggested, a tag added written to the cell, which keeps its one line @mobile", async ({ page }) => {
+    test("on a phone a set cell's editor is the form's tags editor, the register's other members suggested as chips under it, a tag typed or a suggestion pressed written to the cell, which keeps its one line @mobile", async ({ page }) => {
         const entry = await open(page, EVERY_KIND);
         const cell = recordCell(entry, "P-0401", "certificates");
         await cell.click();
         const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
         await expect(editor).toBeVisible();
         const tags = editor.locator('[data-scope="tags-input"][data-part="item-text"]');
+        const suggested = editor.locator("[data-tags-suggestion]");
         await expect(tags).toHaveText(["Forklift", "Confined space"]);
-        expect(await editor.locator("datalist option").evaluateAll((options) => options.map((o) => o.getAttribute("value")))).toEqual(["First aid", "Working at height"]);
+        // A phone's frame has no desktop-style popover: the suggestions are chips under the box, never the browser's list.
+        await expect(editor.locator("datalist")).toHaveCount(0);
+        await expect(editor.locator("input[list]")).toHaveCount(0);
+        await expect(suggested).toHaveText(["First aid", "Working at height"]);
+        // Its box in the field chrome's body face, its placeholder whole wherever it stands.
+        expect(await typedBoxOf(editor)).toEqual({ placeholderWhole: true, mono: false });
         const input = editor.locator('[data-scope="tags-input"][data-part="input"]');
         await input.click();
         await input.pressSequentially("first");
+        await expect(suggested).toHaveText(["First aid"]);
         await input.press("Enter");
         await expect(tags).toHaveText(["Forklift", "Confined space", "First aid"]);
+        await expect(suggested).toHaveText(["Working at height"]);
         await settled(page);
+        expect(await typedBoxOf(editor)).toEqual({ placeholderWhole: true, mono: false });
         expect(membersOf((await linesOf(entry)).find((l) => l.at === "P-0401/certificates"))).toEqual(["Forklift", "Confined space", "First aid"]);
         expect(await faultsOf(entry)).toEqual([]);
         // The design system's touch chips, in this panel alone: each 34 tall, 8 apart on its row, its × a 34 square at its
-        // full height and its very end; the box a tag is typed into as tall; and the control whole, its foot in sight.
+        // full height and its very end; the box a tag is typed into as tall; the suggestions the touch chip's 34 too; and
+        // the control whole, its foot in sight.
         const drawn = await editor.evaluate((el) => {
             const box = (x: Element) => x.getBoundingClientRect();
             const chips = [...el.querySelectorAll('[data-scope="tags-input"][data-part="item-preview"]')].map((chip) => {
@@ -177,13 +205,47 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
             return {
                 chips: chips.map(({ h, x, atEnd }) => ({ h, x, atEnd })), gaps,
                 input: Math.round(box(el.querySelector('[data-scope="tags-input"][data-part="input"]')!).height),
+                suggestions: [...el.querySelectorAll("[data-tags-suggestion]")].map((s) => Math.round(box(s).height)),
                 whole: foot !== null && el.contains(foot),
             };
         });
-        expect(drawn).toEqual({ chips: Array(3).fill({ h: 34, x: [34, 34], atEnd: true }), gaps: [8], input: 34, whole: true });
+        expect(drawn).toEqual({ chips: Array(3).fill({ h: 34, x: [34, 34], atEnd: true }), gaps: [8], input: 34, suggestions: [34], whole: true });
+        // A suggestion pressed is taken, as the desktop's strip takes a chip, and the box keeps the focus: a phone's keyboard stays up.
+        await editor.getByRole("button", { name: "Working at height", exact: true }).click();
+        await expect(tags).toHaveText(["Forklift", "Confined space", "First aid", "Working at height"]);
+        await expect(suggested).toHaveCount(0);
+        await expect(input).toBeFocused();
+        await settled(page);
+        expect(membersOf((await linesOf(entry)).find((l) => l.at === "P-0401/certificates"))).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]);
     });
 
-    test("on a phone the row a set editor edits stays in view as the editor grows, and a notice laid over main's foot never covers the editor @mobile", async ({ page }) => {
+    test("on a phone the box a tag is typed into is never narrower than its placeholder, at any phone width, where its line leaves it any room or none @mobile", async ({ page }) => {
+        const entry = await open(page, EVERY_KIND);
+        await recordCell(entry, "P-0408", "certificates").click();
+        const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
+        await expect(editor).toBeVisible();
+        const cut: string[] = [];
+        // The page is kept between tests: its own size is put back, whatever the sweep met.
+        const own = page.viewportSize()!;
+        try {
+            for (const take of ["Forklift", "Confined space", "First aid", "Working at height"]) {
+                await editor.getByRole("button", { name: take, exact: true }).click();
+                await expect(editor.locator('[data-scope="tags-input"][data-part="item-text"]').last()).toHaveText(take);
+                for (let width = 320; width <= 470; width += 2) {
+                    await page.setViewportSize({ width, height: own.height });
+                    // Laid out at that width: two frames, the frame's width read and the editor laid out again in the second.
+                    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+                    if (!(await typedBoxOf(editor)).placeholderWhole) cut.push(`${take}@${width}`);
+                }
+                await page.setViewportSize(own);
+            }
+        } finally {
+            await page.setViewportSize(own);
+        }
+        expect(cut).toEqual([]);
+    });
+
+    test("on a phone the row a set editor edits stays in view as the editor grows — whole while the room holds it, its top under the header once it does not — and a notice laid over main's foot never covers the editor @mobile", async ({ page }) => {
         const entry = await open(page, EVERY_KIND);
         const cell = recordCell(entry, "P-0408", "certificates");
         await cell.click();
@@ -191,19 +253,13 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
         await expect(editor).toBeVisible();
         // A notice — the copy's — which the phone's footer lays over main's foot while it speaks.
         await page.keyboard.press("ControlOrMeta+c");
-        await expect(entry.locator('[data-slot="footerLive"][data-footer-live]')).toHaveText(/^Copied /);
+        const notice = entry.locator('[data-slot="footerLive"][data-footer-live]');
+        await expect(notice).toHaveText(/^Copied /);
+        const tags = editor.locator('[data-scope="tags-input"][data-part="item-text"]');
         const input = editor.locator('[data-scope="tags-input"][data-part="input"]');
-        for (const word of ["fork", "conf", "work"]) {
-            await input.click();
-            await input.pressSequentially(word);
-            await input.press("Enter");
-        }
-        await expect(editor.locator('[data-scope="tags-input"][data-part="item-text"]')).toHaveText(["Forklift", "Confined space", "Working at height"]);
-        await expect(entry.locator('[data-slot="footerLive"][data-footer-live]')).toHaveText(/^Copied /);
-        await settled(page);
         // What a tap lands on: across the edited cell's top, middle and foot, the cell — neither the header over its row nor
         // the editor under it — and on the editor's last pixels, the editor, never the notice's band.
-        const drawn = await entry.evaluate((root) => {
+        const landing = () => entry.evaluate((root) => {
             const edited = root.querySelector('[data-record] [data-slot="row"][data-row-id="P-0408"] [data-slot="cell"][data-key="certificates"]')!;
             const e = edited.getBoundingClientRect();
             const control = root.querySelector('[data-cell-tags] [data-scope="tags-input"][data-part="control"]')!;
@@ -214,6 +270,23 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
                 editorFoot: [2, 6, 10].map((dy) => lands(control, c.left + 12, c.bottom - dy)),
             };
         });
-        expect(drawn).toEqual({ row: [true, true, true], editorFoot: [true, true, true] });
+        // One member typed in: the room holds the row whole, and the member taken before its words clear moves no row.
+        await input.click();
+        await input.pressSequentially("fork");
+        await input.press("Enter");
+        await expect(tags).toHaveText(["Forklift"]);
+        await settled(page);
+        expect(await landing()).toEqual({ row: [true, true, true], editorFoot: [true, true, true] });
+        // Two more: the tags take a second line, the rows keep less room than a row, and the row's top stays in view.
+        for (const word of ["conf", "work"]) {
+            await input.click();
+            await input.pressSequentially(word);
+            await input.press("Enter");
+        }
+        await expect(tags).toHaveText(["Forklift", "Confined space", "Working at height"]);
+        await expect(notice).toHaveText(/^Copied /);
+        await settled(page);
+        const grown = await landing();
+        expect({ top: grown.row[0], editorFoot: grown.editorFoot }).toEqual({ top: true, editorFoot: [true, true, true] });
     });
 });
