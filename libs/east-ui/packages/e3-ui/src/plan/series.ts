@@ -1390,6 +1390,12 @@ interface PlanSeriesSpec {
     readonly icon: PlanIconInput | undefined;
     /** The series' kind. */
     readonly arm: PlanSeriesArm;
+    /**
+     * The key type its builder was given for its entries (`keyType`), where it was given one: a kinds block's is its
+     * cases', and a section's its members', which draw the section's own entries. What a series built around others is
+     * keyed by, so each of them is handed the key its accessors read.
+     */
+    readonly keyType: EastType | undefined;
     /** The series nested inside this one — section / views members and step-down series — for the key walk. */
     readonly nested: readonly PlanSeriesSpec[];
     /** Whether the series declares `children`. */
@@ -3124,6 +3130,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         subtitle: cfg.subtitle,
         icon: cfg.icon,
         arm: recipe.arm,
+        keyType: cfg.keyType,
         nested,
         nests: children !== undefined,
         edits: edits !== undefined,
@@ -3441,6 +3448,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         subtitle: cfg.subtitle,
         icon: cfg.icon,
         arm: "views",
+        keyType: cfg.keyType,
         nested: [...memberSpecs, ...host.nested],
         nests: cfg.children !== undefined,
         charts,
@@ -3763,6 +3771,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
         subtitle: cfg.subtitle,
         icon: cfg.icon,
         arm: "resources",
+        keyType: cfg.keyType,
         nested: host === undefined ? memberSpecs : [...memberSpecs, ...host.nested],
         nests: cfg.children !== undefined,
         charts,
@@ -3930,6 +3939,8 @@ function kindsSpec(field: string, cases: readonly { readonly tag: string; readon
         subtitle: undefined,
         icon: undefined,
         arm: "kinds",
+        // Its cases are given one key type, where any of them declares one.
+        keyType: caseSpecs[0]?.keyType,
         nested: caseSpecs,
         nests: caseSpecs.some((c) => c.nests),
         // Each entry makes the rows of its case alone (#1398): as many chart rows for every entry only where no case makes one.
@@ -3992,6 +4003,14 @@ function kindsSpec(field: string, cases: readonly { readonly tag: string; readon
 function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members: PlanSeriesValue<PlanAxisKindLiteral>[]): PlanSeriesSpec {
     const where = `Plan.series.section "${cfg.key}"`;
     const memberSpecs = members.map((m, i) => nestedSpec(m, `${where}[${i}]`));
+    // A section adds no path segment and draws its own entries by its members, so it is keyed as they are: by the key
+    // type they declare, which those that declare one agree on, as a kinds block's cases do.
+    const keyed = memberSpecs.filter((m) => m.keyType !== undefined);
+    const keyType = keyed[0]?.keyType;
+    if (keyType !== undefined && keyed.some((m) => !isTypeEqual(m.keyType!, keyType))) {
+        throw new Error(`${where}: its members draw one collection's entries, keyed by one type — and they give keyType ` +
+            keyed.map((m) => `${printTypeSummary(m.keyType!)} (${nameOf(m)})`).join(" and "));
+    }
     const summary = groupSummary(
         cfg.summary as SubtypeExprOrValue<PlanHeatCellsType> | undefined, cfg.summaryAggregate, where);
     /** The header row — at `id`, nested under `parent`. */
@@ -4015,6 +4034,7 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         subtitle: cfg.subtitle,
         icon: cfg.icon,
         arm: "section",
+        keyType,
         nested: memberSpecs,
         nests: false,
         // Each entry makes its members' rows; the header is no entry's (#1398).
@@ -4022,7 +4042,7 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         reads: [],
         // Its members read the section's entries; it reads nothing of its own (#1435).
         nest: {
-            rowType: undefined, keyType: StringType, accessors: [], tree: undefined, steps: [], members: memberSpecs,
+            rowType: undefined, keyType: keyType ?? StringType, accessors: [], tree: undefined, steps: [], members: memberSpecs,
             aggregate: undefined, subtotalsOwn: false, rollup: undefined,
         },
         emitter(collection, at) {
@@ -4103,6 +4123,8 @@ function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeries
         subtitle: identity.subtitle,
         icon: identity.icon,
         arm: "rows",
+        // Hand-built rows are no entry's: they read no key.
+        keyType: undefined,
         nested: [],
         nests: false,
         // Its rows' kinds are an East value the build does not read (#1398): laid out below an entry, their chart rows are
@@ -5172,6 +5194,12 @@ export function createSeriesGroup<
  * id is `section { series, path }` at its parent's path, and its members' rows
  * keep their own.
  *
+ * @remarks
+ * It draws its own entries by its members, so it is keyed as they are: by the
+ * `keyType` they declare — a variant, a struct, an Integer — and takes none of
+ * its own. Members that declare one agree on it; one that declares none reads
+ * no key, or reads the others'.
+ *
  * @typeParam R - The entry type (the members' — they share the section's entries)
  * @typeParam K - The union of the members' axis kinds (inferred; `never` when all are erased)
  * @typeParam S - The members, as written
@@ -5179,6 +5207,7 @@ export function createSeriesGroup<
  * @param config - The header ({@link PlanSectionSeriesConfig})
  * @param members - The member series, in order
  * @returns A series value, branded with its members' kinds and what they read
+ * @throws {Error} When its members declare different key types, naming each with its type
  */
 export function createSeriesSection<R extends EastType, K extends PlanAxisKindLiteral = never, S extends readonly unknown[] = PlanSeriesValue<K>[]>(
     rowType: R,
@@ -5187,7 +5216,7 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
 ): PlanSeriesValue<K, PlanSeriesListReads<S>> {
     const cfg = config as PlanSectionSeriesConfig<PlanAxisKindLiteral>;
     const spec = sectionSpec(cfg, members);
-    return seriesValue(rowType, undefined, spec, cfg) as PlanSeriesValue<K, PlanSeriesListReads<S>>;
+    return seriesValue(rowType, spec.keyType, spec, cfg) as PlanSeriesValue<K, PlanSeriesListReads<S>>;
 }
 
 /**

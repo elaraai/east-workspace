@@ -17,7 +17,10 @@
  *   and the pinned chart's readings read though it is none of the rows laid
  *   out;
  * - `planPressKinds`: the works' list of kinds beneath every press
- *   (`Plan.children.of`), a row for each whether the press takes it or not.
+ *   (`Plan.children.of`), a row for each whether the press takes it or not;
+ * - `planPressSections`: a press's kinds of task beneath a header
+ *   (`Plan.series.section`), the header keyed as its rows are — by the kind, a
+ *   variant — and each task on its kind's row beneath it (#1715).
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -26,6 +29,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { planMessages } from "../messages.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
+import { sectionKey, sectionSel } from "../plan.test-utils.js";
 import { axisFormatter } from "../rows/chart-geometry.js";
 import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { pressKindStep } from "./press.test-utils.js";
@@ -240,5 +244,71 @@ describe("the works' own list of kinds beneath every press (planPressKinds)", ()
         expect(tasksOn(c, ROLLERS_3)).toEqual([]);
         expect(tasksOn(c, INK_4)).toEqual([]);
         expect(tasksOn(c, ROLLERS_4)).toEqual(["T-07 2:0", "T-08 4:0"]);
+    });
+});
+
+describe("a press's kinds of task beneath a header (planPressSections, #1715)", () => {
+    /** Every row and header a mounted Plan draws, in order, each by its key. */
+    const drawn = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("[data-plan-row], [data-plan-group]")]
+        .map((node) => node.getAttribute("data-plan-row") ?? node.getAttribute("data-plan-group"));
+    /** A press's Tasks header. */
+    const header = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(sectionSel("tasks", [press]));
+    /** One part of a row's or a header's gutter, as it reads. */
+    const gutter = (node: HTMLElement | null, part: "label" | "meta" | "sub") => node?.querySelector(`[data-plan-gutter="${part}"]`)?.textContent ?? null;
+
+    test("each press draws a Tasks header over a row for each kind of task it takes, each row keyed by its kind and its sub line read off that key", async () => {
+        const { container: c } = await h.mount(ex.planPressSections);
+        await settle();
+        // The header adds no step to its rows' paths: a kind's row is its press's, as without the header.
+        await waitFor(() => expect(drawn(c)).toEqual([
+            ...keys(entry("press", "P03")), sectionKey("tasks", "P03"), ...keys(WASH_3, INK_3, PLATES_3),
+            ...keys(entry("press", "P04")), sectionKey("tasks", "P04"), ...keys(WASH_4, ROLLERS_4),
+        ]));
+        expect(refused(c)).toEqual([]);
+        expect(unread()).toEqual([]);
+        expect([gutter(header(c, "P03"), "label"), gutter(header(c, "P03"), "meta")]).toEqual(["Tasks", "3 rows"]);
+        expect([gutter(header(c, "P04"), "label"), gutter(header(c, "P04"), "meta")]).toEqual(["Tasks", "2 rows"]);
+        // What each kind is, which its row reads off its key: a variant, as the header's own entries are keyed.
+        expect([WASH_3, INK_3, PLATES_3, ROLLERS_4].map((row) => `${gutter(c.querySelector(rowAt(row)), "label")} — ${gutter(c.querySelector(rowAt(row)), "sub")}`))
+            .toEqual(["Blanket wash — Wash", "Ink fill — Ink", "Plate check — Check", "Roller wash — Wash"]);
+    });
+
+    test("each task lands on its press's row of its kind beneath the header, in its half's lane, read a cell at a time by its press", async () => {
+        const { container: c } = await h.mount(ex.planPressSections);
+        await settle();
+        await waitFor(() => expect(tasksOn(c, WASH_3)).toEqual(["T-01 1:0", "T-05 4:1"]));
+        expect(tasksOn(c, INK_3)).toEqual(["T-02 1:1", "T-03 2:0"]);
+        expect(tasksOn(c, PLATES_3)).toEqual(["T-04 3:0"]);
+        expect(tasksOn(c, WASH_4)).toEqual(["T-06 1:1"]);
+        expect(tasksOn(c, ROLLERS_4)).toEqual(["T-07 2:0", "T-08 4:0"]);
+        // Neither a press's own row nor its header draws a task.
+        expect(tasksOn(c, entry("press", "P03"))).toEqual([]);
+        expect(header(c, "P03")!.querySelectorAll("[data-event]").length).toBe(0);
+        expect(h.readKinds("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
+        // The inspector shows a kind's row as its press's tasks of that kind: the cyan and the black.
+        await selectRow(c, INK_3);
+        expect(eyebrow(c)).toBe("Kinds of task");
+        await waitFor(() => expect(fact(c, "events")).toBe("2"));
+        expect(unread()).toEqual([]);
+    });
+
+    test("a header folds its own press's rows, and opens them again with their tasks", async () => {
+        const { container: c } = await h.mount(ex.planPressSections);
+        await settle();
+        await waitFor(() => expect(tasksOn(c, WASH_3)).toEqual(["T-01 1:0", "T-05 4:1"]));
+        expect(header(c, "P03")!.getAttribute("aria-expanded")).toBe("true");
+        fireEvent.click(header(c, "P03")!);
+        await settle();
+        await waitFor(() => expect(drawn(c)).toEqual([
+            ...keys(entry("press", "P03")), sectionKey("tasks", "P03"),
+            ...keys(entry("press", "P04")), sectionKey("tasks", "P04"), ...keys(WASH_4, ROLLERS_4),
+        ]));
+        expect(header(c, "P03")!.getAttribute("aria-expanded")).toBe("false");
+        expect(tasksOn(c, WASH_4)).toEqual(["T-06 1:1"]);
+        fireEvent.click(header(c, "P03")!);
+        await settle();
+        await waitFor(() => expect(tasksOn(c, WASH_3)).toEqual(["T-01 1:0", "T-05 4:1"]));
+        expect(tasksOn(c, PLATES_3)).toEqual(["T-04 3:0"]);
+        expect(refused(c)).toEqual([]);
     });
 });

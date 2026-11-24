@@ -1887,6 +1887,88 @@ export const planPressKinds = example({
     inputs: [],
 });
 
+/**
+ * A press's kinds of task under a header: `Plan.series.section` around the
+ * rows `Plan.children` steps down to, so each press draws a Tasks header that
+ * folds its kinds' rows.
+ *
+ * A section draws its own entries by its members, so it is keyed as they are —
+ * by the kind here, a variant, which each row's sub line reads — and declares
+ * no key type of its own. It adds no step to a row's path: each task still
+ * lands on its press's row of its kind (`child`), beneath the header.
+ */
+export const planPressSections = example({
+    keywords: [
+        "Plan", "Plan.series.section", "section", "header", "section header", "rows under a header", "fold", "child rows", "keyType",
+        "variant key", "Plan.children", "Plan.series.resources", "Plan.series.kinds", "child", "Schedule.events", "lane", "buckets",
+        "Slice.bindRecords", "Data.bindPaged", "index.nested", "index.series", "index.summary", "Record.bind",
+    ],
+    description: "A header over a resource's child rows — Plan.series.section around the rows Plan.children steps down to, keyed as they are (by a variant here: a section takes its key type from its members, and declares none): each press's kinds of task beneath a Tasks header that folds them, each row's sub line read off its key, and the tasks' event kind landing on its kind's row beneath the header (child: { field, of })",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const tasks = $.let(Record.bind(planPressTaskRows, ["patch"]));
+            const taskEntries = $.let(Data.bindPaged(planPressTaskRows));
+            // One rail, as the works' page has: the machines paged by name beside their nested index, and the tasks by their day.
+            const slice = $.let(Slice.bindRecords("ex.planPressSections", {
+                rows: {
+                    source: Data.bindPaged(planPressMachines, { indexes: ["plan_press_machines_by_name", "plan_press_machines_in_time"] }),
+                    label: "Machines", icon: { prefix: "fas", name: "print" }, search: ["name"],
+                },
+                task: {
+                    source: Data.bindPaged(planPressTaskRows, {
+                        indexes: ["plan_press_tasks_by_day", "plan_press_tasks_by_time", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
+                        // The tasks' totals, which the horizon's bars read.
+                        totals: ["plan_press_tasks_day_totals", "plan_press_tasks_week_totals", "plan_press_tasks_month_totals", "plan_press_tasks_quarter_totals", "plan_press_tasks_year_totals"],
+                    }),
+                    label: "Press tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
+                },
+            }));
+            return <Box width="100%" height="520px"><Plan id="planPressSections" slice={{ slice }}
+                axis={Plan.axis({
+                    window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
+                    resolution: "day", resolutions: ["day", "week", "month"],
+                })}
+                series={[
+                    Plan.series.kinds(PressMachine, "what", {
+                        press: {
+                            title: "Presses", icon: "print", label: (press) => press.name,
+                            // Beneath the press, a Tasks header over a row for each kind of task it takes. The header is keyed
+                            // as its rows are, by the kind, and says so nowhere: its rows' `keyType` is its own.
+                            children: Plan.children("kinds", [
+                                Plan.series.section(PressTaskKindRow, { key: "tasks", title: "Tasks" }, [
+                                    Plan.series.resources(PressTaskKindRow, {
+                                        key: "kinds", title: "Kinds of task", icon: "list-check", keyType: PressTaskKind, label: (kind) => kind.name,
+                                        // What the kind is, read off the row's key.
+                                        sub: (_row, kind) => some(kind.match({
+                                            blanket_wash: () => "Wash", ink_fill: () => "Ink", plate_check: () => "Check", roller_wash: () => "Wash",
+                                        })),
+                                        lanes: () => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
+                                    }),
+                                ]),
+                            ]),
+                        },
+                        // Not drawn: the page is the presses'.
+                        folder: false,
+                    }),
+                ]}
+                // The one event kind: on its press's row, then its kind's row beneath the header, in its half's lane.
+                events={{
+                    task: Schedule.events(tasks, {
+                        name: "Press task", icon: "list-check", draw: "buckets", title: "title", at: "day", state: "state",
+                        resource: { field: "press", of: "press" },
+                        child: { field: "kind", of: "kinds" },
+                        lane: "half",
+                        entries: taskEntries,
+                    }),
+                }}
+                inspector
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 // ============================================================================
 // planConnect — links drawn by hand: the Connect tool, Connect to…, a link kind's templates and the veto
 // ============================================================================

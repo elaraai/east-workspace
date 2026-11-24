@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CellRefType, Chart, Editing, Text } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -1469,6 +1469,116 @@ describeEast("Plan", (test) => {
         const blocks = $.let(p.rows.unwrap("inline"));
         $(Assert.equal(blocks.map((_$, b) => b.fixed), [true, true, false]));
         $(Assert.equal(blocks.get(2n).parent.unwrap("some"), Plan.sectionRef("crews")));
+    });
+
+    test("a section is keyed as its members are — a variant, a struct or an Integer — read whole and a window at a time (#1715)", $ => {
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        // A press's kinds of task under a header: the rows a step down from each press, keyed by the kind, a variant.
+        const TaskKind = VariantType({ fold: NullType, print: NullType, trim: NullType });
+        const Task = StructType({ hours: FloatType });
+        const Press = StructType({ name: StringType, tasks: DictType(TaskKind, Task) });
+        type Kind = ValueTypeOf<typeof TaskKind>;
+        type Hours = ValueTypeOf<typeof Task>;
+        const presses = $.const(new Map([
+            ["p1", { name: "Press 1", tasks: new SortedMap<Kind, Hours>([[variant("print", null), { hours: 2.0 }], [variant("trim", null), { hours: 1.0 }]], compareFor(TaskKind)) }],
+            ["p2", { name: "Press 2", tasks: new SortedMap<Kind, Hours>([[variant("fold", null), { hours: 3.0 }]], compareFor(TaskKind)) }],
+        ]), DictType(StringType, Press));
+        const byPress = $.let(Plan.Root({
+            axis, data: presses,
+            series: [Plan.series.events(Press, {
+                key: "presses", title: "Presses", label: (press) => press.name, marks: _p => [],
+                children: Plan.children("tasks", [
+                    Plan.series.section(Task, { key: "task-block", title: "Tasks" }, [
+                        // Its label reads the key: the kind's name.
+                        Plan.series.events(Task, { key: "tasks", title: "Tasks", keyType: TaskKind, label: (_task, kind) => kind.getTag(), marks: _t => [] }),
+                    ]),
+                ]),
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        $(Assert.equal(byPress.map((_$, r) => r.gutter.label), ["Press 1", "Tasks", "print", "trim", "Press 2", "Tasks", "fold"]));
+        // The header sits at its press's path, and a row beneath it at the press's key and then its own, as East prints it.
+        const print = $.const(variant("print", null), TaskKind);
+        $(Assert.equal(byPress.get(1n).id, Plan.sectionRef("task-block", "p1")));
+        $(Assert.equal(byPress.get(2n).id, Plan.ref("tasks", "p1", East.print(print))));
+        $(Assert.equal(byPress.get(2n).parent.unwrap("some"), Plan.sectionRef("task-block", "p1")));
+
+        // At the top of a canvas, over a source keyed by a struct: one member reads the key, the other reads none and
+        // declares none.
+        const Bin = StructType({ hall: StringType, bin: IntegerType });
+        const Load = StructType({ v: FloatType });
+        const bins = $.const(new SortedMap([[{ hall: "H1", bin: 1n }, { v: 1.0 }], [{ hall: "H1", bin: 2n }, { v: 2.0 }]], compareFor(Bin)), DictType(Bin, Load));
+        const binSeries = [Plan.series.section(Load, { key: "bin-block", title: "Bins" }, [
+            Plan.series.table(Load, {
+                key: "bins", title: "Bins", keyType: Bin,
+                label: (_r, k) => East.str`${k.hall} · ${East.print(k.bin)}`,
+                cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
+            }),
+            Plan.series.events(Load, { key: "bin-marks", title: "Marks", label: _r => "M", marks: _r => [] }),
+        ])];
+        const byBin = $.let(Plan.Root({ axis, data: bins, series: binSeries }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        const first = $.const({ hall: "H1", bin: 1n }, Bin);
+        $(Assert.equal(byBin.map((_$, r) => r.gutter.label), ["Bins", "H1 · 1", "H1 · 2", "M", "M"]));
+        $(Assert.equal(byBin.get(1n).id, Plan.ref("bins", East.print(first))));
+        $(Assert.equal(byBin.get(1n).parent.unwrap("some"), Plan.sectionRef("bin-block")));
+        // The section's own value is a series over entries keyed as its members are: a list of it bound as an East value
+        // is typed so, and lays out the same rows.
+        const bound = $.const(binSeries, ArrayType(Plan.Types.Series(Load, Bin)));
+        const viaValue = $.let(Plan.Root({ axis, data: bins, series: bound }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        $(Assert.equal(viaValue.map((_$, r) => r.id), byBin.map((_$, r) => r.id)));
+
+        // Over rows read a window at a time, keyed by an Integer.
+        const Counted = DictType(IntegerType, Load);
+        const counted = $.const(new Map([[1n, { v: 1.0 }], [20n, { v: 2.0 }]]), Counted);
+        const handle = $.const({
+            id: "counted",
+            page: East.function([IntegerType, IntegerType], OptionType(Counted), ($, o, _l) => {
+                const noPage = $.const(none, OptionType(Counted));
+                return o.equal(0n).ifElse(() => some(counted), () => noPage);
+            }),
+            total: East.function([], OptionType(IntegerType), (_$) => some(2n)),
+            seek: none,
+        }, Paged.Types.Source(Counted));
+        const window = $.let(Plan.Root({
+            axis, data: handle,
+            series: [Plan.series.section(Load, { key: "count-block", title: "Counted" }, [
+                Plan.series.heat(Load, {
+                    key: "counted", title: "Counted", keyType: IntegerType, label: (_r, k) => East.print(k),
+                    cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
+                }),
+            ])],
+        }).rows.unwrap("paged").page(0n, 100n).unwrap("some").rows);
+        const twenty = $.const(20n, IntegerType);
+        // The header's fixed block, then its member's share of the window.
+        $(Assert.equal(window.map((_$, b) => b.fixed), [true, false]));
+        $(Assert.equal(window.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("count-block")]));
+        $(Assert.equal(window.get(1n).rows.map((_$, r) => r.gutter.label), ["1", "20"]));
+        $(Assert.equal(window.get(1n).rows.get(1n).id, Plan.ref("counted", East.print(twenty))));
+        $(Assert.equal(window.get(1n).parent.unwrap("some"), Plan.sectionRef("count-block")));
+    });
+
+    test("a section's members that declare different key types are refused, naming each with its type (#1715)", $ => {
+        const Row = StructType({ v: FloatType });
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "mixed", title: "Mixed" }, [
+            Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            Plan.series.events(Row, { key: "by-name", title: "By name", keyType: StringType, label: (_r, k) => k, marks: _r => [] }),
+        ]))), 'Plan.series.section "mixed": its members draw one collection\'s entries, keyed by one type — and they give keyType ' +
+            '.Integer (events "By number") and .String (events "By name")'));
+        // A member that declares none reads no key, and is keyed as the others: the section builds.
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "one", title: "One" }, [
+            Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            Plan.series.events(Row, { key: "unkeyed", title: "Unkeyed", label: _r => "M", marks: _r => [] }),
+        ]))), ""));
+        // A section among the members is keyed by its own, which the outer one holds its others to.
+        $(Assert.equal(East.value(refusal(() => Plan.series.section(Row, { key: "outer", title: "Outer" }, [
+            Plan.series.section(Row, { key: "inner", title: "Inner" }, [
+                Plan.series.events(Row, { key: "by-number", title: "By number", keyType: IntegerType, label: (_r, k) => East.print(k), marks: _r => [] }),
+            ]),
+            Plan.series.events(Row, { key: "by-name", title: "By name", keyType: StringType, label: (_r, k) => k, marks: _r => [] }),
+        ]))), 'Plan.series.section "outer": its members draw one collection\'s entries, keyed by one type — and they give keyType ' +
+            '.Integer (section "Inner") and .String (events "By name")'));
     });
 
     // =========================================================================
