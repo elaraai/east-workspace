@@ -256,6 +256,12 @@ export interface SheetHost {
      * the editing session's choice begins at, until its viewer chooses. Absent, off.
      */
     autosave?: boolean | undefined;
+    /**
+     * The root of the frame a host lays the sheet in itself, its inspector with it — a Record's: a field of that
+     * inspector's form with the keyboard is an edit open on the sheet, which holds the day it reads and writes at
+     * (east-workspace#1746). Absent, the frame is the Sheet's own.
+     */
+    frame?: RefObject<HTMLElement | null> | undefined;
 }
 
 /**
