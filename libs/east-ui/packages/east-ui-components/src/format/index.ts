@@ -33,6 +33,12 @@
  * printed as written by East's printer ({@link formatPattern}): the locale
  * decides only the defaults.
  *
+ * One kind of date is the reader's own: an instant they lived through, which
+ * they read against their own clock — when an alert fired (ruled 23 November
+ * 2026). {@link Formatters.localDateTime} prints it in the reader's time zone,
+ * the runtime's unless {@link formatters} is given one; it is never a data
+ * value's.
+ *
  * This module is the only place a renderer builds an `Intl` formatter or asks
  * a `Date` for its local fields — a lint rule holds every other file to it.
  *
@@ -77,6 +83,22 @@ export interface Formatters {
     percent(fraction: number): string;
     /** A compact magnitude with one fraction digit — `12.3K`. */
     compact(n: number): string;
+    /**
+     * A number where room is short — a tile's value, an axis tick, a bar's
+     * end: under ten thousand as it is, grouped, to two decimals at most
+     * (`1,284`, `11.42`); from there at three significant digits of its
+     * magnitude (`612k`, `3.84M`; `3,84 Mio.` in `de-DE`), the thousand's sign
+     * small, as SI writes it.
+     *
+     * @param n - The number
+     * @param of - A number it is read beside — a goal beside its gap, a total beside its share — whose magnitude and
+     *   decimals it then takes, so the two share a scale: `0.66M` beside `4.50M`, `1210k` beside `612k`. Itself when
+     *   omitted
+     * @param trim - Whether zeros that end its decimals are left off, as an axis's ticks read: `25k`, `2.5M`, never
+     *   `25.0k`
+     * @returns The text; a zero is `0` at any scale
+     */
+    short(n: number, of?: number, trim?: boolean): string;
     /** A bare chart tick — a whole number, else one decimal, never grouped:
      *  `1200`, `2.5` (`2,5` in `de-DE`); a negative zero prints `0`. */
     tick(n: number): string;
@@ -97,6 +119,11 @@ export interface Formatters {
     numericDate(d: Date): string;
     /** A date and 24-hour time — `Jun 29, 2026, 14:00`. */
     dateTime(d: Date): string;
+    /**
+     * A date and 24-hour time on the reader's own clock — `Jun 30, 2026, 00:00` in Sydney for `Jun 29, 2026, 14:00`
+     * UTC: an instant the reader lived through, when an alert fired, never a data value's (see the module docs).
+     */
+    localDateTime(d: Date): string;
     /** A 24-hour time — `14:00`. */
     time(d: Date): string;
     /** A short weekday — `Mon`. */
@@ -305,13 +332,18 @@ function utcFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.Da
     return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" });
 }
 
+/** But an instant the reader lived through: on their clock, in the zone given, else the runtime's own. */
+function readerFormat(locale: string, zone: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+    return new Intl.DateTimeFormat(locale, zone === undefined ? options : { ...options, timeZone: zone });
+}
+
 /** A date arm: `""` for an invalid date rather than `Intl`'s RangeError. */
 function dateArm(format: Intl.DateTimeFormat): (d: Date) => string {
     return (d) => (Number.isNaN(d.getTime()) ? "" : format.format(d));
 }
 
-/** Build the formatters for one locale. */
-function build(locale: string): Formatters {
+/** Build the formatters for one locale, and the reader's zone, the runtime's when `undefined`. */
+function build(locale: string, zone: string | undefined): Formatters {
     // Number formats are built on first use and kept, keyed by their
     // options: a Table formats thousands of cells through a handful of specs.
     const numberFormats = new Map<string, Intl.NumberFormat>();
@@ -333,6 +365,15 @@ function build(locale: string): Formatters {
     const group = plain.formatToParts(1234567).find((p) => p.type === "group")?.value ?? ",";
     const pct = numberFormat({ style: "percent", maximumFractionDigits: 0 });
     const compact = numberFormat({ notation: "compact", maximumFractionDigits: 1 });
+    // The short form: a plain amount under ten thousand, three significant digits of its magnitude from there.
+    const amount = numberFormat({ maximumFractionDigits: 2 });
+    const magnitude = { notation: "compact", minimumSignificantDigits: 3, maximumSignificantDigits: 3 } as const;
+    const short = numberFormat(magnitude);
+    // The same in Latin digits: what a number's magnitude is read from, whatever digits the locale writes.
+    const shortLatin = numberFormat({ ...magnitude, numberingSystem: "latn" });
+    const isDigits = (part: Intl.NumberFormatPart) => part.type === "integer" || part.type === "group" || part.type === "decimal" || part.type === "fraction";
+    // What the locale writes about a short number, before or after its digits; the thousand's `K` small.
+    const about = (parts: Intl.NumberFormatPart[]) => parts.map((part) => (part.type === "compact" && part.value === "K" ? "k" : part.value)).join("");
     const whole = numberFormat({ useGrouping: false, maximumFractionDigits: 0 });
     const tenth = numberFormat({ useGrouping: false, minimumFractionDigits: 1, maximumFractionDigits: 1 });
     const dmy = { day: "numeric", month: "short", year: "numeric" } as const;
@@ -354,6 +395,25 @@ function build(locale: string): Formatters {
         float: (n) => printFloat(n).replace(".", decimal),
         percent: (fraction) => pct.format(fraction),
         compact: (n) => compact.format(n),
+        short(n, of = n, trim = false) {
+            const size = Math.abs(of);
+            if (n === 0 || !Number.isFinite(n) || !(size >= 10_000) || !Number.isFinite(size)) return amount.format(n === 0 ? 0 : n);
+            // The magnitude `of` prints at: the number it shows against the number it is — a power of ten, and the
+            // fraction digits it shows it to.
+            const probe = shortLatin.formatToParts(size);
+            const digitsOf = (type: Intl.NumberFormatPartTypes) => probe.filter((part) => part.type === type).map((part) => part.value).join("");
+            const fraction = digitsOf("fraction");
+            const shown = Number(`${digitsOf("integer")}.${fraction === "" ? "0" : fraction}`);
+            const exponent = Math.round(Math.log10(size / shown));
+            // At a magnitude the number is short already: no digit groups, so `1210k` beside `612k`. At none — a locale
+            // with no word for a thousand — it is the number, grouped.
+            const scaled = numberFormat({
+                minimumFractionDigits: trim ? 0 : fraction.length, maximumFractionDigits: fraction.length, useGrouping: exponent === 0,
+            }).format(n / 10 ** exponent);
+            const parts = short.formatToParts(size);
+            const digits = parts.map(isDigits);
+            return about(parts.slice(0, digits.indexOf(true))) + scaled + about(parts.slice(digits.lastIndexOf(true) + 1));
+        },
         tick: (n) => (Number.isInteger(n) ? whole.format(n === 0 ? 0 : n) : tenth.format(n)),
         value(n, format, showSign = false) {
             if (format === undefined) return numberFormat(withSign({}, showSign)).format(n);
@@ -365,6 +425,7 @@ function build(locale: string): Formatters {
         date,
         numericDate: dateArm(utcFormat(locale, { day: "numeric", month: "numeric", year: "numeric" })),
         dateTime: dateArm(utcFormat(locale, { ...dmy, ...hm })),
+        localDateTime: dateArm(readerFormat(locale, zone, { ...dmy, ...hm })),
         time: dateArm(utcFormat(locale, hm)),
         weekday: dateArm(utcFormat(locale, { weekday: "short" })),
         weekdayDate: dateArm(utcFormat(locale, { weekday: "short", ...dmy })),
@@ -391,17 +452,20 @@ function build(locale: string): Formatters {
 const BY_LOCALE = new Map<string, Formatters>();
 
 /**
- * The formatters for a locale — one object per locale, built once, so its
- * identity is stable (a memo can depend on it).
+ * The formatters for a locale — one object per locale and reader's zone,
+ * built once, so its identity is stable (a memo can depend on it).
  *
  * @param locale - The BCP 47 locale; the runtime's default when omitted
+ * @param zone - The reader's IANA time zone, which {@link Formatters.localDateTime} prints in — every other arm is
+ *   UTC; the runtime's own when omitted
  * @returns The formatters
  */
-export function formatters(locale: string = DEFAULT_LOCALE): Formatters {
-    let f = BY_LOCALE.get(locale);
+export function formatters(locale: string = DEFAULT_LOCALE, zone?: string): Formatters {
+    const key = zone === undefined ? locale : `${locale} ${zone}`;
+    let f = BY_LOCALE.get(key);
     if (f === undefined) {
-        f = build(locale);
-        BY_LOCALE.set(locale, f);
+        f = build(locale, zone);
+        BY_LOCALE.set(key, f);
     }
     return f;
 }

@@ -7,8 +7,8 @@
  * `EastChakraStudioLibrary` — the renderer of the `StudioLibrary`
  * extension declared in `@elaraai/e3-ui` (#997): the page library, built in
  * the browser from its interface — the pages record bound with its patch, the
- * listed components, the project it shows first, the builder it opens pages
- * in, and who to tell.
+ * listed components, the project it shows first, the page open in the
+ * builder, and who to tell when another is asked for.
  *
  * - **One toolbar row**, the shared `Toolbar`: the search over both rows,
  *   Sort · Name, the Pages row's Grid · List, a rule, and the primary
@@ -25,9 +25,10 @@
  *
  * What it shows is e3-ui's East, compiled once ({@link studioEast}); the
  * project shown, the search, the order, the layout and the popover are its
- * own. "Open in builder →" writes the builder's open page, shared by `id`,
- * and tells the host; a new page is one commit through the record's patch
- * write. It draws no border around itself.
+ * own. "Open in builder →" and a page of the pane tell the host, which shows
+ * the page in its builder: the page library opens nothing itself, and marks
+ * the page the host says is open (#1668). A new page is one commit through
+ * the record's patch write. It draws no border around itself.
  *
  * Its layout is the `studioLibrary` recipe's; its controls are the
  * theme's shared ones — the Library's search box, the `button` recipe, the
@@ -47,16 +48,16 @@ import {
     faArrowDownAZ, faArrowDownZA, faCaretDown, faCheck, faChevronDown, faFolder, faFolderOpen, faMagnifyingGlass, faPlus, faXmark,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StudioCellType, StudioLibraryComponent, builderKeys } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { StudioCellType, StudioLibraryComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraLibrary, LibraryLayoutSwitch, SnapGridTiles, Toolbar, implementUIComponent, useFormatters,
     useTrackedEvaluation, type LibraryItemValue, type LibraryValue, type SnapGridLayoutCell, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
 import { NamePopover } from "../shared/name-popover.js";
+import { tellHost } from "../shared/open.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
-import { useOpenPage, type StudioKey } from "./open-page.js";
 import { studioEast } from "./studio-east.js";
 
 type Styles = Record<string, SystemStyleObject>;
@@ -83,6 +84,8 @@ const SORTS: ReadonlyArray<{ key: Sort; icon: IconDefinition; name: (m: StudioMe
 
 /** The template picker's value for Blank grid — no template's name can be it. */
 const BLANK = "\u0000blank";
+
+const stringEqual = equalFor(StringType);
 
 /** Props of {@link EastChakraStudioLibrary}. */
 export interface EastChakraStudioLibraryProps {
@@ -161,8 +164,7 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const east = studioEast();
     const { pages: handle, components } = value;
     const home = value.project;
-    const keys = useMemo(() => builderKeys(value.id.type === "some" ? value.id.value : undefined), [value.id]);
-    const tellHost = value.onOpen.type === "some" ? value.onOpen.value : undefined;
+    const onOpen = value.onOpen;
 
     // The record, read where the page library renders, and again when it moves.
     const read = useCallback(() => handle.read(), [handle]);
@@ -178,17 +180,6 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const [layout, setLayout] = useState<Layout>("grid");
     const [popover, setPopover] = useState<string | undefined>(undefined);
     const needle = text.toLowerCase();
-
-    // The builder's open page — the project's first to begin with.
-    const first = useMemo((): StudioKey => {
-        if (records !== undefined) {
-            for (const [key, entry] of records) {
-                if (key.project === home && entry.type === "page") return key;
-            }
-        }
-        return { project: home, page: "" };
-    }, [records, home]);
-    const [open, writeOpen] = useOpenPage(keys.page, first);
 
     // The rows: the search narrows them by title, and Sort orders them by name
     // — the record's key order, or its reverse.
@@ -216,18 +207,14 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
         const names = new Set<string>();
         if (records !== undefined) {
             for (const [key] of records) {
-                if (key.project === project) names.add(key.page);
+                if (stringEqual(key.project, project)) names.add(key.page);
             }
         }
         return names;
     }, [records, project]);
 
-    // "Open in builder →": the builder's open page, and the host told.
-    const openPage = useCallback((name: string) => {
-        const key = { project, page: name };
-        writeOpen(key);
-        if (tellHost !== undefined) queueMicrotask(() => tellHost(key));
-    }, [project, writeOpen, tellHost]);
+    // "Open in builder →": the host is told, in a turn of its own, and shows the page in its builder.
+    const openPage = useCallback((name: string) => { tellHost(onOpen, { project, page: name }); }, [project, onOpen]);
 
     // A template's card starts a new page from it, Blank grid's from nothing,
     // and the dashed card from nothing too — each opening the popover under
@@ -329,7 +316,8 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const np = everyPage.length;
     const nt = everyTemplate.length + 1;
     const shown = pageRows.length;
-    const current = open.project === project ? open.page : "";
+    // The page the host says is open in its builder, while this is its project.
+    const current = value.page.type === "some" && stringEqual(value.page.value.project, project) ? value.page.value.page : "";
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.

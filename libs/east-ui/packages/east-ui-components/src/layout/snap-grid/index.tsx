@@ -24,6 +24,8 @@ import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { SnapGridEditor } from "./editor.js";
+import { LEAST_HEIGHT, frameHeight } from "./natural.js";
+import { SNAP_GRID_STACKED_BELOW } from "./model.js";
 import { useTileGrows } from "./tile-grows.js";
 
 const snapGridEqual = equivalentFor(SnapGrid.Types.Root);
@@ -130,19 +132,20 @@ function SnapGridView({ value, storageKey }: EastChakraSnapGridProps) {
 }
 
 /** Whether a page's cell stands on the stacked grid: its row's width under the recipe's first breakpoint. */
-const STACKED_BELOW = 480;
-const isStacked = (el: HTMLElement) => (el.parentElement?.clientWidth ?? Infinity) < STACKED_BELOW;
+const isStacked = (el: HTMLElement) => (el.parentElement?.clientWidth ?? Infinity) < SNAP_GRID_STACKED_BELOW;
 
-/** One cell of the grid: its spans and its height, a stacked one's giving way to what it holds. */
+/** One cell of the grid: its spans and its height — a stretched one's the least it takes — a stacked one's giving way to what it holds. */
 function SnapGridCellBox<C extends SnapGridLayoutCell>({ cell, styles, wireframe, children }: { cell: C; styles: Record<string, SystemStyleObject>; wireframe: boolean; children: ReactNode }) {
     const spans = snapGridSpans(cell.span);
     const declared = getSomeorUndefined(cell.height);
     const { ref, height } = useTileGrows<HTMLDivElement>(wireframe || declared === undefined ? undefined : Number(declared), isStacked);
     const shown = wireframe ? declared : height;
+    // A stretched cell is as tall as its row: its height is the least it takes.
+    const held = frameHeight(shown === undefined ? undefined : Number(shown), cell.align.type === "stretch");
     const style = {
         "--snap-grid-span": String(spans.span),
         "--snap-grid-span-medium": String(spans.medium),
-        height: shown === undefined ? undefined : `${shown}px`,
+        ...held.style,
     } as CSSProperties;
     return (
         <Box
@@ -153,6 +156,7 @@ function SnapGridCellBox<C extends SnapGridLayoutCell>({ cell, styles, wireframe
             data-snap-grid-span={spans.span}
             data-align={cell.align.type}
             data-auto-height={declared === undefined ? "" : undefined}
+            {...(held.least ? { [LEAST_HEIGHT]: "" } : {})}
             data-frame={!wireframe && cell.frame ? "" : undefined}
         >
             {children}

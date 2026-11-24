@@ -18,7 +18,8 @@
  *   fields with their types, a variant's `type` and `value`, case names, the
  *   variables bound and the builtins; and the data's values where the builder
  *   already holds a summary of the rows there (#934's cache: the jq view
- *   fetches none). They close when the caret moves, on blur and on ⌘⏎;
+ *   fetches none) — this minute's, for rows narrowed by "is in the last"
+ *   (#1670). They close when the caret moves, on blur and on ⌘⏎;
  * - **the problems panel**: the check in words, then each of the checker's
  *   diagnostics — its code, where it starts and its sentence — and a note on
  *   each part of the jq that stays a jq step in the visual view. Going to one
@@ -45,7 +46,7 @@ import {
     type CheckJqResult, type CompleteJqOptions, type EastType, type JqCompletion, type JqCompletionKind, type JqTokenKind,
 } from "@elaraai/east";
 import type { QueryMessages } from "./model/messages.js";
-import { summaryAt, type Summary, type SummaryCache } from "./model/summaries.js";
+import { summaryAt, summaryHashes, type Summary, type SummaryCache } from "./model/summaries.js";
 import { human, plainKind, plural, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
 import type { PartStyles, Styles } from "./parts.js";
@@ -207,7 +208,9 @@ function applyEdits(text: string, edits: JqFix["edits"]): { text: string; caret:
 
 /**
  * The summary of the rows at the caret's stage, when the builder holds one:
- * the program before the last pipe outside every bracket, read as steps.
+ * the program before the last pipe outside every bracket, read as steps —
+ * looked up as a slot of the steps looks it up, rows narrowed by "is in the
+ * last" for this minute (#1670).
  */
 function stageSummary(text: string, caret: number, root: EastType, summaries: JqEditorProps["summaries"]): Summary | undefined {
     let depth = 0;
@@ -222,7 +225,7 @@ function stageSummary(text: string, caret: number, root: EastType, summaries: Jq
     const parsed = parseSteps(text.slice(0, cut), root);
     if ("error" in parsed) return undefined;
     const request = summaryAt(parsed.query, parsed.query.steps.length, root);
-    return request === undefined ? undefined : summaries.cache.get(request, summaries.hashes);
+    return request === undefined ? undefined : summaries.cache.get(request, summaryHashes(request, summaries.hashes));
 }
 
 /** The most common values at a path of a summary's rows that start with a prefix. */

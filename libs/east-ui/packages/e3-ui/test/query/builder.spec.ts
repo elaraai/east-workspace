@@ -6,9 +6,10 @@
 /**
  * `<Query.Builder>` (#935): an interface the browser draws — the
  * `QueryBuilder` carrier, holding the saved queries record bound for its
- * patch, the data sources read off their bindings, and its name — and its
- * surface's manifest (M1–M4); a save's patch (E3, E5); and whether a saved
- * query's data sources are bound where it would open.
+ * patch, the data sources read off their bindings, the query its host gives
+ * it and who it tells of another (#1668), and its name — and its surface's
+ * manifest (M1–M4); a save's patch (E3, E5); and whether a saved query's data
+ * sources are bound where it would open.
  */
 
 import { describe, test } from "node:test";
@@ -45,7 +46,11 @@ const CUSTOMERS: TreePath = [variant("field", "inputs"), variant("field", "custo
 const sources = equalFor(ArrayType(DataSourceType));
 const records = equalFor(SavedQueriesType);
 const paths = equalFor(ArrayType(TreePathType));
+const opens = equalFor(OptionType(Query.Types.Open));
 const applySaved = applyFor(SavedQueriesType);
+
+/** A host's `onOpen`: told the query asked for. */
+const heard = East.function([Query.Types.Open], NullType, (_$, _next) => null);
 
 /** A record of saved queries, as a test holds one: by name. */
 function saved(...queries: SavedQuery[]): Saved {
@@ -156,19 +161,40 @@ function payloadOf(build: (handles: { queries: ReturnType<typeof boundQueries.ca
 }
 
 describe("<Query.Builder> (#935)", () => {
-    test("the tag builds the QueryBuilder carrier, holding the bound record, the data sources in the order given, the query it opens first and its name", () => {
+    test("the tag builds the QueryBuilder carrier, holding the bound record, the data sources in the order given, the query its host gives it, who to tell and its name", () => {
         const payload = payloadOf(({ queries, orders, customers, regions }) =>
-            Query.Builder({ queries, datasets: { orders, customers, regions }, query: "Big orders", id: "ops" }));
+            Query.Builder({ queries, datasets: { orders, customers, regions }, query: "Big orders", onOpen: heard, id: "ops" }));
         assert.ok(sources(payload.datasets, [
             { name: "orders", source: variant("paged", ".inputs.orders"), type: toEastTypeValue(OrdersType) },
             { name: "customers", source: variant("value", CUSTOMERS), type: toEastTypeValue(CustomersType) },
             { name: "regions", source: variant("record", "regions"), type: toEastTypeValue(RegionsType) },
         ]), "each binding's descriptor, read off the handle, and its value's type");
-        assert.deepEqual([payload.query, payload.id], [some("Big orders"), some("ops")]);
+        assert.deepEqual(payload.id, some("ops"));
+        assert.ok(opens(payload.query, some(variant("saved", "Big orders"))), "a name is the saved query of that name");
+        if (payload.onOpen.type !== "some") assert.fail("onOpen is passed through");
+        assert.equal(payload.onOpen.value(variant("saved", "Order count")), null, "the host's function, called with the query asked for");
         assert.ok(records(payload.queries.read(), saved(BIG_ORDERS)), "the bound record's read");
 
         const unnamed = payloadOf(({ queries, customers }) => Query.Builder({ queries, datasets: { customers } }));
-        assert.deepEqual([unnamed.query, unnamed.id], [none, none], "a query and an id not given are none");
+        assert.deepEqual([unnamed.query, unnamed.onOpen, unnamed.id], [none, none, none], "a query, an onOpen and an id not given are none: it holds its own open query");
+    });
+
+    test("#1668: the query it is given is a name, an expression of one, or the open query itself — a new query on a data source too", () => {
+        const given = (query: NonNullable<Parameters<typeof Query.Builder>[0]["query"]>) =>
+            payloadOf(({ queries, customers }) => Query.Builder({ queries, datasets: { customers }, query, onOpen: heard })).query;
+        assert.ok(opens(given(East.value("Order count", StringType)), some(variant("saved", "Order count"))), "an expression of a name");
+        assert.ok(opens(given(Query.open.saved("Big orders")), some(variant("saved", "Big orders"))), "Query.open.saved");
+        assert.ok(opens(given(Query.open.on("customers")), some(variant("new", { id: "on:customers", source: "customers", from: none }))), "Query.open.on");
+        assert.ok(opens(given(variant("saved", "Big orders")), some(variant("saved", "Big orders"))), "the open query, as a value");
+    });
+
+    test("#1668: a builder given its query is given who to tell — `query` without `onOpen` is refused when the surface is built, saying what to give", () => {
+        const build = () => East.function([], UIComponentType, ($) => {
+            const queries = $.let(boundQueries());
+            const orders = $.let(pagedOrders());
+            return Query.Builder({ queries, datasets: { orders }, query: "Big orders" });
+        });
+        assert.throws(build, /Query\.Builder: `query` is given, so its host holds the open query — give `onOpen` too/);
     });
 
     test("M2, M3: only bound sources can be queried — a name a query can't read as a root field, and a builder handed none, are refused when the surface is built", () => {

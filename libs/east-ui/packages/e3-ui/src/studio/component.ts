@@ -22,6 +22,7 @@
 import {
     ArrayType,
     BooleanType,
+    DictType,
     East,
     FunctionType,
     IntegerType,
@@ -101,6 +102,19 @@ export type StudioComponentType = typeof StudioComponentType;
 // ============================================================================
 
 /**
+ * A name as code spells it, in words: its words apart and the first upper
+ * case (`sales_daily` "Sales daily", `weeklyForecast` "Weekly forecast",
+ * `ordered_at` "Ordered at"); a name with no letters or digits as it is.
+ */
+export const nameWords = East.function([StringType], StringType, ($, name) => {
+    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
+    return words.length().equal(0n).ifElse(
+        () => name,
+        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
+    );
+});
+
+/**
  * The name of the data at a path, in words, as the people who build pages
  * read it — never its keypath, nor its name as code spells it: a task's
  * output by its task's name, anything else by its own, its words apart and
@@ -113,12 +127,7 @@ export const dataName = East.function([TreePathType], StringType, ($, path) => {
     const output = $.let(path.size().equal(3n)
         .and(() => path.get(0n).unwrap("field").equal("tasks"))
         .and(() => path.get(last).unwrap("field").equal("output")));
-    const name = $.let(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
-    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
-    return words.length().equal(0n).ifElse(
-        () => name,
-        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
-    );
+    return nameWords(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
 });
 
 /**
@@ -128,6 +137,17 @@ export const dataName = East.function([TreePathType], StringType, ($, path) => {
  */
 export const readNames = East.function([DataManifestType], ArrayType(StringType), (_$, reads) =>
     reads.paths.concat(reads.pages).map((_$2, path) => dataName(path)));
+
+/**
+ * Each listed component's name, by its key: what a placement of it is called
+ * wherever a placement's content is said in words. A key two components share
+ * keeps the first one's name.
+ */
+export const componentNames = East.function(
+    [ArrayType(StudioComponentType)],
+    DictType(StringType, StringType),
+    (_$, components) => components.toDict((_$2, component) => component.key, (_$2, component) => component.name, (_$2, first) => first),
+);
 
 /**
  * What the palette shows of a component — its `meta`. Only `name`,

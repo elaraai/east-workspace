@@ -34,6 +34,7 @@
     "test:docker:up": "docker-compose up -d && npm run test:wait",
     "test:docker:down": "docker-compose down -v",
     "test:wait": "node --enable-source-maps dist/scripts/wait-for-services.js",
+    "test:fixtures": "npm run build && node --enable-source-maps dist/scripts/access-fixture.js",
     "dev:services": "docker-compose up -d",
     "dev:services:down": "docker-compose down -v",
     "lint": "eslint .",

@@ -5,7 +5,8 @@
 
 /**
  * One history over a session a record (`EditHistory`), held to what it
- * promises over orderings rather than examples: every ordering of a desk's
+ * promises over orderings rather than examples — a run of one record's
+ * gestures under one key among them: every ordering of a desk's
  * operations to a depth, and seeded random runs past it (`desk.test-utils.ts`
  * says what a desk is, what its operations are and what must hold after each).
  *
@@ -36,6 +37,8 @@ const OWN = /^(edit|both|undo|redo|discard|save|deliver\(|read|redraw)/;
 const ANSWERS = /^(edit|both|undo|save|deliver|lose|read|retry|askAgain)/;
 /** An optimiser's result among the gestures, a person's Save and an automatic one. */
 const AUTOMATIC = /^(edit|both|optimise|undo|redo|save|autosave|deliver\()/;
+/** A run of one record's gestures under one key — joined, brought back — among the other's gestures, Undo, Redo, Discard and Save. */
+const NUDGES = /^(nudge|edit|undo|redo|discard|save|deliver\()/;
 
 for (const shape of ["fields", "whole"] as const) {
     describe(`one history over two records, drafting ${shape === "fields" ? "a field at a time" : "a row whole"}`, () => {
@@ -57,6 +60,12 @@ for (const shape of ["fields", "whole"] as const) {
         it("an automatic Save: every ordering with gestures in each record, an optimiser's result, Undo, Redo and a person's Save", async () => {
             const count = await explore(5 + DEEPER, AUTOMATIC);
             console.info(`[editing model] ${shape} desk automatic: ${count} orderings`);
+            expect(count).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
+        }, WITHIN);
+
+        it("a run of one record's gestures under one key: every ordering with a run joined, brought back where it began, the other record's gestures, Undo, Redo, Discard and Save", async () => {
+            const count = await explore(5 + DEEPER, NUDGES);
+            console.info(`[editing model] ${shape} desk runs: ${count} orderings`);
             expect(count).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
         }, WITHIN);
 

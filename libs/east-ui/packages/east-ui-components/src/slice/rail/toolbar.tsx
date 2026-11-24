@@ -3,7 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Shared Slice rail presentation: local and record adapters use one ladder. */
+/**
+ * Shared Slice rail presentation: local and record adapters use one ladder.
+ *
+ * What folds, in which order, and what is held open are the rail engine's
+ * (`../../toolbar/rail/`, #1673): this module draws the engine's forms — the
+ * live affordances, the summary chips, the folded trigger, the editor's
+ * popover and a phone's Filters button and view.
+ */
 import { Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Accordion, Box, chakra, useRecipe } from "@chakra-ui/react";
@@ -11,25 +18,29 @@ import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
-import { FLOOR_RANK, type ToolbarItem } from "../../toolbar/index.js";
+import type { ToolbarItem } from "../../toolbar/index.js";
+import { foldedAt, useRail, type RailAffordance, type RailCluster, type RailClusterState, type RailForm } from "../../toolbar/rail/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { SliceClearButton } from "../choice.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { SliceFiltersView } from "./filters-view.js";
+import { SliceRailHold } from "./hold.js";
 
-/** One affordance's display, independent of its query engine. */
-export interface SliceRailDescriptor {
+/**
+ * One affordance's display, independent of its query engine: what the rail
+ * engine reads of it — whether it narrows, and its own place in the shared
+ * ladder, where it gives one (host items still fold after it) — and what the
+ * rail draws.
+ */
+export interface SliceRailDescriptor extends RailAffordance {
     kind: string;
     /** Its icon: the family's, or the source's when its source has one. */
     icon: IconProp;
     label: string;
     text: string;
-    active: boolean;
     /** Its choice alone, while it holds one (`Ready`, `Nov 2 – Nov 8`): what a phone's Filters view says beside its label; `text` where none is given. */
     choice?: string;
-    /** Optional position in the shared ladder; host items still fold after it. */
-    rank?: number;
     /** Data attributes naming what its section edits; a record field's by default. */
     attributes?: Readonly<Record<string, string>>;
     /** The group it is headed under in the editor: a source of a Slice over several records, or the presets over them. */
@@ -146,90 +157,40 @@ function RailPhoneFilters({ model, kinds, open, onOpenChange, button, popover }:
     );
 }
 
-/**
- * Fold rank per affordance kind — the order affordances degrade from live
- * control to summary chip under width pressure. Lower folds first: `search`
- * and `range` summarise cheaply, so they go first; the `filter` clause builder
- * is the primary narrowing surface, so it stays live longest. A kind with no
- * entry folds mid-pack. Purely presentational — nothing here reaches East IR.
- */
-const COLLAPSE_RANK: Record<string, number> = {
-    search: 1,
-    range: 2,
-    cohort: 3,
-    presets: 3,
-    breakdown: 4,
-    filter: 5,
-};
-
-/** The rail's own fold ranks around {@link COLLAPSE_RANK}: the filter's
- *  clause chips fold first; the merged terminal chip and the icon last; and,
- *  below the toolbar's ladder, the icon without its caret — the first rung of
- *  the row's floor (`FLOOR_RANK`, hand retest, 27 Oct 2026). */
-const RAIL_RANK = { chips: 0, terminal: 6, icon: 7, bare: FLOOR_RANK } as const;
-
-/** One cluster of the rail — one item of the shared toolbar. */
-export interface SliceRailClusterSpec {
-    /** Its key in the toolbar. */
-    key: string;
-    /** The affordance kinds it holds, in mount order (`"filter"`, `"search"`, …). */
-    kinds: ReadonlyArray<string>;
-    /** Where it sits in the row: at its start (the default), or in its end cluster. */
-    side?: "start" | "end" | undefined;
-}
-
-/**
- * One form of a cluster: how many families have folded (in fold order), how
- * many of the filter's clause chips have folded into `+M more`, and how the
- * folded families show — as their summary chips, merged into the terminal
- * chip, as the icon alone, or, at the row's floor, as the icon without the
- * trigger's caret.
- */
-interface RailForm {
-    folded: number;
-    chips: number;
-    show: "chips" | "terminal" | "icon" | "bare";
-}
+/** One cluster of the rail — one item of the shared toolbar: the rail engine's. */
+export type { RailCluster as SliceRailClusterSpec } from "../../toolbar/rail/index.js";
 
 /**
  * Build one shared-toolbar item per Slice cluster. The adapters own data and
- * control actions; this hook owns folding, held anchors and editor density.
+ * control actions; the rail engine owns folding and the held editor
+ * (`useRail`); this hook draws the engine's forms, in each density.
  *
  * The items are made again only when what they are drawn from moves (#1398,
- * CL9): the model, the clusters' affordances, and the editor held open. A
- * host that keeps its model the same object while its slices and its words
- * hold — the record adapters do — hands its builder's toolbar the same items
- * at every render, so a builder drawn again at each window landing draws its
- * rail again only when a choice moves.
+ * CL9): the engine's rail — its model, the clusters' affordances, and the
+ * editor held open. A host that keeps its model the same object while its
+ * slices and its words hold — the record adapters do — hands its builder's
+ * toolbar the same items at every render, so a builder drawn again at each
+ * window landing draws its rail again only when a choice moves.
  *
  * @param model - Display callbacks; undefined means no controls.
  * @param clusters - Affordances in each host cluster.
  * @returns Items for the host's one Toolbar.
  */
-export function useSliceRailItems(model: SliceRailModel | undefined, clusters: ReadonlyArray<SliceRailClusterSpec>): ToolbarItem[] {
+export function useSliceRailItems(model: SliceRailModel | undefined, clusters: ReadonlyArray<RailCluster>): ToolbarItem[] {
     const styles = useSlotStyles("sliceFrame");
     const phoneStyles = useSlotStyles("toolbarPhone");
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
-    // Every slice change can move what the rail shows — the chips, their words.
-    // The cluster whose sectioned editor is open, and how many clause chips
-    // its filter had as it opened: its forms keep that many chip steps while
-    // it is held (#1231). The editor is the terminal surface: every affordance
-    // of the cluster flat, in `editor` density, complete however far the
-    // cluster has folded.
-    const [open, setOpen] = useState<{ key: string; chips: number } | null>(null);
-    // The clusters as what they hold: a host's new array of the same clusters makes nothing again.
-    const shape = clusters.map((cluster) => `${cluster.key}\u0001${cluster.side ?? ""}\u0001${cluster.kinds.join("\u0002")}`).join("\u0000");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the clusters are read by `shape`, what they hold
-    return useMemo(() => railItems(model, clusters, open, setOpen, styles, phoneStyles, chip, btn), [model, shape, open, styles, phoneStyles, chip, btn]);
+    // Every slice change can move what the rail shows — the chips, their words. The editor is the terminal surface:
+    // every affordance of the cluster flat, in `editor` density, complete however far the cluster has folded.
+    const rail = useRail(model, clusters);
+    return useMemo(() => railItems(model, rail, styles, phoneStyles, chip, btn), [model, rail, styles, phoneStyles, chip, btn]);
 }
 
-/** The rail's items, made from its model — what {@link useSliceRailItems} keeps while they hold. */
+/** The rail's items, drawn from its model and the engine's forms — what {@link useSliceRailItems} keeps while they hold. */
 function railItems(
     model: SliceRailModel | undefined,
-    clusters: ReadonlyArray<SliceRailClusterSpec>,
-    open: { key: string; chips: number } | null,
-    setOpen: (open: { key: string; chips: number } | null) => void,
+    rail: ReadonlyArray<RailClusterState>,
     styles: SlotStyles,
     phoneStyles: SlotStyles,
     chip: ReturnType<typeof useRecipe>,
@@ -245,42 +206,12 @@ function railItems(
         </Box>
     );
 
-    return clusters.filter((cluster) => cluster.kinds.length > 0).map((cluster): ToolbarItem => {
+    return rail.map(({ cluster, forms, ranks, every, held, open, set, setOpen, hold }): ToolbarItem => {
         const kinds = cluster.kinds;
-        // Fold order: mount indices, lowest COLLAPSE_RANK first (a kind with
-        // no entry folds mid-pack).
-        const foldOrder = kinds
-            .map((kind, i) => ({ i, rank: model.describe(kind).rank ?? COLLAPSE_RANK[kind] ?? 3 }))
-            .sort((a, b) => a.rank - b.rank || a.i - b.i);
-        const liveChips = kinds.includes("filter") ? (model.filterChips ?? 0) : 0;
-        const held = open !== null && open.key === cluster.key;
-        const chipCount = held ? open.chips : liveChips;
-        const forms: RailForm[] = [{ folded: 0, chips: 0, show: "chips" }];
-        const ranks: number[] = [];
-        for (let c = 1; c <= chipCount; c++) {
-            forms.push({ folded: 0, chips: c, show: "chips" });
-            ranks.push(RAIL_RANK.chips);
-        }
-        foldOrder.forEach((o, k) => {
-            forms.push({ folded: k + 1, chips: chipCount, show: "chips" });
-            ranks.push(o.rank);
-        });
-        if (kinds.length > 1) {
-            forms.push({ folded: kinds.length, chips: chipCount, show: "terminal" });
-            ranks.push(RAIL_RANK.terminal);
-            forms.push({ folded: kinds.length, chips: chipCount, show: "icon" });
-            ranks.push(RAIL_RANK.icon);
-        }
-        // The row's floor: every cluster's trigger as its icon alone, without its caret — taken only where the toolbar's
-        // whole ladder leaves the row too wide, so the history and Save stay in it (hand retest, 27 Oct 2026).
-        forms.push({ folded: kinds.length, chips: chipCount, show: "bare" });
-        ranks.push(RAIL_RANK.bare);
 
-        // Keep labels and ordering independent of selections: changing a
-        // filter must not resize its trigger or move the open popover.
-        const folded = (form: RailForm): SliceRailDescriptor[] => form.show === "chips"
-            ? foldOrder.slice(0, form.folded).map((o) => model.describe(kinds[o.i]!))
-            : kinds.map(kind => model.describe(kind));
+        // The affordances a form folds, as the engine orders them: labels and ordering independent of selections, so
+        // changing a filter never resizes its trigger or moves the open popover.
+        const folded = (form: RailForm): SliceRailDescriptor[] => foldedAt(form).map((i) => model.describe(kinds[i]!));
 
         // What the folded families show: their summary chips in fold order;
         // at the terminal form a stable Filters label; past it the icon
@@ -288,9 +219,9 @@ function railItems(
         // name and editor retain the selected values.
         const trigger = (form: RailForm): ReactNode => {
             if (form.show === "chips") {
-                return foldOrder.slice(0, form.folded).map((o) => {
-                    const d = model.describe(kinds[o.i]!);
-                    return summaryChip(`fold-${d.kind}-${o.i}`, d);
+                return foldedAt(form).map((i) => {
+                    const d = model.describe(kinds[i]!);
+                    return summaryChip(`fold-${d.kind}-${i}`, d);
                 });
             }
             const descriptors = folded(form);
@@ -310,13 +241,13 @@ function railItems(
 
         const editor = (form: RailForm, button?: ReactElement): ReactNode => (
             <SliceEditPopover
-                open={held}
-                onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)}
+                open={open}
+                onOpenChange={setOpen}
                 label={<>Narrowing · <Box as="span" css={styles.railActiveCount}>{`${activeCount} active`}</Box></>}
                 size="lg"
                 footLeft={model.clear === undefined ? undefined : <SliceClearButton label="Clear all" onClick={model.clear} />}
                 footActions={
-                    <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} onClick={() => setOpen(null)}>
+                    <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} onClick={() => setOpen(false)}>
                         Done
                     </chakra.button>
                 }
@@ -345,25 +276,27 @@ function railItems(
 
         // One form: the live affordances in mount order — the filter showing
         // the chips this form leaves it — then the folded families' trigger.
+        // An editor of the live row holds the cluster while it is open (#1673).
         const render = (form: RailForm): ReactNode => {
-            const collapsed = new Set(foldOrder.slice(0, form.folded).map((o) => o.i));
             return (
                 <SliceDensityContext.Provider value="compact">
-                    <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                        {kinds.map((kind, i) => {
-                            if (collapsed.has(i)) return null;
-                            const meta = model.describe(kind);
-                            return (
-                                <Box key={`af-${kind}-${i}`} css={styles.railAffordance} title={meta?.label}>
-                                    <Box as="span" css={styles.frameAffordanceIcon}>
-                                        {meta !== undefined && <FontAwesomeIcon icon={meta.icon} />}
+                    <SliceRailHold.Provider value={hold}>
+                        <Box css={styles.railCluster} data-slice-rail={cluster.key}>
+                            {form.live.map((i) => {
+                                const kind = kinds[i]!;
+                                const meta = model.describe(kind);
+                                return (
+                                    <Box key={`af-${kind}-${i}`} css={styles.railAffordance} title={meta?.label}>
+                                        <Box as="span" css={styles.frameAffordanceIcon}>
+                                            {meta !== undefined && <FontAwesomeIcon icon={meta.icon} />}
+                                        </Box>
+                                        {model.render(kind, i, kind === "filter" ? form.chips : undefined)}
                                     </Box>
-                                    {model.render(kind, i, kind === "filter" ? form.chips : undefined)}
-                                </Box>
-                            );
-                        })}
-                        {form.folded > 0 && editor(form)}
-                    </Box>
+                                );
+                            })}
+                            {form.folded > 0 && editor(form)}
+                        </Box>
+                    </SliceRailHold.Provider>
                 </SliceDensityContext.Provider>
             );
         };
@@ -371,20 +304,18 @@ function railItems(
         // A phone's (`Mobile Filters Spec.md` SL2): the Filters button — the filter icon and, while any field is set, how
         // many — named by every field it holds, after the views and the count and before Search Records. In a phone's
         // frame it opens the Filters view over the whole builder (SL3, R1); with no frame around it, the editor's popover.
-        const every: RailForm = { folded: kinds.length, chips: chipCount, show: "bare" };
-        const set = folded(every).filter((d) => d.active).length;
         const button = (onClick?: () => void, ref?: Ref<HTMLButtonElement>) => (
             <chakra.button ref={ref} type="button" css={phoneStyles.filters} data-slot="railTrigger" data-rail-phone=""
                 data-active={set > 0 ? "" : undefined} aria-label={`Filters: ${folded(every).map((d) => d.text).join(" · ")}`}
-                aria-expanded={onClick === undefined ? undefined : held} onClick={onClick}>
+                aria-expanded={onClick === undefined ? undefined : open} onClick={onClick}>
                 <FontAwesomeIcon icon={faFilter} />
                 {set > 0 && <Box as="span" data-rail-set="">{set}</Box>}
             </chakra.button>
         );
         const phone = (
             <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                <RailPhoneFilters model={model} kinds={kinds} open={held} button={button} popover={editor(every, button())}
-                    onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)} />
+                <RailPhoneFilters model={model} kinds={kinds} open={open} button={button} popover={editor(every, button())}
+                    onOpenChange={setOpen} />
             </Box>
         );
 
@@ -392,7 +323,7 @@ function railItems(
             key: cluster.key,
             side: cluster.side,
             forms: forms.map(render),
-            rank: ranks,
+            rank: [...ranks],
             version,
             held,
             phone: { form: phone, order: 1 },

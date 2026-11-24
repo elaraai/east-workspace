@@ -10,3 +10,4 @@
  */
 export { EastChakraSparkline, type EastChakraSparklineProps } from "./sparkline/index.js";
 export { EastVisxChart, type EastVisxChartProps } from "./spec/index.js";
+export type { ChartMark, ChartMarkHandler, ChartMarkedTest, ChartNumberText } from "./spec/context.js";

@@ -15,6 +15,12 @@
  * verbatim from the Planner marker. The renderer carries no inline design
  * values — it only consumes these slots.
  *
+ * In a tile (`tile`, #1671) — a Studio pivot's grid of heat blocks: its
+ * header on the surface, each head its short label; its rows unruled, 40
+ * tall around a 30px block of radius 4, 2 from its neighbours, its value mono
+ * 11/500; a pair with no rows an outlined block that says so; its row names
+ * mono 11/400, padded 0 12 from the Frame's 20.
+ *
  * @packageDocumentation
  */
 
@@ -24,7 +30,7 @@ import { centredLine } from "../one-line-box.js";
 export const matrixSlotRecipe = defineSlotRecipe({
     className: "elara-matrix",
     slots: [
-        "root", "header", "leftPanel",
+        "root", "header", "leftPanel", "colHeader", "headerCell",
         "row", "rowHeader", "rowHeaderText", "rowHeaderName", "rowHeaderSub",
         "cell",
         "bar", "seg", "segLabel", "resizeHandle",
@@ -77,6 +83,9 @@ export const matrixSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
         },
+        // A head's label: the row names' head, and a column's — placed by the `tile` variant.
+        colHeader: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
+        headerCell: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
         // Cell — segment-bar host. Border-right rule (row carries the bottom).
         cell: {
             position: "relative",
@@ -100,7 +109,8 @@ export const matrixSlotRecipe = defineSlotRecipe({
         },
         // One weighted slice. `fill` colours it; the in-bar label centres here, on
         // a whole line of 14px in the bar's 24px (#1638): the theme's line of 1.5
-        // is 15px, which the slice centred half a pixel under its edge.
+        // is 15px, which the slice centred half a pixel under its edge. Its
+        // numerals are tabular (a pivot's heat cell, #1671).
         seg: {
             height: "100%",
             display: "flex",
@@ -110,6 +120,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             lineHeight: centredLine(24, 14),
             fontWeight: "semibold",
+            fontVariantNumeric: "tabular-nums",
             position: "relative",
             overflow: "hidden",
             whiteSpace: "nowrap",
@@ -161,9 +172,30 @@ export const matrixSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { rowHeader: { paddingY: "{spacing.1}" }, row: { minHeight: "40px" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" } },
+            sm: { rowHeader: { paddingY: "{spacing.1}" }, row: { minHeight: "40px" } },
             md: {},
-            lg: { rowHeader: { paddingY: "{spacing.3}" }, row: { minHeight: "60px" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" } },
+            lg: { rowHeader: { paddingY: "{spacing.3}" }, row: { minHeight: "60px" } },
+        },
+        // A tile's grid (#1671): heat blocks, no rules.
+        tile: {
+            true: {
+                header: { background: "transparent" },
+                // The row names' head starts at the Frame's edge; a column's head is centred over its blocks.
+                colHeader: { paddingInlineStart: "20px", paddingInlineEnd: "12px", lineHeight: centredLine(35, 19) },
+                headerCell: { paddingInline: "2px", lineHeight: centredLine(35, 19) },
+                row: { borderBottomWidth: "0" },
+                rowHeader: { padding: "0 12px 0 20px", borderRightWidth: "0" },
+                rowHeaderName: { fontSize: "11px", fontWeight: "400" },
+                // 5 over and under its 30px block: the whole 40px row the renderer stands every bar in; 2 either side
+                // stands the blocks 4 apart.
+                cell: { padding: "5px 2px", borderRightWidth: "0" },
+                bar: { height: "30px", borderRadius: "4px" },
+                seg: {
+                    fontSize: "11px", fontWeight: "500", lineHeight: centredLine(30, 14),
+                    // A pair with no rows: the surface inside a `--rule`, its words in the label voice (28 inside the rule).
+                    "&[data-fill=free]": { borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle", borderRadius: "4px", fontSize: "10px", fontWeight: "400", lineHeight: centredLine(28, 14) },
+                },
+            },
         },
         // Bar layout — horizontal weight bar vs bottom-anchored capacity column.
         orientation: {

@@ -116,7 +116,7 @@ test("locked while a run of the optimiser is out (#1409, R2): each action aria-d
     expect(ui.onAction).not.toHaveBeenCalled();
 });
 
-test("an incomplete draft counts as an issue the bar goes to; the status and the session's own error are worded, a host's error shown as written", () => {
+test("an incomplete draft counts as an issue the bar goes to; the status is worded", () => {
     const ui = setup();
     const incomplete: EntryVersion<string> = { draft: { id: variant("value", "a"), end: variant("missing", null) }, wire: "a to ?", place: start };
     ui.session.record([{ id: "a", before: version(1n), after: incomplete }], "typed", "Clear the end");
@@ -125,13 +125,8 @@ test("an incomplete draft counts as an issue the bar goes to; the status and the
     fireEvent.click(ui.getByRole("button", { name: "⟦1 issue" }));
     expect(ui.onIssue).toHaveBeenCalledWith(expect.objectContaining({ entry: "a", field: some("end") }));
     ui.session.status = "applying";
-    ui.session.error = SESSION_TEXT.noRevision;
     ui.refresh();
     expect(ui.getByRole("status").textContent).toBe("⟦Saving…");
-    expect(ui.getByRole("alert").textContent).toBe(`⟦${SESSION_TEXT.noRevision}`);
-    ui.session.error = "Refused by the host";
-    ui.refresh();
-    expect(ui.getByRole("alert").textContent).toBe("Refused by the host");
 });
 
 test("a Save out, and its saved state read back, shows on Save until the page holds it (#1573): busy, the live dot in its tick's place; a read back that failed, or stalled, is Retry refresh's — in both forms", () => {
@@ -188,7 +183,8 @@ test("over a history of several sessions (#1194), Save reads the read back from 
     laps.status = "reconciling";
     legs.error = "could not prepare the Save";
     ui.rerender(bar());
-    expect([save()?.getAttribute("aria-busy"), retry(), ui.getByRole("alert").textContent]).toEqual(["true", null, "could not prepare the Save"]);
+    // Why the other's could not be prepared is its banner's to say (`SessionBanners`), never the bar's.
+    expect([save()?.getAttribute("aria-busy"), retry(), ui.queryByRole("alert")]).toEqual(["true", null, null]);
     // The read back itself failed: Retry refresh asks again.
     laps.error = "read-back refused";
     ui.rerender(bar());
@@ -255,7 +251,7 @@ test("an open editor turns Save on, to commit it and save — never while a Save
     expect([session.locked, save().disabled, save().getAttribute("aria-busy")]).toEqual([false, false, null]);
 });
 
-test("drafts a reload would lose are said under the buttons, where the bar says its error", () => {
+test("the bar says none of what the session's banners say — its error, a host's refusal, drafts a reload would lose: those are the banners' alone, which every host draws, never a line of its toolbar", () => {
     resetKept();
     window.sessionStorage.clear();
     const session = new EditSession<string>({
@@ -266,10 +262,19 @@ test("drafts a reload would lose are said under the buttons, where the bar says 
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
     session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
-    const { container } = render(<ChakraProvider value={system}>
+    const bar = () => <ChakraProvider value={system}>
         <HistoryBar session={session} words={WORDS} editing={false} onAction={() => undefined} onIssue={() => undefined} />
-    </ChakraProvider>);
-    expect(container.querySelector("[data-history-keeping]")!.textContent).toBe(`⟦${editingMessages.bannerUnkept({ reason: "full" })}`);
+    </ChakraProvider>;
+    const ui = render(bar());
+    /** What the bar draws beyond its buttons and its status. */
+    const said = () => [ui.queryByRole("alert"), ui.container.querySelector("[data-history-keeping]"), ui.container.textContent!.includes(editingMessages.bannerUnkept({ reason: "full" }))];
+    expect(said()).toEqual([null, null, false]);
+    // The session's own error, and a host's: still the banners'.
+    for (const error of [SESSION_TEXT.noRevision, "Refused by the host"]) {
+        session.error = error;
+        ui.rerender(bar());
+        expect([...said(), ui.container.textContent!.includes(error)], error).toEqual([null, null, false, false]);
+    }
 });
 
 test("a phone's form (Mobile Builder Frame Spec.md FR6): the drafts' count first, the issues there at none and off, then Undo, Redo, Discard and Save, Save filled while it would save", () => {

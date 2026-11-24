@@ -19,6 +19,7 @@ import {
     BooleanType,
     DateTimeType,
     FloatType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -450,12 +451,14 @@ export type ChartPointsType = typeof ChartPointsType;
  * @property at        - The data coordinate (stringified) to place the rule at
  * @property stroke    - Rule colour
  * @property dashArray - SVG dash pattern; solid when omitted
+ * @property label     - Its caption, drawn inside the plot at the rule's start, over the line, in the rule's colour (`target 2.00M`); `none` draws none
  */
 export const ChartRuleType = StructType({
     axis:      VariantType({ x: NullType, y: NullType }),
     at:        StringType,
     stroke:    StringType,
     dashArray: OptionType(StringType),
+    label:     OptionType(StringType),
 });
 export type ChartRuleType = typeof ChartRuleType;
 
@@ -522,6 +525,76 @@ export const ChartSeriesMarkType = StructType({
     tooltip:     OptionType(BooleanType),
 });
 export type ChartSeriesMarkType = typeof ChartSeriesMarkType;
+
+/**
+ * One slice of a pie: what it stands for, its value, and its colour.
+ *
+ * @property key   - What the slice stands for: its label in the legend
+ * @property value - Its value; its share is its value over the pie's total
+ * @property color - Its colour (theme token or CSS); `none` takes the chart rules' series order by the slice's rank, largest first
+ */
+export const ChartSliceType = StructType({
+    key:   StringType,
+    value: FloatType,
+    color: OptionType(StringType),
+});
+export type ChartSliceType = typeof ChartSliceType;
+
+/** Array of {@link ChartSliceType}. */
+export const ChartSliceArrayType = ArrayType(ChartSliceType);
+export type ChartSliceArrayType = typeof ChartSliceArrayType;
+
+/**
+ * What a pie's legend shows.
+ *
+ * @property values - Each slice's name, its value and its share, and the pie's `note` under the rows
+ * @property names - Each slice's name alone
+ * @property hidden - No legend: the pie alone, each slice saying its name, its value and its share where the pointer rests
+ */
+export const ChartPieLegendType = VariantType({
+    values: NullType,
+    names:  NullType,
+    hidden: NullType,
+});
+export type ChartPieLegendType = typeof ChartPieLegendType;
+
+/** String-literal shorthand for {@link ChartPieLegendType}. */
+export type ChartPieLegendLiteral = "values" | "names" | "hidden";
+
+/**
+ * A pie: shares of one total.
+ *
+ * @remarks
+ * The renderer draws the slices largest first from twelve o'clock, the first
+ * `top` of them and then one Other slice for the rest, with a 1.5 px gap of
+ * the surface between slices. A slice carries no label: the legend beside the
+ * pie carries each slice's value and its share, and a `note` under its rows —
+ * or its names alone, or nothing, as `legend` says. A donut is a 26 px ring
+ * with the total in its centre, and a `caption` under it. A slice of no
+ * positive value is not drawn.
+ *
+ * @property data   - The slices, in any order
+ * @property top    - How many slices are drawn before the rest fold into Other; `none` draws 4
+ * @property total  - The whole the slices are shares of, when they are not all of it: what is past their sum is Other's; `none` is their sum
+ * @property other  - Other's label in the legend; `none` is "Other"
+ * @property donut   - Drawn as a ring, its total in the middle
+ * @property format  - How a value prints in the legend and the centre; `none` prints a number
+ * @property caption - What a donut's total is, under it in the centre (`units · total`); `none` draws none
+ * @property note    - A line under the legend's rows, saying what the values are (`AUD · share of 3.84M`); `none` draws none
+ * @property legend  - What the legend shows ({@link ChartPieLegendType}); `none` shows each slice's value and share
+ */
+export const ChartPieType = StructType({
+    data:    ChartSliceArrayType,
+    top:     OptionType(IntegerType),
+    total:   OptionType(FloatType),
+    other:   OptionType(StringType),
+    donut:   BooleanType,
+    format:  OptionType(ChartTickFormatType),
+    caption: OptionType(StringType),
+    note:    OptionType(StringType),
+    legend:  OptionType(ChartPieLegendType),
+});
+export type ChartPieType = typeof ChartPieType;
 
 /**
  * A band (area-range) layer — fills the vertical span of each band series.

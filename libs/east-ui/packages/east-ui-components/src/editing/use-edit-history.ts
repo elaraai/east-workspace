@@ -419,3 +419,27 @@ export function useEditHistory<W>(
     const keys = useMemo(() => parts.map((part) => part.key), [parts]);
     return { history, keys, held, original, available, version };
 }
+
+/**
+ * The history kept for a view of a data set, made the first time (#1673) —
+ * for a host whose own sessions join a collection's under one history: the
+ * collection syncs its session and the host's into it
+ * ({@link EditHistory.sync}), and the host records its own gestures through
+ * it. {@link useEditHistory} keeps one over sessions it holds itself.
+ *
+ * @typeParam W - The sessions' projection of an entry
+ * @param storageKey - The view's key: the history is kept under it, with its builder's choice of an automatic Save
+ * @param options - What the builder adds: where its author begins its choice of an automatic Save
+ * @returns The history
+ */
+export function useKeptHistory<W>(storageKey: string, options?: EditHistoryOptions): EditHistory<W> {
+    const store = getStore();
+    const scope = useEditingScope();
+    const autosave = options?.autosave === true;
+    const history = useMemo(() => keptHistory<W>(store, scope, storageKey, autosave),
+        // What its author begins its choice at makes no other history: the effect below says it as it moves.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [store, scope, storageKey]);
+    useLayoutEffect(() => { beginAutosave(history, autosave); }, [history, autosave]);
+    return history;
+}

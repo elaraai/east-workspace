@@ -17,9 +17,10 @@ import { describe, test } from "node:test";
 import {
     ArrayType, BooleanType, DateTimeType, IntegerType, OptionType, SortedMap, StringType, StructType,
     checkJq, compareFor, decodeBeast2, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, isValueOf, none, printFor, some, variant,
-    type EastType, type ValueTypeOf,
+    type EastType, type StructType as StructTypeOf, type ValueTypeOf,
 } from "@elaraai/east";
 import { QueryStepType, QueryStepValueType, QueryStepsType } from "@elaraai/e3-ui/internal";
+import { utcAt } from "../../src/plan/plan.test-utils.js";
 import { checkSteps, type StepFix } from "../../src/query/steps/check.js";
 import { SOURCE_COUNT, countingProgram, readCounts } from "../../src/query/steps/count.js";
 import {
@@ -38,6 +39,12 @@ const ROOT: EastType = fromEastTypeValue(fixture.type);
 /** A root of items with the kinds the fixture lacks: yes or no. */
 const Item = StructType({ name: StringType, active: BooleanType, at: DateTimeType, tags: ArrayType(StringType), score: OptionType(IntegerType) });
 const ITEMS = StructType({ items: ArrayType(Item) });
+
+/** The builder's root: the fixture's datasets, then `now`, the minute a query is asked (#1670). */
+const ROOT_NOW: EastType = StructType([...Object.entries((ROOT as StructTypeOf).fields as Record<string, EastType>), ["now", DateTimeType] as const]);
+/** The minute the tests ask at, two days after the fixture's last shipment; and the root's value at it. */
+const NOW = utcAt("2026-06-28T09:00:00.000");
+const VALUE_NOW = { ...(fixture.value as Record<string, unknown>), now: NOW };
 
 // ─── Building steps as East values ───────────────────────────────────────────
 
@@ -74,6 +81,11 @@ const agg = (fn: "count" | "sum" | "mean" | "min" | "max" | "distinct", field: s
     ({ id: id("a"), fn: variant(fn, null), field: field === undefined ? none : some(field), as });
 const groupBy = (by: string | undefined, aggs: Aggregate[]): Step =>
     variant("group", { id: id("s"), by: some(by === undefined ? variant("all", null) : variant("field", by)), aggs });
+/** A group by several fields (#1670). */
+const groupByFields = (fields: string[], aggs: Aggregate[]): Step => variant("group", { id: id("s"), by: some(variant("fields", fields)), aggs });
+/** A ratio: one field added up over another (#1670); with no `per`, its field to divide by not chosen. */
+const ratio = (field: string, per: string | undefined, as: string): Aggregate =>
+    ({ id: id("a"), fn: variant("ratio", per === undefined ? none : some(per)), field: some(field), as });
 const sort = (field: string, dir: "asc" | "desc"): Step => variant("sort", { id: id("s"), field: some(field), dir: variant(dir, null) });
 const limit = (n: number): Step => variant("limit", { id: id("s"), n: variant("number", n) });
 const count = (): Step => variant("count", { id: id("s") });
@@ -247,6 +259,35 @@ const CATALOGUE: readonly (readonly [name: string, root: EastType, build: () => 
 | [range(10.0; 12.0 + 0.5 / 2; 0.5) as $price | {price: $price, demand: call(.; {price: $price, region: "NSW"})}]`],
     ["a jq step, as written", ROOT, () => query("orders", [jq("map(.id)")]), `.orders
 | map(.id)`],
+    // #1670's three: a date in the last N, several group fields, a ratio.
+    ["dates: in the last hours, days and weeks, the minute bound first", ROOT_NOW, () => query("orders", [
+        filter("all", [
+            cond("status", "eq", text("shipped")),
+            cond("status.shipped.date", "inLastHours", num(36)),
+            cond("status.shipped.date", "inLastDays", num(7)),
+            cond("status.shipped.date", "inLastWeeks", num(2)),
+        ]),
+    ]), `.now as $now
+| .orders
+| map(select(.status.type == "shipped") | select(.status.value.date >= ($now | datetime_add(-36; "hour")) and .status.value.date >= ($now | datetime_add(-7; "day")) and .status.value.date >= ($now | datetime_add(-2; "week"))))`],
+    ["the minute bound before a looked-up dataset", ROOT_NOW, () => query("orders", [
+        lookup("customers", "customer_id", ["region"]),
+        filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", "inLastDays", num(30))]),
+    ]), `.now as $now
+| .customers as $customers
+| .orders
+| map(. + {region: $customers[.customer_id].region})
+| map(select(.status.type == "shipped") | select(.status.value.date >= ($now | datetime_add(-30; "day"))))`],
+    ["group and total by several fields, a case among them", ROOT, () => query("orders", [
+        groupByFields(["customer_id", "status"], [agg("count", undefined, "n"), agg("sum", "total", "total")]),
+    ]), `.orders
+| group_by({customer_id, status: .status.type})
+| map({customer_id: .[0].customer_id, status: .[0].status.type, n: length, total: map(.total) | add})`],
+    ["a ratio total: one field added up over another, nothing where that adds up to nothing", ROOT, () => query("orders", [
+        groupBy("customer_id", [ratio("total", "id", "total_per_id")]),
+    ]), `.orders
+| group_by(.customer_id)
+| map({customer_id: .[0].customer_id, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})`],
 ];
 
 /** A query with every id renumbered by position: two queries equal ids aside are then equal. */
@@ -371,6 +412,45 @@ describe("S1: printSteps ↔ parseSteps", () => {
     test("a dataset bound that no Look up reads is kept in jq", () => {
         const result = parseSteps(".customers as $customers\n| .orders\n| length", ROOT);
         assert.ok("error" in result && result.error.code === "unsupported" && /\$customers is bound/.test(result.error.message));
+        // So is the minute, bound but read by no "is in the last" condition and no jq step (#1670): saying what would read it.
+        const now = parseSteps(".now as $now\n| .orders\n| length", ROOT_NOW);
+        if (!("error" in now)) assert.fail("a minute nothing reads parsed");
+        assert.equal(now.error.message, "unsupported: $now is bound but no \"is in the last\" condition or jq step reads it, so the visual editor cannot keep it.");
+    });
+
+    test("is in the last reads back from the jq a person writes; a unit it does not count in is no condition of it (#1670)", () => {
+        const q = parsed(".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now|datetime_add(-7;\"day\"))))", ROOT_NOW);
+        const conds = q.steps[0]!.type === "filter" ? q.steps[0]!.value.conds : [];
+        const last = conds[1];
+        assert.ok(last?.type === "test" && last.value.cmp.type === "some" && last.value.cmp.value.type === "inLastDays");
+        assert.ok(last.type === "test" && equalFor(OptionType(QueryStepValueType))(last.value.value, some(num(7))));
+        // Minutes are no "is in the last": that select stays jq — a jq step, which reads the minute its program binds, as it prints again.
+        const text = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-7; \"minute\"))))";
+        const minutes = parsed(text, ROOT_NOW);
+        assert.deepEqual(minutes.steps.map(s => s.type), ["jq"]);
+        assert.equal(printSteps(minutes, ROOT_NOW).text, text);
+    });
+
+    test("a count with no minus moves the minute on: no \"is in the last\" — a jq step, the minute bound for it (#1670)", () => {
+        const text = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(7; \"day\"))))";
+        const ahead = parsed(text, ROOT_NOW);
+        assert.deepEqual(ahead.steps.map(s => s.type), ["jq"]);
+        assert.equal(printSteps(ahead, ROOT_NOW).text, text);
+    });
+
+    test("a jq step that reads $now has it bound first, as an \"is in the last\" condition does; one that reads none binds none (#1674)", () => {
+        const reads = query("orders", [jq("map(select(.status.value.date >= ($now | datetime_add(-30; \"minute\"))))")]);
+        assert.equal(printSteps(reads, ROOT_NOW).text.split("\n")[0], ".now as $now");
+        const plain = query("orders", [jq("map(select(.total > 10))")]);
+        assert.equal(printSteps(plain, ROOT_NOW).text.split("\n")[0], ".orders");
+    });
+
+    test("a ratio of a field that adds up to nothing in a group is nothing there, never a division by it: the query answers (#1670)", () => {
+        const printed = printSteps(query("orders", [groupBy("customer_id", [ratio("total", "discount", "total_per_discount")])]), ROOT).text;
+        assert.deepEqual(errorsOf(printed), []);
+        /** How many groups' ratio is nothing, or something, as jq counts them over the fixture. */
+        const groups = (test: string) => Number(evaluateJq(`${printed}\n| map(select(.total_per_discount ${test})) | length`, fixture.value, { inputType: ROOT, root: true }));
+        assert.ok(groups("== null") > 0 && groups("!= null") > 0, `${groups("== null")} with nothing, ${groups("!= null")} with a ratio`);
     });
 
     test("unfinished steps are left out of the program", () => {
@@ -631,6 +711,32 @@ describe("S2: checkSteps places each diagnostic on its step, condition and slot"
         assert.deepEqual(problems(query("model", [tabulate("price", 1, 1000, 1, [["region", text("NSW")]], "demand")])), [], "a thousand rows are returned whole");
     });
 
+    test("#1670's steps: a count that is not whole, a ratio's field to divide by, a field of several the rows lack or cannot group on", () => {
+        const days = cond("status.shipped.date", "inLastDays", num(1.5));
+        const hours = cond("status.shipped.date", "inLastHours", text("a few"));
+        const recent = query("orders", [filter("all", [cond("status", "eq", text("shipped")), days, hours])]);
+        assert.deepEqual(problems(recent, ROOT_NOW).map(d => [d.code, d.condId, d.slot]), [["type_mismatch", days.value.id, "value"], ["type_mismatch", hours.value.id, "value"]]);
+        // A ratio of text, or by text: on the field, with the numbers to use; with nothing to divide by, incomplete.
+        const byText = ratio("total", "customer_id", "r");
+        const q = query("orders", [groupBy("status", [byText])]);
+        const d = problems(q).find(x => x.slot === "agg-per")!;
+        assert.deepEqual([d.code, d.id, d.fixes.map(f => f.kind === "setField" ? f.field : "")], ["type_mismatch", byText.id, ["discount", "id"]]);
+        const fixed = assertFixed(q, d.fixes[1]!);
+        const fixedAgg = fixed.steps[0]!.type === "group" ? fixed.steps[0]!.value.aggs[0]! : byText;
+        assert.ok(fixedAgg.fn.type === "ratio" && equalFor(OptionType(StringType))(fixedAgg.fn.value, some("id")));
+        const unchosen = ratio("total", undefined, "r");
+        assert.deepEqual(problems(query("orders", [groupBy("status", [unchosen])])).map(x => [x.code, x.slot, x.id]), [["incomplete", "agg-per", unchosen.id]]);
+        // One of several fields: misspelt, Use the right one in its place; a list, which nothing groups on.
+        const misspelt = query("orders", [groupByFields(["customer_id", "statuss"], [agg("count", undefined, "n")])]);
+        const unknown = problems(misspelt).find(x => x.code === "unknown_field")!;
+        assert.deepEqual([unknown.slot, unknown.id], ["by", "statuss"]);
+        const used = assertFixed(misspelt, unknown.fixes[0]!);
+        const by = used.steps[0]!.type === "group" ? used.steps[0]!.value.by : none;
+        assert.ok(by.type === "some" && by.value.type === "fields" && equalFor(ArrayType(StringType))(by.value.value, ["customer_id", "status"]));
+        const lines = query("orders", [groupByFields(["customer_id", "lines"], [agg("count", undefined, "n")])]);
+        assert.deepEqual(problems(lines).map(x => [x.code, x.slot, x.id]), [["type_mismatch", "by", "lines"]]);
+    });
+
     test("a jq step keeps the checker's words on its text: a syntax error, an excluded builtin, rows given more than once", () => {
         const broken = jq("map(");
         const [syntax] = problems(query("orders", [broken]));
@@ -729,6 +835,20 @@ describe("S4: countingProgram", () => {
         assert.equal(counted[0], SOURCE_COUNT);
         assert.deepEqual(counted.slice(1), q.steps.map(s => s.value.id));
         assert.ok(equalFor(resultType)(value, evaluateJq(plain, fixture.value, { inputType: ROOT, root: true })), "the result is the query's own");
+    });
+
+    test("a query that reads .now counts as any other, its minute bound first (#1670)", () => {
+        const q = query("orders", [filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", "inLastDays", num(7))])]);
+        const { text: program, counted } = countingProgram(q, ROOT_NOW);
+        assert.equal(program.split("\n")[0], ".now as $now");
+        const plain = printSteps(q, ROOT_NOW).text;
+        const OutputType = StructType({ counts: ArrayType(IntegerType), result: checkJq(plain, ROOT_NOW, { root: true }).elementType! });
+        const output = evaluateJq(program, VALUE_NOW, { inputType: ROOT_NOW, root: true });
+        assert.ok(isValueOf(output, OutputType), "the counting program gives {counts, result}");
+        const { counts } = readCounts(output as ValueTypeOf<typeof OutputType>, counted);
+        const shippedThisWeek = evaluateJq(`${plain}\n| length`, VALUE_NOW, { inputType: ROOT_NOW, root: true });
+        assert.deepEqual(counted.map(c => counts.get(c)), [40, Number(shippedThisWeek)]);
+        assert.ok(Number(shippedThisWeek) > 0, "the last 7 days hold some shipments");
     });
 
     test("a query that gives one value counts its rows stages and returns the value", () => {

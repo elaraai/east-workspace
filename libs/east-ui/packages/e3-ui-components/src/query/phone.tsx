@@ -21,7 +21,8 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faCheck, faDownload, faPlay, faSitemap, faTableList, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover, type ToolbarItem } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { planBadge, planWords, type QueryWords } from "./model/words.js";
+import { planBadge, planWords } from "./model/plan-words.js";
+import type { QueryWords } from "./model/words.js";
 import { resultFileName, resultFooter, type DownloadFormat, type ResultView } from "./results.js";
 import type { RunState } from "./run.js";
 

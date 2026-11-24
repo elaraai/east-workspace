@@ -6,29 +6,36 @@
  * (`libs/east/test/fixtures/query-fixture.beast2`): C1 the root and its name
  * errors; C2 the request — platform-free, one dataset argument per dataset
  * read, from one check against the whole root — and the programs that do not
- * check; C3 every outcome of a call mapped, truncation exactly. A request's
- * body is decoded from its bytes and run here over the fixture's datasets, as
- * a runner runs it; each outcome is an `ExecuteResult` built as e3 builds
- * one, a failure's stderr as the runners write it.
+ * check; C3 every outcome of a call mapped, truncation exactly; C4 `.now`, the
+ * minute a query is asked, given as a value beside the datasets (#1670). A
+ * request's body is decoded from its bytes and run here over the fixture's
+ * datasets, as a runner runs it; each outcome is an `ExecuteResult` built as
+ * e3 builds one, a failure's stderr as the runners write it.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
-    ArrayType, East, EastError, IntegerType, JqType, OptionType, QueryError, StringType, StructType,
+    ArrayType, DateTimeType, East, EastError, IntegerType, JqType, OptionType, QueryError, StringType, StructType,
     checkJq, decodeBeast2, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeEastIR, equalFor, evaluateJq,
-    fromEastTypeValue, isTypeEqual, none, parseJq, some, translateJq, variant, walkIR,
-    type EastType, type EastTypeValue, type QueryDiagnostic,
+    fromEastTypeValue, isTypeEqual, none, parseJq, printFor, some, translateJq, variant, walkIR,
+    type EastType, type EastTypeValue, type QueryDiagnostic, type StructType as StructTypeOf,
 } from "@elaraai/east";
 import { TreePathType, type ExecuteResult, type OneShotRequest, type RunnerValue, type TreePath } from "@elaraai/e3-types";
-import { prepareQuery, queryResultOf, queryRoot, type PreparedQuery, type QueryOptions, type QueryResult, type QueryRootEntry } from "./one-shot.js";
+import { utcAt } from "../plan/plan.test-utils.js";
+import {
+    minuteKey, minuteOf, prepareQuery, queryResultOf, queryRoot, rootHasClock,
+    type PreparedQuery, type QueryOptions, type QueryResult, type QueryRootEntry,
+} from "./one-shot.js";
 
 // ─── The fixture as a root ───────────────────────────────────────────────────
 
 /** The shared fixture: its root type and its datasets. */
 const fixture = decodeBeast2(readFileSync(join(import.meta.dirname, "../../../../../east/test/fixtures/query-fixture.beast2")));
-const ROOT_TYPE: EastType = fromEastTypeValue(fixture.type);
+const FIXTURE_TYPE = fromEastTypeValue(fixture.type) as StructTypeOf;
+/** The root the fixture's datasets make: each of them, then `now`, the minute a query is asked (#1670). */
+const ROOT_TYPE: EastType = StructType([...Object.entries(FIXTURE_TYPE.fields as Record<string, EastType>), ["now", DateTimeType] as const]);
 const DATASETS = fixture.value as Readonly<Record<string, unknown>>;
 
 /** A dataset's path: an input of the workspace. */
@@ -96,9 +103,9 @@ function refusedResult(program: string): QueryResult {
     return outcome.result;
 }
 
-/** The fixture's dataset a call's argument names. */
+/** The fixture's dataset a call's dataset argument names. */
 function datasetOf(arg: OneShotRequest["args"][number]): { name: string; value: unknown } {
-    if (arg.type !== "dataset") throw new Error("a query's call has dataset arguments only");
+    if (arg.type !== "dataset") throw new Error("the argument is a value, not a dataset");
     const found = ENTRIES.find(e => samePath(e.path, arg.value));
     if (found === undefined) throw new Error("an argument names no dataset of the fixture");
     return { name: found.name, value: DATASETS[found.name] };
@@ -107,13 +114,14 @@ function datasetOf(arg: OneShotRequest["args"][number]): { name: string; value: 
 /**
  * Runs a call's body here, as a runner runs it: decoded from its bytes,
  * compiled with no platform function, called on the datasets its arguments
- * name, and its value written at the function's own output type.
+ * name and the values they give — `.now`'s minute — and its value written at
+ * the function's own output type.
  */
 function run(call: PreparedQuery): Uint8Array {
     const body = decodeEastIR(call.request.bodyIr);
     const type = fromEastTypeValue(body.ir.value.type);
     if (type.type !== "Function") throw new Error("the body is a function");
-    const value = body.compile([])(...call.request.args.map(arg => datasetOf(arg).value));
+    const value = body.compile([])(...call.request.args.map(arg => (arg.type === "value" ? decodeBeast2(arg.value).value : datasetOf(arg).value)));
     return encodeBeast2For(type.output)(value);
 }
 
@@ -132,7 +140,7 @@ function stderrOf(call: PreparedQuery): string {
     throw new Error("the call's body raises no error");
 }
 
-/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order, no record drafted, and no draft that ended it. */
+/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order — a value is no dataset, and is not listed — no record drafted, and no draft that ended it. */
 function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr = ""): ExecuteResult {
     return {
         outcome,
@@ -140,9 +148,10 @@ function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr
         stderr,
         stdoutTruncated: false,
         stderrTruncated: false,
-        inputs: call.request.args.map(arg => {
+        inputs: call.request.args.flatMap(arg => {
+            if (arg.type === "value") return [];
             const { name } = datasetOf(arg);
-            return { path: pathOf(name), index: none, hash: hashOf(name) };
+            return [{ path: pathOf(name), index: none, hash: hashOf(name) }];
         }),
         drafts: [],
         draftEnd: none,
@@ -175,7 +184,7 @@ function platformCalls(bodyIr: Uint8Array): string[] {
 /** The diagnostics of the error a program raises when `evaluateJq` runs it over the fixture. */
 function raisedBy(program: string): QueryDiagnostic[] {
     try {
-        evaluateJq(program, fixture.value, { inputType: ROOT_TYPE, root: true });
+        evaluateJq(program, fixture.value, { inputType: FIXTURE_TYPE, root: true });
     } catch (e) {
         if (e instanceof QueryError) return e.diagnostics;
         throw e;
@@ -193,14 +202,14 @@ const PLATFORM_FREE_EAST_C: RunnerValue = variant("east_c", { decode: variant("l
 // ─── C1: the root ────────────────────────────────────────────────────────────
 
 describe("C1: the root", () => {
-    test("the root is a Struct of the data sources' types, in entry order", () => {
+    test("the root is a Struct of the data sources' types, in entry order, then the minute as now", () => {
         expect(isTypeEqual(ROOT.type, ROOT_TYPE)).toBe(true);
         expect(ROOT.entries).toEqual(ENTRIES);
         const orders = entry("orders");
         const customers = entry("customers");
         const swapped = queryRoot([orders, customers]);
-        expect(isTypeEqual(swapped.type, StructType({ orders: fromEastTypeValue(orders.type), customers: fromEastTypeValue(customers.type) }))).toBe(true);
-        expect(isTypeEqual(swapped.type, StructType({ customers: fromEastTypeValue(customers.type), orders: fromEastTypeValue(orders.type) }))).toBe(false);
+        expect(isTypeEqual(swapped.type, StructType({ orders: fromEastTypeValue(orders.type), customers: fromEastTypeValue(customers.type), now: DateTimeType }))).toBe(true);
+        expect(isTypeEqual(swapped.type, StructType({ customers: fromEastTypeValue(customers.type), orders: fromEastTypeValue(orders.type), now: DateTimeType }))).toBe(false);
     });
 
     test("a name that is not a jq identifier is refused, naming it; a jq field name of any kind is taken", () => {
@@ -223,9 +232,9 @@ describe("C1: the root", () => {
             "queryRoot: \"orders\" is given twice: each data source of a root has a name of its own"));
     });
 
-    test("no data sources make the empty root, and a query that reads one is refused when it is checked", () => {
+    test("no data sources make a root of the minute alone, and a query that reads one is refused when it is checked", () => {
         const empty = queryRoot([]);
-        expect(isTypeEqual(empty.type, StructType({}))).toBe(true);
+        expect(isTypeEqual(empty.type, StructType({ now: DateTimeType }))).toBe(true);
         expect(empty.entries).toEqual([]);
         const outcome = prepareQuery(".orders", empty);
         if (!("result" in outcome)) throw new Error(".orders checks against the empty root");
@@ -270,7 +279,7 @@ describe("C2: the request", () => {
     test("the body is the query's translation: run over the fixture, it answers as evaluateJq does", () => {
         const answer = decodeBeast2(run(prepared(DEFAULT_QUERY)));
         expect(answer.value).toHaveLength(10);
-        expect(answer.value).toEqual(evaluateJq(DEFAULT_QUERY, fixture.value, { inputType: ROOT_TYPE, root: true }));
+        expect(answer.value).toEqual(evaluateJq(DEFAULT_QUERY, fixture.value, { inputType: FIXTURE_TYPE, root: true }));
     });
 
     test("the options set the limits, a time limit among them, and the runner; maxOutputs is at most 100 000, and a limit is a whole number", () => {
@@ -287,10 +296,10 @@ describe("C2: the request", () => {
 });
 
 describe("C2: one check against the whole root", () => {
-    test("keys on the root answers every name, though the query reads no dataset", () => {
+    test("keys on the root answers every name, now among them, though the query reads no dataset", () => {
         const call = prepared("keys");
         expect(call.request.args).toEqual([]);
-        expect(decodeBeast2For(ArrayType(StringType))(run(call))).toEqual(["bom", "byId", "cells", "customers", "forecast", "model", "orders"]);
+        expect(decodeBeast2For(ArrayType(StringType))(run(call))).toEqual(["bom", "byId", "cells", "customers", "forecast", "model", "now", "orders"]);
     });
 
     test("a query that reads one dataset is checked against them all, and is given that one", () => {
@@ -298,7 +307,7 @@ describe("C2: one check against the whole root", () => {
         expect(call.request.args).toEqual([variant("dataset", pathOf("orders"))]);
         expect(isTypeEqual(call.checked.inputType, ROOT_TYPE)).toBe(true);
         expect(decodeBeast2(run(call)).value).toEqual({
-            names: ["bom", "byId", "cells", "customers", "forecast", "model", "orders"], orders: 40n, model: true,
+            names: ["bom", "byId", "cells", "customers", "forecast", "model", "now", "orders"], orders: 40n, model: true,
         });
     });
 });
@@ -500,5 +509,67 @@ describe("C3: every outcome of a call", () => {
         const conflict = variant("conflict", { record: "jobs", mutation: "patch", place: 1n, of: 1n, message: "the row at \"j1\" changed under the edit" });
         expect(() => queryResultOf(call, executed(call, conflict))).toThrow(new Error(
             "queryResultOf: the call ended in a conflict laying a draft of jobs, and a query's call lays none: the result is not this call's"));
+    });
+});
+
+// ─── C4: `.now`, the minute a query is asked (#1670) ─────────────────────────
+
+describe("C4: .now, the minute a query is asked", () => {
+    const sameInstant = equalFor(DateTimeType);
+    const AT = utcAt("2026-11-17T10:42:31.250");
+    const MINUTE = utcAt("2026-11-17T10:42:00.000");
+    const READS_NOW = "{now: .now, orders: (.orders | length)}";
+
+    test("a query that reads .now is given the minute as a value beside its datasets; its data sources are the datasets alone", () => {
+        const call = prepared(READS_NOW, { now: AT });
+        const [clock, orders] = call.request.args;
+        if (clock?.type !== "value") throw new Error("the first argument is the minute, a value");
+        expect(sameInstant(decodeBeast2For(DateTimeType)(clock.value), MINUTE)).toBe(true);
+        expect(orders).toEqual(variant("dataset", pathOf("orders")));
+        expect(call.args).toEqual([null, "orders"]);
+        expect(call.entries).toEqual([entry("orders")]);
+        const answer = decodeBeast2For(StructType({ now: DateTimeType, orders: IntegerType }))(run(call));
+        expect(sameInstant(answer.now, MINUTE)).toBe(true);
+        expect(answer.orders).toBe(40n);
+    });
+
+    test("with no minute named, a query reads the current one; one that reads no .now is given none", () => {
+        const before = minuteOf(new Date());
+        const call = prepared(".now");
+        const after = minuteOf(new Date());
+        const given = decodeBeast2For(DateTimeType)(run(call));
+        expect(sameInstant(given, before) || sameInstant(given, after)).toBe(true);
+        expect(prepared(".orders | length", { now: AT }).request.args).toEqual([variant("dataset", pathOf("orders"))]);
+    });
+
+    test("the answer names the datasets read, not the minute; e3 numbers the minute among the arguments", () => {
+        const call = prepared(READS_NOW, { now: AT });
+        expect(queryResultOf(call, executed(call, variant("success", { value: run(call) }))).inputs).toEqual([read("orders")]);
+        // Argument 1 is orders; argument 0, the minute, is no dataset to name.
+        expect(queryResultOf(call, invalid("Dataset argument 1 is not assigned (ref type: unassigned)")).outcome).toEqual(variant("error", [{
+            code: "no_value", fixes: [], message: "no_value: orders has no value yet.", severity: variant("error", null), span: none, suggestions: [],
+        }]));
+        expect(queryResultOf(call, invalid("Dataset argument 0 is not assigned (ref type: unassigned)")).outcome).toEqual(variant("error", [{
+            code: "invalid", fixes: [], message: "invalid: Dataset argument 0 is not assigned (ref type: unassigned)",
+            severity: variant("error", null), span: none, suggestions: [],
+        }]));
+    });
+
+    test("a data source named now is what .now reads, and the root has no clock", () => {
+        const named = queryRoot([entry("orders"), { ...entry("customers"), name: "now" }]);
+        expect(rootHasClock(named)).toBe(false);
+        expect(rootHasClock(ROOT)).toBe(true);
+        expect(isTypeEqual(named.type, StructType({ orders: fromEastTypeValue(entry("orders").type), now: fromEastTypeValue(entry("customers").type) }))).toBe(true);
+        const outcome = prepareQuery(".now | length", named, { now: AT });
+        if (!("prepared" in outcome)) throw new Error(".now | length does not check");
+        expect(outcome.prepared.request.args).toEqual([variant("dataset", pathOf("customers"))]);
+        expect(outcome.prepared.args).toEqual(["now"]);
+    });
+
+    test("a minute is its instant's, seconds dropped; its key is East's text of it, the same within the minute", () => {
+        expect(sameInstant(minuteOf(AT), MINUTE)).toBe(true);
+        expect(minuteKey(AT)).toBe(printFor(DateTimeType)(MINUTE));
+        expect(minuteKey(utcAt("2026-11-17T10:42:59.999"))).toBe(minuteKey(AT));
+        expect(minuteKey(utcAt("2026-11-17T10:43:00.000"))).not.toBe(minuteKey(AT));
     });
 });

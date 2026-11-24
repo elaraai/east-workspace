@@ -8,18 +8,22 @@
  * (`libs/east/test/fixtures/query-fixture.beast2`): P1 cards and words, P2
  * slot offers, P3 picking, P4 the generated description and the outline, P5
  * summaries. Summaries and counts are the real ones: #933's and #875's
- * programs evaluated over the fixture.
+ * programs evaluated over the fixture. The root is the builder's: the
+ * fixture's datasets, then `now`, the minute a query is asked (#1670), held
+ * at {@link NOW}.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
-    ArrayType, IntegerType, SortedMap, StringType, StructType, SummaryType, checkJq, compareFor, decodeBeast2, evaluateJq, fromEastTypeValue,
-    isValueOf, none, some, variant, type EastType, type ValueTypeOf,
+    ArrayType, DateTimeType, IntegerType, SortedMap, StringType, StructType, SummaryType, checkJq, compareFor, decodeBeast2, evaluateJq, fromEastTypeValue,
+    isValueOf, none, some, variant, type EastType, type StructType as StructTypeOf, type ValueTypeOf,
 } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
 import { QueryStepsType } from "@elaraai/e3-ui/internal";
+import { utcAt } from "../../plan/plan.test-utils.js";
+import { minuteKey } from "../one-shot.js";
 import { checkSteps } from "../steps/check.js";
 import { countingProgram, readCounts, SOURCE_COUNT } from "../steps/count.js";
 import { newStep } from "../steps/edit.js";
@@ -28,13 +32,22 @@ import { parseSteps } from "../steps/parse.js";
 import type { Aggregate, ComparisonKind, Condition, PickField, Step, StepQuery, StepValue } from "../steps/values.js";
 import { cardsFor, firstEmptySlot, outlineOf, sourceCard, type Card, type CardLine, type CardPart } from "./cards.js";
 import type { SlotRef } from "./refs.js";
-import { activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
-import { SummaryCache, summaryAt, summaryNeeded, type Summary, type SummaryRequest } from "./summaries.js";
-import { DESCRIPTION_MAX, describeQuery, parseErrorWords, plural, problemWords, queryWords, shapeWords } from "./words.js";
+import { applyAction, applyInput, applyRemove, applySlot } from "./slot-edits.js";
+import { activeItem, currentItem, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
+import { SummaryCache, summaryAt, summaryHashes, summaryNeeded, withMinute, type Summary, type SummaryRequest } from "./summaries.js";
+import { parseErrorWords, problemWords } from "./problem-words.js";
+import { DESCRIPTION_MAX, describeQuery } from "./step-words.js";
+import { plural, queryWords, shapeWords } from "./words.js";
 
 /** The shared fixture: its root type and its value. */
 const fixture = decodeBeast2(readFileSync(join(import.meta.dirname, "../../../../../../east/test/fixtures/query-fixture.beast2")));
-const ROOT: EastType = fromEastTypeValue(fixture.type);
+const FIXTURE_ROOT = fromEastTypeValue(fixture.type) as StructTypeOf;
+/** The minute the tests ask at: two days after the fixture's last shipment. */
+const NOW = utcAt("2026-06-28T09:00:00.000");
+/** The builder's root: the fixture's datasets, then `now`. */
+const ROOT: EastType = StructType([...Object.entries(FIXTURE_ROOT.fields as Record<string, EastType>), ["now", DateTimeType] as const]);
+/** The root's value: the fixture's datasets, and the minute. */
+const VALUE = { ...(fixture.value as Record<string, unknown>), now: NOW };
 const W = queryWords(formatters("en-AU"));
 
 // ─── Building steps as East values ───────────────────────────────────────────
@@ -54,8 +67,12 @@ const filter = (match: "all" | "any", conds: Condition[]): Step => variant("filt
 const lookup = (dataset: string, key: string, fields: string[]): Step => variant("lookup", { id: id("s"), dataset: some(dataset), key: some(key), fields });
 const agg = (fn: "count" | "sum" | "mean" | "min" | "max" | "distinct", field: string | undefined, as: string): Aggregate =>
     ({ id: id("a"), fn: variant(fn, null), field: field === undefined ? none : some(field), as });
+/** A ratio: one field added up over another (#1670). */
+const ratio = (field: string, per: string, as: string): Aggregate => ({ id: id("a"), fn: variant("ratio", some(per)), field: some(field), as });
 const groupBy = (by: string | undefined, aggs: Aggregate[]): Step =>
     variant("group", { id: id("s"), by: some(by === undefined ? variant("all", null) : variant("field", by)), aggs });
+/** A group by several fields (#1670). */
+const groupByFields = (fields: string[], aggs: Aggregate[]): Step => variant("group", { id: id("s"), by: some(variant("fields", fields)), aggs });
 const sort = (field: string, dir: "asc" | "desc"): Step => variant("sort", { id: id("s"), field: some(field), dir: variant(dir, null) });
 const limit = (n: number): Step => variant("limit", { id: id("s"), n: variant("number", n) });
 const count = (): Step => variant("count", { id: id("s") });
@@ -146,7 +163,7 @@ function mock(name: string): StepQuery {
 
 // ─── Reading cards ───────────────────────────────────────────────────────────
 
-/** A part as a compact token: `[field:status]`, `[value:_value]` while empty, `#` for data in mono, `!` for a problem. */
+/** A part as a compact token: `[field:status]`, `[value:_value]` while empty, `#` for data in mono, `!` for a problem; a row's remove `×`, a group's its words. */
 function partText(p: CardPart): string {
     switch (p.t) {
         case "word": return p.joiner === true ? `<${p.text}>` : p.text;
@@ -154,7 +171,7 @@ function partText(p: CardPart): string {
         case "input": return `{${p.input.kind}:${p.value}${p.error ? "!" : ""}}`;
         case "chip": return `(${p.text})`;
         case "add": return `+${p.text}`;
-        case "remove": return "×";
+        case "remove": return p.takes === "group" ? p.label : "×";
         case "code": return `\`${p.text}\``;
     }
 }
@@ -184,7 +201,7 @@ function countsOf(q: StepQuery): ReadonlyMap<string, number> {
     const resultType = checkJq(plain, ROOT, { root: true }).elementType!;
     const OutputType = StructType({ counts: ArrayType(IntegerType), result: resultType });
     const { text: program, counted } = countingProgram(q, ROOT);
-    const output = evaluateJq(program, fixture.value, { inputType: ROOT, root: true });
+    const output = evaluateJq(program, VALUE, { inputType: ROOT, root: true });
     if (!isValueOf(output, OutputType)) throw new Error("the counting program gives {counts, result}");
     return readCounts(output as ValueTypeOf<typeof OutputType>, counted).counts;
 }
@@ -193,7 +210,7 @@ function countsOf(q: StepQuery): ReadonlyMap<string, number> {
 function summaryOf(q: StepQuery, stepIndex: number): Summary {
     const request = summaryAt(q, stepIndex, ROOT);
     if (request === undefined) throw new Error("no summary there");
-    const output = evaluateJq(request.program, fixture.value, { inputType: ROOT, root: true });
+    const output = evaluateJq(request.program, VALUE, { inputType: ROOT, root: true });
     if (!isValueOf(output, SummaryType)) throw new Error("the summary program gives a Summary");
     return output as Summary;
 }
@@ -303,15 +320,15 @@ describe("P1: cards and words", () => {
         expect(cardsOf(mock("Gold customers or big orders")).map(cardText)[1]).toEqual([
             "Keep rows where | [match:all] of these are true",
             "row: <> [field:status] [cmp:is not] [value:cancelled] ×",
-            "group: [group-match:any] of these is true × | <and>",
+            "group: [group-match:any] of these is true | <and>",
             "  row: <> [field:tier] [cmp:is] [value:gold] ×",
             "  row: <or> [field:total] [cmp:is at least] [value:1500#] ×",
-            "  foot: +Add condition",
+            "  foot: +Add condition Remove group",
             "foot: +Add condition +Add group",
         ]);
         expect(cardsOf(mock("Revenue by region")).map(cardText)[2]).toEqual([
             "Group and total",
-            "row: by [by:region]",
+            "row: by [by:region] +Add field",
             "row: then [agg-fn:add up] [agg-field:total] as {agg-as:revenue} ×",
             "row: and [agg-fn:count] as {agg-as:orders} ×",
             "foot: +Add a total",
@@ -330,6 +347,31 @@ describe("P1: cards and words", () => {
         expect(cardsOf(mock("Cancelled orders")).map(cardText)[1]).toEqual(["Count the rows", "row: gives one whole number"]);
         expect(cardsOf(query("orders", [fill("discount", num(0))])).map(cardText)[0]).toEqual(["Fill in missing values", "row: where [fill-field:discount] is missing, use {fill-value:0}"]);
         expect(cardsOf(query("orders", [jq("map(.id)")])).map(cardText)[0]).toEqual(["jq step", "code: `map(.id)`", "  ! Custom jq step."]);
+    });
+
+    test("a date in the last N, several group fields and a ratio total (#1670)", () => {
+        const shipped = (c: Condition): StepQuery => query("orders", [filter("all", [cond("status", "eq", text("shipped")), c])]);
+        expect(cardsOf(shipped(cond("status.shipped.date", "inLastDays", num(7)))).map(cardText)[0]).toEqual([
+            "Keep rows where | [match:all] of these are true",
+            "row: <> [field:status] [cmp:is] [value:shipped] ×",
+            "row: <and> [field:shipped date] [cmp:is in the last] [value:7#] days ×",
+            "foot: +Add condition +Add group",
+        ]);
+        expect(cardsOf(shipped(cond("status.shipped.date", "inLastWeeks", num(1)))).map(cardText)[0]![2]).toBe(
+            "row: <and> [field:shipped date] [cmp:is in the last] [value:1#] week ×");
+        const regions = query("orders", [
+            lookup("customers", "customer_id", ["region"]),
+            groupByFields(["region", "customer_id"], [ratio("total", "discount", "total_per_discount"), agg("count", undefined, "orders")]),
+        ]);
+        const card = cardsOf(regions)[1]!;
+        expect(cardText(card)).toEqual([
+            "Group and total",
+            "row: by [by:region] × and [by:customer ID] × +Add field",
+            "row: then [agg-fn:ratio of] [agg-field:total] per [agg-per:discount] as {agg-as:total_per_discount} ×",
+            "row: and [agg-fn:count] as {agg-as:orders} ×",
+            "foot: +Add a total",
+        ]);
+        expect([card.complete, card.errors, card.shape.text, card.shape.extra]).toEqual([true, 0, "Many groups", "region, customer ID, total per discount, orders"]);
     });
 
     test("an unfinished step: empty slots with their placeholders, dashed, and no problem lines for what is unfinished", () => {
@@ -395,6 +437,14 @@ describe("P1: cards and words", () => {
         expect(say(query("orders", [jq("map(.id)")]))).toEqual(["Custom jq step."]);
         expect(say(query("orders", [jq("map(debug)")]))).toEqual(["debug isn't available in queries.", "Custom jq step."]);
         expect(say(query("orders", [jq("map(select(.lines[] | .qty > 1))")]))).toEqual(["Rows can appear more than once. [Use any(.lines[]; …)]", "Custom jq step."]);
+        // #1670's steps: a count of days, a ratio's two numbers, and the fields a group is by.
+        expect(say(shipped(cond("status.shipped.date", "inLastDays", num(1.5))))).toEqual(["Enter a whole number of days."]);
+        expect(say(shipped(cond("status.shipped.date", "inLastHours", text("a few"))))).toEqual(["Enter a whole number of hours."]);
+        expect(say(query("orders", [groupBy("status", [ratio("customer_id", "total", "r")])]))).toEqual([
+            "Can't add up customer ID — it's text. Pick a number, or count instead. [Use discount | Use ID]",
+        ]);
+        expect(say(query("orders", [groupBy("status", [{ id: id("a"), fn: variant("ratio", none), field: some("total"), as: "r" }])]))).toEqual(["Choose a field to divide by."]);
+        expect(say(query("orders", [groupByFields(["customer_id", "lines"], [agg("count", undefined, "count")])]))).toEqual(["Lines is list of lines — pick a field to group by."]);
     });
 
     test("the program's problems, from the parser's own sentences (QUERY.md §12)", () => {
@@ -450,11 +500,52 @@ describe("P2: slot offers", () => {
         ]);
     });
 
+    test("a field leads with its kind's icon, as the Studio's fields list draws one: a text's letter, a number's hash, a date's calendar; a list's lines, a case's shapes", () => {
+        const icons = (q: StepQuery, slot: SlotRef): string[] => slotItems(q, ROOT, slot, "", { words: W }).map(item => `${item.label} ${item.icon ?? "-"}`);
+        expect(icons(q, { kind: "field", stepId: f0.value.id, condId: conds[1]!.value.id })).toEqual([
+            "customer ID font", "discount hashtag", "ID hashtag", "lines list", "status shapes", "cancelled reason font", "shipped date calendar", "total hashtag",
+        ]);
+        // A lookup table's fields, and a tree's lists, alike.
+        expect(icons(q, { kind: "lookup-add", stepId: f1.value.id })).toEqual(["tier shapes"]);
+        const bom = query("bom", [walk("children")]);
+        expect(icons(bom, { kind: "via", stepId: bom.steps[0]!.value.id })).toEqual(["children list"]);
+    });
+
     test("comparisons by the field's kind", () => {
         expect(at({ kind: "cmp", stepId: f0.value.id, condId: conds[0]!.value.id })).toEqual(["Compare | is", "Compare | is not"]);
         expect(at({ kind: "cmp", stepId: f0.value.id, condId: conds[2]!.value.id })).toEqual([
             "Compare | is in year", "Compare | is in month", "Compare | is on or after", "Compare | is before",
+            "Compare | is in the last … hours — up to the minute the query runs",
+            "Compare | is in the last … days — up to the minute the query runs",
+            "Compare | is in the last … weeks — up to the minute the query runs",
         ]);
+    });
+
+    test("is in the last offers counts of its unit, whatever the data (#1670)", () => {
+        const c = cond("status.shipped.date", "inLastDays", num(7));
+        const recent = query("orders", [filter("all", [cond("status", "eq", text("shipped")), c])]);
+        const offers = (cmp: ComparisonKind): string[] => {
+            const q = query("orders", [filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", cmp, num(1))])]);
+            const f = q.steps[0]!;
+            const last = f.type === "filter" ? f.value.conds[1]! : c;
+            return slotItems(q, ROOT, { kind: "value", stepId: f.value.id, condId: last.value.id }, "", { words: W }).map(itemText);
+        };
+        expect(offers("inLastDays")).toEqual(["How far back | 1 · day", "How far back | 7 · days", "How far back | 30 · days", "How far back | 90 · days"]);
+        expect(offers("inLastHours")).toEqual(["How far back | 1 · hour", "How far back | 6 · hours", "How far back | 12 · hours", "How far back | 24 · hours"]);
+        expect(offers("inLastWeeks")).toEqual(["How far back | 1 · week", "How far back | 2 · weeks", "How far back | 4 · weeks", "How far back | 12 · weeks"]);
+        void recent;
+    });
+
+    test("a ratio's field it is per, a field more to group by, and one of several (#1670)", () => {
+        const g = query("orders", [lookup("customers", "customer_id", ["region"]), groupByFields(["region", "customer_id"], [ratio("total", "discount", "r")])]);
+        const step = g.steps[1]!;
+        const r = step.type === "group" ? step.value.aggs[0]! : ratio("", "", "");
+        const offered = (slot: SlotRef): string[] => slotItems(g, ROOT, slot, "", { words: W }).map(item => item.label);
+        expect(offered({ kind: "agg-per", stepId: step.value.id, id: r.id })).toEqual(["discount", "ID", "total"]);
+        // Another field to group by is one it does not group by yet; one of the fields may become any other.
+        expect(offered({ kind: "by-add", stepId: step.value.id })).not.toContain("region");
+        expect(offered({ kind: "by-add", stepId: step.value.id })).toContain("ID");
+        expect(offered({ kind: "by", stepId: step.value.id, id: "region" })).not.toContain("customer ID");
     });
 
     test("values from the summary: cases, numbers, years; and a value typed, first", () => {
@@ -489,7 +580,7 @@ describe("P2: slot offers", () => {
         expect(revAt({ kind: "by", stepId: g.value.id }).slice(0, 2)).toEqual(["Group | all rows together — one row of totals", "Fields | customer ID — text · 7 values"]);
         const [sum, cnt] = g.type === "group" ? g.value.aggs : [];
         expect(revAt({ kind: "agg-fn", stepId: g.value.id, id: sum!.id })).toEqual([
-            "Total | add up", "Total | count", "Total | average", "Total | lowest", "Total | highest", "Total | count different",
+            "Total | add up", "Total | count", "Total | average", "Total | lowest", "Total | highest", "Total | count different", "Total | ratio of",
         ]);
         expect(revAt({ kind: "agg-field", stepId: g.value.id, id: sum!.id })).toEqual([
             "Fields | discount — number, sometimes missing · 0.05 – 0.10 · 11 missing", "Fields | ID — whole number · 1002 – 1039",
@@ -543,17 +634,21 @@ describe("P2: slot offers", () => {
         expect(slotItems(q, ROOT, { kind: "add-step", stepId: "", at: 5 }, "", { words: W, saved }).some(i => i.value.kind === "saved")).toBe(false);
     });
 
-    test("the active offer is the slot's own value, else the first that can be picked", () => {
+    test("the active offer is the slot's own value, else the first that can be picked; the current offer is the slot's own value alone", () => {
         const slot: SlotRef = { kind: "field", stepId: f0.value.id, condId: conds[1]!.value.id };
         const items = slotItems(q, ROOT, slot, "", { words: W });
-        expect(items[activeItem(items, q, ROOT, slot)]!.label).toBe("total");
+        expect([items[activeItem(items, q, ROOT, slot)]!.label, items[currentItem(items, q, ROOT, slot)]!.label]).toEqual(["total", "total"]);
         const add: SlotRef = { kind: "add-step", stepId: "", at: 0 };
         const steps = slotItems(query("bom", []), ROOT, add, "", { words: W });
         expect(steps[activeItem(steps, query("bom", []), ROOT, add)]!.label).toBe("List every part in the tree");
+        // A slot that holds nothing an offer sets has no current offer; nor is the value typed one, though it says the same.
+        const value: SlotRef = { kind: "value", stepId: f0.value.id, condId: conds[1]!.value.id };
+        const typed = slotItems(q, ROOT, value, "100", { words: W });
+        expect([currentItem(steps, query("bom", []), ROOT, add), typed.map(i => i.label), currentItem(typed, q, ROOT, value)]).toEqual([-1, ["Use “100”"], -1]);
     });
 
-    test("opening a slot fetches a summary only where its offers need one", () => {
-        expect((["field", "value", "by", "agg-field", "sort-field", "pick-add"] as const).every(summaryNeeded)).toBe(true);
+    test("opening a slot fetches a summary only where its offers need one: a field more to group by and a ratio's field it is per too (#1670)", () => {
+        expect((["field", "value", "by", "by-add", "agg-field", "agg-per", "sort-field", "pick-add"] as const).every(summaryNeeded)).toBe(true);
         expect((["cmp", "match", "dataset", "dir", "part", "add-step"] as const).some(summaryNeeded)).toBe(false);
         void f4;
     });
@@ -625,6 +720,35 @@ describe("P3: picking, typing, removing and adding", () => {
         expect(filterRows(named.query, 2)[1]).toBe("row: then [agg-fn:highest] [agg-field:total] as {agg-as:revenue} ×");
         const counted = pickOf(auto, { kind: "agg-fn", stepId: auto.steps[0]!.value.id, id: autoAgg.id }, "count");
         expect(filterRows(counted.query)[1]).toBe("row: then [agg-fn:count] as {agg-as:count} ×");
+    });
+
+    test("a ratio opens its field it is per and names itself by both; a field more to group by, and one taken out (#1670)", () => {
+        const g = query("orders", [lookup("customers", "customer_id", ["region"]), groupBy("region", [agg("sum", "total", "total")])]);
+        const step = g.steps[1]!;
+        const total = step.type === "group" ? step.value.aggs[0]! : agg("count", undefined, "");
+        const ratioed = pickOf(g, { kind: "agg-fn", stepId: step.value.id, id: total.id }, "ratio of");
+        expect(ratioed.open).toEqual({ kind: "agg-per", stepId: step.value.id, id: total.id });
+        expect(filterRows(ratioed.query, 1)[1]).toBe("row: then [agg-fn:ratio of] [agg-field:total] per [agg-per:_field] as {agg-as:total_per_value} ×");
+        const per = pickOf(ratioed.query, ratioed.open!, "discount");
+        expect(filterRows(per.query, 1)[1]).toBe("row: then [agg-fn:ratio of] [agg-field:total] per [agg-per:discount] as {agg-as:total_per_discount} ×");
+        // A field more to group by groups by both, in order; taken out, one left groups by it alone.
+        const more = pickOf(g, { kind: "by-add", stepId: step.value.id }, "customer ID");
+        expect(filterRows(more.query, 1)[0]).toBe("row: by [by:region] × and [by:customer ID] × +Add field");
+        const replaced = pickOf(more.query, { kind: "by", stepId: step.value.id, id: "customer_id" }, "ID");
+        expect(filterRows(replaced.query, 1)[0]).toBe("row: by [by:region] × and [by:ID] × +Add field");
+        const fewer = applyRemove(more.query, { kind: "by-field", stepId: step.value.id, id: "region" });
+        expect(filterRows(fewer, 1)[0]).toBe("row: by [by:customer ID] +Add field");
+        expect(isValueOf(per.query, QueryStepsType) && isValueOf(more.query, QueryStepsType) && isValueOf(fewer, QueryStepsType)).toBe(true);
+    });
+
+    test("is in the last keeps its count between hours, days and weeks, and not into a year (#1670)", () => {
+        const c = cond("status.shipped.date", "inLastDays", num(7));
+        const q = query("orders", [filter("all", [cond("status", "eq", text("shipped")), c])]);
+        const stepId = q.steps[0]!.value.id;
+        const weeks = pickOf(q, { kind: "cmp", stepId, condId: c.value.id }, "is in the last … weeks");
+        expect(filterRows(weeks.query)[1]).toBe("row: <and> [field:shipped date] [cmp:is in the last] [value:7#] weeks ×");
+        const year = pickOf(q, { kind: "cmp", stepId, condId: c.value.id }, "is in year");
+        expect(filterRows(year.query)[1]).toBe("row: <and> [field:shipped date] [cmp:is in year] [value:_value] ×");
     });
 
     test("a field shown is named by its own name; a date part rewrites its name's ending", () => {
@@ -713,6 +837,18 @@ describe("P4: the generated description and the outline", () => {
             ["Orders shipped in 2026 (draft)", "Orders where total is at least 100 and shipped date is in 2026, sorted by total, highest first.", ""],
             ["Gold customers or big orders", "Orders where status is not cancelled and (tier is gold or total is at least 1,500), with name and tier from customers.", ""],
         ]);
+    });
+
+    test("#1670's steps in a description and an outline: the last N days, several group fields, a ratio", () => {
+        const recent = query("orders", [filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", "inLastDays", num(7))])]);
+        expect(describeQuery(recent, checkSteps(recent, ROOT), W)).toBe("Orders where status is shipped and shipped date is in the last 7 days.");
+        const hour = query("orders", [filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", "inLastHours", num(1))])]);
+        expect(describeQuery(hour, checkSteps(hour, ROOT), W)).toBe("Orders where status is shipped and shipped date is in the last 1 hour.");
+        const grouped = query("orders", [
+            lookup("customers", "customer_id", ["region"]),
+            groupByFields(["region", "customer_id"], [ratio("total", "discount", "total_per_discount")]),
+        ]);
+        expect(outlineOf(grouped, checkSteps(grouped, ROOT), W).map(o => o.words)[1]).toBe("total per discount per region and customer ID");
     });
 
     test("a description is cut at a word, at most 140 characters", () => {
@@ -822,5 +958,40 @@ describe("P5: summaries are fetched lazily, once per prefix and hashes", () => {
         expect(runs).toBe(1);
         const values = slotItems(q, ROOT, { kind: "value", stepId: q.steps[0]!.value.id, condId: c.value.id }, "", { words: W });
         expect(values).toEqual([]);
+    });
+
+    test("rows narrowed by is in the last are the minute's: the summary reads now, kept for the minute its asker gives (#1670)", async () => {
+        const q = query("orders", [filter("all", [cond("status", "eq", text("shipped")), cond("status.shipped.date", "inLastDays", num(7))]), sort("total", "desc")]);
+        const request = summaryAt(q, 1, ROOT)!;
+        expect(request.reads).toEqual(["orders", "now"]);
+        expect(request.prefix.split("\n")[0]).toBe(".now as $now");
+        // Two days after the last shipment, the last 7 days hold the June shipments from the 21st, 09:00.
+        const summary = summaryOf(q, 1);
+        expect(Number(summary.count)).toBeGreaterThan(0);
+        expect(summaryAt(q, 0, ROOT)!.reads).toEqual(["orders"]);
+        let runs = 0;
+        const cache = new SummaryCache(async () => {
+            runs += 1;
+            return { summary, hashes: new Map([["orders", "4f2a1c8d"]]) };
+        });
+        const asked = withMinute(new Map([["orders", "4f2a1c8d"]]), NOW);
+        expect(asked.get("now")).toBe(minuteKey(NOW));
+        await cache.ensure(request, asked);
+        expect(cache.get(request, withMinute(new Map([["orders", "4f2a1c8d"]]), utcAt("2026-06-28T09:00:59.000")))).toEqual(summary);
+        expect(cache.get(request, withMinute(new Map([["orders", "4f2a1c8d"]]), utcAt("2026-06-28T09:01:00.000")))).toBeUndefined();
+        expect(runs).toBe(1);
+        // As a slot of the steps and the jq view's completions look it up: by the minute asked in; rows that read no
+        // `now`, by their sources alone.
+        const hashes = new Map([["orders", "4f2a1c8d"]]);
+        expect(cache.get(request, summaryHashes(request, hashes, utcAt("2026-06-28T09:00:30.000")))).toEqual(summary);
+        expect(cache.get(request, summaryHashes(request, hashes, utcAt("2026-06-28T09:01:05.000")))).toBeUndefined();
+        expect(summaryHashes(summaryAt(q, 0, ROOT)!, hashes, NOW)).toBe(hashes);
+    });
+
+    test("rows a jq step narrows by $now are the minute's too: the summary after it binds the minute and reads now, and the rows before it do not (#1674)", () => {
+        const q = query("orders", [jq(`map(select(.status.type == "shipped") | select(.status.value.date >= ($now | datetime_add(-36; "hour"))))`), sort("total", "desc")]);
+        const request = summaryAt(q, 1, ROOT)!;
+        expect([request.reads, request.prefix.split("\n")[0]]).toEqual([["orders", "now"], ".now as $now"]);
+        expect(summaryAt(q, 0, ROOT)!.reads).toEqual(["orders"]);
     });
 });

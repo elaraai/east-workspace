@@ -11,10 +11,12 @@
  *     `meta` / `body` / `footer` / `footerLabel` / `footerAction`) — the bsys
  *     observe `.frame` pattern: 1px rule, 10px radius, paper-2 header/footer.
  *   - `Slice.Frame` (`frameEyebrow` / `frameEyebrowControls` / `frameEyebrowMeta`
- *     / `frameBody` / `frameFooter` / `frameFooterStat` / `frameFooterDelta`) —
+ *     / `frameBody` / `frameFooter` / `frameFooterStat` / `frameFooterDelta` /
+ *     `framePager`) —
  *     the container that houses a slice consumer: a fixed-height one-row eyebrow
  *     (affordances left / meta right, never wraps), an unpadded body slot, and a
- *     derived-count footer. Matches `design/slice.html#slice-frame`.
+ *     derived-count footer — a paged Table's with its page buttons at its end.
+ *     Matches `design/slice.html#slice-frame`.
  *   - The rail's clusters (`railCluster` / `railAffordance` / `railTrigger`,
  *     #952) — one form of a cluster as the shared toolbar renders it: the live
  *     affordances, then the folded ones' trigger — and the sectioned editor
@@ -45,7 +47,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "railGroupHead", "railGroupIcon", "railGroupLabel", "railGroupCount",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
-        "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
+        "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta", "framePager",
         "searchPill", "searchKbd", "searchClear",
         "searchCompact", "searchFull", "searchSuggestion", "searchIdentity", "searchLabel", "searchMeta",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
@@ -176,6 +178,8 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         // The folded families' trigger — their summary chips (one terminal
         // chip, or the icon alone, as the cluster folds further) and a caret;
         // on a coarse pointer a 44px tap target from its halo (#346, #1221).
+        // A filter chip whose host gives its whole words for its hover
+        // (`data-chip-cut`, #1673) cuts its label past 220px with an ellipsis.
         railTrigger: {
             display: "inline-flex",
             alignItems: "center",
@@ -183,6 +187,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             cursor: "pointer",
             "& [data-rail-caret]": { fontSize: "8px", opacity: 0.6 },
+            "&[data-chip-cut] > span:first-of-type": { maxWidth: "220px", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
             ...coarseHitArea({ position: true }),
         },
         // The sectioned editor the trigger opens: every family, flat, under its caption.
@@ -279,6 +284,14 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         frameFooterDelta: {
             color: "fg.success",
             fontWeight: "semibold",
+        },
+        // A paged Table's pager in its footer: the rest of the footer's line, the Pagination's page buttons at the
+        // line's end — the room the Pagination reads to draw its strip or, under 360px of it, its readout (#1268).
+        framePager: {
+            flex: "1",
+            minWidth: "0",
+            display: "flex",
+            justifyContent: "flex-end",
         },
 
         // Compact search — the closed `.search` pill in the eyebrow's right zone.

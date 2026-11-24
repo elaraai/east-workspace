@@ -11,13 +11,16 @@
  * level with the results' 44px band — and the status line along the foot; a
  * collapsed pane a 44px rail. The Query tab's band under its tab row, then the
  * source, a shape line after it and after every step, and the foot at the
- * pane's foot; the view shown in the brand. The toolbar folds by one ladder —
+ * pane's foot; the view shown in the brand. In every card a row's joiner and
+ * its × stand on the row's line, centred on it whether it holds slots alone or
+ * a taller input, the × after what the row says. The toolbar folds by one ladder —
  * Run's keys, then Copy jq to its icon, then Copy jq and Save… into the ⋯
  * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
  * opens the 320px save popover with the name and the description. The history
  * item's Save shows the drafts it saves until the record reads back, never the
- * query as it was before them. The frame is set to the mock's width, 1240px,
+ * query as it was before them. Two steps added and the first of them removed
+ * leave the second, and one Undo puts the first back (#1673). The frame is set to the mock's width, 1240px,
  * and every measurement is polled until it holds, on a page at rest. Its
  * builder frame (#1125 F3): on a desktop the pane is pinned, the results
  * beside it; on a phone it rests on its rail, and opened it floats over the
@@ -142,6 +145,41 @@ test.describe("Query builder (#940)", () => {
         });
     });
 
+    test("in every card a row is one line — its joiner's words and its × centred on it, the × 6 after what the row says — whether it holds slots alone or a taller input", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const rows = await builder.evaluate((root) => {
+            const at = (n: number) => Math.round(n * 2) / 2;
+            const middle = (el: Element) => at(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2);
+            return [...root.querySelectorAll("[data-query-tab=query] [data-query-line=row]")].map((row) => {
+                const parts = [...row.querySelectorAll("[data-query-row-body] > *")];
+                const [first, last] = [parts[0]!, parts[parts.length - 1]!];
+                const cross = row.querySelector(":scope > [data-query-remove=row]");
+                const joiner = row.querySelector(":scope > [data-query-joiner]");
+                return {
+                    step: row.closest("[data-step-kind]")!.getAttribute("data-step-kind"),
+                    // What it says is one line: every part centred on one height.
+                    oneLine: parts.every((part) => middle(part) === middle(first)),
+                    tallest: Math.max(...parts.map((part) => part.getBoundingClientRect().height)),
+                    // Its ×: on that line, after its last part. Its joiner's words, where it says any: on that line.
+                    cross: cross === null ? null : [middle(cross) === middle(first), at(cross.getBoundingClientRect().left - last.getBoundingClientRect().right)],
+                    joiner: joiner === null || joiner.textContent === "" ? null : middle(joiner) === middle(first),
+                };
+            });
+        });
+        // The default query: three conditions, the second and third joined by and; a look-up's two rows; five fields shown,
+        // each under a name; a sort; and how many rows to keep.
+        expect(rows.map((row) => [row.step, row.oneLine, row.cross, row.joiner])).toEqual([
+            ["filter", true, [true, 6], null], ["filter", true, [true, 6], true], ["filter", true, [true, 6], true],
+            ["lookup", true, null, null], ["lookup", true, null, null],
+            ...Array.from({ length: 5 }, () => ["pick", true, [true, 6], null]),
+            ["sort", true, null, null], ["limit", true, null, null],
+        ]);
+        // A condition's row holds slots alone, 26 tall; a field shown under a name holds an input taller than its slot.
+        const tallest = (step: string) => [...new Set(rows.filter((row) => row.step === step).map((row) => row.tallest))];
+        expect(tallest("filter")).toEqual([26]);
+        expect(tallest("pick").every((height) => height > 26)).toBe(true);
+    });
+
     test("the toolbar folds by one ladder — Run's keys, Copy jq to its icon, Copy jq and Save… into the ⋯ chip in one move, the history item — a move each time the frame is narrower than the row's items", async ({ page }) => {
         const builder = await openBuilder(page);
         const toolbar = builder.locator("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]");
@@ -244,6 +282,24 @@ test.describe("Query builder (#940)", () => {
         const seen = await page.evaluate(() => (window as unknown as { stepsSeen: string[] }).stepsSeen);
         expect(seen.filter((state) => state !== drafted), `the steps went back to ${before}`).toEqual([]);
     });
+
+    test("two steps added at the end, the first of them removed: the second stands after the query's own; one Undo puts the first back (#1673)", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")));
+        const saved = await steps();
+        // Each opens on its first slot's list, which Esc puts away.
+        await builder.locator("[data-query-foot] button", { hasText: "Group and total" }).click();
+        await page.keyboard.press("Escape");
+        await builder.locator("[data-query-foot] button", { hasText: "Sort by" }).click();
+        await page.keyboard.press("Escape");
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
+        // The first of the two out: the second stands where it stood.
+        await builder.locator("[data-step-id]").nth(saved.length).getByRole("button", { name: "Remove step" }).click();
+        await expect.poll(steps).toEqual([...saved, "Sort"]);
+        // One Undo: the first back, before the second.
+        await builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").getByRole("button", { name: "Undo" }).click();
+        await expect.poll(steps).toEqual([...saved, "Group and total", "Sort"]);
+    });
 });
 
 test.describe("Query builder — its builder frame on a desktop (#1125 F3)", () => {
@@ -336,8 +392,12 @@ test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => 
         expect((await slot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         await slot.click(); await settled(page);
         const picker = frame.locator("[data-query-view-picker]");
-        const [p, f] = [(await picker.boundingBox())!, (await frame.boundingBox())!];
-        expect([Math.round(p.width), Math.round(p.height)]).toEqual([Math.round(f.width), Math.round(f.height)]);
+        await expect(picker).toBeVisible();
+        // Read in one go from the frame, which stands: the view is drawn afresh as its slot's summary arrives (its key the
+        // editor's generation), and a handle taken to it a moment before would read the one it replaced.
+        const [p, f] = await frame.evaluate((root) => [root.querySelector("[data-query-view-picker]")!.getBoundingClientRect(), root.getBoundingClientRect()]
+            .map((box) => [Math.round(box.width), Math.round(box.height)]));
+        expect(p).toEqual(f);
         expect(await picker.locator("[role=option]").evaluateAll((rows) => rows.every((r) => r.getBoundingClientRect().height >= 44))).toBe(true);
         await nothingFloats(page);
         // Esc closes the picker, and the Query view stays under it.

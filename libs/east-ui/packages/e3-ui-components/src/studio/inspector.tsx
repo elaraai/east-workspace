@@ -4,13 +4,14 @@
  */
 
 /**
- * `StudioInspector` — the builder's inspector (#996), the body of its pane
- * after the canvas, under the pane's tab row. It draws the selected placement
- * East computed — its name and key, what it reads (each named in words,
- * never a keypath), its description, its layout — and sends every layout
- * edit through `onRequest`, which asks the canvas for it; the canvas takes it
- * as one gesture of the page's session, and the placement comes back drawn
- * anew.
+ * `StudioInspector` — the builder's inspector's Layout tab (#996, #1672), a
+ * body of its pane after the canvas, under the pane's tab row. It draws the
+ * selected placement East computed — its name, and its layout — and sends
+ * every layout edit through `onRequest`, which asks the canvas for it; the
+ * canvas takes it as one gesture of the page's session, and the placement
+ * comes back drawn anew. What the placement holds is the Configure tab's
+ * (`configure.tsx`), which shares the head ({@link InspectorHead}) and what
+ * the pane says with nothing selected ({@link InspectorEmpty}).
  *
  * Its layout is the `studioInspector` recipe's; its controls are the theme's
  * shared ones — the brand `stepper` for the span, the numeric `input` for the
@@ -31,10 +32,10 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus, faUpDownLeftRight,
+    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faMinus, faPlus, faUpDownLeftRight,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StudioInspectorPayloadType } from "@elaraai/e3-ui/internal";
+import { StudioInspectorPayloadType, kindStruct } from "@elaraai/e3-ui/internal";
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
@@ -43,9 +44,9 @@ import { useStudioMessages, type StudioMessages } from "./messages.js";
 type Styles = Record<string, SystemStyleObject>;
 
 /** The inspector, as the builder draws it. */
-type StudioInspectorValue = ValueTypeOf<typeof StudioInspectorPayloadType>;
+export type StudioInspectorValue = ValueTypeOf<typeof StudioInspectorPayloadType>;
 /** The selected placement, as East computed it. */
-type Selection = Extract<StudioInspectorValue["selection"], { type: "some" }>["value"];
+export type Selection = Extract<StudioInspectorValue["selection"], { type: "some" }>["value"];
 /** A change asked of the canvas. */
 type Change = Parameters<StudioInspectorValue["onRequest"]>[0]["change"];
 /** Where a placement sits in a taller row. */
@@ -115,11 +116,72 @@ function RowField({ row, onRow, css, id }: { row: number; onRow: (row: number) =
     );
 }
 
+/** In a phone's frame: where the placement stands, whether its span is drafted, and what Move does. */
+export type InspectorPhone = NonNullable<StudioInspectorProps["phone"]>;
+
 /**
- * Renders the builder's inspector body — see the module docs.
+ * What the inspector's pane says with nothing selected, under either of its
+ * tabs: what to do — on a phone, a checklist that says tap.
+ *
+ * @param props - Whether it is drawn in a phone's frame
+ * @returns The pane's body
+ */
+export function InspectorEmpty({ phone }: { phone: boolean }) {
+    const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
+    const ps = useSlotStyles("studioPhone");
+    const m = useStudioMessages();
+    return (
+        <Box css={styles.root} data-studio-inspector="">
+            {phone ? (
+                <Box css={ps.inspectorEmpty} data-inspector="empty">
+                    <Box as="span" css={ps.inspectorEmptyGlyph} aria-hidden />
+                    <Box as="span" css={ps.inspectorEmptyTitle}>{m.nothingSelected()}</Box>
+                    <Box as="ul" css={ps.inspectorEmptyList}><li>{m.phoneNothingFirst()}</li><li>{m.phoneNothingThen()}</li></Box>
+                </Box>
+            ) : (
+                <Box css={styles.empty} data-inspector="empty">
+                    <Box as="span" css={styles.emptyTitle}>{m.nothingSelected()}</Box>
+                    <Box as="span" css={styles.emptyHint}>{m.nothingSelectedHint()}</Box>
+                </Box>
+            )}
+        </Box>
+    );
+}
+
+/**
+ * The selected placement's head, over either of the inspector's tabs: what it
+ * holds as its label, its name, for a visual what it is — its view, its kind
+ * and its source's key, `chart · column · orders` — and in a phone's frame
+ * where it stands.
+ *
+ * @param props - The selected placement, and in a phone's frame where it stands
+ * @returns The head
+ */
+export function InspectorHead({ selection, phone }: { selection: Selection; phone: InspectorPhone | undefined }) {
+    const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
+    const ps = useSlotStyles("studioPhone");
+    const m = useStudioMessages();
+    const words = useFormatters();
+    const content = selection.content;
+    const span = Number(selection.layout.span);
+    const held = selection.cell.content;
+    // A visual, as its keys say it: its view, its kind where its view has more than one, and its source.
+    const is = held.type !== "visual" ? undefined : [...new Set([held.value.view.type, kindStruct(held.value.view)?.kind ?? held.value.view.type, held.value.source])].join(" · ");
+    return (
+        <Box css={styles.selection} data-inspector="selection">
+            <Box as="span" css={styles.lbl}>{content.type === "component" ? m.selectedComponent() : content.type === "visual" ? m.selectedVisual() : m.selectedText()}</Box>
+            <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
+            {is !== undefined && <Box as="span" css={styles.meta} data-inspector-is="">{is}</Box>}
+            {phone !== undefined && <Box as="span" css={ps.meta} data-inspector-where="">{m.phoneWhere({ row: words.number(Number(selection.layout.row)), first: words.number(phone.first), last: words.number(phone.first + span - 1) })}</Box>}
+        </Box>
+    );
+}
+
+/**
+ * Renders the inspector's Layout tab — see the module docs.
  *
  * @param props - The selected placement, and where a layout edit goes
- * @returns The inspector's body
+ * @returns The tab's body
  */
 export const StudioInspector = memo(function StudioInspector({ value, phone }: StudioInspectorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
@@ -155,64 +217,17 @@ export const StudioInspector = memo(function StudioInspector({ value, phone }: S
         ],
     }), [height, m, words]);
 
-    if (selection === undefined && phone !== undefined) {
-        return (
-            <Box css={styles.root} data-studio-inspector="">
-                <Box css={ps.inspectorEmpty} data-inspector="empty">
-                    <Box as="span" css={ps.inspectorEmptyGlyph} aria-hidden />
-                    <Box as="span" css={ps.inspectorEmptyTitle}>{m.nothingSelected()}</Box>
-                    <Box as="ul" css={ps.inspectorEmptyList}><li>{m.phoneNothingFirst()}</li><li>{m.phoneNothingThen()}</li></Box>
-                </Box>
-            </Box>
-        );
-    }
-    if (selection === undefined) {
-        return (
-            <Box css={styles.root} data-studio-inspector="">
-                <Box css={styles.empty} data-inspector="empty">
-                    <Box as="span" css={styles.emptyTitle}>{m.nothingSelected()}</Box>
-                    <Box as="span" css={styles.emptyHint}>{m.nothingSelectedHint()}</Box>
-                </Box>
-            </Box>
-        );
-    }
+    if (selection === undefined) return <InspectorEmpty phone={phone !== undefined} />;
 
     const layout = selection.layout;
     const span = Number(layout.span);
     const most = Number(layout.most);
-    const description = selection.description.type === "some" ? selection.description.value : undefined;
     const aligned: Align = layout.align.type;
     const heightKey = height === undefined ? "auto" : String(height);
 
     return (
         <Box css={styles.root} data-studio-inspector="">
-            <Box css={styles.selection} data-inspector="selection">
-                <Box as="span" css={styles.eyebrow}>{m.selectedComponent()}</Box>
-                <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
-                {phone !== undefined && <Box as="span" css={ps.meta} data-inspector-where="">{m.phoneWhere({ row: words.number(Number(layout.row)), first: words.number(phone.first), last: words.number(phone.first + span - 1) })}</Box>}
-            </Box>
-            <Box css={styles.data} data-inspector="data">
-                <Box as="span" css={styles.eyebrow}>{m.data()}</Box>
-                {selection.reads.length > 0 ? (
-                    <Box as="ul" css={styles.reads} aria-label={m.data()}>
-                        {selection.reads.map((name, at) => <Box as="li" key={at} css={styles.read}>{name}</Box>)}
-                    </Box>
-                ) : (
-                    <Box as="span" css={styles.noReads}>{m.readsNothing()}</Box>
-                )}
-            </Box>
-            <Box css={styles.config} data-inspector="config">
-                <Box css={styles.configHead}>
-                    <Box as="span" css={styles.eyebrow}>{m.configuration()}</Box>
-                    <Box as="span" css={styles.lockNote}>
-                        <FontAwesomeIcon icon={faLock} />
-                        {m.fixedByDeveloper()}
-                    </Box>
-                </Box>
-                <Box as="p" css={styles.description} data-empty={description === undefined ? "" : undefined}>
-                    {description ?? m.noDescription()}
-                </Box>
-            </Box>
+            <InspectorHead selection={selection} phone={phone} />
             <Box css={styles.layout} data-inspector="layout">
                 <Box as="span" css={styles.eyebrow}>{m.layout()}</Box>
                 {phone !== undefined ? (
@@ -326,10 +341,6 @@ export const StudioInspector = memo(function StudioInspector({ value, phone }: S
                     </Box>
                 </Box>
                 </>}
-            </Box>
-            <Box css={styles.footer} data-inspector="footer">
-                <FontAwesomeIcon icon={faLock} />
-                {m.published()}
             </Box>
         </Box>
     );

@@ -15,12 +15,34 @@
  * foot with Quick add. The builder fills its host and draws no border of its
  * own; a host frames it, or places it bare.
  *
+ * A remove says what it takes before it takes it: a row's × and a group's
+ * Remove group — its words, at its foot's end, never the mark a row's is —
+ * are each marked by what they take (`data-query-remove`), and while one is
+ * pointed at or holds the focus, the row or the group it would take stands on
+ * the danger wash, inside the danger rule.
+ *
  * The parts take their sizes from the design system's own: a slot is the
  * `select` trigger, an input the `input`, a jq step's code the `codeBlock`,
  * the buttons the `button` and `iconButton` recipes, the status line's dots
  * the `status` recipe. This recipe adds what those have not: the dashed and
  * danger states (by data attributes), and the joiner column that lines
- * conditions up. Its toolbar row and its layout are the builder frame's, its
+ * conditions up.
+ *
+ * A row is three parts side by side: its joiner, what it says (`rowBody`) and
+ * its ×. Where the row is longer than its room, what it says wraps — under its
+ * own first part, never under the joiner — and the joiner and the × hold to
+ * its first line: a × is never left on a line of its own, nor a value under
+ * the joiner column. The three stand on one baseline — the first line's words'
+ * — so the joiner's words and the × are centred on that line whatever it
+ * holds: a 26px slot, a taller input, a touch screen's.
+ *
+ * In place (#1673) — a filter's conditions in a popover, a visual's own
+ * filter — the same rows stand in `conditions`, marked
+ * `data-query-look="inline"`, with no frame of their own: their slots are the
+ * step card's, boxed — solid once filled, dashed while empty — on the edges
+ * the query builder's spec draws them on (`Query Editor Spec.md` §4.3); a
+ * lone condition (`data-single`) has no joiner column, its slot boxes and its
+ * foot's add on the rows' own edge. Its toolbar row and its layout are the builder frame's, its
  * pane the `dock`'s, its history item the `editHistory`'s, Download ▾ the
  * `menu`'s; the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
@@ -38,6 +60,19 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { centredLine } from "../one-line-box.js";
+
+/**
+ * A row its × is about to take, as a group its Remove group is: on the danger wash, inside the danger rule — both 3px
+ * past the row's own edges, which hold no padding to stand them on, and neither moving anything.
+ */
+const REMOVING_ROW = {
+    background: "bg.danger.subtle",
+    boxShadow: "0 0 0 3px {colors.bg.danger.subtle}",
+    outlineWidth: "1px",
+    outlineStyle: "solid",
+    outlineColor: "border.error",
+    outlineOffset: "3px",
+} as const;
 
 /** A small dashed button: a shape line's Insert, an add in a row. */
 const dashed = {
@@ -58,8 +93,8 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         // The Query tab.
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
-        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished",
-        "row", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove",
+        "card", "cardHead", "cardNumber", "cardIcon", "cardTitle", "cardSpacer", "cardActions", "cardBody", "unfinished", "conditions",
+        "row", "rowBody", "joiner", "word", "slot", "slotText", "slotCaret", "input", "chip", "chipRemove", "add", "remove", "removeGroup",
         "group", "groupBox", "groupHead", "cardFoot", "note", "problem", "problemIcon", "problemText",
         "tabFoot", "addAtEnd", "quick", "quickLabel",
         // The status line.
@@ -309,20 +344,53 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             color: "fg.subtle",
         },
-        /* A row of words and parts. */
+        /* A step's conditions in place, framed by their host: the card body's rows, one under another 6 apart. With the
+           picker open under them they give up their height to it, which takes what its host's body has left (#1673) —
+           the picker alone: no line of theirs is ever squeezed, a row that wraps holding every line of its slots. In a
+           body too short for them it is the body that scrolls. */
+        conditions: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            minWidth: "0",
+            flexShrink: "0",
+            "& > :not([data-chooser])": { flexShrink: "0" },
+            "&:has(> [data-chooser])": { flexShrink: "1", minHeight: "0" },
+        },
+        /* A row: its joiner, what it says and its ×, side by side on the baseline of its first line's words. While its × is
+           pointed at, or holds the focus, it stands on the danger wash inside the danger rule, 3px past its own edges:
+           the row the × takes, every line of it. */
         row: {
+            display: "flex",
+            alignItems: "baseline",
+            gap: "6px",
+            minHeight: "28px",
+            borderRadius: "{radii.sm}",
+            transitionProperty: "background, box-shadow",
+            transitionDuration: "{durations.fast}",
+            "&:has(> [data-query-remove='row']:is(:hover, :focus-visible))": REMOVING_ROW,
+        },
+        /* What a row says: its words, slots, inputs, chips and adds, 6 apart, each line's parts centred on it, wrapping
+           under its own first part where the row runs out. One line of it is the row's 28px, a 26px slot 1px inside. In
+           place it takes the row's width, so the × stands at the row's end. */
+        rowBody: {
             display: "flex",
             flexWrap: "wrap",
             alignItems: "center",
             gap: "6px",
+            minWidth: "0",
             minHeight: "28px",
+            "[data-query-look='inline'] &": { flex: "1" },
         },
-        /* `and`, `or`: a fixed column, so conditions line up. */
+        /* `and`, `or`: a fixed column, so conditions line up; its words on a slot's own 16px line, which the row's
+           baseline — a group's too — stands on its first line's. */
         joiner: {
             width: "30px",
             flexShrink: "0",
             fontSize: "12.5px",
+            lineHeight: "16px",
             color: "fg.muted",
+            "[data-query-look='inline'][data-single] &": { display: "none" },
         },
         word: {
             fontSize: "12.5px",
@@ -396,13 +464,32 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle", color: "link" },
             },
         },
-        /* A row's ×. */
+        /* A row's ×, on the row's first line; in place, at the row's end (#1673), which what the row says leaves it. A
+           button of an icon alone has no words to stand on a baseline: it holds a slot's line of none, before its icon,
+           so the row's baseline centres it on its first line as it does a slot. (Its `::before` is a touch screen's
+           halo.) The danger ink as it is pointed at. */
         remove: {
             color: "fg.subtle",
+            "&[data-query-remove='row']": {
+                flexShrink: "0",
+                "&::after": { content: '"\\200b"', order: "-1", width: "0", fontSize: "12.5px", lineHeight: "16px" },
+            },
+            "&[data-query-remove='row']:is(:hover, :focus-visible)": { color: "fg.danger" },
         },
-        /* A group of conditions: its joiner, and its box. */
+        /* A group's Remove group: its words at its foot's end, opposite its add — quiet, the danger ink as it is pointed
+           at, on no wash of its own: its group's box takes the wash. */
+        removeGroup: {
+            marginInlineStart: "auto",
+            paddingInline: "{spacing.1}",
+            fontWeight: "medium",
+            color: "fg.muted",
+            _hover: { background: "transparent", color: "fg.danger" },
+            _focusVisible: { color: "fg.danger" },
+        },
+        /* A group of conditions: its joiner, and its box — the joiner's words on the baseline of its box's head's. */
         group: {
             display: "flex",
+            alignItems: "baseline",
             gap: "6px",
         },
         groupBox: {
@@ -418,6 +505,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             background: "bg.panel",
+            transitionProperty: "background, border-color",
+            transitionDuration: "{durations.fast}",
+            // While its Remove group is pointed at, or holds the focus: the group and all it holds, which it takes.
+            "&:has(> [data-query-line='foot'] > [data-query-remove='group']:is(:hover, :focus-visible))": { background: "bg.danger.subtle", borderColor: "border.error" },
         },
         groupHead: {
             display: "flex",
@@ -432,11 +523,15 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.3}",
             minHeight: "26px",
             paddingInlineStart: "32px",
+            // A lone condition's add, its icon on the edge its slots' boxes stand on, as the spec's foot stands under a step's
+            // slots: back over the add's own padding.
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0", marginInlineStart: "-4px" },
         },
         note: {
             paddingInlineStart: "36px",
             fontSize: "12px",
             color: "fg.subtle",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
         },
         /* A problem under its row, in its severity's ink, with its fixes. */
         problem: {
@@ -448,6 +543,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             paddingBottom: "{spacing.1}",
             fontSize: "12px",
             lineHeight: "1.4",
+            "[data-query-look='inline'][data-single] &": { paddingInlineStart: "0" },
             "&[data-severity=error]": { color: "fg.danger" },
             "&[data-severity=warning]": { color: "fg.warning" },
             "&[data-severity=note]": { color: "fg.muted" },

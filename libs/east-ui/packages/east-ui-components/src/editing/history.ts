@@ -14,7 +14,9 @@
  *
  * - **Undo and Redo** take back the last step in each of its sessions, and
  *   replay the next. A new gesture drops what Redo could replay in every
- *   session, as one history's would.
+ *   session, as one history's would. A run of one session's gestures under
+ *   one key (`joins`) is one step, as that session's own run is: a resize
+ *   dragged, its snaps one step.
  * - **Discard** drops every session's drafts, and the steps with them.
  * - **Save** commits each session with a change it can send, each its own
  *   request with its own outcome: one session's conflict, refusal or
@@ -103,6 +105,10 @@ export class EditHistory<W> {
     private acting = 0;
     /** Something moved since the history last said so. */
     private moved = false;
+    /** The run of one session's gestures the last step is ({@link EditHistory.record}'s `joins`): the step, the run's key, and the tag its session holds it by. */
+    private openRun: { readonly step: readonly string[]; readonly joins: string; readonly tag: string } | undefined;
+    /** How many runs have begun: each run's tag is its own. */
+    private runs = 0;
 
     /**
      * The sessions the history steps through, by key, in order: a session
@@ -376,13 +382,22 @@ export class EditHistory<W> {
      * changed. Nothing is recorded unless every session it names takes a
      * gesture now.
      *
+     * A gesture of one session that `joins` the last step — that step the
+     * session's alone, and nothing redone past it in any session — goes to the
+     * session with its key, which takes it as that step where its own last
+     * gesture was recorded with the same key ({@link EditSession.record}): the
+     * history then makes no step of it, and one Undo takes the run back. A step
+     * the run brings back to where it began goes. Anywhere else the gesture is
+     * a step of its own.
+     *
      * @param parts - Each session's part of the gesture, one per session
      * @param origin - The gesture
      * @param label - Its label in the history
+     * @param joins - The key of the run of one session's gestures it is one step with; none by default
      * @returns Whether anything changed
      * @throws {Error} When a session is named twice
      */
-    record(parts: readonly EditHistoryPart<W>[], origin: Origin, label: string): boolean {
+    record(parts: readonly EditHistoryPart<W>[], origin: Origin, label: string, joins?: string): boolean {
         const sessions = parts.map((part) => this.sessions.get(part.key));
         if (parts.length === 0 || sessions.some((session) => session === undefined || !session.writable)) return false;
         parts.forEach((part, i) => {
@@ -390,14 +405,32 @@ export class EditHistory<W> {
                 throw new Error("Compose a session's entries into one part before recording its gesture");
             }
         });
+        // A run is one session's gestures under one key. Its session is told it by a tag of the run's own, so its last
+        // transaction under the key, from before another session's step, is never this run's: the run the last step
+        // began — that session's, nothing redone past it — else a new run.
+        const one = joins !== undefined && parts.length === 1 ? joins : undefined;
+        const open = this.openRun;
+        const joining = one !== undefined && open !== undefined && this.cursor === this.steps.length
+            && open.step === this.steps[this.cursor - 1] && stringEqual(open.step[0]!, parts[0]!.key) && stringEqual(open.joins, one);
+        const tag = one === undefined ? undefined : joining ? open.tag : `${one}#${++this.runs}`;
+        const before = joining ? sessions[0]!.depth.undo : undefined;
         return this.run(() => {
             const recorded: string[] = [];
             try {
                 parts.forEach((part, i) => {
-                    if (part.updates.length > 0 && sessions[i]!.record(part.updates, origin, label)) recorded.push(part.key);
+                    if (part.updates.length > 0 && sessions[i]!.record(part.updates, origin, label, tag)) recorded.push(part.key);
                 });
             } finally {
-                if (recorded.length > 0) this.push(recorded);
+                if (recorded.length > 0) {
+                    // Its session took it as the run's last step, or took that step off: the history's last step is it, or goes.
+                    const now = before === undefined ? undefined : sessions[0]!.depth.undo;
+                    if (before === undefined || now === undefined || now > before) {
+                        this.push(recorded);
+                        if (one !== undefined && tag !== undefined) this.openRun = { step: recorded, joins: one, tag };
+                    } else {
+                        this.joined(now < before);
+                    }
+                }
             }
             return recorded.length > 0;
         });
@@ -563,6 +596,23 @@ export class EditHistory<W> {
         this.steps.splice(this.cursor);
         this.steps.push(keys);
         this.cursor = this.steps.length;
+        this.drafted = this.cursor;
+        // A step of no run ends the one before.
+        this.openRun = undefined;
+        for (const session of this.sessions.values()) session.changedElsewhere();
+        this.moved = true;
+    }
+
+    /**
+     * A gesture its session took as the last step's ({@link EditHistory.record}'s `joins`): the steps stand where this
+     * change left them, as a new step's do; and the last step goes where the run brought it back to where it began.
+     */
+    private joined(gone: boolean): void {
+        if (gone) {
+            this.steps.pop();
+            this.cursor = this.steps.length;
+            this.openRun = undefined;
+        }
         this.drafted = this.cursor;
         for (const session of this.sessions.values()) session.changedElsewhere();
         this.moved = true;

@@ -4,10 +4,10 @@
  */
 
 /**
- * Progress slot recipe — bsys `.bar` thin track.
- *
- * Spec `.bar`: paper-3 track, brand fill, 6 px tall, 3 px radius. Tones
- * are restricted to brand / pos / neg (no hue picker per spec).
+ * Progress slot recipe — the design system's bar: a 6px track on
+ * `--paper-3`, square-ended (a radius on 6px is a pill), its fill
+ * `--brand-d` running, `--pos` complete, `--neg` failed. Tones are
+ * restricted to brand / pos / neg (no hue picker per spec).
  *
  * @packageDocumentation
  */
@@ -22,7 +22,7 @@ export const progressSlotRecipe = defineSlotRecipe({
         label: { textStyle: "caption.eyebrow" },
         track: {
             background: "bg.subtle",
-            borderRadius: "{radii.xs}",
+            borderRadius: "0",
             height: "6px",
             overflow: "hidden",
         },
@@ -55,6 +55,11 @@ export const progressSlotRecipe = defineSlotRecipe({
             sm: { track: { height: "4px" } },
             md: { track: { height: "6px" } },
         },
+        /* Square-ended. Chakra's own recipe, which this one is merged over,
+         * rounds the track by its default shape; the default here is square. */
+        shape: {
+            square: {},
+        },
     },
-    defaultVariants: { sentiment: "brand", size: "md" },
+    defaultVariants: { sentiment: "brand", size: "md", shape: "square" },
 });

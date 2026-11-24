@@ -20,10 +20,12 @@ import { SOURCE_COUNT } from "../steps/count.js";
 import { fieldByRef, fieldsOf, type StepField } from "../steps/fields.js";
 import { itemShape, scalarFieldsOf } from "../steps/print.js";
 import { singular, unwrapRecursive, type Shape } from "../steps/shape.js";
-import { isComplete, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
-import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./refs.js";
+import { isComplete, lastUnit, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
+import { sameSlot, type ActionRef, type InputRef, type RemoveRef, type SlotRef } from "./refs.js";
+import { problemWords } from "./problem-words.js";
+import { orderKind, stepWords } from "./step-words.js";
 import {
-    STEP_ICON, countWords, fieldLabels, human, isIdName, orderKind, plainKind, plural, problemWords, refLabel, rowsWords, shapeWords, stepWords, valueWords,
+    STEP_ICON, countWords, fieldLabels, human, isIdName, plainKind, plural, refLabel, rowsWords, shapeWords, valueWords,
     type QueryWords,
 } from "./words.js";
 
@@ -39,8 +41,11 @@ export type CardPart =
     | { readonly t: "chip"; readonly text: string; readonly remove: RemoveRef }
     /** An add: a foot's, or Look up's Add field. */
     | { readonly t: "add"; readonly text: string; readonly action: ActionRef; readonly ghost: boolean }
-    /** A row's ×. */
-    | { readonly t: "remove"; readonly label: string; readonly target: RemoveRef }
+    /**
+     * A remove, named by its label, and what it takes: its `row` — a ×; a `group` and all it holds — its label in
+     * words, in the group's foot, so a group's is never the mark a row's is; or one `part` of a row — a field's ×.
+     */
+    | { readonly t: "remove"; readonly label: string; readonly target: RemoveRef; readonly takes: "row" | "group" | "part" }
     /** A jq step's code. */
     | { readonly t: "code"; readonly text: string };
 
@@ -60,16 +65,43 @@ export interface ProblemLine {
 
 /** One line of a card. */
 export interface CardLine {
-    /** A row of parts; a group, with its own head and lines; a foot of adds; a note; a jq step's code. */
+    /** A row of parts; a group, with its own head and lines; a foot of adds — and, a group's, its Remove group; a note; a jq step's code. */
     readonly kind: "row" | "group" | "foot" | "note" | "code";
     /** Its parts. */
     readonly parts: readonly CardPart[];
     /** A group's head: its match and its words. */
     readonly head?: readonly CardPart[];
-    /** A group's lines. */
+    /** A group's lines: its rows, then its foot — Add condition, and Remove group opposite it. */
     readonly lines?: readonly CardLine[];
     /** The problems under it. */
     readonly problems: readonly ProblemLine[];
+}
+
+/** A row's parts by where they stand in it ({@link rowSides}). */
+export interface RowSides {
+    /** Its joiner — `and`, `or`, or a first row's empty one — which stands in the joiner column; none where its first part is no joiner. */
+    readonly start: readonly CardPart[];
+    /** What it says: its words, slots, inputs, chips and adds — and a field's own ×, beside the field it takes. */
+    readonly body: readonly CardPart[];
+    /** Its ×, which takes the row, at its end; none where its last part is no remove of the row. */
+    readonly end: readonly CardPart[];
+}
+
+/**
+ * A row's parts by where they stand in it: its joiner in the joiner column,
+ * its × at its end, and what it says between the two. A row longer than the
+ * room it is drawn in wraps what it says — under its own first part, never
+ * under its joiner — and its × stays on its first line, at its end.
+ *
+ * @param parts - The row's parts, in order
+ * @returns Its joiner, what it says, and its ×
+ */
+export function rowSides(parts: readonly CardPart[]): RowSides {
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    const from = first !== undefined && first.t === "word" && first.joiner === true ? 1 : 0;
+    const to = parts.length > from && last !== undefined && last.t === "remove" && last.takes === "row" ? parts.length - 1 : parts.length;
+    return { start: parts.slice(0, from), body: parts.slice(from, to), end: parts.slice(to) };
 }
 
 /** The line between two steps: the shape in words. */
@@ -164,9 +196,9 @@ function input(ctx: CardContext, ref: Omit<InputRef, "stepId">, value: string, w
     return { t: "input", input: { stepId: ctx.step.value.id, ...ref }, value, width, mono, error };
 }
 
-/** A remove part. */
-function remove(ctx: CardContext, kind: RemoveRef["kind"], id: string, label?: string): CardPart {
-    return { t: "remove", label: label ?? ctx.words.messages.remove(), target: { kind, stepId: ctx.step.value.id, id } };
+/** A remove part, and what it takes: its row unless told. */
+function remove(ctx: CardContext, kind: RemoveRef["kind"], id: string, label?: string, takes: "row" | "group" | "part" = "row"): CardPart {
+    return { t: "remove", label: label ?? ctx.words.messages.remove(), target: { kind, stepId: ctx.step.value.id, id }, takes };
 }
 
 /** An add part. */
@@ -194,7 +226,7 @@ function testParts(ctx: CardContext, condition: TestCondition, shape: Shape): Ca
     const parts: CardPart[] = [slot(ctx, { kind: "field", condId: id }, ref === undefined ? undefined : refLabel(shape, ref), errorAt(ctx, { condId: id, slot: "field" }))];
     if (ref === undefined) return parts;
     const kind = cmp.type === "some" ? cmp.value.type : undefined;
-    parts.push(slot(ctx, { kind: "cmp", condId: id }, kind === undefined ? undefined : m.comparison({ cmp: kind }), errorAt(ctx, { condId: id, slot: "cmp" })));
+    parts.push(slot(ctx, { kind: "cmp", condId: id }, kind === undefined ? undefined : m.comparisonSlot({ cmp: kind }), errorAt(ctx, { condId: id, slot: "cmp" })));
     if (kind === undefined) return parts;
     if (kind === "anyWhere") {
         if (inner.type === "none") {
@@ -207,6 +239,11 @@ function testParts(ctx: CardContext, condition: TestCondition, shape: Shape): Ca
     if (needsValue(kind)) {
         const text = value.type === "some" ? valueWords(value.value, ctx.words) : undefined;
         parts.push(slot(ctx, { kind: "value", condId: id }, text, errorAt(ctx, { condId: id, slot: "value" }), monoField(f)));
+        // An "is in the last" count's unit after it: `7 days` (#1670).
+        if (lastUnit(kind) !== undefined) {
+            const n = value.type === "some" && value.value.type === "number" ? value.value.value : undefined;
+            parts.push(word(m.lastUnit({ cmp: kind, n: n ?? 2 })));
+        }
     }
     return parts;
 }
@@ -233,11 +270,16 @@ function filterLines(ctx: CardContext, step: Extract<Step, { type: "filter" }>):
                 parts: [gi === 0 ? word("", true) : word(m.joiner({ match: g.match.type }), true), ...conditionParts(ctx, gc, ctx.before), remove(ctx, "condition", gc.value.id)],
                 problems: problemsWhere(ctx, d => d.condId !== undefined && conditionIds(gc).includes(d.condId)),
             }));
-            inner.push({ kind: "foot", parts: [add(ctx, m.addCondition(), { kind: "add-condition", groupId: g.id })], problems: problemsWhere(ctx, d => d.condId === g.id) });
+            // Its foot: Add condition, and — in words, opposite it — Remove group, which takes the group and all it holds.
+            inner.push({
+                kind: "foot",
+                parts: [add(ctx, m.addCondition(), { kind: "add-condition", groupId: g.id }), remove(ctx, "condition", g.id, m.removeGroup(), "group")],
+                problems: problemsWhere(ctx, d => d.condId === g.id),
+            });
             lines.push({
                 kind: "group",
                 parts: joiner,
-                head: [slot(ctx, { kind: "group-match", condId: g.id }, m.match({ match: g.match.type }), false), word(m.ofThese({ match: g.match.type })), remove(ctx, "condition", g.id, m.removeGroup())],
+                head: [slot(ctx, { kind: "group-match", condId: g.id }, m.match({ match: g.match.type }), false), word(m.ofThese({ match: g.match.type }))],
                 lines: inner,
                 problems: [],
             });
@@ -286,8 +328,18 @@ function stepLines(ctx: CardContext): { head: CardPart[]; lines: CardLine[] } {
         }
         case "group": {
             const by = step.value.by;
-            const byText = by.type === "none" ? undefined : by.value.type === "all" ? m.allRowsTogether() : refLabel(before, by.value.value);
-            const lines: CardLine[] = [{ kind: "row", parts: [word(m.by()), slot(ctx, { kind: "by" }, byText, errorAt(ctx, { slot: "by" }))], problems: problemsWhere(ctx, d => d.slot === "by") }];
+            const byText = by.type === "none" ? undefined : by.value.type === "all" ? m.allRowsTogether() : by.value.type === "field" ? refLabel(before, by.value.value) : undefined;
+            // Several fields (#1670): each its own slot and ×, joined by and.
+            const byParts: CardPart[] = by.type === "some" && by.value.type === "fields"
+                ? by.value.value.flatMap((ref, i) => [
+                    ...(i === 0 ? [] : [word(m.joiner({ match: "all" }))]),
+                    slot(ctx, { kind: "by", id: ref }, refLabel(before, ref), errorAt(ctx, { slot: "by", id: ref })),
+                    remove(ctx, "by-field", ref, `${m.remove()} ${refLabel(before, ref)}`, "part"),
+                ])
+                : [slot(ctx, { kind: "by" }, byText, errorAt(ctx, { slot: "by" }))];
+            // Another field to group by, once it groups by one.
+            const addBy: CardPart[] = by.type === "some" && by.value.type !== "all" ? [add(ctx, m.addField(), { kind: "open", slot: { kind: "by-add", stepId: step.value.id } })] : [];
+            const lines: CardLine[] = [{ kind: "row", parts: [word(m.by()), ...byParts, ...addBy], problems: problemsWhere(ctx, d => d.slot === "by") }];
             step.value.aggs.forEach((a, k) => {
                 const fn = a.fn.type;
                 lines.push({
@@ -296,6 +348,8 @@ function stepLines(ctx: CardContext): { head: CardPart[]; lines: CardLine[] } {
                         word(m.thenTotal({ first: k === 0 })),
                         slot(ctx, { kind: "agg-fn", id: a.id }, m.total({ fn }), false),
                         ...(fn === "count" ? [] : [slot(ctx, { kind: "agg-field", id: a.id }, label(a.field), errorAt(ctx, { slot: "agg-field", id: a.id }))]),
+                        // A ratio's field it is per (#1670).
+                        ...(a.fn.type === "ratio" ? [word(m.per()), slot(ctx, { kind: "agg-per", id: a.id }, label(a.fn.value), errorAt(ctx, { slot: "agg-per", id: a.id }))] : []),
                         word(m.as()),
                         input(ctx, { kind: "agg-as", id: a.id }, a.as, "name", false, false),
                         remove(ctx, "total", a.id),
@@ -521,6 +575,12 @@ export function outlineOf(query: StepQuery, checked: CheckedSteps, words: QueryW
     });
 }
 
+/** Every part a card draws, in order: its head's, its lines', and each group's head's and lines'. */
+function cardParts(card: Card): CardPart[] {
+    const parts = (lines: readonly CardLine[]): CardPart[] => lines.flatMap(l => [...(l.head ?? []), ...l.parts, ...parts(l.lines ?? [])]);
+    return [...card.head, ...parts(card.lines)];
+}
+
 /**
  * The first empty slot of a card: where an added step opens.
  *
@@ -528,7 +588,36 @@ export function outlineOf(query: StepQuery, checked: CheckedSteps, words: QueryW
  * @returns the slot, or `undefined` when every slot is filled
  */
 export function firstEmptySlot(card: Card): SlotRef | undefined {
-    const parts = (lines: readonly CardLine[]): CardPart[] => lines.flatMap(l => [...(l.head ?? []), ...l.parts, ...parts(l.lines ?? [])]);
-    const found = [...card.head, ...parts(card.lines)].find(p => p.t === "slot" && p.empty);
+    const found = cardParts(card).find(p => p.t === "slot" && p.empty);
     return found?.t === "slot" ? found.slot : undefined;
+}
+
+/**
+ * The slots a card draws, in order: each slot part's, and the slot an add
+ * opens — Add field's list hangs from its add.
+ *
+ * @param card - the card
+ * @returns its slots
+ */
+export function cardSlots(card: Card): SlotRef[] {
+    return cardParts(card).flatMap((part): SlotRef[] => {
+        if (part.t === "slot") return [part.slot];
+        return part.t === "add" && part.action.kind === "open" && part.action.slot !== undefined ? [part.action.slot] : [];
+    });
+}
+
+/**
+ * Whether a query's cards still draw a slot: what a slot's open list is held
+ * to. A list hangs from a slot the cards draw, so a gesture that takes the
+ * slot away — its row's ×, its group's Remove group, its step removed, an undo — takes
+ * the list with it, and one that takes another row away leaves it where it
+ * is: a slot is its condition's, its total's or its field's by id, never by
+ * its place. The add-step list hangs from no card's part, so it always stands.
+ *
+ * @param cards - the query's cards ({@link cardsFor})
+ * @param slot - the slot
+ * @returns whether a card draws it
+ */
+export function slotDrawn(cards: readonly Card[], slot: SlotRef): boolean {
+    return slot.kind === "add-step" || cards.some(card => cardSlots(card).some(drawn => sameSlot(drawn, slot)));
 }

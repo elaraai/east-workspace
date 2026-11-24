@@ -8,8 +8,9 @@
  * asked, on the snap grid; two placements of one component share its State
  * (F3, K3); a frameless component's tile has no frame (F5); a placement whose
  * component the surface does not list is a placeholder naming it (K5), and
- * one whose key two listed components share an error naming it (K7); and what
- * a page says with nothing to draw.
+ * one whose key two listed components share an error naming it (K7); what a
+ * page says with nothing to draw; and a published page's text block, bare,
+ * and its visual whose source the surface does not list (#1669).
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -46,19 +47,21 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "o-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
+                { key: "o-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
+            filters: [],
         },
         live: some({
             version: 1n,
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi" },
-                    { key: "o-count-1", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
-                    { key: "o-count-2", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
-                    { key: "o-gone", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "retired" },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi") },
+                    { key: "o-count-1", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "counter") },
+                    { key: "o-count-2", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "counter") },
+                    { key: "o-gone", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "retired") },
                 ],
+                filters: [],
             },
         }),
     })],
@@ -66,16 +69,35 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Detail",
             cells: [
-                { key: "d-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
+                { key: "d-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
+            filters: [],
         },
         live: none,
+    })],
+    [{ project: "ops", page: "d-notes" }, variant("page", {
+        draft: { title: "Notes", cells: [], filters: [] },
+        live: some({
+            version: 1n,
+            page: {
+                title: "Notes",
+                cells: [
+                    { key: "n-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none,
+                        content: Studio.visual.text("Figures are to last night.\n\nAsk the desk for more.", "About these numbers") },
+                    { key: "n-plain", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: Studio.visual.text("   \n\n  ") },
+                    { key: "n-sales", row: "r2", span: 6n, height: none, align: variant("top", null), title: none,
+                        content: Studio.visual.of("sales", Studio.visual.column({ x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue")] })) },
+                ],
+                filters: [],
+            },
+        }),
     })],
     [{ project: "ops", page: "c-template" }, variant("template", {
         title: "Starter",
         cells: [
-            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi" },
+            { key: "t-kpi", row: "t1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi") },
         ],
+        filters: [],
     })],
 ], compareFor(StudioKeyType));
 
@@ -164,6 +186,23 @@ describe("<Studio.Page> (#993)", () => {
         }), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
         mount(template());
         expect(screen.getByText("Revenue 1.28M")).toBeTruthy();
+    });
+
+    test("#1669: a published page's text block is its heading over its paragraphs, bare — one with no heading and no text draws neither; a visual whose source the surface does not list says so, in a tile", () => {
+        const page = East.compile(East.function([], UIComponentType, ($) => {
+            const listed = $.let(components);
+            return Studio.Page({ pages: East.value(PAGES, StudioPagesType), components: listed, page: { project: "ops", page: "d-notes" } });
+        }), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
+        const { container } = mount(page());
+        const note = tile(container, "n-note")!;
+        expect(note.hasAttribute("data-frame")).toBe(false);
+        expect(note.querySelector("h3[data-studio-text-heading]")!.textContent).toBe("About these numbers");
+        expect([...note.querySelectorAll("p[data-studio-text-paragraph]")].map((p) => p.textContent)).toEqual(["Figures are to last night.", "Ask the desk for more."]);
+        const plain = tile(container, "n-plain")!;
+        expect([plain.hasAttribute("data-frame"), plain.querySelector("[data-studio-text]")!.childElementCount]).toEqual([false, 0]);
+        const sales = tile(container, "n-sales")!;
+        expect(sales.hasAttribute("data-frame")).toBe(true);
+        expect(sales.textContent).toContain('No source "sales" is listed');
     });
 
     test("a page not yet published says so; a page the record does not hold is named", () => {

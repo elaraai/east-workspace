@@ -35,17 +35,19 @@ import {
 import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { QueryStepType, SavedQueriesType, SavedQueryType, type QueriesHandleType } from "@elaraai/e3-ui/internal";
 import { pathToString } from "@elaraai/e3-types";
-import type { BatchReadiness, EditIssue, EditSession, EntryVersion, Origin, Placement } from "@elaraai/east-ui-components";
+import type { BatchReadiness, EditIssue, EditSession, EntryVersion, Origin } from "@elaraai/east-ui-components";
 import type { UIStoreInterface } from "@elaraai/east-ui-components";
 import { checkSteps, type CheckedSteps } from "./steps/check.js";
 import { parseSteps } from "./steps/parse.js";
 import { printSteps } from "./steps/print.js";
 import type { Step, StepQuery } from "./steps/values.js";
 import type { SavedOffer } from "./model/slots.js";
-import { problemWords, type QueryWords } from "./model/words.js";
+import { problemWords } from "./model/problem-words.js";
+import type { QueryWords } from "./model/words.js";
 import { prepareQuery, type QueryRoot } from "./one-shot.js";
 import type { QueryOpen } from "./open-query.js";
 import { queryEast } from "./query-east.js";
+import { listUpdates, type ListEntries } from "../shared/list-gesture.js";
 import { authorOf } from "../shared/records/author.js";
 
 // ============================================================================
@@ -519,42 +521,20 @@ function latestActor(handle: QueriesHandle): string | undefined {
 // Gestures: one transaction per gesture
 // ============================================================================
 
-/** An entry's placement among the drafted entries: before its next, else after its previous. */
-function placementIn(entries: readonly QueryEntry[], index: number): Placement {
-    const next = entries[index + 1];
-    const previous = entries[index - 1];
-    if (next !== undefined) return some(variant("ordered", variant("before", entryId(next))));
-    if (previous !== undefined) return some(variant("ordered", variant("after", entryId(previous))));
-    return some(variant("ordered", variant("start", null)));
+/** Whether two entries are the same value. */
+function sameEntry(a: QueryEntry, b: QueryEntry): boolean {
+    if (a.type === "header" && b.type === "header") return headerEqual(a.value, b.value);
+    if (a.type === "step" && b.type === "step") return stepEqual(a.value, b.value);
+    return false;
 }
 
-/**
- * The entries a gesture moved: those outside the longest run of entries that
- * kept their order, so a move places the entry moved, not its neighbours.
- */
-function movedIn(before: readonly string[], after: readonly string[]): Set<string> {
-    const common = after.filter(id => before.includes(id));
-    const at = common.map(id => before.indexOf(id));
-    const length = at.map(() => 1);
-    const previous = at.map(() => -1);
-    for (let i = 0; i < at.length; i++) {
-        for (let j = 0; j < i; j++) {
-            if (at[j]! < at[i]! && length[j]! + 1 > length[i]!) {
-                length[i] = length[j]! + 1;
-                previous[i] = j;
-            }
-        }
-    }
-    let best = -1;
-    for (let i = 0; i < at.length; i++) if (best < 0 || length[i]! > length[best]!) best = i;
-    const kept = new Set<string>();
-    for (let i = best; i >= 0; i = previous[i]!) kept.add(common[i]!);
-    return new Set(common.filter(id => !kept.has(id)));
-}
+/** A query's entries as a gesture reads them: each by its id, compared as a value, its own projection. */
+const QUERY_ENTRIES: ListEntries<QueryEntry, QueryEntry> = { idOf: entryId, same: sameEntry, wireOf: (entry) => entry };
 
 /**
  * Records one gesture: the query as it was and as the gesture leaves it, as
- * one undoable transaction of every entry it changed, added, removed or moved.
+ * one undoable transaction of every entry it changed, added, removed or moved
+ * (`shared/list-gesture.ts`).
  *
  * @param session - The open query's session
  * @param original - An entry's version before any draft of it
@@ -572,29 +552,6 @@ export function recordGesture(
     origin: Origin,
     label: string,
 ): boolean {
-    const was = new Map(current.map((e, i) => [entryId(e), { entry: e, index: i }]));
-    const now = new Map(next.map((e, i) => [entryId(e), { entry: e, index: i }]));
-    const moved = movedIn(current.map(entryId), next.map(entryId));
-    const versionOf = (id: string): EntryVersion<QueryEntry> => session.entries.get(id) ?? original(id);
-    const updates: { id: string; before: EntryVersion<QueryEntry>; after: EntryVersion<QueryEntry> }[] = [];
-    for (const [id, { entry, index }] of now) {
-        const old = was.get(id);
-        const before = old === undefined ? { draft: undefined, wire: undefined, place: none } : versionOf(id);
-        const placed = old === undefined || moved.has(id);
-        const changed = old === undefined || !sameEntry(old.entry, entry);
-        if (!changed && !placed) continue;
-        updates.push({ id, before, after: { draft: variant("value", entry), wire: entry, place: placed ? placementIn(next, index) : before.place } });
-    }
-    for (const [id] of was) {
-        if (now.has(id)) continue;
-        updates.push({ id, before: versionOf(id), after: { draft: undefined, wire: undefined, place: none } });
-    }
+    const updates = listUpdates(current, next, QUERY_ENTRIES, (id) => session.entries.get(id), original);
     return updates.length > 0 && session.record(updates, origin, label);
-}
-
-/** Whether two entries are the same value. */
-function sameEntry(a: QueryEntry, b: QueryEntry): boolean {
-    if (a.type === "header" && b.type === "header") return headerEqual(a.value, b.value);
-    if (a.type === "step" && b.type === "step") return stepEqual(a.value, b.value);
-    return false;
 }

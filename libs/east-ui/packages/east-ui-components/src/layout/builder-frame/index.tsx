@@ -114,7 +114,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
 import { FrameSessionBand } from "./session-row.js";
-import { useViewEscape } from "./view-escape.js";
+import { escapeTakenWithin, useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
 import { FramePane, type FramePaneHandle } from "./pane-context.js";
@@ -801,8 +801,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (event.key !== "Escape" || event.defaultPrevented || dragging || openOverlay === undefined) return;
         const region = event.target instanceof Element ? event.target.closest("[data-frame-slot]") : null;
         if (region === null || region.closest("[data-builder-frame]") !== rootRef.current) return;
-        const layer = (event.target as Element).closest("[data-escape-layer]");
-        if (layer !== null && region.contains(layer)) return;
+        if (escapeTakenWithin(event.nativeEvent, region)) return;
         event.preventDefault();
         event.stopPropagation();
         railFocus.current = openOverlay;

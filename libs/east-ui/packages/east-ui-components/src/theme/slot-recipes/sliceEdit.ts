@@ -29,7 +29,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "content", "head", "headLabel", "headClose",
         "body", "foot", "footLink", "footDanger", "footActions",
         "clauseRow", "clauseConj", "clauseBox", "clauseField", "clauseOp", "clauseVal",
-        "builderRow", "resolveLine", "moreRow", "moreRowEdit", "moreRowRemove",
+        "builderRow", "resolveLine", "moreBody", "moreRow", "moreRowOpen", "moreRowEdit", "moreRowRemove",
         "chipToggle", "chipEdit", "hint", "hintError",
         "form", "field", "textArea", "hintRow", "hintAction",
         "anchor", "disclosure", "disclosureRegion", "disclosureLabel", "disclosureBody", "disclosureFoot",
@@ -86,10 +86,14 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
         },
+        /* Its words, and its close × at its end. As tall with no × (`headClose: false`) as with one: the ×'s 22px inside
+           its padding, over its rule — so a popover whose head gains and loses it, as `+M more`'s does between its list
+           and a filter's editor, moves nothing under it. */
         head: {
             display: "flex",
             alignItems: "center",
             gap: "{spacing.2}",
+            minHeight: "43px",
             paddingX: "14px",
             paddingY: "10px",
             borderBottomWidth: "1px",
@@ -290,6 +294,9 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         },
 
         // --- +M more list rows (filter overflow) ---
+        // What `+M more` shows — its list, or the editor of a filter it holds — held together with no box of its own,
+        // so its rows keep the body's column and rhythm.
+        moreBody: { display: "contents" },
         moreRow: {
             display: "grid",
             gridTemplateColumns: "1fr auto auto",
@@ -302,7 +309,25 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             _last: { borderBottomWidth: "0" },
         },
+        // A row's words and its Edit, one button across the row's first two columns: pressed, the popover shows that
+        // filter's editor. Its words wrap; Edit keeps its line, and is underlined as the row is pointed at.
+        moreRowOpen: {
+            gridColumn: "1 / 3",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "{spacing.3}",
+            minWidth: "0",
+            font: "inherit",
+            color: "inherit",
+            textAlign: "start",
+            cursor: "pointer",
+            borderRadius: "{radii.sm}",
+            _hover: { "& > :last-child": { textDecoration: "underline", textUnderlineOffset: "2px" } },
+            _coarse: { minHeight: "44px" },
+        },
         moreRowEdit: {
+            flexShrink: "0",
             color: "link",
             cursor: "pointer",
             fontSize: "10px",
@@ -342,6 +367,11 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             sm: { content: { width: "320px" } },
             /** Predicate editors — cohort / filter `+M more`. */
             lg: { content: { width: "380px" } },
+            /**
+             * A filter's condition rows — a Studio page's filters: a joiner, a field, a comparison, a value and a ×,
+             * where a condition of a date reads on one line, in a group's box too.
+             */
+            xl: { content: { width: "460px" } },
         },
     },
     defaultVariants: { size: "sm" },

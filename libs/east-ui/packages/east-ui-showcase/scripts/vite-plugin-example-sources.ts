@@ -38,6 +38,7 @@ import { format } from "prettier";
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
 import { discoverExampleFiles } from "./discover-example-files";
+import { exampleDeclarations, exampleIn, propertyOf } from "./example-declarations";
 import { CODE_EXAMPLE_ROOTS } from "./example-roots";
 import {
     defaultIndexPath, indexIdFor, loadIndexRenderings, missingRenderingsError, type IndexRendering,
@@ -102,65 +103,30 @@ interface RawExample {
     returns: string;
 }
 
-/** Walk a file's AST and pull the raw text of every top-level
- *  `export const X = example({ fn, keywords, description, returns })`. */
+/** The raw text of every top-level `export const X = example({ fn, keywords, description, returns })` of a file
+ *  (`example-declarations.ts`). */
 function extractRaw(filePath: string, code: string): Record<string, RawExample> {
-    const sf = ts.createSourceFile(
-        filePath,
-        code,
-        ts.ScriptTarget.Latest,
-        /*setParentNodes*/ true,
-        ts.ScriptKind.TSX,
-    );
+    const { file, examples } = exampleDeclarations(filePath, code);
     const out: Record<string, RawExample> = {};
+    for (const { name, object } of examples) {
+        const fn = propertyOf(object, "fn")!;
+        const keywordsExpr = propertyOf(object, "keywords");
+        const keywords =
+            keywordsExpr && ts.isArrayLiteralExpression(keywordsExpr)
+                ? keywordsExpr.elements
+                      .filter(ts.isStringLiteralLike)
+                      .map((e) => e.text)
+                : [];
 
-    const prop = (obj: ts.ObjectLiteralExpression, key: string): ts.Expression | undefined =>
-        obj.properties.find(
-            (p): p is ts.PropertyAssignment =>
-                ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === key,
-        )?.initializer;
+        const descExpr = propertyOf(object, "description");
+        const description =
+            descExpr && ts.isStringLiteralLike(descExpr) ? descExpr.text : "";
 
-    const visit = (node: ts.Node) => {
-        if (
-            ts.isVariableStatement(node) &&
-            node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-        ) {
-            for (const decl of node.declarationList.declarations) {
-                if (
-                    decl.initializer &&
-                    ts.isCallExpression(decl.initializer) &&
-                    ts.isIdentifier(decl.initializer.expression) &&
-                    decl.initializer.expression.text === "example" &&
-                    ts.isIdentifier(decl.name) &&
-                    decl.initializer.arguments[0] &&
-                    ts.isObjectLiteralExpression(decl.initializer.arguments[0])
-                ) {
-                    const obj = decl.initializer.arguments[0];
-                    const fn = prop(obj, "fn");
-                    if (!fn) continue;
+        const returnsExpr = propertyOf(object, "returns");
+        const returns = returnsExpr ? returnsExpr.getText(file) : "";
 
-                    const keywordsExpr = prop(obj, "keywords");
-                    const keywords =
-                        keywordsExpr && ts.isArrayLiteralExpression(keywordsExpr)
-                            ? keywordsExpr.elements
-                                  .filter(ts.isStringLiteralLike)
-                                  .map((e) => e.text)
-                            : [];
-
-                    const descExpr = prop(obj, "description");
-                    const description =
-                        descExpr && ts.isStringLiteralLike(descExpr) ? descExpr.text : "";
-
-                    const returnsExpr = prop(obj, "returns");
-                    const returns = returnsExpr ? returnsExpr.getText(sf) : "";
-
-                    out[decl.name.text] = { fn: fn.getText(sf), keywords, description, returns };
-                }
-            }
-        }
-        ts.forEachChild(node, visit);
-    };
-    visit(sf);
+        out[name] = { fn: fn.getText(file), keywords, description, returns };
+    }
     return out;
 }
 
@@ -226,26 +192,11 @@ export async function extractDependencies(
         return [];
     };
 
-    /** If a statement is `export const X = example({ fn, ... })`, return the
+    /** If a statement is `const X = example({ fn, ... })`, return the
      *  `fn` initializer — the East body whose references are the roots. */
     const exampleFnOf = (stmt: ts.Statement): ts.Expression | undefined => {
-        if (!ts.isVariableStatement(stmt)) return undefined;
-        for (const d of stmt.declarationList.declarations) {
-            if (
-                d.initializer &&
-                ts.isCallExpression(d.initializer) &&
-                ts.isIdentifier(d.initializer.expression) &&
-                d.initializer.expression.text === "example" &&
-                d.initializer.arguments[0] &&
-                ts.isObjectLiteralExpression(d.initializer.arguments[0])
-            ) {
-                return d.initializer.arguments[0].properties.find(
-                    (p): p is ts.PropertyAssignment =>
-                        ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "fn",
-                )?.initializer;
-            }
-        }
-        return undefined;
+        const example = exampleIn(stmt);
+        return example === undefined ? undefined : propertyOf(example.object, "fn");
     };
 
     interface Decl { names: string[]; refs: Set<string>; text: string }

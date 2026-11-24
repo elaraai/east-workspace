@@ -29,6 +29,7 @@ import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { rowLayoutHeight } from "../row-height.js";
 import { sizeWhileHidden } from "../virtual-rows.js";
 import { useFormatters } from "../../format/index.js";
 import { EastChakraComponent } from "../../component";
@@ -1181,7 +1182,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         // toggled dimensions; group heads differ from card rows. A row a
         // closed tab or a collapsed pane hides keeps its size: measured there
         // at nothing, it would move the rows and the scroll as it shows again.
-        measureElement: (el, _entry, instance) => sizeWhileHidden(el, instance) ?? el.getBoundingClientRect().height,
+        // Its height is its layout's own (`rowLayoutHeight`), whatever transform an
+        // ancestor draws it under.
+        measureElement: (el, entry, instance) => sizeWhileHidden(el, instance) ?? rowLayoutHeight(el, entry),
     });
 
     // Persist the top visible ENTRY INDEX, debounced; never a pixel scrollTop

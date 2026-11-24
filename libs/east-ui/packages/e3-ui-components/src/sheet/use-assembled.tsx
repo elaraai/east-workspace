@@ -212,7 +212,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         // yet typed in holds nothing to save (#1680's review).
         history: !readOnly ? historyToolbarItem({
             session, words, editing: ui.edit !== null && !editUnchanged(ui.edit, ctx), onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere,
-            conflictValue, showError: false, locked,
+            conflictValue, locked,
         }) : undefined,
         optimise: optimiseParts.toolbarItem,
         flash,

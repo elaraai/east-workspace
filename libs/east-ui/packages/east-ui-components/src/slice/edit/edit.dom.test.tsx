@@ -8,15 +8,20 @@
  * timeline's date navigator's do with each day its view crosses — it draws with
  * its styles made once for the theme and its size, never its recipe's slots
  * worked out again. And Esc closes it from the moment it opens, a layer open
- * over it keeping its own.
+ * over it keeping its own — and a control in its body that takes Esc itself
+ * and says so (`data-escape-layer`, a Chooser laid in it: #1673) keeping its
+ * own too, the popover staying. Its head draws its close × unless its host
+ * says its foot holds what closes it — a filter's editor's Cancel — and then
+ * the focus goes to its body's first control, else its foot's first action,
+ * never the link at its foot's start.
  */
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, screen, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../../theme/index.js";
-import { SliceEditPopover } from "./index.js";
+import { SliceEditPopover, editorFocus } from "./index.js";
 
 afterEach(cleanup);
 
@@ -56,12 +61,76 @@ function Opening({ onClose }: { onClose: () => void }) {
     </ChakraProvider>;
 }
 
+/**
+ * A popover whose body lays a picker in it, as a filter's condition rows do: its search takes Esc itself, closing the
+ * list alone, and says so (`data-escape-layer`).
+ */
+function PickerInside({ onClose, onPicker }: { onClose: () => void; onPicker: () => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <SliceEditPopover open={open} onOpenChange={(next) => { if (!next) onClose(); setOpen(next); }} label="Add filter" trigger={<button type="button">Choose</button>}>
+            <button type="button">Field</button>
+            <div data-escape-layer="">
+                <input aria-label="Find" onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPicker();
+                }} />
+            </div>
+        </SliceEditPopover>
+    );
+}
+
 /** The popover's positioner observes sizes; jsdom has no ResizeObserver. */
 class ResizeObserverStub {
     observe(): void { /* noop */ }
     unobserve(): void { /* noop */ }
     disconnect(): void { /* noop */ }
 }
+
+describe("the edit popover's close ×", () => {
+    beforeEach(() => { vi.stubGlobal("ResizeObserver", ResizeObserverStub); });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    /** An editor as a filter's is: Remove filter at its foot's start, then Cancel and Apply; its body's controls as given. */
+    function Editor({ headClose, fields }: { headClose?: boolean; fields: readonly string[] }) {
+        const [open, setOpen] = useState(false);
+        return <ChakraProvider value={system}>
+            <SliceEditPopover open={open} onOpenChange={setOpen} label="Filter · Orders" trigger={<button type="button">Choose</button>}
+                {...(headClose === undefined ? {} : { headClose })}
+                footLeft={<button type="button">Remove filter</button>}
+                footActions={<><button type="button">Cancel</button><button type="button" disabled>Apply</button></>}>
+                {fields.map((field) => <button key={field} type="button">{field}</button>)}
+                <span>its rows</span>
+            </SliceEditPopover>
+        </ChakraProvider>;
+    }
+    /** The popover opened, and what it draws: its head's words, whether its head holds a ×, and where its focus goes. */
+    const opened = async (ui: ReactElement) => {
+        render(ui);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Choose" })); await Promise.resolve(); });
+        const content = document.querySelector<HTMLElement>("[data-scope='popover'][data-part='content'][data-state='open']")!;
+        return {
+            head: content.querySelector("[data-slice-edit-label]")?.textContent,
+            close: content.querySelector("[data-slice-edit-head] button[aria-label='Close']") !== null,
+            focus: editorFocus(content)?.textContent,
+        };
+    };
+
+    test("is drawn in its head, unless its host says its foot holds what closes it: then its head is its words alone", async () => {
+        expect(await opened(<Editor fields={["Field"]} />)).toMatchObject({ head: "Filter · Orders", close: true });
+        cleanup();
+        expect(await opened(<Editor headClose={false} fields={["Field"]} />)).toMatchObject({ head: "Filter · Orders", close: false });
+    });
+
+    test("with none, the focus goes to its body's first control — else its foot's first action, never the link at its foot's start", async () => {
+        expect((await opened(<Editor headClose={false} fields={["Field", "Comparison"]} />)).focus).toBe("Field");
+        cleanup();
+        // No control in its body: Cancel, the first of its actions the focus can go to — not Remove filter, before it.
+        expect((await opened(<Editor headClose={false} fields={[]} />)).focus).toBe("Cancel");
+    });
+});
 
 describe("Esc from the moment the edit popover opens", () => {
     // The page's frames, held: none passes until a test lets one, so "before its own dismissal listens" is no race.
@@ -114,6 +183,27 @@ describe("Esc from the moment the edit popover opens", () => {
         }
         await escape();
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test("is a control's own that takes it itself and says so, laid in its body — before and after its own dismissal listens — and the popover's again from elsewhere in it", async () => {
+        const onClose = vi.fn();
+        const onPicker = vi.fn();
+        render(<ChakraProvider value={system}>
+            <PickerInside onClose={onClose} onPicker={onPicker} />
+        </ChakraProvider>);
+        const trigger = screen.getByRole("button", { name: "Choose" });
+        trigger.focus();
+        await act(async () => { fireEvent.click(trigger); await Promise.resolve(); });
+        const find = screen.getByRole("textbox", { name: "Find" });
+        for (const frames of [0, 4]) {
+            for (let frame = 0; frame < frames; frame++) await act(async () => { vi.advanceTimersToNextFrame(); await Promise.resolve(); });
+            find.focus();
+            await escape();
+            expect([onPicker.mock.calls.length, onClose.mock.calls.length, trigger.getAttribute("aria-expanded")], `${frames} frames on`).toEqual([frames === 0 ? 1 : 2, 0, "true"]);
+        }
+        screen.getByRole("button", { name: "Field" }).focus();
+        await escape();
+        expect([onClose.mock.calls.length, trigger.getAttribute("aria-expanded")]).toEqual([1, "false"]);
     });
 
     test("heard once its own dismissal listens too, still closes it once", async () => {

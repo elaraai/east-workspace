@@ -226,6 +226,27 @@ describeEast("SnapGrid", (test) => {
         ));
     });
 
+    test("SnapGrid.uiState carries what a tile shows — a field of its row, at that field's type — and a copy of it (#1672)", $ => {
+        const name = $.const("Revenue by week");
+        const bytes = $.let(East.Blob.encodeBeast(name, "v2"));
+        const asked = $.let(SnapGrid.uiState({ request: { key: "a", change: variant("field", { name: "name", value: bytes }) } }));
+        $(Assert.equal(asked.request.unwrap("some").change.unwrap("field").name, "name"));
+        $(Assert.equal(asked.request.unwrap("some").change.unwrap("field").value.decodeBeast(StringType, "v2"), "Revenue by week"));
+        $(Assert.equal(
+            SnapGrid.uiState({ selected: "a", request: { key: "a", change: variant("duplicate", null) } }),
+            { selected: some("a"), request: some({ key: "a", change: variant("duplicate", null) }) },
+        ));
+    });
+
+    test("SnapGrid.uiState carries a row to add after a tile — the entry a host built, at the rows' type (#1673)", $ => {
+        const built = $.const({ id: "linked", row: "", span: 6n, height: none, name: "Linked chart" }, Row);
+        const bytes = $.let(East.Blob.encodeBeast(built, "v2"));
+        const asked = $.let(SnapGrid.uiState({ selected: "a", request: { key: "a", change: variant("add", bytes) } }));
+        $(Assert.equal(asked.request.unwrap("some").key, "a"));
+        // The canvas reads the entry back at its rows' type: its key and its row are then the canvas's to set.
+        $(Assert.equal(asked.request.unwrap("some").change.unwrap("add").decodeBeast(Row, "v2"), built));
+    });
+
     test("an editing canvas takes the field an align request writes, and hears the rows it draws through onDrafted (#996)", $ => {
         const Aligned = StructType({ id: StringType, row: StringType, span: IntegerType, align: SnapGrid.Types.Align, name: StringType });
         const rows = $.const([

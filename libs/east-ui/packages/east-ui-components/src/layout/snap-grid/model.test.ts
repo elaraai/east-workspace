@@ -119,6 +119,13 @@ test("the arrows move the selection through the tiles in reading order, and up a
     expect(neighbourOf(rows, "board", "down")).toBeUndefined();
 });
 
+test("stacked, as a phone shows the page, the tiles are one column in reading order: up and down step through it, left and right go nowhere", () => {
+    const rows = rowsOf(PAGE);
+    expect(["kpi", "trend", "bars", "board"].map((key) => neighbourOf(rows, key, "down", true))).toEqual(["trend", "bars", "board", undefined]);
+    expect(["kpi", "trend", "bars", "board"].map((key) => neighbourOf(rows, key, "up", true))).toEqual([undefined, "kpi", "trend", "bars"]);
+    expect([neighbourOf(rows, "trend", "left", true), neighbourOf(rows, "trend", "right", true)]).toEqual([undefined, undefined]);
+});
+
 const OUTLINE = rowsOf([tile("a", "r1", 12), tile("b", "r2", 4), tile("c", "r2", 4), tile("d", "r3", 6)]);
 
 test("a phone's outline offers a card a new row around every row, nothing in a full row, every position of a row it fits", () => {

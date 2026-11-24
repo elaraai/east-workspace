@@ -19,6 +19,11 @@
  * (#1585) — its words saying which are warnings; a press goes to the first
  * issue, else the first warning.
  *
+ * What the session has to say beyond its buttons — an error, a refusal, drafts
+ * a reload would lose or could not restore — is its banners' alone
+ * (`SessionBanners`), which every host of the bar draws under its toolbar: the
+ * bar repeats none of it.
+ *
  * Where its builder keeps a choice of an automatic Save (`autosave-choice.ts`),
  * Save is a split button: Save, and a chevron that opens the choice — one
  * switch, Autosave, off as it begins, kept for the builder — in the shared
@@ -63,8 +68,7 @@ import type { EditIssue, EditSession } from "./session.js";
 import { autosaveChoiceOf, type AutosaveKept } from "./autosave-choice.js";
 import { changeCount } from "./change-count.js";
 import { ConflictsControl, type ConflictsSquare } from "./conflicts.js";
-import { useDraftsKeeping } from "./keep.js";
-import { sessionErrorText, type EditingWords } from "./messages.js";
+import type { EditingWords } from "./messages.js";
 import { useAutosave, type AutosaveChoice } from "./use-autosave.js";
 import { SliceEditPopover } from "../slice/edit/index.js";
 import { FrameSessionBand } from "../layout/builder-frame/session-row.js";
@@ -160,16 +164,10 @@ export interface HistoryBarProps<W> {
     /**
      * Undo, Redo, Discard and Apply alone — the form a toolbar short of room
      * folds the bar to ({@link historyToolbarItem}). The status line and the
-     * issues button go; an error still shows, and the conflicts button stays:
-     * it is what turns Apply back on.
+     * issues button go; the conflicts button stays: it is what turns Apply
+     * back on.
      */
     buttonsOnly?: boolean | undefined;
-    /**
-     * Whether the bar shows the session's error under its buttons: `true` by
-     * default. A host that shows the error itself — a builder's banners
-     * ({@link SessionBanners}) — passes `false`, so its toolbar keeps one row.
-     */
-    showError?: boolean | undefined;
     /**
      * Locked while a run of the app's optimiser is out (#1409, R2): Undo,
      * Redo, Discard and Save are `aria-disabled` and run nothing, their size,
@@ -422,7 +420,7 @@ function AutosavingBar<W>({ choice, ...props }: HistoryBarProps<W> & { choice: A
 
 /** The bar itself, given its builder's choice of an automatic Save where it keeps one. */
 function Bar<W>({
-    session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false,
+    session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, locked = false, phone = false,
     onOpenIssues, warnings = NO_WARNINGS, autosave,
 }: HistoryBarProps<W> & { autosave: AutosaveChoice | undefined }) {
     const buttonRecipe = useRecipe({ key: "button" });
@@ -463,10 +461,6 @@ function Bar<W>({
     // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
     // Only while nothing else can be saved: over several records a conflict holds back its own record's changes alone.
     const waiting = status !== "unknown" && unsettled > 0 && !session.canApply;
-    // Drafts a reload would lose, or that a reload could not restore: said under the buttons where the bar says its error.
-    const keeping = useDraftsKeeping(session);
-    const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
-        : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
     const discardOff = !session.canDiscard || (changes === 0 && !commitEditor);
     const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitToSave;
     if (phone) {
@@ -563,7 +557,5 @@ function Bar<W>({
                     : <Box css={styles.save} data-history-save="">{save}<AutosaveControl choice={autosave} held={held} words={words} styles={styles} /></Box>;
             })()}
         </Box>
-        {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
-        {showError && session.error === undefined && keepingText !== undefined && <Text css={styles.notice} data-history-keeping="">{keepingText}</Text>}
     </Box>;
 }

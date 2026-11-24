@@ -58,7 +58,8 @@ import { useDataStable, usePersistedState } from "@elaraai/east-ui-components";
 import { keptRead } from "@elaraai/east-ui-components/internal";
 import { e3RequestOptions, useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
 import { pagedSourceOf } from "../platform/paged-runtime.js";
-import { SUMMARY_LIMITS, SummaryCache, type Summary, type SummaryRequest } from "./model/summaries.js";
+import { messageOf } from "../shared/message.js";
+import { SUMMARY_LIMITS, SummaryCache, readHashes, type Summary, type SummaryRequest } from "./model/summaries.js";
 import type { QueryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryRoot, type QueryRootEntry } from "./one-shot.js";
 import type { PlanOptions } from "./plan.js";
@@ -98,33 +99,88 @@ export function useQueryRoot(datasets: DataSource[], words: QueryWords): QueryRo
     return useMemo(() => resolveRoot(stable, m), [stable, m]);
 }
 
+/** A data source's root field, or why it cannot be queried. */
+function rootEntryOf(source: DataSource, m: QueryWords["messages"]): QueryRootEntry | string {
+    let path: TreePath;
+    switch (source.source.type) {
+        case "value":
+            path = source.source.value;
+            break;
+        case "record":
+            path = [variant("field", "records"), variant("field", source.source.value)];
+            break;
+        case "paged": {
+            const bound = pagedSourceOf(source.source.value);
+            if (bound === undefined) return m.sourceUnbound({ name: source.name });
+            if (bound.selector.index !== null) return m.sourceThroughIndex({ name: source.name, index: bound.selector.index });
+            path = bound.path;
+            break;
+        }
+    }
+    return { name: source.name, path, type: source.type };
+}
+
 /** The root of the data sources, or the first reason one cannot be queried. */
 function resolveRoot(datasets: readonly DataSource[], m: QueryWords["messages"]): QueryRoot | string {
     const entries: QueryRootEntry[] = [];
     for (const source of datasets) {
-        let path: TreePath;
-        switch (source.source.type) {
-            case "value":
-                path = source.source.value;
-                break;
-            case "record":
-                path = [variant("field", "records"), variant("field", source.source.value)];
-                break;
-            case "paged": {
-                const bound = pagedSourceOf(source.source.value);
-                if (bound === undefined) return m.sourceUnbound({ name: source.name });
-                if (bound.selector.index !== null) return m.sourceThroughIndex({ name: source.name, index: bound.selector.index });
-                path = bound.path;
-                break;
-            }
-        }
-        entries.push({ name: source.name, path, type: source.type });
+        const entry = rootEntryOf(source, m);
+        if (typeof entry === "string") return entry;
+        entries.push(entry);
     }
     try {
         return queryRoot(entries);
     } catch (err) {
-        return err instanceof Error ? err.message : String(err);
+        return messageOf(err);
     }
+}
+
+/**
+ * The data sources a page lists, each on its own: the root of those that can
+ * be queried, and why each other cannot, by its name.
+ *
+ * @property root - The root of the sources that can be queried; `undefined` where none can, or they make no root together
+ * @property refused - Why each source that cannot be queried cannot, by its name — every source's, where they make no root together
+ */
+export interface QuerySourcesRoot {
+    /** The root of the sources that can be queried; `undefined` where none can, or they make no root together. */
+    readonly root: QueryRoot | undefined;
+    /** Why each source that cannot be queried cannot, by its name — every source's, where they make no root together. */
+    readonly refused: ReadonlyMap<string, string>;
+}
+
+/**
+ * The root of a page's data sources, each on its own (#1670): a source that
+ * cannot be queried — a paged source read through a record's index, one its
+ * runtime does not hold — is refused alone, so it fails only what reads it,
+ * where {@link useQueryRoot}, a builder's one query over them all, refuses
+ * the root.
+ *
+ * @param datasets - The data sources, as the payload holds them
+ * @param words - The words, for a refusal
+ * @returns The root of those that can be queried, and why each other cannot
+ */
+export function useQuerySourcesRoot(datasets: DataSource[], words: QueryWords): QuerySourcesRoot {
+    // The sources' identity is their data: a new payload with the same sources keeps the root.
+    const stable = useDataStable(datasets, sourcesEqual);
+    const m = words.messages;
+    return useMemo(() => {
+        const entries: QueryRootEntry[] = [];
+        const refused = new Map<string, string>();
+        for (const source of stable) {
+            const entry = rootEntryOf(source, m);
+            if (typeof entry === "string") refused.set(source.name, entry);
+            else entries.push(entry);
+        }
+        if (entries.length === 0) return { root: undefined, refused };
+        try {
+            return { root: queryRoot(entries), refused };
+        } catch (err) {
+            // Sources that make no root together refuse every reader.
+            const message = messageOf(err);
+            return { root: undefined, refused: new Map(stable.map((source) => [source.name, refused.get(source.name) ?? message])) };
+        }
+    }, [stable, m]);
 }
 
 // ============================================================================
@@ -571,7 +627,7 @@ export function useQuerySummaries(root: QueryRoot | string, call: QueryCall | un
         if (result.outcome.type !== "ok") return undefined;
         const decoded = decodeBeast2(result.outcome.value.result);
         if (!isValueOf(decoded.value, SummaryType)) return undefined;
-        const read = new Map(result.inputs.map(input => [input.name, input.hash]));
+        const read = readHashes(result);
         setHashes(previous => new Map([...previous, ...read]));
         return { summary: decoded.value as Summary, hashes: read };
     }), [root, call]);

@@ -16,9 +16,10 @@
  * - **Visual · jq** (§4.8): to jq prints the program, a note counting the
  *   unfinished steps left out; the jq typed in and left is one gesture —
  *   steps where it parses into them, else the program as jq — and a fix taken
- *   in the jq view (#937) one more, after the jq typed before it; back to
- *   visual keeps jq while the jq does not parse, and says which parts stay jq
- *   steps;
+ *   in the jq view (#937) one more, after the jq typed before it — the
+ *   checker's, and the bind of a `$now` the jq reads unbound (`now-fix.ts`);
+ *   back to visual keeps jq while the jq does not parse, and says which parts
+ *   stay jq steps;
  * - **the check** (§4.12): the steps' check in the visual view, the jq's in
  *   the jq view, and the shape the query gives.
  *
@@ -31,21 +32,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { checkJq, describeJqType, none, some, type CheckJqResult } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
-import { cardsFor, sourceCard, type Card, type SourceCard } from "./model/cards.js";
+import { cardsFor, slotDrawn, sourceCard, type Card, type SourceCard } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
+import { parseErrorWords } from "./model/problem-words.js";
+import { applyAction, applyInput, applyRemove, applySlot } from "./model/slot-edits.js";
 import {
-    activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
+    activeItem, currentItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
-import { summaryAt, summaryNeeded, type SummaryCache } from "./model/summaries.js";
-import { fieldLabels, parseErrorWords, shapeWords, type QueryWords } from "./model/words.js";
+import { summaryAt, summaryHashes, summaryNeeded, type SummaryCache } from "./model/summaries.js";
+import { fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
-import { slotKey } from "./parts.js";
+import { slotElement, slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";
 import type { CardActions } from "./step-card.js";
 import type { QueryCheckLine, QueryGivesLine } from "./status-line.js";
 import { checkSteps, type CheckedSteps, type StepFix } from "./steps/check.js";
 import { applyFix, moveStep, removeStep } from "./steps/edit.js";
+import { withNowFix } from "./steps/now-fix.js";
 import { parseSteps } from "./steps/parse.js";
 import { printSteps } from "./steps/print.js";
 import { shapeOf, type Shape } from "./steps/shape.js";
@@ -77,18 +81,19 @@ export interface SlotPopover {
     readonly slot: OpenSlot;
     /** Changes when the offers' source does — a summary arriving — so the list opens afresh on its current value. */
     readonly generation: string;
-    /** Its label, filter placeholder, footer, empty words and keys. */
+    /** Its label, filter placeholder, footer and empty words. */
     readonly label: string;
     readonly placeholder: string;
     readonly hint: string;
     readonly empty: string;
-    readonly keys: string;
     /** The offers for the text typed. */
     readonly items: readonly SlotItem[];
     /** The text typed. */
     readonly text: string;
     /** The offer active as it opens. */
     readonly initialActive: number;
+    /** The offer that sets what the slot holds now — the one a phone's list checks: its index, or `-1`. */
+    readonly current: number;
     /** Told each change of the text. */
     readonly onText: (text: string) => void;
     /** Told the offer picked. */
@@ -196,15 +201,6 @@ function givesLine(shape: Shape, words: QueryWords): QueryGivesLine | undefined 
         hover: m.typeHover({ type: describeJqType(shape.type, { maxDepth: 2 }), multiplicity: shape.multiplicity ?? "" }),
         fields: m.givesFields({ fields: shape.kind === "rows" ? fieldLabels(shape) : [] }),
     };
-}
-
-/** The element in the builder that carries a slot's key. */
-function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | undefined {
-    if (bounds === null) return undefined;
-    for (const el of bounds.querySelectorAll<HTMLElement>("[data-slot-key]")) {
-        if (el.getAttribute("data-slot-key") === key) return el;
-    }
-    return undefined;
 }
 
 /**
@@ -340,7 +336,12 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     }, [onShowQuery, view, query, held, jqText, setJqText, setJqNote, sourceId, root, flushJq, notify, m, words]);
 
     // ── The check, and the shape the query gives ────────────────────────
-    const jqCheck = useMemo(() => (view === "jq" || isJq ? checkJq(view === "jq" ? jqText : held, root.type, { root: true }) : undefined), [view, isJq, jqText, held, root]);
+    // The jq as typed binds nothing for its writer: a `$now` it reads unbound is one fix from the minute (`withNowFix`).
+    const jqCheck = useMemo(() => {
+        if (view !== "jq" && !isJq) return undefined;
+        const typed = view === "jq" ? jqText : held;
+        return withNowFix(checkJq(typed, root.type, { root: true }), typed, root, m.fixBindNow());
+    }, [view, isJq, jqText, held, root, m]);
     const { check, gives } = useMemo((): { check: QueryCheckLine; gives: QueryGivesLine | undefined } => {
         const f = words.formatters;
         if (jqCheck !== undefined) {
@@ -448,22 +449,25 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     }), [open, onSlot, onInput, onRemove, onAction, onFix, onMove, onRemoveStep]);
 
     // ── The open slot's autocomplete ────────────────────────────────────
-    // A slot whose step is gone — undone, removed — closes.
+    // A slot the query draws no more closes (`slotDrawn`): its step gone — undone, removed — or, in a step that stays,
+    // its condition, its total or its field: a group's Remove group takes the list its condition opened with it (#1667).
     const openRef = open?.ref;
     const openStep = openRef === undefined || openRef.kind === "add-step" ? -1 : query.steps.findIndex((s) => s.value.id === openRef.stepId);
-    const gone = openRef !== undefined && openRef.kind !== "add-step" && openStep < 0;
+    const gone = openRef !== undefined && !slotDrawn(cards, openRef);
     useEffect(() => { if (gone) setOpen(undefined); }, [gone]);
     const request = useMemo(() => (openRef === undefined || openStep < 0 || !summaryNeeded(openRef.kind) || isJq ? undefined
         : summaryAt(query, openStep, root.type)), [openRef, openStep, query, root, isJq]);
-    const { cache, hashes } = summaries;
+    // Rows narrowed by "is in the last" are the minute's (#1670): a slot opened in a later minute fetches them again.
+    const asked = useMemo(() => (request === undefined ? summaries.hashes : summaryHashes(request, summaries.hashes)), [request, summaries.hashes]);
+    const { cache } = summaries;
     const [arrived, setArrived] = useState(0);
     useEffect(() => {
-        if (request === undefined || cache.get(request, hashes) !== undefined) return;
+        if (request === undefined || cache.get(request, asked) !== undefined) return;
         let live = true;
-        void cache.ensure(request, hashes).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
+        void cache.ensure(request, asked).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
         return () => { live = false; };
-    }, [request, cache, hashes]);
-    const summary = request === undefined ? undefined : cache.get(request, hashes);
+    }, [request, cache, asked]);
+    const summary = request === undefined ? undefined : cache.get(request, asked);
     const items = useMemo(() => (openRef === undefined || gone ? []
         : slotItems(query, root.type, openRef, text, { words, ...(summary === undefined ? {} : { summary }), saved })),
     // `arrived` moves when a summary lands in the cache.
@@ -473,6 +477,8 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     // It opens on the slot's current value: the offers as they were when they arrived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [openRef, summary === undefined, query]);
+    // The offer that sets what the slot holds now, in the offers shown.
+    const holding = useMemo(() => (openRef === undefined ? -1 : currentItem(items, query, root.type, openRef)), [openRef, items, query, root]);
 
     const onPick = useCallback((item: SlotItem) => {
         if (open === undefined) return;
@@ -498,14 +504,14 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         placeholder: slotPlaceholder(open.ref, words),
         hint: slotHint(open.ref, words),
         empty: slotEmpty(open.ref, words),
-        keys: m.slotKeys(),
         items,
         text,
         initialActive,
+        current: holding,
         onText: setText,
         onPick,
         onClose,
-    }), [open, gone, summary, words, m, items, text, initialActive, onPick, onClose]);
+    }), [open, gone, summary, words, items, text, initialActive, holding, onPick, onClose]);
 
     return {
         header, query, checked, source, cards, quick,

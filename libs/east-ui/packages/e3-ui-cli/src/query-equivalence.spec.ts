@@ -101,7 +101,7 @@ import {
 } from '@elaraai/e3-core';
 import {
     draftPlan, planQuery, prepareQuery, queryResultOf, queryRoot, splitCallRequest,
-    type QueryPlan, type QueryResult, type QueryRoot, type SourceWeight,
+    type QueryPlan, type QueryReading, type QueryResult, type QueryRoot, type SourceWeight,
 } from '@elaraai/e3-ui-components/query';
 import { startRepoServer, type RepoServerHandle } from './e3-server.js';
 import * as bench from './testing/query-bench.js';
@@ -670,16 +670,19 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
                 return answer;
             };
             let answer: ExecuteResult;
+            let reading: QueryReading;
             if (plan.kind === 'split') {
                 answer = (await call(plan.request, 'split call')).result;
+                reading = plan.reading;
             } else {
-                // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
+                // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash; the answer read
+                // as the call that gave it numbers its arguments.
                 const first = await call(plan.first, 're-key call');
                 const joined = first.output === null ? undefined : (await call(plan.join(first.output), 'join call')).result;
-                answer = plan.answer(first.result, joined);
+                ({ result: answer, reading } = plan.answer(first.result, joined));
             }
             timed(`${name} -j ${repo.jobs}`, ms);
-            calls.push({ runner: name, jobs: repo.jobs, repo: repo.path, result: queryResultOf(plan.reading, answer), stages, ms });
+            calls.push({ runner: name, jobs: repo.jobs, repo: repo.path, result: queryResultOf(reading, answer), stages, ms });
         }
         return { jobs: repo.jobs, oneShots: shots, calls };
     }

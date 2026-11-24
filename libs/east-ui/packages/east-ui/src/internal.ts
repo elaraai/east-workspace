@@ -119,6 +119,9 @@ export {
 } from "./extension.js";
 export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, slicePredicateMatches, sliceBreakdown, sliceSeries, sliceGroupKey, readSliceGroupKey, type SliceGroupKeyValues, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { localSliceHandle, SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
+// A row field's kind by its East type, and a field's display-format shorthand: what a Studio source declares its
+// fields with, read from the tables a slice's config reads (#1669).
+export { sliceFieldKind, toValueFormat, type SliceFieldFormat } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — the contract's types, and the resolution every
 // collection shares; and what an indexed binding's unfiltered view adds to its id (#1596).

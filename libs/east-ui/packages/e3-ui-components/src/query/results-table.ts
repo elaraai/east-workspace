@@ -26,7 +26,7 @@ import {
     type matrix, type option, type ref,
 } from "@elaraai/east";
 import type { Table } from "@elaraai/east-ui/internal";
-import type { TableColumnValue, TableRootValue } from "@elaraai/east-ui-components";
+import type { TableColumnValue, TableRootValue, TickFormatOpt } from "@elaraai/east-ui-components";
 import { baseType, optionPayload, singular, unwrapRecursive } from "./steps/shape.js";
 import { human, isIdName, plural, type QueryWords } from "./model/words.js";
 
@@ -60,6 +60,8 @@ export interface DecodedResult {
  * @property key - The key each row holds the column's value under
  * @property type - The column's East type
  * @property field - The field the column reads; `undefined` for the one column of a result that is not records
+ * @property header - The words over it; `undefined` heads it with its field's name as a person reads it
+ * @property format - How its numbers print; `undefined` prints them exactly
  */
 export interface ResultColumn {
     /** The key each row holds the column's value under: a record's field name, or `value`. */
@@ -72,6 +74,10 @@ export interface ResultColumn {
      * not records, whose lists' items are `items`.
      */
     readonly field: string | undefined;
+    /** The words over it — a Studio visual's field's label and unit (#1671); `undefined` heads it with its field's name as a person reads it. */
+    readonly header?: string | undefined;
+    /** How its numbers print — a Studio visual's field's format; `undefined` prints them exactly (§9). */
+    readonly format?: TickFormatOpt;
 }
 
 /**
@@ -268,6 +274,29 @@ export function cellText(type: EastType, value: unknown, words: QueryWords, fiel
 }
 
 /**
+ * Any value in words, as a summary says it: a number in the viewer's
+ * language, exactly; a date and time; a case with its payload; a nested value
+ * by its size; a missing value as the missing word — what a Studio visual's
+ * group is labelled by (#1671).
+ *
+ * @param type - the value's East type
+ * @param value - the value
+ * @param words - the words
+ * @param field - the field the value sits in, if any
+ * @returns the words
+ *
+ * @example
+ * ```ts
+ * valueText(StringType, "NSW", words, "region");      // "NSW"
+ * valueText(IntegerType, 1200n, words, "units");      // "1,200"
+ * valueText(OptionType(StringType), none, words, "x"); // "—"
+ * ```
+ */
+export function valueText(type: EastType, value: unknown, words: QueryWords, field: string | undefined): string {
+    return summaryText(type, value, words, field) ?? words.messages.resultMissing();
+}
+
+/**
  * A value's text inside a summary: a primitive printed, a nested value in
  * words.
  *
@@ -443,7 +472,25 @@ export interface ResultWindows {
  */
 export function resultTable(result: DecodedResult, words: QueryWords): TableRootValue {
     const { columns, rows } = resultRows(result);
-    return tableRoot(columns, variant("inline", rows.map(row => tableRow(columns, row, words))), words);
+    return rowsTable(columns, rows, words);
+}
+
+/**
+ * Rows as the value east-ui-components' Table renderer shows, in the columns
+ * given — each headed and its numbers printed as the column says — inline,
+ * virtualised, under a sticky header, filling the box it is placed in: what
+ * {@link resultTable} shows of a result, and a Studio visual's records
+ * (#1671).
+ *
+ * @param columns - The columns, in order
+ * @param rows - The rows, each a struct value keyed by column key, in pre-order
+ * @param words - The words: the message table, and the viewer's formatters
+ * @param depths - How deep each row sits, by its place — a Studio summary's
+ *   heads at 0 over their groups at 1 (#1671); every row at the top unless given
+ * @returns The Table's value
+ */
+export function rowsTable(columns: readonly ResultColumn[], rows: readonly unknown[], words: QueryWords, depths?: readonly number[]): TableRootValue {
+    return tableRoot(columns, variant("inline", rows.map((row, i) => tableRow(columns, row, words, depths?.[i] ?? 0))), words);
 }
 
 /**
@@ -470,11 +517,11 @@ export function pagedResultTable(type: EastType, windows: ResultWindows, words: 
     }), words);
 }
 
-/** A row of the Table: its cells by column key, at the top, open. */
-function tableRow(columns: readonly ResultColumn[], row: unknown, words: QueryWords): TableRow {
+/** A row of the Table: its cells by column key, at its depth — the top unless given — open. */
+function tableRow(columns: readonly ResultColumn[], row: unknown, words: QueryWords, depth = 0): TableRow {
     return {
         cells: new SortedMap(columns.map((column): [string, TableCell] => [column.key, cellOf(column, row, words)]), compareKeys),
-        depth: 0n,
+        depth: BigInt(depth),
         collapsed: false,
     };
 }
@@ -531,9 +578,10 @@ function tableRoot(columns: readonly ResultColumn[], rows: TableRootValue["rows"
 }
 
 /**
- * A column of the Table: headed by its field's name as a person reads it, or
- * by the message table's word for the one `value` column, with no format, so
- * the renderer prints its cells exactly.
+ * A column of the Table: headed by its own words, else by its field's name as
+ * a person reads it, or by the message table's word for the one `value`
+ * column; its numbers in its own format, else none, so the renderer prints its
+ * cells exactly.
  *
  * @param column - the result's column
  * @param words - the words
@@ -544,12 +592,12 @@ function tableColumn(column: ResultColumn, words: QueryWords): TableColumnValue 
         key: column.key,
         dataType: toEastTypeValue(column.type),
         valueType: toEastTypeValue(cellType(column.type)),
-        header: some(column.field === undefined ? words.messages.resultValue() : human(column.field)),
+        header: some(column.header ?? (column.field === undefined ? words.messages.resultValue() : human(column.field))),
         width: none,
         minWidth: none,
         maxWidth: none,
         render: none,
-        format: none,
+        format: column.format === undefined ? none : some(column.format),
         aggregate: none,
     };
 }

@@ -19,22 +19,12 @@
  *   following a pointer, and no tile is left drawn at a size it does not have.
  */
 
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent } from "@testing-library/react";
-import { initializeStore } from "../../platform/state-runtime.js";
-import { UIStore } from "../../platform/state-store.js";
+import { expect, test } from "vitest";
+import { act, fireEvent } from "@testing-library/react";
 import { layOut } from "../../testing/drag-layer.js";
-import { clickTile, key, layRows, mountSnapGrid, selectedTile, settle, spanOf, tileEl, type EditingSnapGrid } from "./snap-grid-editing.test-utils.js";
+import { canvasTestSetup, clickTile, key, layRows, mountSnapGrid, selectedTile, settle, spanOf, tileEl, type EditingSnapGrid } from "./snap-grid-editing.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-beforeEach(() => { initializeStore(new UIStore()); });
-afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    localStorage.clear();
-});
+canvasTestSetup();
 
 type Sent = "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel";
 /** Whether a pointer's button is held as an event of it is sent: from its press, through its moves. */

@@ -17,82 +17,18 @@
  * directly with `variant` / `some` / `none` (the same way the slice DOM tests
  * feed their renderers). An explicit frame `width` avoids `ParentSize`'s
  * zero-width measurement under jsdom.
+ *
+ * The frames' builders are `chart.test-utils.tsx`'s; a pie's tests are
+ * `pie.dom.test.tsx`'s, and what a chart's host marks `marking.dom.test.tsx`'s.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import { East, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { screen, fireEvent } from "@testing-library/react";
+import { East, equalFor, variant, some, none } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
-import { system } from "../../theme/index.js";
+import type { ChartMark } from "./context.js";
 import { EastVisxChart } from "./index.js";
-
-// jsdom lacks the ResizeObserver Chakra occasionally reaches for.
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as never as { ResizeObserver: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
-afterEach(cleanup);
-
-/** A chart point, as the renderer decodes it. */
-type Point = ValueTypeOf<typeof Chart.Spec.Types.Point>;
-
-/** A categorical-x point `{ x, value, size, color }`. */
-const pt = (x: string, value: number): Point => ({ x: variant("category", x), value, size: none, color: none });
-
-/** A coloured series `{ key, color, points }`. */
-const series = (key: string, color: string, points: Point[]) => ({ key, color, points });
-
-/** A `line` series node with optional per-layer `opacity` / `legend` / `tooltip`. */
-const lineNode = (data: ReturnType<typeof series>[], opts: { opacity?: number; legend?: boolean; tooltip?: boolean } = {}) =>
-    variant("series", {
-        data,
-        mark: variant("line", null),
-        curve: none,
-        stackId: none,
-        stackOffset: none,
-        axis: none,
-        strokeWidth: none,
-        dashArray: none,
-        dots: some(false),          // keep the DOM to paths only — no marker circles
-        fillOpacity: none,
-        radius: none,
-        opacity: opts.opacity !== undefined ? some(opts.opacity) : none,
-        legend: opts.legend !== undefined ? some(opts.legend) : none,
-        tooltip: opts.tooltip !== undefined ? some(opts.tooltip) : none,
-    });
-
-const axisNode = (tag: "axisBottom" | "axisLeft", opts: { label?: string; tickStyle?: unknown; titleStyle?: unknown } = {}) =>
-    variant(tag, {
-        label: opts.label !== undefined ? some(opts.label) : none,
-        numTicks: none, hideTicks: none, hideLine: none, domain: none, tickFormat: none,
-        tickStyle: opts.tickStyle !== undefined ? some(opts.tickStyle) : none,
-        titleStyle: opts.titleStyle !== undefined ? some(opts.titleStyle) : none,
-    });
-
-/** An axis-text style value (#315) — absent fields keep the spec chrome. */
-const textStyle = (s: { fontSize?: string; fontFamily?: string; fontWeight?: string; color?: string; letterSpacing?: string }) => ({
-    fontSize: s.fontSize !== undefined ? some(s.fontSize) : none,
-    fontFamily: s.fontFamily !== undefined ? some(variant(s.fontFamily, null)) : none,
-    fontWeight: s.fontWeight !== undefined ? some(variant(s.fontWeight, null)) : none,
-    color: s.color !== undefined ? some(s.color) : none,
-    letterSpacing: s.letterSpacing !== undefined ? some(s.letterSpacing) : none,
-});
-
-/** A `band`-x `frame` wrapping the given children, sized so jsdom needs no measurement. */
-const frame = (children: unknown[], opts: { legend?: boolean; tooltip?: boolean } = {}) =>
-    variant("frame", {
-        height: 240,
-        width: some(400),
-        margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
-        xScale: variant("band", null),
-        yScale: variant("linear", null),
-        yScale2: none,
-        tooltip: opts.tooltip ? some({ cursor: none }) : none,
-        legend: opts.legend ? some({ orientation: none, position: none }) : none,
-        slice: none,
-        children,
-    });
+import { axisNode, barNode, frame, gridNode, hframe, lineNode, pt, ruleNode, series, textStyle, ui, type Point } from "./chart.test-utils.js";
 
 describe("Chart renderer — per-line opacity (issue #108)", () => {
     test("a layer's opacity reaches the LinePath as stroke-opacity; a sibling stays full", () => {
@@ -362,50 +298,11 @@ describe("Chart renderer — tooltip portal + stacking tier", () => {
 
 // ── horizontal bars (#249): band y + linear x ────────────────────────────────
 
-/** A horizontal `frame` (#249): linear x (measure) + band y (categories). */
-const hframe = (children: unknown[], opts: { legend?: boolean; tooltip?: boolean } = {}) =>
-    variant("frame", {
-        height: 240,
-        width: some(400),
-        margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
-        xScale: variant("linear", null),
-        yScale: variant("band", null),
-        yScale2: none,
-        tooltip: opts.tooltip ? some({ cursor: none }) : none,
-        legend: opts.legend ? some({ orientation: none, position: none }) : none,
-        slice: none,
-        children,
-    });
-
-/** A `bar` series node; `stackId` opts into stacking. */
-const barNode = (data: ReturnType<typeof series>[], opts: { stackId?: string } = {}) =>
-    variant("series", {
-        data,
-        mark: variant("bar", null),
-        curve: none,
-        stackId: opts.stackId !== undefined ? some(opts.stackId) : none,
-        stackOffset: none,
-        axis: none,
-        strokeWidth: none,
-        dashArray: none,
-        dots: none,
-        fillOpacity: none,
-        radius: none,
-        opacity: none,
-        legend: none,
-        tooltip: none,
-    });
-
-const ruleNode = (axis: "x" | "y", at: string) =>
-    variant("rule", { axis: variant(axis, null), at, stroke: "border.strong", dashArray: none });
-
-const gridNode = (tag: "gridRows" | "gridColumns") =>
-    variant(tag, { numTicks: none, dashArray: none });
-
 describe("Chart renderer — horizontal bars (#249)", () => {
-    // Frame geometry: the left margin holds "Alpha" (48), so innerW =
-    // 400−48−8 = 344, innerH = 240−8−24 = 208. Measure domain [0, 20]
-    // (niced) → x(10) = 172, x(20) = 344.
+    // Frame geometry: the left margin holds "Alpha" (five 7px glyphs and the
+    // label's room, 15: 50) and the right half of the measure's last label,
+    // "20", past the plot's end (9), so innerW = 400−50−9 = 341, innerH =
+    // 240−8−24 = 208. Measure domain [0, 20] (niced) → x(10) = 170.5, x(20) = 341.
 
     test("bars grow along x from the plot's left edge; the y band carries the category", () => {
         const node = hframe([
@@ -422,10 +319,10 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         // …lengths track the values along x (20 is twice 10, out to the domain edge)…
         const widths = bars.map(b => Number(b.getAttribute("width"))).sort((a, b) => a - b);
         expect(widths[1]).toBeCloseTo(2 * widths[0]!, 3);
-        expect(widths[1]).toBeCloseTo(344, 3);
-        // …and the thickness is the shared y bandwidth at distinct band rows.
+        expect(widths[1]).toBeCloseTo(341, 3);
+        // …and each is the chart rules' 12px thick, whatever room its band has, at distinct band rows.
         const heights = bars.map(b => Number(b.getAttribute("height")));
-        expect(heights[0]).toBeCloseTo(heights[1]!, 3);
+        expect(heights).toEqual([12, 12]);
         const ys = bars.map(b => Number(b.getAttribute("y")));
         expect(Math.abs(ys[0]! - ys[1]!)).toBeGreaterThan(1);
         // The categories label the LEFT axis. (getAllByText: visx keeps a
@@ -452,7 +349,7 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         // Second segment starts where the first ends; together they span the total.
         expect(byX[0]!.x).toBeCloseTo(0, 3);
         expect(byX[1]!.x).toBeCloseTo(byX[0]!.w, 3);
-        expect(byX[0]!.w + byX[1]!.w).toBeCloseTo(344, 3);
+        expect(byX[0]!.w + byX[1]!.w).toBeCloseTo(341, 3);
         // Same band row for both segments.
         expect(byX[0]!.y).toBeCloseTo(byX[1]!.y, 3);
         // The colour-matched legend rows render as normal.
@@ -514,11 +411,11 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         const { container } = ui(<EastVisxChart value={node as never} />);
 
         // The only free-standing line (grid off; axis baselines carry
-        // .visx-axis-line) is the rule — vertical at x(15) = 258, full height.
+        // .visx-axis-line) is the rule — vertical at x(15) = 255.75, full height.
         const rules = [...container.querySelectorAll("line.visx-line:not(.visx-axis-line)")];
         expect(rules.length).toBe(1);
         const rule = rules[0]!;
-        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(258, 3);
+        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(255.75, 3);
         expect(Number(rule.getAttribute("x1"))).toBeCloseTo(Number(rule.getAttribute("x2")), 3);
         expect(Math.abs(Number(rule.getAttribute("y2")) - Number(rule.getAttribute("y1")))).toBeCloseTo(208, 3);
     });
@@ -533,10 +430,10 @@ describe("Chart renderer — horizontal bars (#249)", () => {
 
         // Twenty-two mono glyphs at the tick size, the label's offset from the
         // axis, and its inset from the frame's edge.
-        expect(container.querySelector("svg > g")!.getAttribute("transform")).toBe("translate(161, 8)");
-        // The plot keeps the rest: the longest bar reaches 400−161−8.
+        expect(container.querySelector("svg > g")!.getAttribute("transform")).toBe("translate(169, 8)");
+        // The plot keeps the rest: the longest bar reaches 400−169−9.
         const widths = [...container.querySelectorAll("rect.visx-bar")].map(b => Number(b.getAttribute("width")));
-        expect(Math.max(...widths)).toBeCloseTo(231, 3);
+        expect(Math.max(...widths)).toBeCloseTo(222, 3);
     });
 });
 
@@ -652,6 +549,46 @@ describe("Chart renderer — series clipped to the plot rect (#152)", () => {
     });
 });
 
+describe("Chart renderer — a click tells the host the mark it falls on (#1671, CHT-8)", () => {
+    // The frame: innerW 352, innerH 208. Jan's band runs 32–160: its two
+    // columns, 18 wide, sit side by side about its centre, 96 — s0's 76.5–94.5,
+    // s1's 96–114; Feb's about 256. The measure domain is [0, 20]: y(10) = 104.
+    const sameX = equalFor(Chart.Spec.Types.XCoord);
+    const twoBars = () => barNode([
+        series("s0", "series.1", [pt("Jan", 10), pt("Feb", 15)]),
+        series("s1", "series.2", [pt("Jan", 20), pt("Feb", 5)]),
+    ]);
+
+    test("a grouped bar: its series and its x, the plot taking clicks with the tooltip off", () => {
+        const onMark = vi.fn();
+        const { container } = ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")]) as never} onMark={onMark} />);
+        const overlay = container.querySelector('rect[fill="transparent"]');
+        expect(overlay).not.toBeNull();
+        fireEvent.click(overlay!, { clientX: 85, clientY: 180 });
+        fireEvent.click(overlay!, { clientX: 105, clientY: 180 });
+        // Above s0's column at Feb (236.5–254.5, its top at 52): Feb, every series.
+        fireEvent.click(overlay!, { clientX: 245, clientY: 20 });
+        const marks = onMark.mock.calls.map(([mark]) => mark as ChartMark);
+        expect(marks.map((m) => m.series)).toEqual(["s0", "s1", undefined]);
+        expect(sameX(marks[0]!.x!, variant("category", "Jan"))).toBe(true);
+        expect(sameX(marks[2]!.x!, variant("category", "Feb"))).toBe(true);
+        expect(marks.every((m) => !m.other)).toBe(true);
+    });
+
+    test("a legend row: its series, and no x", () => {
+        const onMark = vi.fn();
+        ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")], { legend: true }) as never} onMark={onMark} />);
+        fireEvent.click(screen.getByText("s1").closest("button")!);
+        expect(onMark).toHaveBeenCalledWith({ series: "s1", x: undefined, other: false });
+    });
+
+    test("without a host to tell, a chart takes no clicks: its legend rows are no buttons", () => {
+        const { container } = ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")], { legend: true }) as never} />);
+        expect(container.querySelectorAll("button")).toHaveLength(0);
+        expect(container.querySelectorAll('rect[fill="transparent"]')).toHaveLength(0);
+    });
+});
+
 describe("Chart renderer — axis tickStyle / titleStyle (#315)", () => {
     test("tickStyle overrides land on the tick labels; titleStyle on the caption; unstyled axes keep the 11px chrome", () => {
         const node = frame([
@@ -675,9 +612,196 @@ describe("Chart renderer — axis tickStyle / titleStyle (#315)", () => {
         expect(caption).toBeTruthy();
         expect(caption.style.fontSize).toBe("14px");
         expect(caption.style.fontWeight).toBe("500");
-        // The unstyled left tick labels keep the legibility-floor chrome (11px).
+        // The unstyled left tick labels keep the legibility-floor chrome (11px),
+        // at the chart rules' weight for an axis label, 500.
         const leftTick = texts.find((t) => t.textContent !== "Jan" && t.textContent !== "Feb" && t.textContent !== "kL")!;
         expect(leftTick).toBeTruthy();
         expect(leftTick.style.fontSize).toBe("11px");
+        expect(leftTick.style.fontWeight).toBe("500");
+    });
+});
+
+describe("Chart renderer — the chart rules (guidelines/charts.md; #1671)", () => {
+    /** A frame given no margin, as a renderer meets one a host built by hand: the chart rules' margins. */
+    const ruled = (children: unknown[], opts: { legend?: "top" | "bottom"; width?: number } = {}) =>
+        variant("frame", {
+            height: 240,
+            width: some(opts.width ?? 400),
+            margin: none,
+            xScale: variant("band", null),
+            yScale: variant("linear", null),
+            yScale2: none,
+            tooltip: none,
+            legend: opts.legend !== undefined ? some({ orientation: none, position: opts.legend === "bottom" ? some(variant("bottom", null)) : none }) : none,
+            slice: none,
+            children,
+        });
+    /** Where the plot starts in its svg, and its size. */
+    const plotOf = (container: HTMLElement) => {
+        const [left, top] = /translate\(([-\d.]+),\s*([-\d.]+)\)/.exec(container.querySelector("svg > g")!.getAttribute("transform")!)!.slice(1).map(Number);
+        const rect = container.querySelector("clipPath rect")!;
+        return { left, top, width: Number(rect.getAttribute("width")), height: Number(rect.getAttribute("height")) };
+    };
+
+    test("a frame's margins are the chart rules': 24 above, 28 below, 24 after and 44 before", () => {
+        const { container } = ui(<EastVisxChart value={ruled([barNode([series("Qty", "series.1", [pt("Jan", 10), pt("Feb", 20)])]), axisNode("axisBottom"), axisNode("axisLeft")]) as never} />);
+        // 400 − 44 − 24 across, 240 − 24 − 28 down.
+        expect(plotOf(container)).toEqual({ left: 44, top: 24, width: 332, height: 188 });
+    });
+
+    test("the margin before the plot grows to hold its widest value label, so a parent that clips never cuts one", () => {
+        // A domain to 2,000,000: its widest label, "2,000,000", is nine mono glyphs at 11px (7px each: 63) and the label's room (15).
+        const { container } = ui(<EastVisxChart value={ruled([barNode([series("Qty", "series.1", [pt("Jan", 1_000_000), pt("Feb", 2_000_000)])]), axisNode("axisBottom"), axisNode("axisLeft")]) as never} />);
+        const labels = [...container.querySelectorAll(".visx-axis-left .visx-axis-tick text")].map((t) => t.textContent);
+        expect(labels).toContain("2,000,000");
+        expect(plotOf(container).left).toBe(78);
+        expect(plotOf(container).width).toBe(400 - 78 - 24);
+    });
+
+    test("labels under the plot never overlap: as many as fit keep theirs, the first and the last among them", () => {
+        const months = ["January 2026", "February 2026", "March 2026", "April 2026", "May 2026", "June 2026", "July 2026", "August 2026", "September 2026"];
+        const node = ruled([barNode([series("Qty", "series.1", months.map((month, i) => pt(month, i + 1)))]), axisNode("axisBottom"), axisNode("axisLeft")]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const labels = [...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")].map((t) => t.textContent);
+        // Nine bands share 332px, 36.1 apart, and the last label, which would cross the chart's edge, is drawn up to its
+        // tick: the most that clear one another by 8, evenly spread, are the first, the middle and the last.
+        expect(labels).toEqual(["January 2026", "May 2026", "September 2026"]);
+        expect([...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")].map((t) => t.getAttribute("text-anchor"))).toEqual(["middle", "middle", "end"]);
+        // Wide enough for every one, each keeps its label.
+        const wide = ui(<EastVisxChart value={ruled([barNode([series("Qty", "series.1", months.map((month, i) => pt(month, i + 1)))]), axisNode("axisBottom"), axisNode("axisLeft")], { width: 1000 }) as never} />);
+        expect(wide.container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text").length).toBe(months.length);
+    });
+
+    test("a column is at most 18px wide, and square; side by side they sit about their x's centre", () => {
+        const node = ruled([barNode([series("a", "series.1", [pt("Jan", 10)]), series("b", "series.2", [pt("Jan", 20)])]), axisNode("axisBottom"), axisNode("axisLeft")]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const bars = [...container.querySelectorAll("rect.visx-bar")];
+        expect(bars.map((b) => Number(b.getAttribute("width")))).toEqual([18, 18]);
+        expect(bars.map((b) => b.getAttribute("rx"))).toEqual([null, null]);
+        // The one band's centre is the plot's, 166: the two columns and the hairline between them, about it.
+        const xs = bars.map((b) => Number(b.getAttribute("x")));
+        expect(xs).toEqual([166 - 19.5, 166]);
+    });
+
+    test("the legend sits over the plot — before it in the chart — and under it only when its position says bottom", () => {
+        const lines = () => [lineNode([series("Actual", "series.1", [pt("Jan", 10), pt("Feb", 20)]), series("Plan", "series.2", [pt("Jan", 12), pt("Feb", 18)])]), axisNode("axisBottom"), axisNode("axisLeft")];
+        const over = ui(<EastVisxChart value={ruled(lines(), { legend: "top" }) as never} />).container;
+        const legend = over.querySelector("[data-chart-legend]")!;
+        expect([...legend.querySelectorAll("[data-chart-legend-entry]")].map((e) => e.getAttribute("data-chart-legend-entry"))).toEqual(["Actual", "Plan"]);
+        expect(legend.compareDocumentPosition(over.querySelector("svg")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(legend.hasAttribute("data-below")).toBe(false);
+        // The plot gives the legend its 25px: 240 − 25 for the svg.
+        expect(over.querySelector("svg")!.getAttribute("height")).toBe("215");
+        const under = ui(<EastVisxChart value={ruled(lines(), { legend: "bottom" }) as never} />).container;
+        const below = under.querySelector("[data-chart-legend]")!;
+        expect(below.hasAttribute("data-below")).toBe(true);
+        expect(below.compareDocumentPosition(under.querySelector("svg")!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+});
+
+describe("Chart renderer — what a tile asks of it: a host's numbers, lines on labelled ticks, labels on rules and bar ends (#1671)", () => {
+    /** An axis with its own tick values, domain and format. */
+    const axis = (tag: "axisBottom" | "axisLeft", opts: { ticks?: number[]; domain?: [number, number]; span?: [Date, Date]; format?: unknown } = {}) =>
+        variant(tag, {
+            label: none, numTicks: none,
+            tickValues: opts.ticks !== undefined ? some(variant("number", opts.ticks)) : none,
+            hideTicks: none, hideLine: none,
+            domain: opts.domain !== undefined ? some(variant("number", { min: opts.domain[0], max: opts.domain[1] }))
+                : opts.span !== undefined ? some(variant("time", { min: opts.span[0], max: opts.span[1] })) : none,
+            tickFormat: opts.format !== undefined ? some(opts.format) : none,
+            tickStyle: none, titleStyle: none, titleGap: none,
+        });
+    const leftLabels = (container: HTMLElement) => [...container.querySelectorAll(".visx-axis-left .visx-axis-tick text")].map((t) => t.textContent);
+
+    // The vertical frame: innerH = 240 − 8 − 24 = 208, so over [0, 500] y(250) = 104.
+    test("the grid's rows are drawn at the left axis's own tick values: a line a labelled tick", () => {
+        const node = frame([
+            gridNode("gridRows"),
+            barNode([series("Qty", "series.1", [pt("Jan", 120), pt("Feb", 470)])]),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250, 500], domain: [0, 500] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        expect([...container.querySelectorAll(".visx-rows line")].map((line) => Number(line.getAttribute("y1")))).toEqual([208, 104, 0]);
+        expect(leftLabels(container)).toEqual(["0", "250", "500"]);
+    });
+
+    test("a host's printer prints a measure's ticks, given the axis's format and its domain's end; a category is never its", () => {
+        const numberText = vi.fn((n: number, format: unknown, of: number) => `${n / 1000}k of ${of / 1000}k${format === undefined ? "" : " fmt"}`);
+        const node = frame([
+            barNode([series("Qty", "series.1", [pt("Jan", 120_000), pt("Feb", 470_000)])]),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250_000, 500_000], domain: [0, 500_000] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} numberText={numberText} />);
+        expect(leftLabels(container)).toEqual(["0k of 500k", "250k of 500k", "500k of 500k"]);
+        expect([...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")].map((t) => t.textContent)).toEqual(["Jan", "Feb"]);
+        // The margin before the plot holds the labels as the host prints them: twelve 7px glyphs and the label's room.
+        expect(container.querySelector("svg > g")!.getAttribute("transform")).toBe(`translate(${12 * 7 + 15}, 8)`);
+    });
+
+    test("a rule's label stands inside the plot at its start, over its line, in its colour; a rule with none draws none", () => {
+        const labelled = variant("rule", { axis: variant("y", null), at: "250.0", stroke: "fg.muted", dashArray: some("4 3"), label: some("goal 250") });
+        const node = frame([
+            barNode([series("Qty", "series.1", [pt("Jan", 120), pt("Feb", 470)])]),
+            labelled, ruleNode("y", "400.0"),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250, 500], domain: [0, 500] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const labels = [...container.querySelectorAll("text[data-chart-rule-label]")] as SVGTextElement[];
+        expect(labels.map((l) => l.textContent)).toEqual(["goal 250"]);
+        const label = labels[0]!;
+        // 4 in from the plot's start, 4 over the line at y(250) = 104.
+        expect([Number(label.getAttribute("x")), Number(label.getAttribute("y")), label.getAttribute("text-anchor")]).toEqual([4, 100, "start"]);
+        expect([label.style.fontSize, label.style.fontWeight, label.style.fontVariantNumeric]).toEqual(["10px", "600", "tabular-nums"]);
+        // In the rule's own colour: the line's stroke.
+        const line = [...container.querySelectorAll("line.visx-line")].find((l) => l.getAttribute("stroke-dasharray") === "4 3")!;
+        expect(label.style.fill).toBe(line.getAttribute("stroke"));
+    });
+
+    test("in a horizontal frame a text at a bar's end stands 6 after the bar at its band's middle, and the margin after the plot holds it", () => {
+        const end = (x: string, value: number, text: string) => variant("text", { point: pt(x, value), text, anchor: none, fill: none, fontSize: some(10), fontWeight: none });
+        const node = hframe([
+            barNode([series("Qty", "series.1", [pt("Alpha", 10), pt("Beta", 20)])]),
+            end("Alpha", 10, "10k"), end("Beta", 20, "1210k"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const bars = [...container.querySelectorAll("rect.visx-bar")];
+        const texts = [...container.querySelectorAll("svg > g > text")] as SVGTextElement[];
+        expect(texts.map((t) => t.textContent)).toEqual(["10k", "1210k"]);
+        for (const [i, text] of texts.entries()) {
+            const bar = bars[i]!;
+            // After the bar's end, clear of it by 6; at the middle of the bar's 12px.
+            expect(Number(text.getAttribute("x"))).toBeCloseTo(Number(bar.getAttribute("x")) + Number(bar.getAttribute("width")) + 6, 6);
+            expect(Number(text.getAttribute("y"))).toBeCloseTo(Number(bar.getAttribute("y")) + 6, 6);
+            expect([text.getAttribute("text-anchor"), text.getAttribute("dominant-baseline"), text.style.fontVariantNumeric]).toEqual(["start", "central", "tabular-nums"]);
+        }
+        // The plot ends where the widest label still fits after it: five 6px glyphs (a 10px face), 6 clear and 2 spare, of
+        // the 400 less the 50 before the plot.
+        expect(Number(container.querySelector("clipPath rect")!.getAttribute("width"))).toBe(400 - 50 - (5 * 6 + 6 + 2));
+    });
+
+    test("on a time axis that runs edge to edge, the first date is drawn from its tick on and the last up to its tick", () => {
+        const at = (month: number) => new Date(Date.UTC(2026, month, 1));
+        const points = [0, 1, 2].map((month, i) => ({ x: variant("time", at(month)), value: 10 * (i + 1), size: none, color: none }));
+        const node = variant("frame", {
+            height: 240, width: some(400), margin: none,
+            xScale: variant("time", null), yScale: variant("linear", null), yScale2: none,
+            tooltip: none, legend: none, slice: none,
+            children: [
+                lineNode([{ key: "Sales", color: "series.1", points }]),
+                axis("axisBottom", { span: [at(0), at(2)], format: variant("date", "MMM DD") }),
+                axisNode("axisLeft"),
+            ],
+        });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const ticks = [...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")];
+        expect(ticks.map((t) => [t.textContent, t.getAttribute("text-anchor")])).toEqual([["Jan 01", "start"], ["Feb 01", "middle"], ["Mar 01", "end"]]);
+        // The line runs the plot's whole width: from its start to its end.
+        const d = container.querySelector("path.visx-linepath")!.getAttribute("d")!;
+        const xs = [...d.matchAll(/[ML]?(-?[\d.]+),(-?[\d.]+)/g)].map((m) => Number(m[1]));
+        expect([Math.min(...xs), Math.max(...xs)]).toEqual([0, 400 - 44 - 24]);
     });
 });

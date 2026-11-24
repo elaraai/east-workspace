@@ -22,12 +22,13 @@ import {
  * East VariantType for the Pagination visual variant.
  *
  * @remarks
- * Controls how each page trigger is rendered. `outline` shows a
- * rectangular button outline around each page number; `subtle` uses a
- * low-contrast background only on hover / active.
+ * Controls how each page button and trigger is drawn, as the design system
+ * draws them: `outline` puts each on the paper with an edge; `subtle` draws
+ * neither, a paper only on hover and on the current page. A pagination that
+ * declares none is `outline`.
  *
- * @property outline - Outlined button treatment
- * @property subtle - Subtle-background treatment (default)
+ * @property outline - Each button on the paper with an edge (default)
+ * @property subtle - No edge and no paper, but on hover and the current page
  */
 export const PaginationVariantType = VariantType({
     outline: NullType,
@@ -48,11 +49,13 @@ export type PaginationVariantLiteral = "outline" | "subtle";
  * East VariantType for the Pagination size preset.
  *
  * @remarks
- * Controls the size of page-number triggers and prev/next buttons.
+ * Controls the size of the page-number buttons, the gaps that mark the pages
+ * left out and the prev/next buttons: the design system's three, each part
+ * that tall. A pagination that declares none is `sm`.
  *
- * @property sm - Small (28px tall triggers)
- * @property md - Medium (36px tall triggers — default)
- * @property lg - Large (44px tall triggers)
+ * @property sm - Small: 24px tall (default)
+ * @property md - Medium: 32px tall
+ * @property lg - Large: 40px tall
  */
 export const PaginationSizeType = VariantType({
     sm: NullType,
@@ -168,9 +171,9 @@ export interface PaginationOptions {
     count: SubtypeExprOrValue<IntegerType>;
     /** Callback fired with the new 0-based page index — required. */
     onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
-    /** Size preset. Default `"md"`. */
+    /** Size preset — 24, 32 or 40px tall ({@link PaginationSizeType}). Default `"sm"`. */
     size?: SubtypeExprOrValue<PaginationSizeType> | PaginationSizeLiteral;
-    /** Visual variant. Default `"subtle"`. */
+    /** Visual variant ({@link PaginationVariantType}). Default `"outline"`. */
     variant?: SubtypeExprOrValue<PaginationVariantType> | PaginationVariantLiteral;
     /** Explicit text-colour override for inactive page triggers. */
     color?: SubtypeExprOrValue<StringType>;

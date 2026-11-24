@@ -43,7 +43,7 @@ import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@
 import { OptionType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 import { NamePopover } from "../shared/name-popover.js";
-import { DESCRIPTION_MAX } from "./model/words.js";
+import { DESCRIPTION_MAX } from "./model/step-words.js";
 import { useQueryWords } from "./words.js";
 
 type Styles = Record<string, SystemStyleObject>;

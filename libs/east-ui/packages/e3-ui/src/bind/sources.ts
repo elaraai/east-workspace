@@ -32,6 +32,7 @@ import {
     type ExprType,
     type FunctionType,
     type OptionType,
+    type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
 import type { BoundValue, PagedValue } from "./data.js";
@@ -141,22 +142,38 @@ export function dataSources(component: string, sources: Readonly<Record<string, 
     if (entries.length === 0) {
         throw new Error(`${component}: datasets is empty — bind at least one data source for it to read`);
     }
-    return East.value(entries.map(([name, handle]) => {
-        assertRootField(component, name);
-        const fields = handleFields(handle);
-        if (fields["page"] !== undefined) {
-            // `page(offset, limit)` returns `Option<T>`: the source's type is `T`.
-            const page = fields["page"] as FunctionType<[], OptionType<EastType>>;
-            const paged = handle as PagedValue<EastType>;
-            return { name, source: variant("paged", paged.id), type: toEastTypeValue(page.output.cases.some) };
-        }
-        const read = fields["read"] as FunctionType<[], EastType> | undefined;
-        if (read === undefined) throw new Error(`${component}: the data source "${name}" is not a Data.bind, Data.bindPaged or Record.bind handle`);
-        if (fields["mutate"] !== undefined) {
-            const record = handle as BoundRecordSource;
-            return { name, source: variant("record", record.binding.name), type: toEastTypeValue(read.output) };
-        }
-        const value = handle as BoundValue<EastType>;
-        return { name, source: variant("value", value.binding.source), type: toEastTypeValue(read.output) };
-    }), ArrayType(DataSourceType));
+    return East.value(entries.map(([name, handle]) => dataSource(component, name, handle).source), ArrayType(DataSourceType));
+}
+
+/**
+ * One data source, from the binding a component is handed under a name: its
+ * descriptor, read off the handle as an East expression, and its value's East
+ * type — what {@link dataSources} lists, and what a component that reads a
+ * source's fields takes them from.
+ *
+ * @param component - The component, for the messages (`"Query.Builder"`)
+ * @param name - The name it is read by
+ * @param handle - Its `Data.bind`, `Data.bindPaged` or `Record.bind` handle
+ * @returns The source, as a value of {@link DataSourceType} with the handle's expressions in it, and its value's East type
+ * @throws {Error} When the name is not a jq identifier, naming it; and when
+ *   the binding is not a `Data.bind`, `Data.bindPaged` or `Record.bind` handle
+ */
+export function dataSource(component: string, name: string, handle: BoundSource): { source: SubtypeExprOrValue<DataSourceType>; type: EastType } {
+    assertRootField(component, name);
+    const fields = handleFields(handle);
+    if (fields["page"] !== undefined) {
+        // `page(offset, limit)` returns `Option<T>`: the source's type is `T`.
+        const page = fields["page"] as FunctionType<[], OptionType<EastType>>;
+        const paged = handle as PagedValue<EastType>;
+        const type = page.output.cases.some;
+        return { source: { name, source: variant("paged", paged.id), type: toEastTypeValue(type) }, type };
+    }
+    const read = fields["read"] as FunctionType<[], EastType> | undefined;
+    if (read === undefined) throw new Error(`${component}: the data source "${name}" is not a Data.bind, Data.bindPaged or Record.bind handle`);
+    if (fields["mutate"] !== undefined) {
+        const record = handle as BoundRecordSource;
+        return { source: { name, source: variant("record", record.binding.name), type: toEastTypeValue(read.output) }, type: read.output };
+    }
+    const value = handle as BoundValue<EastType>;
+    return { source: { name, source: variant("value", value.binding.source), type: toEastTypeValue(read.output) }, type: read.output };
 }

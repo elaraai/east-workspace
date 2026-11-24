@@ -14,13 +14,20 @@
  * ({@link EditingSnapGrid.hostAsks}, #996), and with `drafted` its author
  * hears the rows it draws. With `applies`, a screen asks it for an Apply
  * through the bound `apply` ({@link EditingSnapGrid.hostAsksApply}, #998).
+ * With `joined` or `head`, a host's own sessions join the canvas's history and
+ * its band stands over the grid (#1673), with `banners` the host says what it
+ * says in the frame's banners slot, and with `tileActions` it adds its own to
+ * the selected tile's frame: the canvas is mounted as a host renderer mounts
+ * it ({@link SnapGridEditor}), its value the same.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded and
- * kept, every apply request's bytes kept, and the real callback answers.
+ * kept, every apply request's bytes kept, and the real callback answers. Each
+ * file of the canvas's tests calls {@link canvasTestSetup} once, at its top.
  */
 
 import type { ReactNode } from "react";
-import { act, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
+import { afterEach, beforeEach, vi } from "vitest";
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType,
@@ -28,11 +35,15 @@ import {
 } from "@elaraai/east";
 import { DragEventType, Editing, SnapGrid, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
-import { getStore } from "../../platform/state-runtime.js";
+import { getStore, initializeStore } from "../../platform/state-runtime.js";
+import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
+import { SnapGridEditor } from "./editor.js";
+import type { SnapGridTileAction } from "./editor-tile.js";
 import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
+import type { SnapGridJoined } from "./use-snap-grid-editing.js";
 
 // ── The page's data ─────────────────────────────────────────────────────────
 
@@ -58,6 +69,8 @@ export const SEED: readonly TileValue[] = [
     { id: "region", row: "charts", span: 4n, height: none, minHeight: none, name: "Breakdown bars", align: variant("top", null) },
     { id: "board", row: "board", span: 12n, height: none, minHeight: none, name: "Assignment board", align: variant("top", null) },
 ];
+/** The page's rows as drawn, each by its tiles' keys: the rail; the trend beside the breakdown; the board. */
+export const SEED_ROWS = [["kpi"], ["trend", "region"], ["board"]];
 
 /** The library its cards come from. */
 export const PALETTE = "palette";
@@ -107,7 +120,7 @@ export interface CanvasOptions {
     creates?: boolean;
     /**
      * The builder's frame (#995), default `false`: the view bound at
-     * {@link VIEW_KEY}, a 1440px design width with Desktop and Tablet, the
+     * {@link VIEW_KEY}, a 1440px design width with Desktop, Tablet and Mobile, the
      * host's toolbar items ("Draft" at the start, "Publish" at the end), its
      * panes ("Palette" and "Inspector"), and each tile's icon and meta.
      */
@@ -118,9 +131,18 @@ export interface CanvasOptions {
     drafted?: boolean;
     /** Whether a screen asks the canvas for an Apply — the bound `apply`, at {@link APPLY_KEY} (default `false`, #998). */
     applies?: boolean;
+    /** A host's own sessions under the canvas's history (#1673); none by default. */
+    joined?: SnapGridJoined | undefined;
+    /** What the host draws over the grid (#1673); nothing by default. */
+    head?: ReactNode | undefined;
+    /** What the host says in the frame's banners slot (#1673); nothing by default. */
+    banners?: ReactNode | undefined;
+    /** What the host does to the selected tile on its frame (#1673); nothing by default. */
+    tileActions?: ((key: string) => readonly SnapGridTileAction[]) | undefined;
 }
 
-type Resolved = Required<CanvasOptions>;
+type Hosted = "joined" | "head" | "banners" | "tileActions";
+type Resolved = Required<Omit<CanvasOptions, Hosted>> & Pick<CanvasOptions, Hosted>;
 
 /** The canvas's program — the factory's, compiled. */
 function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
@@ -149,6 +171,7 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
                 widths: [
                     { label: "Desktop", icon: "desktop", width: "1440px" },
                     { label: "Tablet", icon: "tablet-screen-button", width: "1024px" },
+                    { label: "Mobile", icon: "mobile-screen", width: "390px" },
                 ],
                 toolbar: { start: [Text.Root("Draft")], end: [Text.Root("Publish")] },
                 panes: { start: Text.Root("Palette"), end: Text.Root("Inspector") },
@@ -288,7 +311,9 @@ export async function mountSnapGrid(options: CanvasOptions = {}): Promise<Editin
             <DragLayerProvider>
                 <Card card="orders" />
                 <Card card={BLOCKED} />
-                <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
+                {o.joined === undefined && o.head === undefined && o.banners === undefined && o.tileActions === undefined
+                    ? <EastChakraSnapGrid value={value} storageKey="snap-grid-990" />
+                    : <SnapGridEditor value={value} storageKey="snap-grid-990" joined={o.joined} head={o.head} banners={o.banners} tileActions={o.tileActions} />}
             </DragLayerProvider>
         </ChakraProvider>
     );
@@ -365,7 +390,34 @@ export function hostWrites(tiles: readonly TileValue[]): void {
     act(() => { getStore().write(TILES_KEY, encodeTiles([...tiles])); });
 }
 
+// ── Each file's setup ───────────────────────────────────────────────────────
+
+/** jsdom has no ResizeObserver: one that observes nothing. */
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+
+/**
+ * What every file of the canvas's tests sets up, called once at its top: the
+ * ResizeObserver jsdom lacks, a fresh UI store for each test, and after each
+ * test nothing it left — its render, its mocks, its storage.
+ */
+export function canvasTestSetup(): void {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+    beforeEach(() => { initializeStore(new UIStore()); });
+    afterEach(() => {
+        cleanup();
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+}
+
 // ── Reading the canvas ──────────────────────────────────────────────────────
+
+/** What each gesture was, in order. */
+export const origins = (canvas: EditingSnapGrid): string[] => canvas.patches.map((p) => p.origin.type);
+/** Each gesture's label, in order. */
+export const labels = (canvas: EditingSnapGrid): string[] => canvas.patches.map((p) => p.label);
+/** The tiles' order and rows, as the source holds them. */
+export const storedRows = (canvas: EditingSnapGrid): string[] => canvas.stored().map((t) => `${t.id}@${t.row}`);
 
 /** A tile's placement box. */
 export const tileEl = (c: HTMLElement, key: string): HTMLElement =>
