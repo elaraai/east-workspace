@@ -18,12 +18,25 @@ export interface PopoverBounds {
     readonly height: number;
 }
 
+/** The side of what it hangs from a popover opens on: under it, or over it. */
+export type PopoverSide = "bottom" | "top";
+
+/** The room the page leaves a popover under and over what it hangs from. */
+export interface PopoverRoom {
+    /** Under it. */
+    readonly below: number;
+    /** Over it. */
+    readonly above: number;
+}
+
 /**
  * Where a popover opened inside a builder's frame keeps to (#1393): across the
  * page, the frame's sides while the popover fits between them,
  * {@link POPOVER_OVERFLOW} in from each, and the page's otherwise; down the
- * page, always the page's, so it flips above its trigger exactly where it
- * did. Outside a frame it is the page's both ways.
+ * page, the page's, so it flips above its trigger exactly where it did —
+ * unless it holds a side (#1701): then the page on that side of what it hangs
+ * from alone, so the flip keeps it there, however its content grows or
+ * shrinks while it is open. Outside a frame it is the page's across.
  *
  * Floating UI reads a rect boundary's sides at every placement, so these are
  * read as it asks: the frame's place as the page scrolls, and whether the
@@ -37,9 +50,10 @@ export interface PopoverBounds {
  *
  * @param origin - What the popover hangs from: its trigger or its anchor
  * @param floating - The popover's content, whose width decides whether it fits
+ * @param side - The side it holds, read as it places; `undefined`, or not given, for none
  * @returns The bounds, read live
  */
-export function frameBounds(origin: () => Element | null, floating: () => HTMLElement | null): PopoverBounds {
+export function frameBounds(origin: () => Element | null, floating: () => HTMLElement | null, side?: () => PopoverSide | undefined): PopoverBounds {
     const across = (): readonly [number, number] => {
         const frame = origin()?.closest("[data-builder-frame]")?.getBoundingClientRect();
         const content = floating();
@@ -48,12 +62,76 @@ export function frameBounds(origin: () => Element | null, floating: () => HTMLEl
             ? [frame.left, frame.width]
             : [0, document.documentElement.clientWidth];
     };
+    const down = (): readonly [number, number] => {
+        const page = document.documentElement.clientHeight;
+        const held = side?.();
+        const box = held === undefined ? undefined : origin()?.getBoundingClientRect();
+        if (held === undefined || box === undefined) return [0, page];
+        return held === "top" ? [0, box.bottom] : [box.top, page - box.top];
+    };
     return {
         get x() { return across()[0]; },
         get width() { return across()[1]; },
-        get y() { return 0; },
-        get height() { return document.documentElement.clientHeight; },
+        get y() { return down()[0]; },
+        get height() { return down()[1]; },
     };
+}
+
+/**
+ * The room the page leaves a popover under and over what it hangs from (#1701): from its edges, past the gap the popover
+ * keeps from it, to the page's, {@link POPOVER_OVERFLOW} in.
+ *
+ * @param origin - What it hangs from
+ * @param gutter - The gap it keeps from it
+ * @returns The room under it and over it, in CSS px
+ */
+export function roomAround(origin: Element, gutter: number): PopoverRoom {
+    const box = origin.getBoundingClientRect();
+    return {
+        below: document.documentElement.clientHeight - box.bottom - gutter - POPOVER_OVERFLOW,
+        above: box.top - gutter - POPOVER_OVERFLOW,
+    };
+}
+
+/**
+ * The side a popover opens on (#1701): under what it hangs from where its own height fits there; else over it, where
+ * there is more room; else under it, its body scrolling in the room it has.
+ *
+ * @param own - Its own height ({@link ownHeight})
+ * @param room - The room under it and over it ({@link roomAround})
+ * @returns The side
+ */
+export function sideThatFits(own: number, room: PopoverRoom): PopoverSide {
+    return own <= room.below || room.above <= room.below ? "bottom" : "top";
+}
+
+/**
+ * The side a popover holds as what it shows changes — its list for the editor of one of its rows: the side it held
+ * while its own height still fits there, so it moves no more than it must; else the side its height opens it on, as
+ * when it opened ({@link sideThatFits}). An edit that grows or shrinks what it shows is not weighed: the side holds.
+ *
+ * @param held - The side it holds
+ * @param own - Its own height now ({@link ownHeight})
+ * @param room - The room under and over what it hangs from ({@link roomAround})
+ * @returns The side to hold
+ */
+export function sideToHold(held: PopoverSide, own: number, room: PopoverRoom): PopoverSide {
+    return own <= (held === "bottom" ? room.below : room.above) ? held : sideThatFits(own, room);
+}
+
+/**
+ * A popover's own height (#1701): its content's, with no room around what it hangs from to hold it — its own most
+ * still its most. Read with its `data-own-height` set, by which its recipe lifts the room's limit, and set back at
+ * once, so nothing draws it so.
+ *
+ * @param content - The popover's content
+ * @returns Its height, in CSS px
+ */
+export function ownHeight(content: HTMLElement): number {
+    content.setAttribute("data-own-height", "");
+    const height = content.getBoundingClientRect().height;
+    content.removeAttribute("data-own-height");
+    return height;
 }
 
 /**

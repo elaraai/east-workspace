@@ -150,6 +150,52 @@ test("a new gesture drops what Redo could replay — in every session, not only 
     expect(titles(sessions)).toEqual(["Spring catalogue", "Three", "Early"]);
 });
 
+test("a run of one session's gestures under one key is one step, as its session's own run is: one Undo takes it back, a run brought back to where it began goes, and another session's gesture between starts a step of its own", () => {
+    const { history, sessions } = setup();
+    expect(history.record([rename("jobs", "Spring catalogue", "A4")], "resize", "Resize job", "drag")).toBe(true);
+    expect(history.record([rename("jobs", "A4", "A5")], "resize", "Resize job", "drag")).toBe(true);
+    // One step, in the history and in its session.
+    expect([titleOf(sessions, "jobs"), sessions.jobs.depth]).toEqual(["A5", { undo: 1, redo: 0 }]);
+    history.undo();
+    expect([titleOf(sessions, "jobs"), history.canUndo]).toEqual(["Spring catalogue", false]);
+    history.redo();
+    expect(titleOf(sessions, "jobs")).toBe("A5");
+    // Another session's gesture between: the run's next is a step of its own, which Undo takes back alone.
+    history.record([rename("stops", "Plate change", "Plate change, A1")], "typed", "Edit stop");
+    history.record([rename("jobs", "A5", "A6")], "resize", "Resize job", "drag");
+    expect(sessions.jobs.depth).toEqual({ undo: 2, redo: 0 });
+    history.undo();
+    expect(titles(sessions)).toEqual(["A5", "Plate change, A1", "Early"]);
+    // With a step to redo, a gesture under the run's key is a step of its own, and Redo has nothing left.
+    history.record([rename("shifts", "Early", "Late")], "resize", "Nudge shift", "nudge");
+    expect([history.canRedo, sessions.jobs.canRedo, sessions.shifts.depth]).toEqual([false, false, { undo: 1, redo: 0 }]);
+    // Brought back to where it began, the run's step goes: Undo takes back the stop's.
+    history.record([rename("shifts", "Late", "Early")], "resize", "Nudge shift", "nudge");
+    expect([titleOf(sessions, "shifts"), sessions.shifts.depth]).toEqual(["Early", { undo: 0, redo: 0 }]);
+    history.undo();
+    expect(titles(sessions)).toEqual(["A5", "Plate change", "Early"]);
+    // A gesture across sessions never joins: each is a step.
+    history.record([rename("jobs", "A5", "A7"), rename("shifts", "Early", "Mid")], "resize", "Resize two", "both");
+    history.record([rename("jobs", "A7", "A8"), rename("shifts", "Mid", "Late")], "resize", "Resize two", "both");
+    history.undo();
+    expect(titles(sessions)).toEqual(["A7", "Plate change", "Mid"]);
+});
+
+test("one session's run, then another's under the same key: each a run of its own — the first's next gesture a step after the second's, never back in the first's", () => {
+    const { history, sessions } = setup();
+    history.record([rename("jobs", "Spring catalogue", "A4")], "resize", "Resize job", "drag");
+    history.record([rename("stops", "Plate change", "Plate change, A1")], "resize", "Resize stop", "drag");
+    history.record([rename("jobs", "A4", "A5")], "resize", "Resize job", "drag");
+    expect([sessions.jobs.depth, sessions.stops.depth]).toEqual([{ undo: 2, redo: 0 }, { undo: 1, redo: 0 }]);
+    // Back: the job's second, the stop's, the job's first — in the order they were made.
+    history.undo();
+    expect(titles(sessions)).toEqual(["A4", "Plate change, A1", "Early"]);
+    history.undo();
+    expect(titles(sessions)).toEqual(["A4", "Plate change", "Early"]);
+    history.undo();
+    expect([titles(sessions), history.canUndo]).toEqual([["Spring catalogue", "Plate change", "Early"], false]);
+});
+
 test("Discard drops every session's drafts, and the steps with them", () => {
     const { history, sessions } = setup();
     history.record([rename("jobs", "Spring catalogue", "One")], "typed", "Edit job");

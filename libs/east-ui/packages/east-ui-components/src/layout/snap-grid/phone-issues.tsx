@@ -17,6 +17,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { conflictCards } from "../../editing/conflicts.js";
+import type { EditHistory } from "../../editing/history.js";
 import type { EditIssue, EditSession } from "../../editing/session.js";
 import type { SnapGridWords } from "./messages.js";
 import { startColumn, type SnapGridRowModel } from "./model.js";
@@ -24,7 +25,8 @@ import type { SnapGridEntryRef } from "./use-snap-grid-editing.js";
 
 /** Props of {@link SnapGridPhoneIssues}. */
 export interface SnapGridPhoneIssuesProps {
-    readonly session: EditSession<SnapGridEntryRef>;
+    /** The canvas's session — or one history over it and its host's (#1673), whose every session's conflicts and issues the tab lists. */
+    readonly session: EditSession<SnapGridEntryRef> | EditHistory<SnapGridEntryRef>;
     readonly rows: readonly SnapGridRowModel[];
     readonly words: SnapGridWords;
     /** A tile's name, for an issue. */

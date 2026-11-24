@@ -24,7 +24,7 @@ import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionA
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackRegistration } from '../protocol/registration.js';
-import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
+import { RACK_DATA_ORIGINS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_SCOPES_ENDED_MAX, RACK_SPLIT_SCOPES, rackScopesEndedFitting,
   type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, readRackLeaseScope,
   type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
@@ -38,7 +38,7 @@ import { rackHome, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { certificateSha256 } from '../tls/tls.js';
 import { MutationQueue } from '../state-file.js';
-import { listenerProblem, loadHubCertificate, loadHubConfig, saveHubConfig, wildcardHost, type HubConfig } from './config.js';
+import { listenerProblem, loadHubCertificate, loadHubConfig, saveHubConfig, upgradeHubConfig, wildcardHost, type HubConfig } from './config.js';
 import { acquireHubLock, type HeldHubLock } from './lock.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge, type SessionEndpoint } from './session-bridge.js';
@@ -200,6 +200,12 @@ export interface RackHubOptions {
  * no more of a scope than its id, its racks, and the writers of at most
  * `SCOPE_WRITES_MAX` of its objects; and of a session, at most
  * `MOST_SCOPES_PER_SESSION` scopes open at once.
+ *
+ * Its configuration may name data origins beside the advertised one, each
+ * reaching its listener over a connection of its own: its hello names
+ * `data-origins` and lists them, and a rack whose report names the feature is
+ * given its data URLs on each of them and the advertised origin in turn. Every
+ * other rack is given them on the advertised origin alone.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -550,6 +556,8 @@ export class RackHub {
     if (lock === null) { this.options.log?.('rack hub already running'); this.resolveClosed(); return false; }
     this.lock = lock;
     try {
+      // A configuration an earlier release stored is carried into this one's form first
+      if (await upgradeHubConfig(this.home)) this.options.log?.('rack hub configuration carried into this release\'s form (hub-config-data-origins)');
       this.config = await loadHubConfig(this.home);
       this.identity = new FileMachineIdentityStore(this.home);
       this.registry = new FileRackRegistry(this.home, this.now);
@@ -565,6 +573,8 @@ export class RackHub {
           });
         },
         advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
+        // Only a rack that says it fetches from them is given URLs on them
+        dataOrigins: (rackId) => this.reports.get(rackId)?.features.includes(RACK_DATA_ORIGINS) === true ? this.config.dataOrigins : [],
         envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease), meter: this.meter });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
@@ -897,7 +907,10 @@ export class RackHub {
       const config = await decodeBody(c, HubConfigType);
       return this.mutations.run(async () => {
         await saveHubConfig(config, this.home);
-        const changed = !equalFor(HubConfigType)({ ...this.config, allow: config.allow, advertiseUrl: config.advertiseUrl, idleExitMinutes: config.idleExitMinutes }, config);
+        // What the listener reads as it serves needs no new bind: its
+        // addresses, its origins and its idle lifetime
+        const changed = !equalFor(HubConfigType)({ ...this.config, allow: config.allow, advertiseUrl: config.advertiseUrl, idleExitMinutes: config.idleExitMinutes,
+          dataOrigins: config.dataOrigins }, config);
         this.config = config;
         // A listener that is not up binds again on any change: an --allow it
         // lacked, or a port that has since come free.
@@ -995,6 +1008,8 @@ export class RackHub {
       callValueObjects: true,
       // A session builds an environment over the tier image a rack reports
       tierManifests: true,
+      // The hello lists the origins beside the advertised one, as configured now
+      dataOrigins: () => this.config.dataOrigins,
       // The hub reads each object's bytes from its session: a small one rides
       // the reply that asked for it, in place of a URL to be read in another
       // round trip of the rack's link

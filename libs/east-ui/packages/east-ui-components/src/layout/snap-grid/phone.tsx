@@ -18,7 +18,8 @@
  *   rebalances (D4).
  *
  * The bars stand in the frame's bottom panel, in the flow, so the page gives way
- * to them. Every gesture is one of the canvas's own session.
+ * to them. Every gesture is one of the canvas's own session. What the host draws
+ * over the grid (#1673) stands under the page's head.
  *
  * @packageDocumentation
  */
@@ -35,7 +36,7 @@ import { useSlotStyles } from "../../theme/slot-styles.js";
 import { FrameBottomPanel } from "../builder-frame/bottom-panel.js";
 import { useTopViewEscape } from "../builder-frame/view-escape.js";
 import type { SnapGridWords } from "./messages.js";
-import { useTileGrows } from "./tile-grows.js";
+import { ALWAYS_STACKED, useTileGrows } from "./tile-grows.js";
 import {
     SNAP_GRID_COLUMNS, MIN_SPAN, placeSlots, startColumn,
     type SnapGridDrop, type SnapGridRowModel, type SnapGridSlot, type SnapGridTile,
@@ -86,10 +87,9 @@ export interface SnapGridPhoneCanvasProps {
     readonly add: (card: { library: string; key: string }, drop: SnapGridDrop, narrows?: number) => string | undefined;
     readonly resize: (key: string, span: number, joins?: string) => boolean;
     readonly remove: (key: string) => void;
+    /** What the host draws over the grid (#1673): under the page's head. */
+    readonly head?: ReactNode | undefined;
 }
-
-/** A phone's tiles are all stacked. */
-const ALWAYS = () => true;
 
 /** A tile's twelve cells, its own columns lit (ST10). */
 function Meter({ first, span, styles }: { first: number; span: number; styles: ReturnType<typeof useSlotStyles> }) {
@@ -104,7 +104,7 @@ function Meter({ first, span, styles }: { first: number; span: number; styles: R
 
 /** A tile's frame on a phone: its fixed height applies (ST11), unless what it holds stacked needs more (ST39). */
 function PhoneFrame({ styles, fixed, children }: { styles: ReturnType<typeof useSlotStyles>; fixed: number | undefined; children: ReactNode }) {
-    const { ref, height } = useTileGrows<HTMLDivElement>(fixed, ALWAYS);
+    const { ref, height } = useTileGrows<HTMLDivElement>(fixed, ALWAYS_STACKED);
     return (
         <Box ref={ref} css={styles.frame} data-snap-grid-phone-frame="" data-frame="" style={height === undefined ? undefined : { height: `${height}px` }}>
             {children}
@@ -119,7 +119,7 @@ function PhoneFrame({ styles, fixed, children }: { styles: ReturnType<typeof use
  * @returns The page, and its bar in the frame's bottom panel
  */
 export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: SnapGridPhoneCanvasProps) {
-    const { rows, cellOf, savedSpans, selected, select, available, conflicted, words, storageKey, renderContent, register, options, placing, onPlacing, move, add, resize, remove } = props;
+    const { rows, cellOf, savedSpans, selected, select, available, conflicted, words, storageKey, renderContent, register, options, placing, onPlacing, move, add, resize, remove, head } = props;
     const styles = useSlotStyles("snapGridPhone");
     const m = words.m;
     const panel = useContext(FrameBottomPanel);
@@ -314,6 +314,7 @@ export const SnapGridPhoneCanvas = memo(function SnapGridPhoneCanvas(props: Snap
                         {options.title !== undefined && <Box as="span" css={styles.title}>{options.title}</Box>}
                     </Box>
                 )}
+                {head !== undefined && <Box css={styles.pageHead} data-snap-grid-head="">{head}</Box>}
                 <Box css={styles.rows}>
                     {rows.length === 0 && placingNow === undefined && (
                         <Box css={styles.empty} data-snap-grid-empty="">

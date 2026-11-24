@@ -9,37 +9,47 @@
  * These tests use describeEast following east-node conventions.
  * Tests compile East functions and run them to validate platform function behavior.
  *
- * The tests fetch a public Access database (Sakila sample) at runtime,
- * write it to a temp file, then open it using access_open.
+ * The tests open this package's own Access database (`access-actors.ts`): its
+ * `actor` table's ten rows are what each query returns. They open it by its
+ * path from this package's directory, where they run on Node and, exported, on
+ * Python.
  */
-import { East, IntegerType, OptionType, StringType, StructType, variant } from "@elaraai/east";
-import { describeEast, Assert, NodePlatform, Fetch, FileSystem } from "@elaraai/east-node-std";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, test as unitTest } from "node:test";
+import { East, IntegerType, OptionType, StringType, StructType, none, some, type ValueTypeOf } from "@elaraai/east";
+import { describeEast, Assert, NodePlatform } from "@elaraai/east-node-std";
 import { SQL } from "@elaraai/east-node-io";
 import * as ex from "./access.examples.js";
+import { ACTORS, ACTORS_PATH, actorsDatabase } from "./access-actors.js";
 
-// Public test database: Sakila sample database (Access port)
-// https://github.com/ozzymcduff/sakila-sample-database-ports
-const TEST_DB_URL = "https://raw.githubusercontent.com/ozzymcduff/sakila-sample-database-ports/master/ms-access-sakila-db/access-sakila.mdb";
-const TEST_DB_PATH = "/tmp/east-test-sakila.mdb";
-
-// Define the expected row type for actor table (columns are nullable in Sakila)
+// Define the expected row type for actor table (every Access column may be null)
 const ActorRowType = StructType({
     actor_id: OptionType(IntegerType),
     first_name: OptionType(StringType),
     last_name: OptionType(StringType),
 });
 
+// The actor table's rows with two of its columns
+const PartialActorType = StructType({
+    actor_id: OptionType(IntegerType),
+    first_name: OptionType(StringType),
+});
+
+/** The table's rows as a query reads them, in its order. */
+const actors: ValueTypeOf<typeof ActorRowType>[] = ACTORS.map((actor) => ({
+    actor_id: some(BigInt(actor.id)),
+    first_name: some(actor.first),
+    last_name: actor.last === null ? none : some(actor.last),
+}));
+
 await describeEast("Access platform functions", (test) => {
     Assert.examples(test, { accessOpen: ex.accessOpen, accessClose: ex.accessClose, accessTables: ex.accessTables, accessQuery: ex.accessQuery, accessCloseAll: ex.accessCloseAll });
 
     test("open database from file and list tables", $ => {
-        // Fetch database bytes from URL and write to temp file
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
@@ -47,22 +57,17 @@ await describeEast("Access platform functions", (test) => {
         // Handle should be non-empty string
         $(Assert.greater(handle.length(), East.value(0n)));
 
-        // List tables
+        // Its one table: the catalog, a system table, is not listed
         const result = $.let(SQL.Access.tables(handle));
-
-        // Should have tables (Sakila has many tables)
-        $(Assert.greater(result.tables.size(), East.value(0n)));
+        $(Assert.equal(result.tables, ["actor"]));
 
         $(SQL.Access.close(handle));
     });
 
     test("query actor table returns rows", $ => {
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
@@ -70,60 +75,47 @@ await describeEast("Access platform functions", (test) => {
         // Query with typed row results, limit to 5 rows
         const options = $.let({
             table: "actor",
-            columns: variant('none', null),
-            rowOffset: variant('none', null),
-            rowLimit: variant('some', 5n),
+            columns: none,
+            rowOffset: none,
+            rowLimit: some(5n),
         });
 
         const rows = $.let(SQL.Access.query([ActorRowType], handle, options));
 
-        // Should return between 1 and 5 rows
-        $(Assert.greater(rows.size(), East.value(0n)));
-        $(Assert.lessEqual(rows.size(), East.value(5n)));
+        // The table's first 5 rows
+        $(Assert.equal(rows, actors.slice(0, 5)));
 
         $(SQL.Access.close(handle));
     });
 
     test("query with column selection returns rows", $ => {
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
 
-        // Query with specific columns only (columns are nullable)
-        const PartialActorType = StructType({
-            actor_id: OptionType(IntegerType),
-            first_name: OptionType(StringType),
-        });
-
+        // Query with specific columns only
         const options = $.let({
             table: "actor",
-            columns: variant('some', ["actor_id", "first_name"]),
-            rowOffset: variant('none', null),
-            rowLimit: variant('some', 3n),
+            columns: some(["actor_id", "first_name"]),
+            rowOffset: none,
+            rowLimit: some(3n),
         });
 
         const rows = $.let(SQL.Access.query([PartialActorType], handle, options));
 
-        // Should return between 1 and 3 rows
-        $(Assert.greater(rows.size(), East.value(0n)));
-        $(Assert.lessEqual(rows.size(), East.value(3n)));
+        // The first 3 rows' two columns
+        $(Assert.equal(rows, actors.slice(0, 3).map(({ actor_id, first_name }) => ({ actor_id, first_name }))));
 
         $(SQL.Access.close(handle));
     });
 
     test("query with pagination returns correct count", $ => {
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
@@ -131,15 +123,38 @@ await describeEast("Access platform functions", (test) => {
         // Query with offset and limit
         const options = $.let({
             table: "actor",
-            columns: variant('none', null),
-            rowOffset: variant('some', 5n),
-            rowLimit: variant('some', 3n),
+            columns: none,
+            rowOffset: some(5n),
+            rowLimit: some(3n),
         });
 
         const rows = $.let(SQL.Access.query([ActorRowType], handle, options));
 
-        // Should return at most 3 rows
-        $(Assert.lessEqual(rows.size(), East.value(3n)));
+        // The 3 rows after the first 5
+        $(Assert.equal(rows, actors.slice(5, 8)));
+
+        $(SQL.Access.close(handle));
+    });
+
+    test("query without limit returns every row, a missing value as none", $ => {
+        const config = $.let({
+            path: ACTORS_PATH,
+            password: none,
+        }, SQL.Access.Types.Config);
+
+        const handle = $.let(SQL.Access.open(config));
+
+        const options = $.let({
+            table: "actor",
+            columns: none,
+            rowOffset: none,
+            rowLimit: none,
+        });
+
+        const rows = $.let(SQL.Access.query([ActorRowType], handle, options));
+
+        // All 10 rows: the last has no last_name
+        $(Assert.equal(rows, actors));
 
         $(SQL.Access.close(handle));
     });
@@ -147,12 +162,9 @@ await describeEast("Access platform functions", (test) => {
     // Error case tests
 
     test("query throws error when field type does not match column type", $ => {
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
@@ -166,9 +178,9 @@ await describeEast("Access platform functions", (test) => {
 
         const options = $.let({
             table: "actor",
-            columns: variant('none', null),
-            rowOffset: variant('none', null),
-            rowLimit: variant('some', 1n),
+            columns: none,
+            rowOffset: none,
+            rowLimit: some(1n),
         });
 
         // Should throw error about type mismatch
@@ -181,12 +193,9 @@ await describeEast("Access platform functions", (test) => {
     });
 
     test("query throws error when column not found", $ => {
-        const bytes = $.let(Fetch.getBytes(TEST_DB_URL));
-        $(FileSystem.writeFileBytes(TEST_DB_PATH, bytes));
-
         const config = $.let({
-            path: TEST_DB_PATH,
-            password: variant('none', null),
+            path: ACTORS_PATH,
+            password: none,
         }, SQL.Access.Types.Config);
 
         const handle = $.let(SQL.Access.open(config));
@@ -200,9 +209,9 @@ await describeEast("Access platform functions", (test) => {
 
         const options = $.let({
             table: "actor",
-            columns: variant('none', null),
-            rowOffset: variant('none', null),
-            rowLimit: variant('some', 1n),
+            columns: none,
+            rowOffset: none,
+            rowLimit: some(1n),
         });
 
         // Should throw error about column not found
@@ -219,4 +228,13 @@ await describeEast("Access platform functions", (test) => {
         // Close all connections after each test
         $(SQL.Access.closeAll());
     }
+});
+
+describe("the Access test database", () => {
+    unitTest("is what the writer writes from its actors", () => {
+        assert.ok(
+            readFileSync(ACTORS_PATH).equals(actorsDatabase()),
+            `${ACTORS_PATH} is not what test/sql/access-writer.ts writes from test/sql/access-actors.ts: write it again with \`pnpm run test:fixtures\` in this package`,
+        );
+    });
 });

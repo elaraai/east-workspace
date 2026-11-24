@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { fitPhoneColumns, measureText } from "./phone-fit.js";
+import { fitPhoneColumns, measureLabel, measureText } from "./phone-fit.js";
 
 describe("fitPhoneColumns", () => {
     test("as many as fit whole stand beside the pinned one, the spare room shared equally", () => {
@@ -21,7 +21,26 @@ describe("fitPhoneColumns", () => {
         expect([fit.pinned, fit.widths]).toEqual([180, [120]]);
     });
     test("alone, the pinned column has the whole width", () => {
-        expect(fitPhoneColumns(294, 100, [], 3)).toEqual({ pinned: 294, first: 0, widths: [], lastFirst: 0 });
+        expect(fitPhoneColumns(294, 100, [], 3)).toEqual({ pinned: 294, first: 0, widths: [], lastFirst: 0, scrolls: false });
+    });
+    test("a tile's: a column in view whose least is more than the room left keeps its least, the pinned one giving it room", () => {
+        // 148 of room: the pinned names take 89, their 60%; a number column's whole, 90, and the last column's 4 leave them 54.
+        const fit = fitPhoneColumns(148, 114, [93], 0, { pinned: 50, others: [90] });
+        expect([fit.pinned, fit.widths, fit.scrolls]).toEqual([54, [94], false]);
+        // A text column's least asks nothing of the pinned one: it takes the room left.
+        expect(fitPhoneColumns(148, 114, [120], 0, { pinned: 54, others: [50] })).toMatchObject({ pinned: 89, widths: [59], scrolls: false });
+    });
+    test("a tile's: a pinned column never narrower than its least, and past both leasts the columns scroll", () => {
+        // A pinned date's whole, 108, past its 60% of 161; a customer's names take the 53 left.
+        expect(fitPhoneColumns(161, 108, [86], 0, { pinned: 108, others: [48] })).toMatchObject({ pinned: 108, widths: [53], scrolls: false });
+        // A date and a number, each whole: more than the room, and the table scrolls.
+        expect(fitPhoneColumns(148, 108, [93], 0, { pinned: 108, others: [93] })).toMatchObject({ pinned: 108, widths: [97], scrolls: true });
+        // Alone, a pinned column wider than the room at its least scrolls too.
+        expect(fitPhoneColumns(100, 130, [], 0, { pinned: 130, others: [] })).toMatchObject({ pinned: 130, scrolls: true });
+    });
+    test("a tile's: where every column in view fits whole, the leasts change nothing", () => {
+        expect(fitPhoneColumns(390, 100, [80, 80, 80, 200], 0, { pinned: 100, others: [80, 80, 80, 200] }))
+            .toEqual(fitPhoneColumns(390, 100, [80, 80, 80, 200], 0));
     });
 });
 
@@ -50,5 +69,14 @@ describe("measureText", () => {
         expect(measureText("office", "500 13px mono")).toBeCloseTo(6 * CELL);
         expect(measureText("staff fill flow", "500 13px mono")).toBeCloseTo(15 * CELL);
         expect(measureText("RACK-07", "500 13px mono")).toBeCloseTo(7 * CELL);
+    });
+});
+
+describe("measureLabel", () => {
+    test("a label as the label voice draws it: its letters uppercase, each tracked", () => {
+        vi.stubGlobal("document", { createElement: () => joiningCanvas() });
+        expect(measureLabel("Region", "600 10px mono", 1.6)).toBeCloseTo(6 * CELL + 6 * 1.6);
+        // Uppercase, an f-pair draws no join: "OFFICE" is its six cells.
+        expect(measureLabel("office", "600 10px mono", 1.6)).toBeCloseTo(6 * CELL + 6 * 1.6);
     });
 });

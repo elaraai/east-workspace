@@ -41,10 +41,14 @@
  * `builderFrame` recipe's frame (#1125) — the toolbar row, the panes and main
  * are its. This recipe draws the canvas's own: its bordered panel around the
  * frame (the `card` surface), and in main the sunken column that holds the
- * selection bar over the grid panel. The toolbar's own items — the grid chip,
+ * selection bar over the grid panel, and between them a band of what the host
+ * draws over the grid (`pageHead`, #1673) — the selection bar's height and
+ * rule. The toolbar's own items — the grid chip,
  * the saved time and the width readout — are the mock's toolbar markup; its
  * zoom is the shared `stepper` and its design widths the shared `seg` strip
- * (#996).
+ * (#996), each icon the strip's (`data-seg-icon`). At a phone's design width
+ * the canvas stands stacked (`data-stacked`): every tile the full width, in
+ * reading order, as the grid lays a page out under 480px.
  *
  * @packageDocumentation
  */
@@ -81,6 +85,9 @@ const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
  */
 const TILE_BODY = {
     "& > *": { flex: "1 1 auto", minHeight: "0" },
+    // Held to a least height — a stretched tile's (`natural.ts`): its content has no height of its own, so the tile adds
+    // its least height to its row's, never what it holds, and its content fills whatever height the row leaves it.
+    "&[data-least-height] > *": { flexBasis: "0" },
 } as const;
 
 /** The toolbar's mono micro-labels — the grid chip and the saved time. */
@@ -98,10 +105,10 @@ export const snapGridSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "grid", "row", "cell", "blankBand", "blankBody",
         "editor", "column",
-        "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
-        "chip", "saved", "readout", "divider", "widthIcon",
+        "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint", "pageHead",
+        "chip", "saved", "readout", "divider",
         "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
-        "tile", "frame", "handle", "remove", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
+        "tile", "frame", "handle", "tileBadge", "tileBar", "tileAction", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
         "endZone", "endZoneBox", "endZoneRest", "endZoneDragging", "endZoneTarget", "ghost",
     ],
     base: {
@@ -205,9 +212,23 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
+        // What the host draws over the grid (#1673): a band under the selection bar, its height and rule, the content
+        // at its middle — a toolbar row's 28px in its 44.
+        pageHead: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            minWidth: 0,
+            minHeight: "44px",
+            paddingInline: "{spacing.4}",
+            paddingBlock: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            bg: "bg.panel",
+        },
         // The toolbar's own items: the grid chip, the saved time, the width
-        // readout, the rule before the history, and a design width's icon in
-        // its segment.
+        // readout and the rule before the history.
         // The grid chip: a one-line box (#1638), 20 tall in its edge, its words on the 18px of room inside.
         chip: {
             ...MICRO_LABEL,
@@ -236,11 +257,6 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             width: "1px",
             height: "18px",
             bg: "border.strong",
-        },
-        widthIcon: {
-            display: "inline-flex",
-            marginInlineEnd: "6px",
-            "&:last-child": { marginInlineEnd: "0" },
         },
         viewport: {
             flex: "1",
@@ -338,6 +354,10 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             "&[data-align='stretch']": { alignSelf: "stretch" },
             // The drag layer dims a moved tile's origin.
             "&[data-dragging]": { cursor: "grabbing" },
+            // Selected: a 1px `--ink` outline, 4px out (#1672, BLD-3).
+            "&[data-selected]": { outlineWidth: "1px", outlineStyle: "solid", outlineColor: "fg", outlineOffset: "4px" },
+            // On a stacked canvas, as a phone shows the page: the full width, and nothing to drag.
+            "[data-stacked] &": { gridColumn: "1 / -1", cursor: "default" },
         },
         frame: {
             height: "100%",
@@ -355,61 +375,86 @@ export const snapGridSlotRecipe = defineSlotRecipe({
                 borderColor: "border.strong",
                 overflow: "hidden",
             },
-            "[data-selected] > &": {
-                borderWidth: "1px",
-                borderStyle: "solid",
-                borderColor: "brand.solid",
-                boxShadow: "focus",
-            },
             // A draft a check refuses — the Sheet's and the Plan's marks: an
             // edge takes the valence base, never its text step.
             "[data-incomplete] > &": { borderColor: "status.warn" },
             "[data-invalid] > &": { borderColor: "status.neg" },
-            // A tile holding a conflict not yet chosen: the warn ring at its frame's edge — selected, its edge kept and its
-            // focus ring under the warn.
+            // A tile holding a conflict not yet chosen: the warn ring at its frame's edge, under the selection's outline.
             "[data-conflict] > &": { boxShadow: CONFLICT_RING },
-            "[data-selected][data-conflict] > &": { boxShadow: `${CONFLICT_RING}, {shadows.focus}` },
         },
+        // A resize handle, on the selection's outline (#1672, BLD-3): the surface inside 1px of `--ink`, as the outline is.
+        // Its span's is an 8 × 30 pill at the middle of the tile's end, a pixel past its frame; its height's the same
+        // pill along its foot; a corner's a 9px square on the outline's corner.
         handle: {
             position: "absolute",
             zIndex: 3,
             width: "9px",
             height: "9px",
+            boxSizing: "border-box",
             bg: "bg.surface",
-            borderWidth: "1.5px",
+            borderWidth: "1px",
             borderStyle: "solid",
-            borderColor: "brand.solid",
+            borderColor: "fg",
             borderRadius: "2px",
-            "&[data-handle='top-left']": { left: "-4px", top: "-4px" },
-            "&[data-handle='top-right']": { right: "-4px", top: "-4px" },
-            "&[data-handle='bottom-left']": { left: "-4px", bottom: "-4px" },
-            "&[data-handle='both']": { right: "-4px", bottom: "-4px", cursor: "nwse-resize" },
+            "&[data-handle='top-left']": { left: "-9px", top: "-9px" },
+            "&[data-handle='top-right']": { right: "-9px", top: "-9px" },
+            "&[data-handle='bottom-left']": { left: "-9px", bottom: "-9px" },
+            "&[data-handle='both']": { right: "-9px", bottom: "-9px", cursor: "nwse-resize" },
             "&[data-handle='span']": {
-                right: "-4px", top: "50%", transform: "translateY(-50%)", height: "{spacing.5}", cursor: "ew-resize",
+                right: "-9px", top: "50%", transform: "translateY(-50%)", width: "8px", height: "30px", borderRadius: "sm", cursor: "ew-resize",
             },
             "&[data-handle='height']": {
-                left: "50%", bottom: "-4px", transform: "translateX(-50%)", width: "{spacing.5}", cursor: "ns-resize",
+                left: "50%", bottom: "-9px", transform: "translateX(-50%)", width: "30px", height: "8px", borderRadius: "sm", cursor: "ns-resize",
             },
         },
-        remove: {
+        // The selected tile's name and span — `Revenue by month · 8/12` — on `--ink`, 8 over its top edge from the
+        // outline's start (#1672, BLD-3): an 18px one-line box with no edge, mono 10 / 600, padded 0 6.
+        tileBadge: {
             position: "absolute",
-            top: "{spacing.2}",
-            right: "{spacing.2}",
+            bottom: "calc(100% + 8px)",
+            left: "-4px",
             zIndex: 3,
-            width: "26px",
-            height: "26px",
+            display: "inline-block",
+            maxWidth: "calc(100% - 96px)",
+            ...oneLineBox(18, 0),
+            paddingInline: "6px",
+            borderRadius: "sm",
+            bg: "bg.inverse",
+            color: "fg.inverse",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontWeight: "600",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            pointerEvents: "none",
+        },
+        // Its toolbar at the other end of that edge: Edit, Duplicate and Remove.
+        tileBar: {
+            position: "absolute",
+            bottom: "calc(100% + 8px)",
+            right: "-4px",
+            zIndex: 3,
+            display: "flex",
+            gap: "{spacing.1}",
+        },
+        tileAction: {
+            width: "22px",
+            height: "22px",
             display: "grid",
             placeItems: "center",
             padding: "0",
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "border.strong",
-            borderRadius: "md",
+            borderRadius: "sm",
             bg: "bg.surface",
             color: "fg.muted",
-            fontSize: "11px",
+            // An even mark in the even 20px inside its edge.
+            fontSize: "10px",
             cursor: "pointer",
-            _hover: { bg: "bg.subtle", color: "fg.danger" },
+            _hover: { bg: "bg.subtle", color: "fg" },
+            "&[data-danger]": { _hover: { color: "fg.danger" } },
         },
         insertBefore: {
             ...INDICATOR,

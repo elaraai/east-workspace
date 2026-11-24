@@ -273,6 +273,8 @@ test.describe("a converted icon takes the room its glyph took (#1263)", () => {
         expect(carets.filter((c) => !(c.fa === "auto" && near(c.w, c.own))), "a slot caret in Font Awesome's fixed cell").toEqual([]);
         const studio = await openBuilder("e3/studio/studio/studioBuilder", "[data-studio-builder]", "[data-snap-grid-tile]", 1440);
         await studio.getByRole("button", { name: "Preview", exact: true }).click();
+        // The Preview opens on the page, its change list shut in the rail along its foot: the rail's count shows it (#1673).
+        await studio.locator("[data-publish-toggle]").click();
         await expect(studio.locator("[data-publish-change]").first()).toBeVisible({ timeout: 20_000 });
         await settled(page);
         const signs = await iconsIn(studio, "[data-sign] svg");
@@ -512,6 +514,9 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             await builder.evaluate((root) => { (root as HTMLElement).style.width = "1440px"; });
             await settled(page);
             await builder.locator("[data-snap-grid-tile]").first().click();
+            await settled(page);
+            // The inspector opens on what the tile holds (#1672): its height is on its Layout tab.
+            await builder.getByRole("tab", { name: "Layout" }).click();
             const height = page.locator(row).locator("[data-inspector-height]").first();
             await expect(height).toBeVisible();
             await settled(page);

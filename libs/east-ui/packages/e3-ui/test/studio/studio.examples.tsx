@@ -6,122 +6,59 @@
 
 /**
  * The Studio (#787) as a solution writes it — the design of record: the data
- * its components read, the components it offers, the one pages record its
+ * its components read (`studio-data.ts`, each re-exported here), the
+ * components it offers, the one pages record its
  * operators build, and the three surfaces it mounts: the builder, the page
  * library and a published page. The record holds the mock of record's resting
  * state: the Ops console's Overview, live as v3 and drafted since, and the page
- * library's projects, pages and templates.
+ * library's projects, pages and templates. A second record holds a page whose
+ * placements hold content (#1669) — a text block and visuals over the two
+ * sources the surface lists — and declares the one step that carries a
+ * workspace's pages stored before a placement held content. A third holds a page of every form
+ * a visual draws (#1671), over two years of a trade supplier's orders, its
+ * readers starting in the latest quarter; a fourth, a page of the options a
+ * chart and a value take (#1672).
  */
 
 import {
-    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,
-    example, none, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, compareFor,
+    example, none, parseJq, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
+    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
+import {
+    studioAreas, studioAssignmentsToday, studioKpis, studioOrdersWeekly, studioPeople, studioReturns, studioRevenueDaily,
+    studioRotaWeek, studioSales, studioShifts, studioVisitsDaily,
+} from "./studio-data.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 // ============================================================================
-// The data — what the components read
+// The data — what the components read (`studio-data.ts`)
 // ============================================================================
 
-/** What a KPI measures: an amount of money, a count, a price or a ratio. */
-const KpiUnit = VariantType({ money: NullType, count: NullType, price: NullType, ratio: NullType });
-
-/** The week's figures, each with its change on last week in percent — what a KPI task writes. */
-export const studioKpis = e3.input("studio_kpis", ArrayType(StructType({
-    label: StringType, value: FloatType, unit: KpiUnit, change: FloatType,
-})), variant("value", [
-    { label: "Revenue", value: 1284000.0, unit: variant("money", null), change: 6.4 },
-    { label: "Orders", value: 8412.0, unit: variant("count", null), change: 2.1 },
-    { label: "Avg ticket", value: 152.0, unit: variant("price", null), change: -1.3 },
-    { label: "Fill rate", value: 0.94, unit: variant("ratio", null), change: 0.0 },
-]));
-
-/** Revenue by day. */
-export const studioRevenueDaily = e3.input("studio_revenue_daily", ArrayType(StructType({ day: DateTimeType, revenue: FloatType })), variant("value", [
-    { day: new Date("2026-02-12T00:00:00Z"), revenue: 2640000.0 },
-    { day: new Date("2026-02-19T00:00:00Z"), revenue: 2710000.0 },
-    { day: new Date("2026-02-26T00:00:00Z"), revenue: 2900000.0 },
-    { day: new Date("2026-03-05T00:00:00Z"), revenue: 3180000.0 },
-    { day: new Date("2026-03-12T00:00:00Z"), revenue: 3300000.0 },
-    { day: new Date("2026-03-19T00:00:00Z"), revenue: 3430000.0 },
-]));
-
-/** This week's sales, one row per region per channel. */
-export const studioSales = e3.input("studio_sales", ArrayType(StructType({ region: StringType, channel: StringType, revenue: FloatType })), variant("value", [
-    { region: "North", channel: "Store", revenue: 331200.0 },
-    { region: "North", channel: "Online", revenue: 208080.0 },
-    { region: "South", channel: "Store", revenue: 238824.0 },
-    { region: "South", channel: "Online", revenue: 159216.0 },
-    { region: "West", channel: "Store", revenue: 197604.0 },
-    { region: "West", channel: "Online", revenue: 149076.0 },
-]));
-
-/** Orders by week. */
-export const studioOrdersWeekly = e3.input("studio_orders_weekly", ArrayType(StructType({ week: StringType, orders: FloatType })), variant("value", [
-    { week: "W9", orders: 96.0 }, { week: "W10", orders: 158.0 }, { week: "W11", orders: 214.0 },
-    { week: "W12", orders: 271.0 }, { week: "W13", orders: 248.0 }, { week: "W14", orders: 196.0 },
-]));
-
-/** Visits by day, the last two weeks. */
-export const studioVisitsDaily = e3.input("studio_visits_daily", ArrayType(StructType({ day: DateTimeType, visits: FloatType })), variant("value", [
-    { day: new Date("2026-03-06T00:00:00Z"), visits: 412.0 }, { day: new Date("2026-03-07T00:00:00Z"), visits: 388.0 },
-    { day: new Date("2026-03-08T00:00:00Z"), visits: 301.0 }, { day: new Date("2026-03-09T00:00:00Z"), visits: 296.0 },
-    { day: new Date("2026-03-10T00:00:00Z"), visits: 455.0 }, { day: new Date("2026-03-11T00:00:00Z"), visits: 471.0 },
-    { day: new Date("2026-03-12T00:00:00Z"), visits: 468.0 }, { day: new Date("2026-03-13T00:00:00Z"), visits: 502.0 },
-    { day: new Date("2026-03-14T00:00:00Z"), visits: 479.0 }, { day: new Date("2026-03-15T00:00:00Z"), visits: 344.0 },
-    { day: new Date("2026-03-16T00:00:00Z"), visits: 327.0 }, { day: new Date("2026-03-17T00:00:00Z"), visits: 518.0 },
-    { day: new Date("2026-03-18T00:00:00Z"), visits: 546.0 }, { day: new Date("2026-03-19T00:00:00Z"), visits: 561.0 },
-]));
-
-/** The floor's areas, its shifts and its people. */
-export const studioAreas = e3.input("studio_areas", ArrayType(StructType({ id: StringType, name: StringType })), variant("value", [
-    { id: "north", name: "North" }, { id: "south", name: "South" },
-]));
-export const studioShifts = e3.input("studio_shifts", ArrayType(StructType({ id: StringType, name: StringType, window: StringType })), variant("value", [
-    { id: "am", name: "AM", window: "06–14" }, { id: "pm", name: "PM", window: "14–22" }, { id: "night", name: "Night", window: "22–06" },
-]));
-export const studioPeople = e3.input("studio_people", ArrayType(StructType({ id: StringType, name: StringType })), variant("value", [
-    { id: "p1", name: "Ana Ruiz" }, { id: "p2", name: "Ben Cole" }, { id: "p3", name: "Cai Lin" }, { id: "p4", name: "Dev Rao" },
-    { id: "p5", name: "Eli Moss" }, { id: "p6", name: "Fay Ong" }, { id: "p7", name: "Gus Hart" }, { id: "p8", name: "Hana Ito" },
-]));
-
-/** Who works where today. */
-export const studioAssignmentsToday = e3.input("studio_assignments_today", ArrayType(StructType({
-    id: StringType, person: StringType, area: StringType, shift: StringType,
-})), variant("value", [
-    { id: "a1", person: "p1", area: "north", shift: "am" }, { id: "a2", person: "p2", area: "north", shift: "am" },
-    { id: "a3", person: "p3", area: "north", shift: "pm" }, { id: "a4", person: "p4", area: "north", shift: "night" },
-    { id: "a5", person: "p5", area: "south", shift: "am" }, { id: "a6", person: "p6", area: "south", shift: "pm" },
-    { id: "a7", person: "p7", area: "south", shift: "pm" }, { id: "a8", person: "p8", area: "south", shift: "night" },
-]));
-
-/** This week's rota. */
-export const studioRotaWeek = e3.input("studio_rota_week", ArrayType(StructType({
-    id: StringType, person: StringType, day: StringType, hours: IntegerType,
-})), variant("value", [
-    { id: "r1", person: "p1", day: "Mon", hours: 8n }, { id: "r2", person: "p1", day: "Tue", hours: 8n }, { id: "r3", person: "p1", day: "Wed", hours: 8n },
-    { id: "r4", person: "p2", day: "Mon", hours: 8n }, { id: "r5", person: "p2", day: "Thu", hours: 8n }, { id: "r6", person: "p2", day: "Fri", hours: 6n },
-    { id: "r7", person: "p3", day: "Tue", hours: 8n }, { id: "r8", person: "p3", day: "Wed", hours: 8n }, { id: "r9", person: "p3", day: "Thu", hours: 8n },
-    { id: "r10", person: "p4", day: "Mon", hours: 10n }, { id: "r11", person: "p4", day: "Fri", hours: 10n },
-]));
+export {
+    studioAreas, studioAssignmentsToday, studioKpis, studioOrdersWeekly, studioPeople, studioReturns, studioRevenueDaily,
+    studioRotaWeek, studioSales, studioShifts, studioVisitsDaily,
+};
 
 // ============================================================================
 // The components — what the surfaces offer, each a self-contained East UI function
 // ============================================================================
 
-/** The KPI rail's code: the week's four figures, each with its change on last week. */
+/**
+ * The KPI rail's code: the week's four figures, each with its change on last week — four abreast where four of
+ * 170px fit, else two and two, else one above another, so no row stands short beside an empty cell.
+ */
 const kpiRailUi = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
         const kpis = $.let(Data.bind(studioKpis).read());
         return (
-            <Box background="border.subtle"><Grid gap="1px" templateColumns="repeat(auto-fit, minmax(min(calc(50% - 1px), 170px), 1fr))" items={kpis.map(($2, k) => Grid.Item(
+            <Box background="border.subtle"><Grid gap="1px" templateColumns="repeat(auto-fit, minmax(max(calc(25% - 1px), min(calc(50% - 1px), calc((683px - 100%) * 999)), min(100%, calc((341px - 100%) * 999))), 1fr))" items={kpis.map(($2, k) => Grid.Item(
                     <Box background="bg.surface"
                         padding={{ top: some("3"), right: some("4"), bottom: some("3"), left: some("4") }}>
                         <Stat label={k.label} value={k.value}
@@ -288,11 +225,12 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Account detail",
                 cells: [
-                    { key: "a-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week" },
-                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
-                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "a-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -300,21 +238,23 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
-                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars" },
-                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 3n,
                 page: {
                     title: "Overview",
                     cells: [
-                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
-                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
+                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, content: variant("component", "revenue_trend") },
+                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -322,20 +262,22 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Regional rollup",
                 cells: [
-                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
-                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
+                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 1n,
                 page: {
                     title: "Regional rollup",
                     cells: [
-                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
-                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
+                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -343,41 +285,46 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Weekly export",
                 cells: [
-                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
-                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster" },
+                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
+                filters: [],
             },
-            live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
+            live: some({ version: 2n, page: { title: "Weekly export", cells: [], filters: [] } }),
         })],
         [{ project: "Ops console", page: "Ops board" }, variant("template", {
             title: "Ops board",
             cells: [
-                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
-                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
+            filters: [],
         })],
         [{ project: "Ops console", page: "Report brief" }, variant("template", {
             title: "Report brief",
             cells: [
-                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week" },
-                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
             ],
+            filters: [],
         })],
         [{ project: "Ops console", page: "Summary" }, variant("template", {
             title: "Summary",
             cells: [
-                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
+            filters: [],
         })],
         [{ project: "Finance portal", page: "Ledger" }, variant("page", {
             draft: {
                 title: "Ledger",
                 cells: [
-                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -385,16 +332,18 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Rota",
                 cells: [
-                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
+                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
+                filters: [],
             },
             live: some({
                 version: 1n,
                 page: {
                     title: "Rota",
                     cells: [
-                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
+                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                     ],
+                    filters: [],
                 },
             }),
         })],
@@ -416,14 +365,18 @@ export const studioBuilder = example({
         "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
         "mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
     ],
-    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns",
+    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns; the page it shows is the surface's own state, given as `page` and changed in `onOpen` when the palette's Pages tab asks for another",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
             const pages = $.let(Record.bind(studioPages));
+            // The open page is the surface's — the project's first to begin with: the builder shows it, and the page library below opens another.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.open", { project: "Ops console", page: "Account detail" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
             return (
                 <Box height="760px">
                     <Studio.Builder pages={pages} components={components} project="Ops console" id="studio"
+                        page={open.read()} onOpen={go}
                         env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
                 </Box>
             );
@@ -434,7 +387,7 @@ export const studioBuilder = example({
 
 export const studioBuilderMobile = example({
     keywords: ["Studio", "Studio.Builder", "builder", "mobile", "phone", "pane strip", "drawer", "palette", "inspector", "second row", "history"],
-    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge",
+    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge; given no `page`, it holds its own open page, the project's first to begin with",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
@@ -456,8 +409,9 @@ const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$,
     cells: page.cells.map((_$2, cell) => ({
         key: cell.key, row: cell.row,
         span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
-        height: cell.height, align: cell.align, title: cell.title, component: cell.component,
+        height: cell.height, align: cell.align, title: cell.title, content: cell.content,
     })),
+    filters: page.filters,
 }));
 
 /** The pages the conflicts example edits, as the builder's start, in a record of their own so no other example's edits meet them. */
@@ -514,17 +468,433 @@ export const studioLibrary = example({
     keywords: [
         "Studio", "Studio.Library", "page library", "pages", "templates", "Blank grid", "new page", "project", "Library",
         "gallery", "wireframe", "search", "sort", "grid", "list", "Open in builder", "status", "Live", "Draft",
-        "Record.bind", "patch", "e3.record",
+        "Record.bind", "patch", "e3.record", "onOpen", "page", "State.bind", "navigate",
     ],
-    description: "The page library over the same record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\", which opens the page in the builder above; a new page takes a name and a template and is one patch commit",
+    description: "The page library over the same record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\", which tells the surface in `onOpen`: the surface writes the open page it holds, which the builder above shows and the pane marks; a new page takes a name and a template and is one patch commit",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
             const pages = $.let(Record.bind(studioPages));
+            // The open page is the surface's: the builder above shows it. A host with routes navigates here instead.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.open", { project: "Ops console", page: "Account detail" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
             return (
                 <Box height="764px">
-                    <Studio.Library pages={pages} components={components} project="Ops console" id="studio" />
+                    <Studio.Library pages={pages} components={components} project="Ops console" page={open.read()} onOpen={go} />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Content — a text block, and visuals over the sources the surface lists (#1669)
+// ============================================================================
+
+/** This week's revenue by region, as columns split by channel. */
+const revenueByRegion = Studio.visual.of("sales", Studio.visual.column({
+    x: Studio.visual.group("region"),
+    values: [Studio.visual.sum("revenue", { label: "Revenue" })],
+    split: "channel",
+    stack: "stacked",
+}));
+
+/** The regions by revenue, largest first, each with a bar. */
+const topRegions = Studio.visual.of("sales", Studio.visual.list({
+    item: Studio.visual.group("region", { sort: "high", top: 5n }),
+    values: [Studio.visual.sum("revenue")],
+    bar: true,
+}));
+
+/** This week's refunds by why the items came back, the largest first. */
+const refundsByReason = Studio.visual.of("returns", Studio.visual.bar({
+    x: Studio.visual.group("reason", { sort: "high" }),
+    values: [Studio.visual.sum("refunded")],
+}));
+
+/** How many items came back this week. */
+const itemsReturned = Studio.visual.of("returns", Studio.visual.kpi({
+    value: Studio.visual.sum("items", { label: "Items returned" }),
+}));
+
+/**
+ * The pages of a project whose placements hold content: a text block, two
+ * visuals over the sales, a developer's component, and two visuals over the
+ * returns — so a filter's editor asks which dataset it is on. Its one migration step
+ * carries a workspace whose pages were stored before a placement held content
+ * — each component key becomes `component(key)` — and a workspace deployed
+ * fresh counts it applied.
+ */
+export const studioContentPages = e3.record("studio_content_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "This week" }, variant("page", {
+            draft: {
+                title: "This week",
+                cells: [
+                    { key: "s-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none,
+                        content: Studio.visual.text("Figures are to last night's close.\n\nRevenue is in US dollars, before returns.", "About these numbers") },
+                    { key: "s-revenue", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: some("Revenue by region"), content: revenueByRegion },
+                    { key: "s-top", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: topRegions },
+                    { key: "s-kpi", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: Studio.visual.component("kpi_rail") },
+                    { key: "s-reasons", row: "r4", span: 8n, height: some(220n), align: variant("top", null), title: some("Refunds by reason"), content: refundsByReason },
+                    { key: "s-returned", row: "r4", span: 4n, height: none, align: variant("stretch", null), title: none, content: itemsReturned },
+                ],
+                filters: [],
+            },
+            live: none,
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+    // Pages stored before a placement held content are carried by this one step.
+    migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)],
+});
+
+export const studioContent = example({
+    keywords: [
+        "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table",
+        "text block", "text", "content", "Studio.Types.Content", "Studio.migrations", "cellContent", "migration.rows", "migrations",
+        "Data.bind", "Studio.Builder", "e3.record", "two sources", "datasets", "starting filters", "filter",
+    ],
+    description: "A page whose placements hold content: a text block, visuals over the two sources the surface lists — over the sales, revenue by region as stacked columns and the top regions as a list; over the returns, refunds by reason as bars and the items returned as a KPI — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — and a filter is on one of the sources the page's visuals read: here two, so a new starting filter's editor asks which, and the rail names each source once before its chips. The page's seeds are built with Studio.visual, and its pages record declares Studio.migrations.cellContent, the one step that carries pages stored before a placement held content",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail]);
+            const pages = $.let(Record.bind(studioContentPages));
+            const sales = $.let(Data.bind(studioSales));
+            const returns = $.let(Data.bind(studioReturns));
+            return (
+                <Box height="760px">
+                    <Studio.Builder pages={pages} components={components} project="Sales desk" id="studioContent"
+                        sources={{
+                            sales: Studio.source(sales, {
+                                name: "Sales", icon: "receipt", description: "One row per region per channel",
+                                fields: {
+                                    region: { label: "Region" },
+                                    channel: { label: "Channel" },
+                                    revenue: { label: "Revenue", format: { currency: { code: "USD" } } },
+                                },
+                            }),
+                            returns: Studio.source(returns, {
+                                name: "Returns", icon: "rotate-left", description: "One row per region, channel and reason",
+                                fields: {
+                                    region: { label: "Region" },
+                                    channel: { label: "Channel" },
+                                    reason: { label: "Reason" },
+                                    items: { label: "Items" },
+                                    refunded: { label: "Refunded", format: { currency: { code: "USD" } } },
+                                },
+                            }),
+                        }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Visuals — every form a visual draws, from its answer (#1671)
+// ============================================================================
+
+/** One order: when it was placed, its region, category and customer, its revenue and units, and its margin — none where none was recorded. */
+const OrderType = StructType({
+    ordered_at: DateTimeType, region: StringType, category: StringType, customer: StringType, revenue: FloatType, units: IntegerType, margin: OptionType(FloatType),
+});
+
+/** One part of an order, drawn from its number: the number through the part's own stride, modulo a prime — so no two parts move in step. */
+const drawPart = East.function([IntegerType, IntegerType], IntegerType, (_$, n, stride) => n.multiply(stride).add(stride.remainder(9_973n)).remainder(1_000_003n));
+
+/**
+ * A trade supplier's orders over two years, made from each order's number
+ * alone — the same rows every time, varied as real ones are:
+ *
+ * - placed on a working day from 1 October 2024 to 30 September 2026, spread
+ *   a couple of days either way, so no two weeks are alike;
+ * - for one of fourteen customers, each as often as it buys, each in its own
+ *   region — New South Wales sells the most, South Australia the least — and
+ *   of one of three categories: Tools the most, then Electrical, then Garden;
+ * - its units following its category's season — the garden's spring, the end
+ *   of the financial year in June, the trades' summer break — and its prices
+ *   rising about a tenth a year;
+ * - its margin its category's, give or take, with one order in about a
+ *   hundred recording none.
+ */
+const generateOrders = East.function([IntegerType], ArrayType(OrderType), ($, count) => {
+    const draw = $.const(drawPart);
+    // The Monday before the first working day, Tuesday 1 October 2024, and the working days from it to Wednesday 30 September 2026.
+    const monday = $.const(new Date("2024-09-30T00:00:00Z"), DateTimeType);
+    const workdays = $.const(522n);
+    // The customers, each in its region, and how often each buys: of forty orders, Harbour five, Northwind four, …
+    const customers = $.const(["Harbour", "Northwind", "Ironbark", "Bluewater", "Summit", "Redgum", "Kestrel", "Coastline", "Tallowood", "Saltbush", "Granite Peak", "Banksia", "Acme", "Mallee"]);
+    const regions = $.const(["NSW", "NSW", "NSW", "NSW", "VIC", "VIC", "VIC", "QLD", "QLD", "QLD", "WA", "WA", "SA", "SA"]);
+    const buyers = $.const([0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 2n, 2n, 3n, 4n, 4n, 4n, 4n, 5n, 5n, 5n, 6n, 6n, 6n, 7n, 7n, 7n, 7n, 8n, 8n, 9n, 9n, 10n, 10n, 10n, 10n, 11n, 11n, 12n, 12n, 12n, 13n]);
+    // The categories, how often each sells — of twenty orders, Tools nine, Electrical seven, Garden four — a unit's price and the margin of each.
+    const categories = $.const(["Tools", "Electrical", "Garden"]);
+    const sold = $.const([0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 1n, 1n, 1n, 2n, 2n, 2n, 2n]);
+    const prices = $.const([11.8, 10.9, 8.7]);
+    const margins = $.const([0.22, 0.16, 0.19]);
+    // Each category's season, January to December: the trades slow over summer and busy before the financial year ends in June; the garden's spring.
+    const seasons = $.const([
+        [0.8, 0.95, 1.05, 1.0, 1.05, 1.3, 0.95, 1.0, 1.05, 1.05, 1.1, 0.75],
+        [0.8, 0.95, 1.0, 1.0, 1.05, 1.25, 1.0, 1.0, 1.0, 1.05, 1.1, 0.8],
+        [0.9, 0.85, 0.95, 0.85, 0.7, 0.6, 0.6, 0.85, 1.35, 1.45, 1.4, 1.05],
+    ]);
+    return East.Array.generate(count, OrderType, ($2, i) => {
+        // Its working day: spread evenly over the two years, then a couple either way.
+        const spread = $2.let(i.multiply(workdays).divide(count).add(draw(i, 390_383n).remainder(5n)).subtract(1n));
+        const day = $2.let(spread.less(1n).ifElse(() => 1n, () => spread.greater(workdays).ifElse(() => workdays, () => spread)));
+        const at = $2.let(monday.addDays(day.divide(5n).multiply(7n).add(day.remainder(5n))));
+        const buyer = $2.let(buyers.get(draw(i, 479_909n).remainder(40n)));
+        const category = $2.let(sold.get(draw(i, 350_377n).remainder(20n)));
+        const season = $2.let(seasons.get(category).get(at.getMonth().subtract(1n)));
+        const units = $2.let(East.Float.roundHalf(draw(i, 611_953n).remainder(150n).add(8n).toFloat().multiply(season)));
+        // Prices about a tenth higher a year on, each order give or take eight in a hundred.
+        const growth = $2.let(day.toFloat().divide(261.0).multiply(0.1).add(1.0));
+        const noise = $2.let(draw(i, 104_729n).remainder(17n).toFloat().divide(100.0).add(0.92));
+        const revenue = $2.let(East.Float.roundHalf(units.toFloat().multiply(prices.get(category)).multiply(noise).multiply(growth).multiply(100.0)).toFloat().divide(100.0));
+        const margin = $2.let(East.Float.roundHalf(margins.get(category).add(draw(i, 746_773n).remainder(11n).subtract(5n).toFloat().divide(100.0)).multiply(100.0)).toFloat().divide(100.0));
+        return {
+            ordered_at: at,
+            region: regions.get(buyer),
+            category: categories.get(category),
+            customer: customers.get(buyer),
+            revenue,
+            units,
+            margin: draw(i, 821_641n).remainder(97n).equal(0n).ifElse(() => East.value(none, OptionType(FloatType)), () => some(margin)),
+        };
+    });
+});
+
+/** The supplier's orders, two years of them: each one's date, region, category, customer, revenue, units and margin. */
+export const studioOrders = e3.input("studio_orders", ArrayType(OrderType), variant("value", East.compile(generateOrders, [])(2_920n)));
+
+const vis = Studio.visual;
+
+/** The orders' fields, as every page over them lists them: each one's label, and how a number of it prints. */
+export const orderFields = {
+    ordered_at: { label: "Ordered" },
+    region: { label: "Region" },
+    category: { label: "Category" },
+    customer: { label: "Customer" },
+    revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
+    units: { label: "Units" },
+    margin: { label: "Margin", format: "percent" },
+} as const;
+
+/**
+ * The Visuals page's placements: the quarter's revenue against its goal and
+ * a year ago, and its orders against the quarter before, and a donut; the
+ * series charts, the combo and the scatter; the list; the summary and the
+ * pivot; and the records.
+ */
+const visualCells = [
+    { key: "v-revenue", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({
+        value: vis.sum("revenue", { goal: 400000 }), compare: vis.sum("revenue", { period: "year_ago" }), trend: "ordered_at",
+    })) },
+    { key: "v-orders", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({
+        value: vis.count(), compare: vis.count({ period: "previous" }), trend: "ordered_at",
+    })) },
+    { key: "v-share", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true })) },
+    { key: "v-months", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" })) },
+    { key: "v-customers", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] })) },
+    { key: "v-units", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] })) },
+    { key: "v-trend", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 130000 })] })) },
+    { key: "v-scatter", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" })) },
+    { key: "v-combo", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.combo({
+        x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))],
+    })) },
+    { key: "v-list", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true })) },
+    { key: "v-summary", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
+        rows: [vis.group("region", { sort: "high" }), vis.group("category")],
+        values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 13.5 })], total: true,
+    })) },
+    { key: "v-pivot", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pivot({
+        rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
+    })) },
+    { key: "v-records", row: "r6", span: 12n, height: some(320n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true })) },
+];
+
+/**
+ * Where every reader of the Visuals page starts: the latest quarter, July to
+ * September 2026 — the page's window on the orders' dates, which a value over
+ * another period moves.
+ */
+const latestQuarter = parseJq(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`).program;
+if (latestQuarter.type === "none") throw new Error("The latest quarter's condition does not parse");
+const visualFilters = [{ key: "f-quarter", source: "orders", where: latestQuarter.value }];
+
+/** The pages of the visuals' project: one page, Visuals, live as it was drafted, its readers starting in the latest quarter. */
+export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Visuals" }, variant("page", {
+            draft: { title: "Visuals", cells: visualCells, filters: visualFilters },
+            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells, filters: visualFilters } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioVisuals = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "KPI", "goal", "trend", "chart", "column", "bar", "line", "area", "combo", "scatter",
+        "pie", "donut", "list", "ranking bar", "table", "records", "summary", "total", "pivot", "heat", "Studio.source", "Data.bind",
+    ],
+    description: "Every form a visual draws, on a published page over two years of orders, every reader starting in the latest quarter — the page's starting filter on the orders' dates, its window: the quarter's revenue as a KPI with its goal, its change on a year ago (`period: \"year_ago\"`) and its trend, and its orders' count against the quarter before (`period: \"previous\"`); a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; and the latest orders, a page at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioVisualPages));
+            const orders = $.let(Data.bind(studioOrders));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={{ project: "Sales desk", page: "Visuals" }}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: orderFields,
+                            range: "ordered_at",
+                        }),
+                    }} />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The Chart options page's placements: a pie whose legend names its slices alone, a donut with no legend, stacked columns with their legend hidden, and a summary whose average order and margin are each printed as its field's format says and in a format of its own. */
+const chartOptionCells = [
+    { key: "c-names", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), legend: "names" })) },
+    { key: "c-alone", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("region"), value: vis.sum("revenue"), donut: true, legend: "hidden" })) },
+    { key: "c-columns", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked", legend: "hidden" })) },
+    { key: "c-formats", row: "r2", span: 12n, height: some(260n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
+        rows: [vis.group("region", { sort: "high" })],
+        values: [
+            vis.mean("revenue", { label: "Average order" }), vis.mean("revenue", { label: "Average order, as a number", format: "number" }),
+            vis.mean("margin"), vis.mean("margin", { label: "Margin, as a number", format: "number" }),
+        ],
+    })) },
+];
+
+/** The pages of the chart options' project: one page, Chart options, live as it was drafted. */
+export const studioChartOptionPages = e3.record("studio_chart_option_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Chart options" }, variant("page", {
+            draft: { title: "Chart options", cells: chartOptionCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Chart options", cells: chartOptionCells, filters: [] } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioChartOptions = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "chart", "options", "legend", "hidden", "names", "values", "no legend", "pie", "donut", "column",
+        "format", "value format", "number", "percent", "currency", "summary", "Studio.source", "Data.bind",
+    ],
+    description: "The options a chart and a value take, on a published page over two years of orders: a pie whose legend names its slices alone (`legend: \"names\"`), a donut with no legend (`\"hidden\"`) — a pie's legend shows each slice's value and share unless it says otherwise — stacked columns with their legend hidden (a chart draws its legend where it names more than one series, `\"auto\"`, or never, `\"hidden\"`), and a summary whose average order and margin are each printed as its field's format says — a currency, a percentage — beside the same value as a plain number (`format: \"number\"`) — a value's `format` (`\"number\"`, `\"percent\"`, `{ currency: { code: \"AUD\" } }`) takes the place of its field's wherever its numbers are printed",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioChartOptionPages));
+            const orders = $.let(Data.bind(studioOrders));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={{ project: "Sales desk", page: "Chart options" }}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: orderFields,
+                        }),
+                    }} />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Clicks — a visual's click selects, filters or opens; a visual follows another (#1673)
+// ============================================================================
+
+/** The customers list a click selects in: what the Customers page's other visuals follow. */
+const followCustomers = { leader: "k-customers", from: "customer", to: "customer" } as const;
+
+/**
+ * The Customers page's placements: a list of customers, whose click selects;
+ * revenue by month, which follows it and shows every customer until one is
+ * picked; the mean margin, which follows it and asks for a pick; a donut of
+ * revenue by category, whose click filters the page; and the regions' bars,
+ * whose click opens the Region orders page.
+ */
+const customerCells = [
+    { key: "k-customers", row: "r1", span: 4n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), values: [vis.sum("revenue"), vis.count()], bar: true })) },
+    { key: "k-months", row: "r1", span: 8n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")] }), {
+        follow: { ...followCustomers, empty: variant("all", null) },
+    }) },
+    { key: "k-margin", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.mean("margin") }), {
+        follow: { ...followCustomers, empty: variant("prompt", null) },
+    }) },
+    { key: "k-category", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true }), {
+        click: variant("filter", null),
+    }) },
+    { key: "k-regions", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.bar({ x: vis.group("region", { sort: "high" }), values: [vis.sum("revenue")] }), {
+        click: variant("open", { project: "Sales desk", page: "Region orders" }),
+    }) },
+];
+
+/** The Region orders page's placements: the orders' revenue and count, and the orders themselves — narrowed to the region whose bar opened it. */
+const regionCells = [
+    { key: "g-revenue", row: "r1", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("revenue") })) },
+    { key: "g-orders", row: "r1", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.count() })) },
+    { key: "g-records", row: "r2", span: 12n, height: some(320n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "category", "revenue"], sort: "ordered_at", descending: true })) },
+];
+
+/** The pages of the clicks' project: Customers, and Region orders, each live as it was drafted. */
+export const studioClickPages = e3.record("studio_click_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Customers" }, variant("page", {
+            draft: { title: "Customers", cells: customerCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Customers", cells: customerCells, filters: [] } }),
+        })],
+        [{ project: "Sales desk", page: "Region orders" }, variant("page", {
+            draft: { title: "Region orders", cells: regionCells, filters: [] },
+            live: some({ version: 1n, page: { title: "Region orders", cells: regionCells, filters: [] } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioClicks = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "click", "select", "selection", "filter", "open", "onOpen", "follow", "follower", "leader",
+        "linked visuals", "master detail", "drill through", "page filters", "filter chip", "State.bind", "navigate", "Studio.source", "Data.bind",
+    ],
+    description: "What a click on a visual does, on a published page over two years of orders: a list of customers whose click selects (a list's and a table's click, unless it says otherwise) — ⌘-click adds, Esc or a click on the selection again clears; revenue by month follows it (`follow: { leader, from, to, empty: \"all\" }`), showing every customer until one is picked, its eyebrow then saying whom; the mean margin follows it too and asks for a pick first (`empty: \"prompt\"`); a donut whose click filters the page (`click: \"filter\"`, a chart's and a KPI's unless it says otherwise) — the slice joins the page's filters as a chip over the grid, which every visual of the source reads; and the regions' bars, whose click opens the Region orders page (`click: { open: key }`) narrowed to that region: the page's `onOpen` is told its key, and the surface, which holds the open page in a State, shows it — its filter chip the reader's to clear",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioClickPages));
+            const orders = $.let(Data.bind(studioOrders));
+            // The open page is the surface's: a click that opens a page writes it. A host with routes navigates here instead.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.clicks.open", { project: "Sales desk", page: "Customers" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={open.read()} onOpen={go}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: orderFields,
+                            range: "ordered_at",
+                        }),
+                    }} />
             );
         }}</Reactive>
     )),

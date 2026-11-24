@@ -14,10 +14,12 @@
  * - **J2**: completions — the bound sources at the root, a variant's `type`
  *   and `value`, case names inside a string, builtins inserting `name(`, a
  *   closing quote not doubled; keys; and the data's values from a summary the
- *   builder holds — a value slot's, read by its call to e3 — never fetched.
+ *   builder holds — a value slot's, read by its call to e3 — never fetched;
+ *   for rows narrowed by "is in the last", only in the minute it was read.
  * - **J3**: the problems panel — codes, positions and sentences, a note on a
  *   part that stays a jq step, going to a range, and each text-edit fix making
- *   a program that checks clean, one gesture of its own.
+ *   a program that checks clean, one gesture of its own; a `$now` read with no
+ *   bind, bound by its fix (#1674).
  * - **J4**: the jq left is one transaction; ⌘⏎ runs it; Tab inserts two
  *   spaces; the completions close as the caret moves and on blur.
  * - **Another query opened while it shows one** (#1132): the opened query's
@@ -25,10 +27,11 @@
  *   the visual view of one that is — run as it opens, and no draft left on it.
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { ArrayType, IntegerType, StringType, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
 import type { ExecuteResult } from "@elaraai/e3-types";
+import { utcAt } from "../plan/plan.test-utils.js";
 import { FIXTURE_VALUE, FixtureType, savedQuery } from "./fixture.test-utils.js";
 import { act, enabled, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 
@@ -146,15 +149,18 @@ describe("the jq view (#937) — J1 highlighting", () => {
 // ─── J2 ──────────────────────────────────────────────────────────────────────
 
 describe("the jq view (#937) — J2 completions", () => {
-    test("`.` at the root lists the bound sources in plain words; a variant offers type and value; a string the case names", async () => {
+    test("`.` at the root lists the bound sources in plain words, and now, the minute the query runs; a variant offers type and value; a string the case names", async () => {
         await mount();
         await openJq(BIG.name);
         await type(".");
         expect(offered()).toEqual([
             ["ds", "customers", "Dict<String, Struct{name: String, region: String, tier: Variant{gold, standard}}>"],
+            ["ds", "now", "DateTime"],
             ["ds", "orders", "Array<Struct{customer_id: String, discount: Option<Float>, id: Integer, lines: Array<Struct{price: Float, qty: Integer, sku: String}>, status: Variant{cancelled, pending, shipped}, total: Float}>"],
         ]);
         expect(doc()).toBe("lookup table");
+        await key("ArrowDown");
+        expect(doc()).toBe("date");
         await key("ArrowDown");
         expect(doc()).toBe("list of orders");
         await type(".orders[0].status.");
@@ -206,9 +212,9 @@ describe("the jq view (#937) — J2 completions", () => {
     });
 });
 
-/** Opens a slot of the visual view's first card by the words it shows, as a click does. */
-async function openSlot(text: string) {
-    const card = document.querySelector<HTMLElement>("[data-step-id]")!;
+/** Opens a slot of one of the visual view's cards — the first by default — by the words it shows, as a click does. */
+async function openSlot(text: string, cardIndex = 0) {
+    const card = document.querySelectorAll<HTMLElement>("[data-step-id]")[cardIndex]!;
     const slot = [...card.querySelectorAll<HTMLElement>("[aria-haspopup=listbox]")].find((el) => el.querySelector("span")!.textContent === text);
     if (slot === undefined) throw new Error(`no slot “${text}”`);
     await act(async () => { fireEvent.click(slot); });
@@ -248,6 +254,46 @@ describe("the jq view (#937) — J2 the data's values", () => {
         expect(summaryCalls()).toHaveLength(1);
         await key("Enter");
         expect(area().value).toBe(".orders\n| map(select(.customer_id == \"C01\"");
+    });
+
+    test("rows narrowed by is in the last are the minute's: their values are offered in the minute the slot read them, and not after it (#1670)", async () => {
+        // The clock alone faked: the harness waits on real time.
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            // Two days after the fixture's last shipment: the last 30 days hold some.
+            vi.setSystemTime(utcAt("2026-06-28T09:00:00.000"));
+            const recent = ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"day\"))))";
+            const RECENT = savedQuery("Recent shipments by customer", `${recent}\n| map(select(.customer_id == \"C01\"))`);
+            await h.seed([TOP, BIG, RECENT]);
+            await h.mountBuilder();
+            await openQuery(variant("saved", RECENT.name));
+            // The second card's value slot reads the summary of the rows the first leaves: the minute's.
+            await openSlot("C01", 1);
+            expect(summaryCalls()).toHaveLength(1);
+            await act(async () => { fireEvent.keyDown(within(document.querySelector<HTMLElement>("[data-query-autocomplete]")!).getByRole("combobox"), { key: "Escape" }); });
+            await settle();
+            await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "jq" })); });
+            await settle();
+            const asking = `${recent}\n| map(select(.customer_id == \"C0`;
+            const ask = async () => {
+                await type(asking);
+                area().setSelectionRange(asking.length, asking.length);
+                await key(" ", { code: "Space", ctrlKey: true });
+            };
+            // Later in the same minute: the values the slot read.
+            vi.setSystemTime(utcAt("2026-06-28T09:00:30.000"));
+            await ask();
+            expect(offered().length).toBeGreaterThan(0);
+            expect(offered().every(([glyph]) => glyph === "\"v")).toBe(true);
+            await key("Escape");
+            // The next minute: those rows are not this minute's, so none are offered, and the jq view fetches none.
+            vi.setSystemTime(utcAt("2026-06-28T09:01:05.000"));
+            await ask();
+            expect([completions(), summaryCalls()]).toEqual([null, expect.any(Array)]);
+            expect(summaryCalls()).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -295,6 +341,33 @@ describe("the jq view (#937) — J3 the problems panel", () => {
         expect(area().value).toBe(".orders\n| sort_by(-.total)\n| map(.total)");
         await press("Undo");
         expect(area().value).toBe(".orders\n| sort_by(-.total)\n| map(.totl)");
+        await press("Undo");
+        expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
+    });
+
+    test("a $now read with no bind is one fix from the minute the query is asked: the bind written first, the jq clean, and a jq step in the visual view (#1674)", async () => {
+        await mount();
+        await openJq(BIG.name);
+        // The last half hour's shipments: a count in minutes, which no "is in the last" says.
+        const typed = ".orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"minute\"))))";
+        await type(typed);
+        expect([checkWord(), problemRows()]).toEqual(["1 problem", [
+            ["unknown function", "L2:73", "unknown_function: $now is not bound here."],
+            ["note", "L2:3", "custom: not a visual step; it stays as jq in the visual editor."],
+        ]]);
+        expect(within(rowOf("unknown_function")).getAllByRole("button").map((b) => b.textContent).slice(1)).toEqual(["Bind $now, the minute the query is asked"]);
+        await press("Bind $now, the minute the query is asked", rowOf("unknown_function"));
+        const bound = `.now as $now\n| ${typed}`;
+        expect([area().value, checkWord(), area().selectionStart]).toEqual([bound, "Checks clean", ".now as $now\n| ".length]);
+        // The visual view keeps it: a jq step, the minute bound for it as the steps bind one — the jq it prints is the jq fixed.
+        await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "Visual" })); });
+        await settle();
+        expect([viewShown(), [...document.querySelectorAll<HTMLElement>("[data-step-id]")].map((card) => card.getAttribute("data-step-kind"))]).toEqual(["visual", ["jq"]]);
+        await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "jq" })); });
+        await settle();
+        expect([area().value, checkWord()]).toEqual([bound, "Checks clean"]);
+        // One gesture: the jq typed, left as the fix is taken, is already a jq step the steps bind the minute for, and the
+        // fix only writes that bind into the text — so Undo returns the query as it was opened.
         await press("Undo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
     });

@@ -10,17 +10,21 @@
  * place.
  *
  * The builder is an interface — the pages record bound with its patch, the
- * listed components, the project, and the preview's words — which the
- * `StudioBuilder` renderer draws. Its parts are the renderer's: the palette
- * (#994), the canvas (#995), the inspector (#996) and the publish preview
- * (#998), each computed in East by this package and drawn in the browser.
- * `<Studio.Library>` opens pages in it, shared by `id`.
+ * listed components, the project, the page it shows, and the preview's words
+ * — which the `StudioBuilder` renderer draws. Its parts are the renderer's:
+ * the palette (#994), the canvas (#995), the inspector (#996) and the publish
+ * preview (#998), each computed in East by this package and drawn in the
+ * browser. Its host says which page it shows (`page`) and is told when its
+ * palette asks for another (`onOpen`): nothing opens a page in it through a
+ * store entry shared by `id` (#1668).
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType,
+    FunctionType,
+    NullType,
     OptionType,
     StringType,
     StructType,
@@ -36,8 +40,10 @@ import {
     type OptionsProps,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
+import { StudioAlertsHandleType, alertsPayload, type StudioAlertsHandle } from "./alerts.js";
 import { StudioComponentType } from "./component.js";
-import { StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
+import { StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
+import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
 
 // ============================================================================
 // The renderer's payload
@@ -48,20 +54,28 @@ import { StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
  *
  * @property pages - The pages record, bound with its patch — what the builder reads, and saves and publishes through
  * @property components - The components the surface lists, in palette order
+ * @property sources - The sources its visuals may read, in the order listed; none when the surface lists none
  * @property project - The project whose pages the builder opens
  * @property env - Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"
  * @property audience - Who sees a published page — the preview's Audience row
  * @property rollout - When they see it — the preview's Rollout row
- * @property id - Names the builder, when a surface holds two — and the page library that opens its pages
+ * @property id - Names the builder, when a surface holds two: its palette's drag sources
+ * @property page - The page it shows; `none`, the builder holds its own open page, the project's first to begin with
+ * @property onOpen - Told when its palette's Pages tab asks for another page, with its key
+ * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells, and the inspector's Alerts; `none`, neither is shown
  */
 export const StudioBuilderPayloadType = StructType({
     pages: StudioPagesHandleType,
     components: ArrayType(StudioComponentType),
+    sources: ArrayType(StudioSourceType),
     project: StringType,
     env: OptionType(StringType),
     audience: OptionType(StringType),
     rollout: OptionType(StringType),
     id: OptionType(StringType),
+    page: OptionType(StudioKeyType),
+    onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
+    alerts: OptionType(StudioAlertsHandleType),
 });
 
 /** Type representing the `StudioBuilder` renderer's payload. */
@@ -82,17 +96,27 @@ export const StudioBuilderComponent = EastUI.component("StudioBuilder", StudioBu
  *
  * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists, in palette order
+ * @property sources - The sources its visuals may read, by the names their queries read them by
  * @property project - The project whose pages the builder opens
  * @property env - Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"
  * @property audience - Who sees a published page — the preview's Audience row
  * @property rollout - When they see it — the preview's Rollout row
- * @property id - Names the builder, when a surface holds two — and the page library that opens its pages
+ * @property id - Names the builder, when a surface holds two: its palette's drag sources
+ * @property page - The page it shows — a route's params, or the surface's own state
+ * @property onOpen - Told when its palette's Pages tab asks for another page, with its key
+ * @property alerts - The alerts record, bound with its patch mutation — `Record.bind(alerts)` (#1674)
  */
 export interface StudioBuilderOptions {
     /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
     pages: StudioPagesHandle;
     /** The components the surface lists, in palette order. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
+    /**
+     * The sources its visuals may read: each name, as a visual's query reads
+     * it (`orders` for `.orders`), to its `Studio.source(handle, meta)`.
+     * Omitted, the surface lists none, and a visual on a page says so.
+     */
+    sources?: Readonly<Record<string, StudioSourceDeclaration>>;
     /** The project whose pages the builder opens. */
     project: SubtypeExprOrValue<StringType>;
     /** Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"; omitted, neither names one. */
@@ -101,8 +125,33 @@ export interface StudioBuilderOptions {
     audience?: SubtypeExprOrValue<StringType>;
     /** When they see it — the preview's Rollout row; omitted, no row. */
     rollout?: SubtypeExprOrValue<StringType>;
-    /** Names the builder — needed only when one surface holds two builders, and then given to the page library that opens its pages. */
+    /** Names the builder — needed only when one surface holds two builders, whose palettes' drag sources it tells apart. */
     id?: string;
+    /**
+     * The page it shows: a route's params, or the surface's own state. Given,
+     * the builder shows this page until its host changes it, so `onOpen` is
+     * given with it. Omitted, the builder holds its own open page — the
+     * project's first to begin with — and its palette's Pages tab opens
+     * another in it.
+     */
+    page?: SubtypeExprOrValue<StudioKeyType>;
+    /**
+     * Told when its palette's Pages tab asks for another page, with its key.
+     * A host that gives `page` changes it here — to navigate, or to write its
+     * own state; one that gives none hears of the page the builder opened.
+     */
+    onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /**
+     * The alerts record, bound with its patch mutation — `Record.bind(alerts)`
+     * (#1674). Given, every data visual's header carries a bell, which sets
+     * and lists its alerts — a condition on the rows its page's live version
+     * draws — and the selected visual's Configure tab in the inspector ends
+     * with the same alerts, set there in place. An alert is the record's, no
+     * part of the page's draft: it is saved as it is written, and the page's
+     * Undo, Discard and Publish leave it as it is. Omitted, no visual shows a
+     * bell and the inspector lists no alerts.
+     */
+    alerts?: StudioAlertsHandle;
 }
 
 /**
@@ -118,45 +167,61 @@ export interface StudioBuilderOptions {
  *   components by category, each naming what it reads, dragged onto the grid;
  *   and the project's pages, a click opening one.
  * - **The inspector**, after it, is the selected placement: its component,
- *   what it reads, its description, and its span, row, height and alignment.
+ *   what it reads, its description, and its span, row, height and alignment;
+ *   a visual's source, wells, filter, options and click — and, where `alerts`
+ *   is given, its alerts.
  * - **Preview** and **Publish** open the publish preview in the canvas's
  *   place, full-bleed — the open page as it will publish, what changed since
  *   its live version, and Save as draft and Publish; **Exit** returns to the
  *   canvas, its drafts as they were.
  *
  * The builder fills its parent's height and draws no border around itself.
- * The page open in it is shared by `id` with a `<Studio.Library>`, which
- * opens pages in it.
+ * Its host says which page it shows and is told when its palette asks for
+ * another, so a `<Studio.Library>` opens a page in it through the host: the
+ * library's `onOpen` and the builder's `page` are the host's to join, on one
+ * surface or across routes.
  *
- * @param options - The bound record, the listed components, the project and the preview's words ({@link StudioBuilderOptions})
+ * @param options - The bound record, the listed components, the project, the page it shows and the preview's words ({@link StudioBuilderOptions})
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When `page` is given without `onOpen`: its palette's Pages tab could open nothing; and when a source's key, rows or fields do not fit ({@link studioSources})
  *
  * @example
  * ```tsx
- * import { East } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { East, NullType } from "@elaraai/east";
+ * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
  * import { Record, Studio, ui } from "@elaraai/e3-ui";
  *
  * // The builder, for operators: it reads the pages and writes their patch.
+ * // The surface holds the open page, which a page library beside it shares.
  * export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
  *         const pages      = $.let(Record.bind(d.pages));
+ *         const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+ *         const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
  *         return <Studio.Builder pages={pages} components={components} project="Ops console"
+ *             page={open.read()} onOpen={go}
  *             env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
  *     }}</Reactive>
  * )));
  * ```
  */
 function createBuilder(options: StudioBuilderOptions): ExprType<UIComponentType> {
+    if (options.page !== undefined && options.onOpen === undefined) {
+        throw new Error("Studio.Builder: `page` is given, so its host holds the open page — give `onOpen` too, which is told the page its palette's Pages tab asks for; or omit `page`, and the builder holds its own");
+    }
     return StudioBuilderComponent.Root({
         pages: { read: options.pages.read, history: options.pages.history, commit: { patch: options.pages.commit.patch } },
         components: options.components,
+        sources: studioSources("Studio.Builder", options.sources),
         project: options.project,
         env: options.env === undefined ? none : some(options.env),
         audience: options.audience === undefined ? none : some(options.audience),
         rollout: options.rollout === undefined ? none : some(options.rollout),
         id: options.id === undefined ? none : some(options.id),
+        page: options.page === undefined ? none : some(options.page),
+        onOpen: options.onOpen === undefined ? none : some(options.onOpen),
+        alerts: options.alerts === undefined ? none : some(alertsPayload(options.alerts)),
     });
 }
 

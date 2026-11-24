@@ -18,9 +18,13 @@
 
 import {
     ArrayType,
+    FunctionType,
     NullType,
+    OptionType,
     StructType,
     VariantType,
+    none,
+    some,
     variant,
     type ExprType,
     type SubtypeExprOrValue,
@@ -32,8 +36,10 @@ import {
     type OptionsProps,
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
+import { StudioAlertsHandleType, alertsPayload, type StudioAlertsHandle } from "./alerts.js";
 import { StudioComponentType } from "./component.js";
 import { StudioKeyType, StudioPagesType } from "./pages.js";
+import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
 
 // ============================================================================
 // Types
@@ -61,14 +67,20 @@ export type StudioVersionLiteral = "live" | "draft";
  *
  * @property pages - The pages record's value
  * @property components - The components the surface lists
+ * @property sources - The sources its visuals read, in the order listed; none when the surface lists none
  * @property page - The page's key
  * @property version - Which of its layouts to draw
+ * @property onOpen - Told the key of the page a click on one of its visuals opens; `none`, such a click opens nothing
+ * @property alerts - The alerts record, bound with its patch (#1674): its visuals' bells, and what the page checks; `none`, no visual shows a bell
  */
 export const StudioPagePayloadType = StructType({
     pages: StudioPagesType,
     components: ArrayType(StudioComponentType),
+    sources: ArrayType(StudioSourceType),
     page: StudioKeyType,
     version: StudioVersionType,
+    onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
+    alerts: OptionType(StudioAlertsHandleType),
 });
 
 /** Type representing the `StudioPage` renderer's payload. */
@@ -89,18 +101,39 @@ export const StudioPageComponent = EastUI.component("StudioPage", StudioPagePayl
  *
  * @property pages - The pages record's value — `Data.bind(pages).read()`
  * @property components - The components the surface lists
+ * @property sources - The sources its visuals read, by the names their queries read them by
  * @property page - The page's key
  * @property version - `"live"` (the default) or `"draft"`
+ * @property onOpen - Told the key of the page a click on one of its visuals opens
+ * @property alerts - The alerts record, bound with its patch mutation — `Record.bind(alerts)` (#1674)
  */
 export interface StudioPageOptions {
     /** The pages record's value — `Data.bind(pages).read()`, or a bound record's `read()`. */
     pages: SubtypeExprOrValue<StudioPagesType>;
     /** The components the surface lists, in palette order. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
+    /** The sources its visuals read: each name to its `Studio.source(handle, meta)`, as its builder is given them. Omitted, the surface lists none, and a visual on the page says so. */
+    sources?: Readonly<Record<string, StudioSourceDeclaration>>;
     /** The page's key. */
     page: SubtypeExprOrValue<StudioKeyType>;
     /** Which layout: the published one (`"live"`, the default), or the draft. */
     version?: StudioVersionLiteral | SubtypeExprOrValue<StudioVersionType>;
+    /**
+     * Told the key of the page a click on one of its visuals opens — a visual
+     * whose click is `open`. The clicked group is already among the target
+     * page's filters when it is told — its reader's, or its starting filters
+     * where its reader holds none of it — so the host only shows the page: it
+     * navigates, or writes the state its `page` reads. Omitted, such a click
+     * opens nothing.
+     */
+    onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /**
+     * The alerts record, bound with its patch mutation — `Record.bind(alerts)`
+     * (#1674). Given, every data visual's header carries a bell, which sets
+     * and lists its alerts, and the page checks its project's alerts on e3.
+     * Omitted, no visual shows a bell.
+     */
+    alerts?: StudioAlertsHandle;
 }
 
 /**
@@ -112,14 +145,34 @@ export interface StudioPageOptions {
  * (`frame: "none"`) is bare, and a tile's label is its title or its
  * component's name. Two placements of one component share its State and Slice
  * keys. A placement whose component the surface does not list is a
- * placeholder naming its key. A page the record does not hold, or a live
+ * placeholder naming its key. A text block draws with no frame: its heading
+ * over its paragraphs. A visual draws in a tile naming its view and its
+ * source. A page the record does not hold, or a live
  * version not yet published, is a placeholder that says so. Under a narrow
  * container the tiles stack in row order. The page draws no border around
  * itself.
  *
+ * Over its grid the page draws its reader's filters, when its visuals read a
+ * source: each a chip, which narrows every visual of its source. A reader
+ * starts with the page's starting filters — its layout's `filters` (#1673) —
+ * as chips of their own to change or clear; filters they cleared stay
+ * cleared. A click on a visual does what the visual says: it selects the
+ * clicked group, which a visual that follows it narrows to; it adds the group
+ * to the page's filters; or it opens another page narrowed to the group,
+ * telling `onOpen` that page's key.
+ *
+ * Given `alerts` (#1674), each data visual's header carries a bell — marked
+ * while one of its alerts fires — whose popover sets an alert: a condition on
+ * the visual's rows, with the rows over the line now, pause and delete. A text
+ * block has none. The page checks its project's alerts that are not paused —
+ * as it opens, and when a dataset a visual reads changes — each one call on
+ * e3 made as a tile's is, and writes each alert's latest firing. Opened from
+ * `<Studio.AlertBell>`, it draws a banner naming the alert and when it fired.
+ *
  * @param options - The record's value, the listed components, the page and
  *   its version ({@link StudioPageOptions})
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When a source's key, rows or fields do not fit ({@link studioSources})
  *
  * @example
  * ```tsx
@@ -143,8 +196,11 @@ function createPage(options: StudioPageOptions): ExprType<UIComponentType> {
     return StudioPageComponent.Root({
         pages: options.pages,
         components: options.components,
+        sources: studioSources("Studio.Page", options.sources),
         page: options.page,
         version: typeof version === "string" ? variant(version, null) : version,
+        onOpen: options.onOpen === undefined ? none : some(options.onOpen),
+        alerts: options.alerts === undefined ? none : some(alertsPayload(options.alerts)),
     });
 }
 

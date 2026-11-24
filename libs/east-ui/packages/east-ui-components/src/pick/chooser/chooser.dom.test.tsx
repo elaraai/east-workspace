@@ -7,11 +7,19 @@
  * The Chooser (#1322): A48's sections, search, keys and hover, as the
  * Allocation's resource cell lays them out — Current, `Gaps that fit` best
  * first with their reasons, then `Doesn't fit` — and the choice it hands back,
- * which the host runs (A49).
+ * which the host runs (A49). And as the one picker of the query builder's slots
+ * and a filter's condition rows (#1673): options its host filters, the
+ * highlight held by key across the lists it gives, its label, an option's icon
+ * and words, Tab, ⌘ Enter left to its host, and its bare form — and its search
+ * holding the focus by the end of the commit that draws it, so a key pressed as
+ * its host draws it afresh is never lost. An option's label and line, each one
+ * line that a narrow host cuts, say their whole on hover.
  */
 
+import { useLayoutEffect, useState } from "react";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { faFilter } from "@fortawesome/free-solid-svg-icons";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../../theme/index.js";
 import { Chooser, type ChooserSection } from "./index.js";
@@ -57,6 +65,15 @@ describe("the Chooser", () => {
         expect(refused.textContent).toContain("busy until Fri 14");
         expect(screen.getAllByRole("option", { name: /K-10|K-60/ }).map((o) => o.textContent?.slice(0, 5))).toEqual(["K-108", "K-103", "K-601"]);
         expect(document.querySelector("[data-chooser]")!.textContent).toContain("move · Enter chooses · Esc closes");
+    });
+
+    test("an option's label and its line each say their whole on hover, as a narrow host — an inspector's pane — ends either in an ellipsis; its name is its words still", () => {
+        mount(RESOURCE_CELL);
+        const option = screen.getByRole("option", { name: /K-103/ });
+        expect(option.querySelector("[data-option-label]")!.getAttribute("title")).toBe("K-103");
+        expect(option.querySelector("[data-option-line]")!.getAttribute("title")).toBe("0 d spare to Tue 18 · leaves 32 m³ · takes 16–32");
+        // The range is never cut, and says nothing twice.
+        expect(option.querySelector("[data-option-range]")!.hasAttribute("title")).toBe(false);
     });
 
     test("A48 — ↑↓ move through the options a choice can take, cycling and skipping what doesn't fit; Enter chooses the highlighted one", () => {
@@ -135,5 +152,115 @@ describe("the Chooser", () => {
         // In a popover the popover takes Esc: the Chooser claims nothing.
         mount(RESOURCE_CELL);
         expect(document.querySelector("[data-chooser]")!.hasAttribute("data-escape-layer")).toBe(false);
+    });
+
+    describe("as the one picker of a host that filters its options (#1673)", () => {
+        /** A field slot's offers for the text typed: the host's own filter, the value typed offered first. */
+        const offers = (text: string): ChooserSection[] => {
+            const fields = ["region", "customer", "units"].filter((f) => f.includes(text.trim().toLowerCase()));
+            return [
+                ...(text.trim() === "" ? [] : [{ label: "Typed", options: [{ key: `typed:${text}`, label: `Use "${text}"`, state: "enabled" as const, words: true }] }]),
+                { label: "Fields", options: fields.map((f) => ({ key: f, label: f, line: "text", range: "5 values", state: "enabled" as const, words: true })) },
+            ];
+        };
+        /** A host: the text and the list its own, the Chooser told to show them. */
+        function Host({ onChoose, initialKey }: { onChoose: (key: string) => void; initialKey?: string | undefined }) {
+            const [text, setText] = useState("");
+            return <Chooser sections={offers(text)} placeholder="Type to filter" label="Field" onChoose={onChoose} query={text} onQuery={setText}
+                initialKey={initialKey} tabChooses empty="Type a value, then press ⏎." hint="Fields from the checked type" />;
+        }
+        const host = (initialKey?: string) => {
+            const onChoose = vi.fn();
+            render(<ChakraProvider value={system}><Host onChoose={onChoose} initialKey={initialKey} /></ChakraProvider>);
+            return { onChoose, input: screen.getByRole("combobox", { name: "Field" }) };
+        };
+        const lit = () => document.querySelector("[data-highlighted]")?.textContent;
+
+        test("the host filters: the Chooser shows the options as given, puts the highlight on the first as text is typed, and holds it by key while the list given again has it", () => {
+            const { input } = host();
+            expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["regiontext5 values", "customertext5 values", "unitstext5 values"]);
+            fireEvent.keyDown(input, { key: "ArrowDown" });
+            expect(lit()).toBe("customertext5 values");
+            // Typed: the host's list for "u" — the value typed first — and the highlight back on the first.
+            fireEvent.change(input, { target: { value: "u" } });
+            expect(screen.getAllByRole("option").map((o) => o.textContent?.split("text")[0])).toEqual(['Use "u"', "customer", "units"]);
+            expect(lit()).toBe('Use "u"');
+            // Moved to `units`, then given the list again for the same text: the highlight stays on `units`.
+            fireEvent.keyDown(input, { key: "ArrowUp" });
+            expect(lit()).toBe("unitstext5 values");
+            fireEvent.change(input, { target: { value: "un" } });
+            fireEvent.keyDown(input, { key: "ArrowDown" });
+            expect(lit()).toBe("unitstext5 values");
+        });
+
+        test("Tab chooses where the host asks, and ⌘ or Ctrl Enter is the host's, never a choice", () => {
+            const { input, onChoose } = host();
+            fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+            fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+            expect(onChoose).not.toHaveBeenCalled();
+            fireEvent.keyDown(input, { key: "Tab" });
+            expect(onChoose).toHaveBeenCalledWith("region");
+        });
+
+        test("it opens on the option its host names, and says its label, its hint and its empty words", () => {
+            host("units");
+            expect(lit()).toBe("unitstext5 values");
+            const root = document.querySelector("[data-chooser]")!;
+            expect(root.querySelector("[data-chooser-label]")!.textContent).toBe("Field");
+            expect(root.querySelector("[data-chooser-hint]")!.textContent).toBe("Fields from the checked type");
+            cleanup();
+            // A host with nothing to offer: its own words, in place of `no match`.
+            render(<ChakraProvider value={system}>
+                <Chooser sections={[]} placeholder="Type or pick a value" onChoose={vi.fn()} query="" onQuery={vi.fn()} empty="Type a value, then press ⏎." />
+            </ChakraProvider>);
+            expect(document.querySelector("[data-chooser]")!.textContent).toContain("Type a value, then press ⏎.");
+        });
+
+        test("an option leads with its icon and reads as words in the body face; bare, it draws no foot", () => {
+            render(<ChakraProvider value={system}>
+                <Chooser surface="bare" placeholder="Add a step" onChoose={vi.fn()} sections={[{ label: "Steps", options: [
+                    { key: "filter", label: "Keep rows", line: "where a condition holds", icon: faFilter, state: "enabled", words: true },
+                    { key: "K-1", label: "K-1", state: "enabled" },
+                ] }]} />
+            </ChakraProvider>);
+            const [step, id] = screen.getAllByRole("option");
+            expect([step!.hasAttribute("data-icon"), step!.querySelector("svg[data-icon=filter]") !== null, id!.hasAttribute("data-icon")]).toEqual([true, true, false]);
+            expect([step!.querySelector("[data-words]") !== null, id!.querySelector("[data-words]")]).toEqual([true, null]);
+            const root = document.querySelector("[data-chooser]")!;
+            expect([root.getAttribute("data-surface"), root.textContent!.includes("Enter chooses")]).toEqual(["bare", false]);
+        });
+
+        test("drawn afresh while its search holds the focus — its host's key moves as its offers arrive — its search has the focus by the end of that commit: a key pressed next is its own", () => {
+            const seen: string[] = [];
+            /** What holds the focus as a commit's layout effects end, after the Chooser's own: where the next key pressed goes. */
+            function Probe({ at }: { at: string }) {
+                useLayoutEffect(() => { seen.push(`${at}: ${document.activeElement?.getAttribute("role") ?? "nothing"}`); }, [at]);
+                return null;
+            }
+            /** A value slot's picker, the number typed held by its host: keyed by whether its offers have arrived, as the query builder keys it. */
+            const draw = (generation: string) => (
+                <ChakraProvider value={system}>
+                    <Chooser key={generation} autoFocus sections={offers("100000")} placeholder="Type or pick a value" label="Value" onChoose={vi.fn()} query="100000" onQuery={vi.fn()} />
+                    <Probe at={generation} />
+                </ChakraProvider>
+            );
+            const { rerender } = render(draw("waiting"));
+            rerender(draw("arrived"));
+            // Each time its search — the combobox — holds the focus before anything else runs: never the page, between the two.
+            expect(seen).toEqual(["waiting: combobox", "arrived: combobox"]);
+            expect((document.activeElement as HTMLInputElement).value).toBe("100000");
+        });
+
+        test("a short list its host offers whole draws no search: its options alone, chosen by a click", () => {
+            const onChoose = vi.fn();
+            render(<ChakraProvider value={system}>
+                <Chooser surface="bare" search={false} placeholder="Add a step" onChoose={onChoose} sections={[{ label: "Steps", options: [
+                    { key: "filter", label: "Keep rows", state: "enabled", words: true },
+                ] }]} />
+            </ChakraProvider>);
+            expect(screen.queryByRole("combobox")).toBeNull();
+            fireEvent.click(screen.getByRole("option", { name: /Keep rows/ }));
+            expect(onChoose).toHaveBeenCalledWith("filter");
+        });
     });
 });

@@ -43,6 +43,26 @@ only when the rack connects to the listener directly. A listener on every
 address (`0.0.0.0` or `::`) has no address to hand out, so enrollment needs
 `--advertise-url` there.
 
+One SSH connection's TCP window bounds every transfer inside it, so a tunnel of
+one connection carries a lease's objects at its rate however many transfers are
+in flight. `--data-origin <origin>`, repeated, names further origins that reach
+the same listener, each over a connection of its own, such as a second, third
+and fourth `ssh -N -R` to further relay ports:
+
+```sh
+e3 rack config --data-origin https://relay.example:7421 \
+  --data-origin https://relay.example:7441 --data-origin https://relay.example:7461
+```
+
+The hub spreads its data URLs over these and the advertised origin, a URL each
+in turn; rack and control requests stay on the advertised origin. Each must
+serve the listener's own certificate, which a rack pins on every one of them,
+so a TLS listener's are `https://`. The hub's hello lists them, and only a rack
+whose agent says it fetches from them is given URLs on them: an older agent is
+given every URL on the advertised origin, as before. A managed worker's host
+must let it reach them. The ones given replace those configured;
+`--no-data-origins` clears them, and `e3 rack status` prints them.
+
 The certificate is kept in the hub's private state (`hub-tls.beast2`, beside
 its other state) until it is removed. With the hub stopped, removing that file
 makes a new certificate on the next start, which every worker must then pin again.
@@ -808,7 +828,7 @@ e3 rack stop                           # stop the shared hub
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
-the same control protocol (6) exactly. A hub that an older e3 started is asked
+the same control protocol (7) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
 stop` with that e3, or ending its process, replaces it now. So every project
 that uses a rack from one machine runs the e3 release that machine's hub was
@@ -941,7 +961,12 @@ with a release:
   "limits": { "transfersAtOnce": 32 }, "features": ["call-value-objects", "tier-manifests", "inline-objects"] }`. An
   agent asks it before it spends an enrollment token. `features` names what the
   source takes beyond the protocol: a source from before it names none, and an
-  entry a reader does not know, a word or of another form, is passed over.
+  entry a reader does not know, a word or of another form, is passed over. A
+  hub configured with data origins also names `data-origins`
+  (`RACK_DATA_ORIGINS`) and lists them, `"dataOrigins": ["https://relay.example:7421", …]`:
+  the origins beside its own that it builds data URLs on, each serving its own
+  origin's certificate. It builds them there only for a rack whose report
+  names `data-origins`.
 - **Requests.** Every request names its protocol in the `x-e3-rack-protocol`
   header and carries the BEAST2 of the route's request type. One that names
   another protocol, or none, is answered `426 upgrade-required` before its body

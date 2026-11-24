@@ -1,0 +1,439 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
+ * — what its body says of itself (`visual/meta.tsx`) — and holds its bell,
+ * where its page was given alerts (#1674, `alert-popover.tsx`), and its
+ * menu — Show rows, its rows as a value tree in a popover hanging from the
+ * menu, and Export CSV (TIL-2), the same on a page and on the builder's
+ * canvas, whose own actions — Edit, Link, Duplicate — stand on the tile's
+ * frame, never in this menu (#1673); its
+ * programs printed, asked on e3, and its state drawn (`visual/states.tsx`) —
+ * waiting, on the shared
+ * loading clock; a well it needs empty; a field its source lacks; a value
+ * over another period over a source with no date range, or on a page with no
+ * date window; its source's error, with a Retry when asking again may mend
+ * it; no rows; or its answer, drawn by its view with the parts' own
+ * renderers. What it asks and how is the query layer's (`query/visual/`);
+ * what each view shows is `visual/`'s; this draws.
+ *
+ * A click on its mark, its row or its cell does what its visual says (#1673,
+ * LNK-1): its body's parts tell the groups clicked (`visual/clicks.tsx`), and
+ * the page's clicks (`page-clicks.tsx`) select, filter or open by them. The
+ * filter its own click made narrows every other visual of its source, and it
+ * marks the groups that filter holds, never narrowing itself to them. A
+ * visual that follows another narrows to what its leader has selected, its
+ * eyebrow saying so in place of its meta — the link icon and the selected
+ * value, and nothing more — or, with nothing selected, shows everything or
+ * asks for a pick (LNK-4, LNK-5).
+ *
+ * @packageDocumentation
+ */
+
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCalendar, faDatabase, faEllipsis, faHandPointer, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
+import type { ValueTypeOf } from "@elaraai/east";
+import { kindEditor, type StudioCellType, type StudioContentType } from "@elaraai/e3-ui/internal";
+import { BannerView, ChipMenu, SliceEditPopover, downloadFile, useFormatters } from "@elaraai/east-ui-components";
+import { useLoadingReveal, useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { resultFileName } from "../query/results.js";
+import { useVisualAnswers, useVisualAsk, useVisualSource } from "../query/visual/answers.js";
+import { visualReadRows } from "../query/visual/ask.js";
+import { followersOf, type Following } from "../query/visual/clicks.js";
+import { printVisual, type PrintSource, type VisualAsk } from "../query/visual/print.js";
+import { printSourceOf } from "../query/visual/source.js";
+import { useQueryWords } from "../query/words.js";
+import { messageOf } from "../shared/message.js";
+import { VisualAlerts } from "./alert-popover.js";
+import { useStudioMessages } from "./messages.js";
+import { useFollowing, usePageClicks, useTileClicks, useTileState } from "./page-clicks.js";
+import { studioEast } from "./studio-east.js";
+import { ChartVisual } from "./visual/chart.js";
+import { VisualClicksProvider } from "./visual/clicks.js";
+import { KpiVisual } from "./visual/kpi.js";
+import { RecordsVisual } from "./visual/records.js";
+import { recordsCsv, recordsOf, rowsVisual } from "./visual/records-table.js";
+import { ListVisual } from "./visual/list.js";
+import { TileMeta, TileMetaSlot } from "./visual/meta.js";
+import { SourceFailed, VisualNote, problemOf } from "./visual/notes.js";
+import { PivotVisual } from "./visual/pivot.js";
+import { RowsTree } from "./visual/rows.js";
+import { FieldMissing, NoRows, TileMessage, VisualLoading, WellsEmpty } from "./visual/states.js";
+import { SummaryVisual } from "./visual/summary.js";
+import { fieldLabel, midSentence, pickLabel, visualName, type VisualSource } from "./visual/values.js";
+
+/** A placement's content that is a visual. */
+type VisualContent = Extract<ValueTypeOf<typeof StudioContentType>, { type: "visual" }>;
+/** A visual. */
+type Visual = VisualContent["value"];
+/** One placement. */
+type Cell = ValueTypeOf<typeof StudioCellType>;
+
+/** Whether a view's rows run edge to edge in its tile: a table's and a list's. */
+function flush(visual: Visual): boolean {
+    return visual.view.type === "table" || visual.view.type === "list";
+}
+
+/** Props of {@link StudioVisualTile}. */
+export interface StudioVisualTileProps {
+    /** The visual, as the placement holds it. */
+    content: VisualContent;
+    /** Each listed source's name, by its key. */
+    names: Map<string, string>;
+    /** Where its parts keep their state. */
+    storageKey: string;
+    /** Its placement's own title; `undefined` names it by its wells. */
+    title?: string | undefined;
+    /** On the builder's canvas, opens its Configure tab: where a field its source lacks is picked again; omitted on a page. */
+    onEdit?: (() => void) | undefined;
+    /** Its placement's key: what its selection is kept under, and what a visual that follows it names; `undefined` outside a layout. */
+    placement?: string | undefined;
+    /** While the canvas picks a leader (#1673, LNK-6): whether it is the visual being linked, or one that can lead. */
+    pick?: "follower" | "leader" | undefined;
+}
+
+/**
+ * A placement's name, as its tile's eyebrow says it (TIL-1): its own title,
+ * else one made from its wells, else its view — what its bell's popover, its
+ * rows and the inspector's Alerts name it by too.
+ *
+ * @param visual - The visual
+ * @param title - Its placement's own title; `undefined` for one with none
+ * @returns Its name
+ */
+export function useVisualTitle(visual: Visual, title: string | undefined): string {
+    const m = useStudioMessages();
+    const east = studioEast();
+    const source = useVisualSource(visual.source);
+    return title ?? (source === undefined ? undefined : visualName(visual.view, source, m)) ?? east.viewWords(visual.view);
+}
+
+/** The visual a follower's leader is: the placement's, when it is one. */
+function leaderVisual(leader: Cell): Visual | undefined {
+    return leader.content.type === "visual" ? leader.content.value : undefined;
+}
+
+/** Props of the follower's parts: what it reads of its leader, and the visual. */
+interface FollowProps {
+    /** What it reads of its leader. */
+    following: Exclude<Following, { kind: "removed" }>;
+    /** The leader's visual. */
+    leader: Visual;
+    /** The follower. */
+    visual: Visual;
+    /** Whether it is drawn where clicks run — a page, the preview; on the builder's canvas it names its leader. */
+    live?: boolean | undefined;
+}
+
+/**
+ * What a follower's eyebrow says of its leader (LNK-4): the link icon, then
+ * the selected value — several joined — or that nothing is selected; on the
+ * builder's canvas, where nothing is selected by a click, the visual it
+ * follows.
+ */
+function FollowTag({ following, leader, visual, live }: FollowProps) {
+    const m = useStudioMessages();
+    const words = useQueryWords();
+    const styles = useSlotStyles("studioVisual");
+    const cell = following.leader;
+    const name = useVisualTitle(leader, cell.title.type === "some" ? cell.title.value : undefined);
+    const said = live === false ? m.followsLeader({ leader: name })
+        : following.kind === "selected" ? following.picks.map((pick) => pickLabel(pick, words, m)).join(", ") : m.followNothing();
+    return (
+        <Box as="span" css={styles.follow} data-studio-visual-follow="" data-following={live === false ? "canvas" : following.kind} data-leader={visual.follow.type === "some" ? visual.follow.value.leader : undefined}
+            title={m.followsName({ leader: name, selected: said })}>
+            <FontAwesomeIcon icon={faLink} />
+            <span>{said}</span>
+        </Box>
+    );
+}
+
+/**
+ * A follower that asks for a pick, with nothing selected on its leader (LNK-5): a pointer's hand, what to pick and
+ * where, and what it then shows, named by what it draws.
+ */
+function FollowPrompt({ following, leader, visual }: FollowProps) {
+    const m = useStudioMessages();
+    const cell = following.leader;
+    const name = useVisualTitle(leader, cell.title.type === "some" ? cell.title.value : undefined);
+    const source = useVisualSource(leader.source);
+    const from = visual.follow.type === "some" ? visual.follow.value.from : "";
+    const field = midSentence(source === undefined ? from : fieldLabel(source, from));
+    return <TileMessage state="prompt" icon={faHandPointer} title={m.followPrompt({ field, leader: name })} hint={m.followPromptHint({ field, view: visual.view.type })} />;
+}
+
+/**
+ * A visual's tile: its eyebrow (TIL-1) — its placement's title, else a name
+ * made from its wells (`Revenue by month`), else, while those are empty, its
+ * view (`Column chart`) — with its meta and its menu at the end; then its
+ * state, as its programs print and answer, which says the meta.
+ *
+ * @param props - The visual, the sources' names, where its parts keep their state, its title, its placement's key, and on the canvas its Configure tab's opening
+ * @returns The tile's content
+ */
+export function StudioVisualTile({ content, names, storageKey, title, onEdit, placement, pick }: StudioVisualTileProps) {
+    const m = useStudioMessages();
+    const styles = useSlotStyles("studioVisual");
+    const east = studioEast();
+    const visual = content.value;
+    const source = useVisualSource(visual.source);
+    const read = useMemo(() => (source === undefined ? undefined : printSourceOf(source)), [source]);
+    const sourceName = east.sourceName(visual.source, names);
+    const name = useVisualTitle(visual, title);
+    // What its clicks do, and what it reads of the visual it follows.
+    const clicks = useTileClicks(placement, visual);
+    const following = useFollowing(visual);
+    // On the builder's canvas, where a click edits: a follower names its leader, and a leader says how many follow it.
+    const page = usePageClicks();
+    const live = page?.live;
+    const led = page === undefined || page.live || placement === undefined ? 0 : followersOf(page.cells, placement).length;
+    const f = useFormatters();
+    const leader = following === undefined || following.kind === "removed" ? undefined : leaderVisual(following.leader);
+    // A follower's eyebrow says what it follows, and nothing more: its tag stands in place of its meta (LNK-4).
+    const tag = following === undefined ? undefined : following.kind === "removed" ? "removed" : leader === undefined ? undefined : "following";
+    // An export that failed, said over the body until it is put away.
+    const [failed, setFailed] = useState<string | undefined>(undefined);
+    // The eyebrow's meta slot, which the body's part draws its meta in.
+    const [metaSlot, setMetaSlot] = useState<HTMLElement | null>(null);
+    return (
+        <Box css={styles.tile} data-studio-visual-tile="" data-studio-placement={placement} data-pick={pick}>
+            <Box css={styles.head} data-studio-visual-head="">
+                {/* Its name, cut with an ellipsis in a narrow tile: whole on hover (#1692). */}
+                <Box as="span" css={styles.name} data-studio-visual-name="" title={name}>{name}</Box>
+                <Box css={styles.end}>
+                    {/* Its meta, in the room its name leaves; a leader's tag after it, beside its controls. */}
+                    {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
+                    {led > 0 && (
+                        <Box as="span" css={styles.follow} data-studio-visual-leads={led} data-following="canvas">
+                            <FontAwesomeIcon icon={faLink} />
+                            <span>{m.leads({ count: f.number(led) })}</span>
+                        </Box>
+                    )}
+                    {tag === "following" && following !== undefined && following.kind !== "removed" && leader !== undefined
+                        && <FollowTag following={following} leader={leader} visual={visual} live={live} />}
+                    {tag === "removed" && (
+                        <Box as="span" css={styles.follow} data-studio-visual-follow="" data-following="removed">
+                            <FontAwesomeIcon icon={faLink} />
+                            <span>{m.followRemoved()}</span>
+                        </Box>
+                    )}
+                    {/* Its alerts (#1674): a bell beside its menu, where the page was given an alerts record. */}
+                    {read !== undefined && <VisualAlerts visual={visual} name={name} read={read} placement={placement} />}
+                    {source !== undefined && read !== undefined && (
+                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} placement={placement} />
+                    )}
+                </Box>
+            </Box>
+            <Box css={styles.body} data-studio-visual-body="" data-flush={flush(visual) ? "" : undefined}>
+                {failed !== undefined && (
+                    <BannerView status="error" title={m.exportFailed()} description={failed}
+                        actions={<Button size="xs" variant="outline" onClick={() => setFailed(undefined)}>{m.dismiss()}</Button>} />
+                )}
+                <TileMetaSlot value={tag === undefined ? metaSlot : null}>
+                    <VisualClicksProvider value={clicks}>
+                        {/* A follower that asks for a pick draws its prompt until its leader has one (LNK-5); its eyebrow says what
+                            it follows, and nothing more. */}
+                        {following !== undefined && following.kind !== "selected" && visual.follow.type === "some" && visual.follow.value.empty.type === "prompt"
+                            ? (following.kind === "removed" || leader === undefined
+                                ? <TileMessage state="leader-removed" icon={faLinkSlash} title={m.followGone()} hint={m.followGoneHint()} />
+                                : <FollowPrompt following={following} leader={leader} visual={visual} />)
+                            : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={onEdit} placement={placement} />}
+                    </VisualClicksProvider>
+                </TileMetaSlot>
+            </Box>
+        </Box>
+    );
+}
+
+/** Props of {@link VisualMenu}. */
+interface VisualMenuProps {
+    /** The visual. */
+    visual: Visual;
+    /** Its name, as its eyebrow says it: whose rows the popover's head says they are, and the file's. */
+    name: string;
+    /** Its source, as the surface lists it. */
+    source: VisualSource;
+    /** Its source, as the printer reads it. */
+    read: PrintSource;
+    /** Where its parts keep their state. */
+    storageKey: string;
+    /** Told why an export failed. */
+    onFailed: (message: string | undefined) => void;
+    /** Its placement's key: the filter its own click made is no narrowing of its rows; `undefined` outside a layout. */
+    placement: string | undefined;
+}
+
+/**
+ * A visual's menu (TIL-2): Show rows — the rows under it, without its
+ * grouping, as a value tree in a popover hanging from the menu, read a page
+ * at a time, how many there are and Export CSV at its foot — and Export CSV,
+ * the same rows, every one, as a file named after it. It is a reader's, the
+ * same on the builder's canvas: what the builder does to the visual stands on
+ * its tile's frame (#1673).
+ *
+ * The rows open in a popover, never a drawer: the app's design keeps the
+ * Drawer for its rail on a phone.
+ */
+function VisualMenu({ visual, name, source, read, storageKey, onFailed, placement }: VisualMenuProps) {
+    const m = useStudioMessages();
+    const words = useQueryWords();
+    const f = useFormatters();
+    const ask = useVisualAsk(visual.source);
+    const state = useTileState(visual, read, placement);
+    const [showing, setShowing] = useState(false);
+    const rows = useMemo(() => rowsVisual(visual, source, read), [visual, source, read]);
+    // Every row, asked once through the page's answers, written as CSV.
+    const exportRows = useCallback(async () => {
+        if (rows === undefined) return;
+        const records = recordsOf(rows);
+        const printed = printVisual(rows, read, state, { offset: 0, size: "all" });
+        if (records === undefined || printed.kind !== "asks") return;
+        onFailed(undefined);
+        try {
+            const [answer] = await ask(printed.asks);
+            if (answer === undefined) return;
+            if (answer.kind === "problem") {
+                onFailed(problemOf(answer, m));
+                return;
+            }
+            downloadFile(`${resultFileName(name)}.csv`, "text/csv;charset=utf-8", recordsCsv(records, answer, words));
+        } catch (err) {
+            onFailed(messageOf(err));
+        }
+    }, [rows, read, state, ask, name, words, m, onFailed]);
+    // How many rows there are, as the open popover's tree learns it.
+    const [total, setTotal] = useState<number | undefined>(undefined);
+    const csv: ReactNode = <Button size="xs" variant="outline" onClick={() => { void exportRows(); }} data-studio-export="">{m.exportCsv()}</Button>;
+    // A visual with no rows to show has nothing in its menu: it draws none.
+    if (rows === undefined) return null;
+    const menu = (
+        <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
+            if (picked === "rows") setShowing(true);
+            else if (picked === "csv") void exportRows();
+        }}>
+            <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>
+            <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>
+        </ChipMenu>
+    );
+    return (
+        <SliceEditPopover open={showing} onOpenChange={setShowing} label={m.rowsOf({ name })} size="lg" flush anchor={menu}
+            footLeft={total === undefined ? undefined : <VisualNote>{m.rowsCount({ n: total, count: f.number(total) })}</VisualNote>}
+            footActions={csv}>
+            {showing && (
+                <Box data-studio-rows="">
+                    <RowsTree visual={rows} source={source} read={read} state={state} storageKey={`${storageKey}.rows`} onTotal={setTotal} />
+                </Box>
+            )}
+        </SliceEditPopover>
+    );
+}
+
+/** Props of {@link VisualBody}. */
+interface VisualBodyProps {
+    /** The visual. */
+    visual: Visual;
+    /** Its source, as the surface lists it; `undefined` when it lists none of its key. */
+    source: VisualSource | undefined;
+    /** Its source, as the printer reads it; `undefined` with none. */
+    read: PrintSource | undefined;
+    /** Its source's name. */
+    sourceName: string;
+    /** Where its parts keep their state. */
+    storageKey: string;
+    /** Opens its fields, to pick another for one its source lacks: on the builder's canvas, its Configure tab; `undefined` on a published page. */
+    onPick: (() => void) | undefined;
+    /** Its placement's key: the filter its own click made is no narrowing of it; `undefined` outside a layout. */
+    placement: string | undefined;
+}
+
+/** A visual's body: its state, as its programs print and answer. */
+function VisualBody({ visual, source, read, sourceName, storageKey, onPick, placement }: VisualBodyProps) {
+    const m = useStudioMessages();
+    const east = studioEast();
+    const state = useTileState(visual, read, placement);
+    const printed = useMemo(() => (read === undefined ? undefined : printVisual(visual, read, state)), [visual, read, state]);
+    const icon = east.viewIcon(visual.view);
+    // Until a visual draws, its meta is its source's name — but for a missing field, which it says.
+    const named = <TileMeta>{sourceName}</TileMeta>;
+    if (printed === undefined || source === undefined || read === undefined) {
+        return <>{named}<TileMessage state="no-source" icon={faDatabase} title={m.noSource({ key: visual.source })} hint={m.noSourceHint()} /></>;
+    }
+    switch (printed.kind) {
+        case "empty": {
+            // Each well it needs, by its kind's declaration: its label, and whether a value fills it (#1672).
+            const wells = kindEditor(visual.view)?.wells ?? [];
+            const needed = printed.wells.map((field) => {
+                const well = wells.find((w) => w.field === field);
+                return m.wellNeeded({ label: well?.label ?? field, value: well?.holds.type === "value" || well?.holds.type === "axis" });
+            });
+            return <>{named}<WellsEmpty icon={icon} needed={needed} /></>;
+        }
+        case "missing":
+            return <><TileMeta>{m.metaNeedsField()}</TileMeta><FieldMissing source={sourceName} fields={printed.fields} onPick={onPick} /></>;
+        case "range":
+            return <>{named}<TileMessage state="no-range" icon={faCalendar} title={m.noRange({ source: sourceName })} hint={m.noRangeHint()} /></>;
+        case "window":
+            return <>{named}<TileMessage state="no-window" icon={faCalendar} title={m.needsWindow({ source: sourceName })} hint={m.needsWindowHint()} /></>;
+        case "asks":
+            return <AskedVisual asks={printed.asks} visual={visual} listed={source} read={read} sourceName={sourceName} icon={icon} storageKey={storageKey} placement={placement} />;
+    }
+}
+
+/** Props of {@link AskedVisual}. */
+interface AskedVisualProps {
+    asks: readonly VisualAsk[];
+    visual: Visual;
+    listed: VisualSource;
+    read: PrintSource;
+    sourceName: string;
+    icon: string;
+    storageKey: string;
+    placement: string | undefined;
+}
+
+/** A visual whose programs are asked: waiting, failed, no rows, or its answer drawn. */
+function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey, placement }: AskedVisualProps) {
+    const m = useStudioMessages();
+    const words = useFormatters();
+    const asked = useVisualAnswers(asks, visual.source);
+    const state = useTileState(visual, read, placement);
+    const shown = useLoadingReveal(asked.status === "waiting");
+    switch (asked.status) {
+        case "waiting":
+            // Once the loading clock says so: blocks in its own shape, and its meta says it is loading.
+            return shown ? <><TileMeta>{m.metaLoading()}</TileMeta><VisualLoading view={visual.view} /></> : null;
+        case "failed":
+            return <><TileMeta>{sourceName}</TileMeta><SourceFailed source={sourceName} message={asked.message} retry={asked.retry} /></>;
+        case "answered": {
+            const problem = asked.answers.find((answer) => answer.kind === "problem");
+            if (problem !== undefined && problem.kind === "problem") return <><TileMeta>{sourceName}</TileMeta><SourceFailed source={sourceName} message={problemOf(problem, m)} /></>;
+            // No data when no program read a row — every period's, not the first's alone.
+            const read_ = asked.answers.find((answer) => answer.kind === "answered" && answer.n > 0);
+            if (!visualReadRows(asked.answers) || read_ === undefined || read_.kind !== "answered") {
+                return <NoRows visual={visual} state={state} read={read} source={sourceName} />;
+            }
+            const view = visual.view;
+            switch (view.type) {
+                case "kpi": return <KpiVisual kpi={view.value} asks={asks} answers={asked.answers} source={listed} />;
+                case "chart": return <ChartVisual chart={view.value} asks={asks} answers={asked.answers} source={listed} />;
+                case "table":
+                    switch (view.value.type) {
+                        // A paged view asks its own page's programs: the first page's are these, asked once (#1667).
+                        case "records": return <RecordsVisual visual={visual} source={listed} read={read} state={state} storageKey={storageKey} />;
+                        case "summary": return <SummaryVisual visual={visual} summary={view.value.value} source={listed} read={read} state={state} storageKey={storageKey} />;
+                        case "pivot": return <PivotVisual visual={visual} pivot={view.value.value} source={listed} read={read} state={state} storageKey={storageKey} />;
+                    }
+                    break;
+                case "list": return <ListVisual visual={visual} list={view.value} source={listed} read={read} state={state} storageKey={storageKey} />;
+                default:
+                    break;
+            }
+            return <TileMessage state="answered" icon={icon} title={m.answerGroups({ n: read_.groups, groups: words.number(read_.groups), nr: read_.n, rows: words.number(read_.n) })} />;
+        }
+    }
+}

@@ -8,16 +8,26 @@
  * canvas's place while it shows.
  *
  * - **The bar**, headerless, on the inverse ground: "● Preview"; Desktop ·
- *   Tablet · Mobile, which draw the page 1440, 1024 or 390 px wide at most;
- *   the Env pill; and Exit, back to the canvas.
+ *   Tablet · Mobile, which lay the page out 1440, 1024 or 390 px wide; the Env
+ *   pill; and Exit, back to the canvas.
  * - **The page**: its project, its title, and the page as it will publish —
- *   which the builder draws — together at most the device's width.
- * - **The aside**: where the page stands, the version it replaces and the one
- *   it becomes, the change list, the Audience and Rollout rows, and what
- *   refused a write.
- * - **The footer**: Save as draft asks the canvas for an Apply; Publish asks
- *   for one when the canvas has drafts, waits for the canvas's answer, then
- *   commits the publish.
+ *   which the builder draws — together at the device's width, the preview's
+ *   whole width its own. Where the preview is narrower than the device, the
+ *   page is laid out at the device's width and scaled down to fit (ruled 23
+ *   November 2026): what a reader on that device sees, its tiles at the spans
+ *   that width gives them, as the canvas draws them. Laid out at the narrower
+ *   width, the grid's tiers had stacked a desktop's tiles (the manual test of
+ *   22 November, 5.10).
+ * - **The rail**, along the preview's foot, across its width (ruled 20
+ *   November 2026). Its row: where the page stands, the version it replaces
+ *   and the one it becomes; how many changes — a toggle that shows the change
+ *   list over the row and shuts it, while there are changes to list; who sees
+ *   it, and when; and its actions: Save as draft asks the canvas for an
+ *   Apply, and Publish asks for one when the canvas has drafts, waits for the
+ *   canvas's answer, then commits the publish. What refused a write stands
+ *   over the row, and the change list over that, in columns as the rail's
+ *   width allows. Opened by Preview the list is shut — the page all the
+ *   preview but its bar and the row — and opened by Publish it shows.
  *
  * The canvas answers an Apply under the id asked, so the answer to another
  * ask is never taken for this one's. Every word is the Studio's message
@@ -37,25 +47,37 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowLeft, faChevronDown, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton,
+    faArrowLeft, faChevronDown, faChevronUp, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton,
 } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
-import { useFormatters } from "@elaraai/east-ui-components";
+import { useContainerWidth, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
-import { useStudioMessages } from "./messages.js";
+import { useStudioMessages, type StudioMessages } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
 /** The publish preview, as the builder draws it. */
 type StudioPublishValue = ValueTypeOf<typeof StudioPublishPayloadType>;
+/** One row of the change list. */
+type ChangeRow = StudioPublishValue["summary"]["changes"][number];
 
-/** The devices the bar offers, and the most each draws the page wide, in px. */
+/** A row of the change list's own key: its placement's, or the page's starting filters' (#1673). */
+function changeKey(row: ChangeRow, i: number): string {
+    return `${row.change.type === "filters" ? "filters" : row.change.value.cell}-${row.change.type}-${i}`;
+}
+
+/** What a row of the change list names: its placement — or, for the page's starting filters, the preview names them (#1673). */
+function changeName(row: ChangeRow, m: StudioMessages): string {
+    return row.change.type === "filters" ? m.startingFilters() : row.name;
+}
+
+/** The devices the bar offers, and the width each lays the page out at, in px. */
 const DEVICES = [
     { device: "desktop", icon: faDesktop, width: 1440 },
     { device: "tablet", icon: faTabletScreenButton, width: 1024 },
@@ -78,20 +100,24 @@ type Phase =
 
 /** Props of {@link StudioPublishPreview}. */
 export interface StudioPublishPreviewProps {
-    /** Where the page stands, what changed, the words the aside shows, and the actions. */
+    /** Where the page stands, what changed, the words the rail shows, and the actions. */
     value: StudioPublishValue;
     /** The page as it will publish. */
     page: ReactNode;
-    /** In a phone's frame: its open tab, its tiles for the wireframes, and its width. */
+    /**
+     * What it shows with the page: the page alone, or what changed — on a wide
+     * frame the rail's change list shut or shown over its row, in a phone's its
+     * Page and Changes tabs. Preview opens it on the page, Publish on what changed.
+     */
+    tab: "page" | "changes";
+    /** Shows the page alone, or what changed: the rail's toggle, a phone's tabs. */
+    onTab: (tab: "page" | "changes") => void;
+    /** In a phone's frame: its tiles for the wireframes, and its width. */
     phone?: StudioPublishPhone | undefined;
 }
 
 /** What a phone's preview needs beyond the wide one's. */
 export interface StudioPublishPhone {
-    /** The open tab. */
-    readonly tab: "page" | "changes";
-    /** Opens a tab. */
-    readonly onTab: (tab: "page" | "changes") => void;
     /** The page's tiles in order, each by name. */
     readonly tiles: readonly { readonly key: string; readonly row: string; readonly name: string; readonly span: number }[];
     /** The builder's width, px. */
@@ -147,7 +173,7 @@ function PhoneWire({ tiles, width }: { tiles: StudioPublishPhone["tiles"]; width
  * @param props - What the preview shows and does, and the page as it will publish
  * @returns The publish preview
  */
-export const StudioPublishPreview = memo(function StudioPublishPreview({ value, page, phone }: StudioPublishPreviewProps) {
+export const StudioPublishPreview = memo(function StudioPublishPreview({ value, page, tab, onTab, phone }: StudioPublishPreviewProps) {
     const styles = useSlotRecipe({ key: "studioPublish" })() as Styles;
     const ps = useSlotStyles("studioPhone");
     // A phone's device: Mobile first, the phone's own (D3).
@@ -156,6 +182,9 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
     const words = useFormatters();
     const [device, setDevice] = useState<Device>("desktop");
     const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+    // The rail's change list: shown while what changed is asked for.
+    const open = tab === "changes";
+    const listId = useId();
     // What the writes read when they run — this render's payload.
     const latest = useRef(value);
     latest.current = value;
@@ -169,6 +198,11 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
     const exit = value.onExit.type === "some" ? value.onExit.value : undefined;
     const busy = phase.kind === "applying" || phase.kind === "publishing";
     const width = DEVICES.find((d) => d.device === device)!.width;
+    // The room the page has: where it is narrower than the device, the page is laid out at the device's width and
+    // scaled down to it. Until it is measured — and with no layout to measure, in a test's DOM — it is not scaled.
+    const roomRef = useRef<HTMLDivElement | null>(null);
+    const room = useContainerWidth(roomRef);
+    const scale = room > 0 && room < width ? room / width : 1;
 
     // The publish, from the payload as it stands when it runs.
     const publish = useCallback(async () => {
@@ -216,6 +250,8 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
             : m.changesSince({ n: count, count: words.number(count), version: liveVersion });
     const audience = value.audience.type === "some" ? value.audience.value : undefined;
     const rollout = value.rollout.type === "some" ? value.rollout.value : undefined;
+    // A page's changes, listed: a template's none, nor a page's with none since its live version.
+    const listed = standing !== "template" && count > 0;
 
     if (phone !== undefined) {
         const versions = standing === "template" ? `${value.title} · ${m.templateKind()}`
@@ -237,14 +273,14 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                     <Box as="span" css={ps.previewSub} data-publish-versions="">{versions}</Box>
                 </Box>
                 <Box css={ps.previewTabs} role="tablist">
-                    {(["page", "changes"] as const).map((tab) => (
-                        <chakra.button key={tab} type="button" role="tab" css={ps.previewTab} aria-selected={phone.tab === tab} data-publish-tab={tab} onClick={() => phone.onTab(tab)}>
-                            {tab === "page" ? m.phonePage() : `${m.phoneChanges()} ${words.number(count)}`}
+                    {(["page", "changes"] as const).map((t) => (
+                        <chakra.button key={t} type="button" role="tab" css={ps.previewTab} aria-selected={tab === t} data-publish-tab={t} onClick={() => onTab(t)}>
+                            {t === "page" ? m.phonePage() : `${m.phoneChanges()} ${words.number(count)}`}
                         </chakra.button>
                     ))}
                 </Box>
-                <Box css={ps.previewBody} data-tab={phone.tab}>
-                    {phone.tab === "page" ? (
+                <Box css={ps.previewBody} data-tab={tab}>
+                    {tab === "page" ? (
                         <>
                             <Box css={ps.devices} role="group" aria-label={m.devices()} data-publish-devices="">
                                 {(["mobile", "tablet", "desktop"] as const).map((d) => (
@@ -265,15 +301,15 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                     ) : (
                         <>
                             {standing !== "template" && <Box css={ps.changesHead} data-publish-count="">{listHead}</Box>}
-                            {standing !== "template" && count > 0 && (
+                            {listed && (
                                 <Box as="ul" css={ps.changes} aria-label={listHead} data-publish-changes="">
                                     {changes.map((row, i) => {
                                         const kind = row.change.type;
                                         return (
-                                            <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={ps.change} data-publish-change={kind}>
+                                            <Box as="li" key={changeKey(row, i)} css={ps.change} data-publish-change={kind}>
                                                 <Box as="span" css={ps.changeSign} aria-hidden><FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} /></Box>
                                                 <Box css={ps.changeText}>
-                                                    <Box as="span" css={ps.changeLine}>{m.changeVerb({ change: kind })} <strong>{row.name}</strong></Box>
+                                                    <Box as="span" css={ps.changeLine}>{m.changeVerb({ change: kind })} <strong>{changeName(row, m)}</strong></Box>
                                                     <Box as="span" css={ps.changeDetail}>{row.change.value.detail}</Box>
                                                 </Box>
                                             </Box>
@@ -335,9 +371,9 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                     {m.exit()}
                 </chakra.button>
             </Box>
-            <Box css={styles.body}>
-                <Box css={styles.main} data-publish-main="">
-                    <Box css={styles.frame} style={{ maxWidth: `${width}px` }} data-publish-frame={device}>
+            <Box css={styles.main} data-publish-main="">
+                <Box ref={roomRef} data-publish-room="">
+                    <Box css={styles.frame} style={{ width: `${width}px`, ...(scale === 1 ? {} : { zoom: scale }) }} data-publish-frame={device}>
                         <Box css={styles.head}>
                             <Box as="span" css={styles.eyebrow}>{value.project}</Box>
                             <Box as="h2" css={styles.title}>{value.title}</Box>
@@ -345,44 +381,52 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                         {page}
                     </Box>
                 </Box>
-                <Box as="aside" css={styles.aside} aria-label={head} data-publish-aside="">
-                    <Box css={styles.asideHead}>
-                        <Box as="span" css={styles.asideTitle} data-publish-head="">{head}</Box>
-                        <Box as="span" css={styles.asideSub} data-publish-versions="">
+            </Box>
+            <Box as="aside" css={styles.rail} aria-label={head} data-publish-rail="">
+                {listed && (
+                    <Box as="ul" id={listId} css={styles.list} hidden={!open} aria-label={listHead} data-publish-changes="">
+                        {changes.map((row, i) => {
+                            const kind = row.change.type;
+                            return (
+                                <Box as="li" key={changeKey(row, i)} css={styles.change} data-publish-change={kind}>
+                                    <Box as="span" css={styles.sign} data-sign={kind} aria-hidden>
+                                        <FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} />
+                                    </Box>
+                                    <Box css={styles.changeText}>
+                                        <Box as="span" css={styles.changeLine}>
+                                            {m.changeVerb({ change: kind })}{" "}
+                                            <Box as="strong" css={styles.changeName}>{changeName(row, m)}</Box>
+                                        </Box>
+                                        <Box as="span" css={styles.changeDetail}>{row.change.value.detail}</Box>
+                                    </Box>
+                                </Box>
+                            );
+                        })}
+                    </Box>
+                )}
+                {phase.kind === "refused" && (
+                    <Box as="span" role="alert" css={styles.refusal} data-publish-refused="">{phase.reason}</Box>
+                )}
+                <Box css={styles.row} data-publish-rail-row="">
+                    <Box css={styles.state}>
+                        <Box as="span" css={styles.stateTitle} data-publish-head="">{head}</Box>
+                        <Box as="span" css={styles.stateSub} data-publish-versions="">
                             {value.title} ·{" "}
                             {standing === "template" ? m.templateKind()
                                 : standing === "current" ? `${liveVersion} ${m.liveVersion()}`
-                                    : live === undefined ? <Box as="span" css={styles.asideVersion}>{nextVersion}</Box>
-                                        : <>{liveVersion} → <Box as="span" css={styles.asideVersion}>{nextVersion}</Box></>}
+                                    : live === undefined ? <Box as="span" css={styles.stateVersion}>{nextVersion}</Box>
+                                        : <>{liveVersion} → <Box as="span" css={styles.stateVersion}>{nextVersion}</Box></>}
                         </Box>
                     </Box>
-                    <Box css={styles.asideBody}>
-                        {standing !== "template" && (
-                            <>
-                                <Box as="span" css={styles.listHead} data-publish-count="">{listHead}</Box>
-                                {count > 0 && (
-                                    <Box as="ul" css={styles.list} aria-label={listHead} data-publish-changes="">
-                                        {changes.map((row, i) => {
-                                            const kind = row.change.type;
-                                            return (
-                                                <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={styles.change} data-publish-change={kind}>
-                                                    <Box as="span" css={styles.sign} data-sign={kind} aria-hidden>
-                                                        <FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} />
-                                                    </Box>
-                                                    <Box css={styles.changeText}>
-                                                        <Box as="span" css={styles.changeLine}>
-                                                            {m.changeVerb({ change: kind })}{" "}
-                                                            <Box as="strong" css={styles.changeName}>{row.name}</Box>
-                                                        </Box>
-                                                        <Box as="span" css={styles.changeDetail}>{row.change.value.detail}</Box>
-                                                    </Box>
-                                                </Box>
-                                            );
-                                        })}
-                                    </Box>
-                                )}
-                            </>
-                        )}
+                    {/* How many changes: the toggle of their list, while there are any to list. */}
+                    {standing !== "template" && (listed ? (
+                        <ChakraButton type="button" variant="ghost" size="sm" aria-expanded={open} aria-controls={listId} data-publish-toggle=""
+                            onClick={() => onTab(open ? "page" : "changes")}>
+                            <span data-publish-count="">{listHead}</span>
+                            <FontAwesomeIcon icon={open ? faChevronDown : faChevronUp} />
+                        </ChakraButton>
+                    ) : <Box as="span" css={styles.count} data-publish-count="">{listHead}</Box>)}
+                    <Box css={styles.end}>
                         {(audience !== undefined || rollout !== undefined) && (
                             <Box css={styles.facts} data-publish-facts="">
                                 {audience !== undefined && (
@@ -399,22 +443,19 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                 )}
                             </Box>
                         )}
-                        {phase.kind === "refused" && (
-                            <Box as="span" role="alert" css={styles.refusal} data-publish-refused="">{phase.reason}</Box>
-                        )}
-                    </Box>
-                    <Box css={styles.foot} data-publish-foot="">
-                        <ChakraButton type="button" variant="outline" size="sm" data-publish-save=""
-                            disabled={!summary.unsaved || busy} loading={phase.kind === "applying" && !phase.publish}
-                            onClick={() => ask("save")}>
-                            {m.saveAsDraft()}
-                        </ChakraButton>
-                        <ChakraButton type="button" size="sm" colorPalette="brand" data-publish-publish=""
-                            disabled={standing !== "ready" || busy}
-                            loading={(phase.kind === "applying" && phase.publish) || phase.kind === "publishing"}
-                            onClick={() => { if (summary.unsaved) ask("publish"); else void publish(); }}>
-                            {m.publishTo({ version: standing === "template" ? undefined : nextVersion, env })}
-                        </ChakraButton>
+                        <Box css={styles.foot} data-publish-foot="">
+                            <ChakraButton type="button" variant="outline" size="sm" data-publish-save=""
+                                disabled={!summary.unsaved || busy} loading={phase.kind === "applying" && !phase.publish}
+                                onClick={() => ask("save")}>
+                                {m.saveAsDraft()}
+                            </ChakraButton>
+                            <ChakraButton type="button" size="sm" colorPalette="brand" data-publish-publish=""
+                                disabled={standing !== "ready" || busy}
+                                loading={(phase.kind === "applying" && phase.publish) || phase.kind === "publishing"}
+                                onClick={() => { if (summary.unsaved) ask("publish"); else void publish(); }}>
+                                {m.publishTo({ version: standing === "template" ? undefined : nextVersion, env })}
+                            </ChakraButton>
+                        </Box>
                     </Box>
                 </Box>
             </Box>

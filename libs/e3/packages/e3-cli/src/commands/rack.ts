@@ -19,7 +19,17 @@ type RackLib = typeof import('@elaraai/e3-rack');
 const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
-interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
+interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean;
+  /** `--data-origin`, each given */
+  dataOrigin?: string[];
+  /** False with `--no-data-origins`; Commander's true otherwise */
+  dataOrigins?: boolean }
+/** Collects each `--data-origin` given, in order. */
+const collect = (value: string, previous: string[] | undefined): string[] => [...(previous ?? []), value];
+/** The data origins a configuration names, as `e3 rack config` and `e3 rack status` print them. */
+function dataOriginsLine(config: HubConfig): string {
+  return `Data origins: ${config.dataOrigins.length === 0 ? 'none (every data URL on the advertised origin)' : `${config.dataOrigins.join(', ')}, beside the advertised origin`}`;
+}
 /** The flags of `e3 rack policy`, as Commander reads them. */
 export interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
   merges?: string; keep?: string }
@@ -102,7 +112,11 @@ async function configured(client: HubClient, flags: ConfigFlags): Promise<HubCon
   if (flags.idleExit !== undefined) config.idleExitMinutes = BigInt(integer(flags.idleExit, '--idle-exit', 0, 35000));
   if (flags.advertiseUrl !== undefined) config.advertiseUrl = some(flags.advertiseUrl);
   if (flags.tls !== undefined) config.tls = flags.tls;
-  const changed = [flags.listen, flags.allow, flags.idleExit, flags.advertiseUrl, flags.tls].some((value) => value !== undefined);
+  // The origins given replace those configured, as --allow's addresses do
+  if (flags.dataOrigins === false && flags.dataOrigin !== undefined) throw new Error('--data-origin and --no-data-origins cannot be given together');
+  const dataOrigins = flags.dataOrigins === false ? [] : flags.dataOrigin;
+  if (dataOrigins !== undefined) config.dataOrigins = dataOrigins;
+  const changed = [flags.listen, flags.allow, flags.idleExit, flags.advertiseUrl, flags.tls, dataOrigins].some((value) => value !== undefined);
   return changed ? client.setConfig(config) : config;
 }
 
@@ -184,6 +198,7 @@ export function createRackCommand(): Command {
     const lock = await lib.readHubLock(); const config = await client.getConfig();
     console.log(`Hub: pid ${Number(status.hello.pid)}, e3 ${status.hello.version}, protocol ${Number(status.hello.protocol)}, uptime ${lock === null ? '?' : Math.round((Date.now() - lock.startedAt.getTime()) / 1000)}s, idle-exit ${Number(config.idleExitMinutes)} min`);
     console.log(`Listener: ${listenerLine(status.rackListener)}`);
+    console.log(dataOriginsLine(config));
     console.log(approvalLine(await client.getSecurityPolicy()));
     printFleet(lib, status);
     console.log(`Sessions: ${status.sessions.length}`);
@@ -239,7 +254,10 @@ export function createRackCommand(): Command {
     .option('--allow <ip,...>', 'Admit rack requests only from these IP addresses; required for plain HTTP').option('--no-allow', 'Remove the IP restriction')
     .option('--idle-exit <min>', 'Idle lifetime; 0 disables idle exit')
     .option('--advertise-url <url>', 'The origin racks reach the hub at (a relay, tunnel or TLS terminator); every rack and data URL is built on it')
-    .option('--tls', 'Serve the listener over HTTPS with the hub\'s own certificate, which racks pin (the default)')
+    .option('--data-origin <url>', 'A further origin that reaches the same listener with its certificate (another tunnel connection, say): ' +
+      'data URLs are spread over these and the advertised origin, for racks that take them. Repeat for each; the ones given replace those configured', collect)
+    .option('--no-data-origins', 'Build every data URL on the advertised origin alone, the default')
+    .option('--tls','Serve the listener over HTTPS with the hub\'s own certificate, which racks pin (the default)')
     .option('--no-tls', 'Serve plain HTTP, for a TLS terminator in front of the hub; loopback or private addresses with --allow only')
     .option('--require-approval', 'Quarantine a rack after each reboot until e3 rack approve admits the boot it reports')
     .option('--no-require-approval', 'Admit every boot of an enrolled rack, the default')
@@ -250,6 +268,7 @@ export function createRackCommand(): Command {
       const policy = await security(client, flags);
       console.log(`Listen: ${config.listen.type === 'some' ? `${config.listen.value.host}:${Number(config.listen.value.port)}` : 'off'}`);
       console.log(`TLS: ${config.tls ? 'on' : 'off'}\nAllow: ${config.allow.join(', ') || 'all'}\nIdle-exit: ${Number(config.idleExitMinutes)} min\nAdvertise URL: ${config.advertiseUrl.type === 'some' ? config.advertiseUrl.value : 'listener origin'}`);
+      console.log(dataOriginsLine(config));
       console.log(approvalLine(policy));
       console.log(`Listener: ${listenerLine((await client.status()).rackListener)}`);
     }));

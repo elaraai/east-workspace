@@ -20,28 +20,28 @@
  *   by Font Awesome's open box (#1263).
  * - **L5**: Recent — this viewer's runs, newest first, a run of a saved query
  *   opening the saved query.
- * - **L6**: Open in builder → and New query on — the builder's open query, the
- *   host told, the open query placed; a builder sharing the id opens it, with
- *   its notice.
+ * - **L6**: Open in builder → and New query on — the host told the query
+ *   asked for, which it holds and gives back to be placed; a builder the host
+ *   shows it in opens it, with its notice; nothing written for a builder to
+ *   read (#1668).
  * - **L7**: it reads no dataset; its cards drag under the library's id.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import {
-    OptionType, checkJq, decodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    OptionType, checkJq, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
-import { StateRuntime, formatters, system } from "@elaraai/east-ui-components";
+import { formatters, system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { ReactiveDatasetCache } from "../platform/index.js";
 import { whenWords } from "./about.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
-import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import { CustomersType, savedQuery } from "./fixture.test-utils.js";
-import { act, queryHarness, settle } from "./query.test-utils.js";
+import { act, firstQuery, hostQuery, queryHarness, settle, sharedEntry } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
@@ -86,7 +86,6 @@ const CANCELLED: SavedQuery = { ...savedQuery("Cancelled orders", ".orders\n| ma
 const BIG_RUN: SavedQuery = { ...BIG, saved_at: new Date("2026-10-01T10:00:00Z") };
 
 const printSaved = printFor(SavedQueryType);
-const decodeOpen = decodeBeast2For(QueryOpenType);
 const fromEqual = equalFor(OptionType(SavedQueryType));
 
 /** This viewer's recent runs, the most recent first, as the builder keeps them in the browser. */
@@ -153,11 +152,8 @@ async function search(text: string) {
     await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Search queries" }), { target: { value: text } }); });
     await settle();
 }
-/** The query the builder has open, as the library and the builder share it. */
-function opened(): QueryOpen | undefined {
-    const bytes = StateRuntime.getStore().read(queryKeys(undefined).query);
-    return bytes === undefined ? undefined : decodeOpen(bytes);
-}
+/** The open query the surface holds: what the query library told it was asked for, a new query on orders until it is told. */
+const opened = hostQuery;
 /** The empty state: its mark (each Font Awesome icon it draws, then any text), its title and hints. */
 const emptyState = () => {
     const empty = library().querySelector<HTMLElement>("[data-query-library-empty]");
@@ -261,7 +257,8 @@ describe("<Query.Library> — its gallery (#1063 L3)", () => {
         expect([actionOf(card(MISSING.name)), actionOf(card(ELSEWHERE.name))]).toEqual([null, null]);
         await click(card(ELSEWHERE.name));
         expect(library().querySelector("[data-query-library-notice]")!.textContent).toBe(`Reads ${pathToString(ARCHIVE)}, not this builder's orders`);
-        expect([opened(), screen.getByText(/^told /).textContent]).toEqual([undefined, "told nothing"]);
+        // The host is told nothing, and holds the query it began with.
+        expect([opened(), screen.getByText(/^told /).textContent]).toEqual([firstQuery("orders"), "told nothing"]);
         // Another view clears it.
         await show("source:orders");
         expect(library().querySelector("[data-query-library-notice]")).toBeNull();
@@ -316,22 +313,36 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
 // ─── L5–L6 ───────────────────────────────────────────────────────────────────
 
 describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
-    test("L6: Open in builder → writes the builder's open query and tells the host; the open query's card is placed", async () => {
+    test("L6: Open in builder → tells the host the query asked for, and writes nothing itself; the query the host says is open is placed", async () => {
         await h.mountLibrary();
+        expect(cards().filter((c) => c.hasAttribute("data-placed"))).toEqual([]);
         await click(card(BIG.name));
         expect(opened()).toEqual(variant("saved", "Big orders"));
         expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
         expect(cards().filter((c) => c.hasAttribute("data-placed")).map(nameOf)).toEqual(["Big orders"]);
+        expect(sharedEntry()).toBeUndefined();
     });
 
-    test("L6: New query on the data source the pane shows opens a new query on it, and tells the host its name", async () => {
+    test("L6: given no open query it places none, and a card's click still tells its host", async () => {
+        await h.mountLibrary({ marked: false });
+        await click(card(BIG.name));
+        expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
+        expect(cards().filter((c) => c.hasAttribute("data-placed"))).toEqual([]);
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("L6: New query on the data source the pane shows tells the host a new query on it — its own, each press", async () => {
         await h.mountLibrary();
         await show("source:customers");
         await click(screen.getByRole("button", { name: "New query on customers" }));
         const open = opened();
         if (open?.type !== "new") throw new Error("expected a new query");
         expect([open.value.source, open.value.from]).toEqual(["customers", none]);
-        expect(screen.getByText(/^told /).textContent).toBe("told Untitled customers query");
+        expect(screen.getByText(/^told /).textContent).toBe("told a new query on customers");
+        await click(screen.getByRole("button", { name: "New query on customers" }));
+        const again = opened();
+        if (again?.type !== "new") throw new Error("expected a new query");
+        expect(again.value.id).not.toBe(open.value.id);
     });
 
     test("L5: a recent run of a saved query opens the saved query; one never saved opens as a new query begun as it — each byline saying when it ran, the open one placed", async () => {
@@ -353,13 +364,13 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
         expect(cards().filter((c) => c.hasAttribute("data-placed")).map((c) => c.getAttribute("data-library-card"))).toEqual(["recent:0"]);
     });
 
-    test("L6: a builder sharing the library's id opens the query the library opens — with “Opened … from the query library.” — and runs it", async () => {
+    test("L6: a builder its host shows the open query in opens the query the library asks for — with “Opened …” — and runs it", async () => {
         await h.mountLibrary({ id: "top", builder: true });
         const builder = document.querySelector<HTMLElement>("[data-query-builder]")!;
         const ran = h.oneShots().length;
         await click(card(BIG.name));
         expect(builder.getAttribute("data-query-open")).toBe(`query.saved:"Big orders"`);
-        expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Opened “Big orders” from the query library."]);
+        expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Opened “Big orders”."]);
         expect(h.oneShots()).toHaveLength(ran + 1);
         await click(screen.getByRole("button", { name: "New query on orders" }));
         expect(builder.getAttribute("data-query-open")).toMatch(/^query\.new:/);

@@ -150,7 +150,7 @@ describe("the Table (#850)", () => {
                 pagination: { pageSize: 20n, page: 0n, onPageChange },
             });
         })), "fmt-table");
-        expect(container.textContent).toContain("Page 1 of 62 (1.234 total)");
+        expect(container.querySelector("[data-page-range]")?.textContent).toBe("Showing 1–20 of 1.234");
     });
 });
 

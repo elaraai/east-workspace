@@ -5,17 +5,19 @@
 
 /**
  * `<Studio.Library>` (#997): what it shows, computed in East over the
- * record — the projects (D2), a layout's summary and the project's templates
- * (D3), the project's pages (D4) — what a refused name write says (D5, D7),
- * the surface's manifest (R4), and the interface the browser draws.
+ * record — the projects (D2), a layout's summary — a visual by its view, a
+ * text block as Text (#1669) — and the project's templates (D3), the
+ * project's pages (D4) — what a refused name write says (D5, D7),
+ * the surface's manifest (R4), and the interface the browser draws: the open
+ * page its host gives it, and who it tells of another (#1668).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, none, some, variant,
-    type ValueTypeOf,
+    ArrayType, East, FloatType, NullType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none,
+    some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
@@ -45,6 +47,20 @@ const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", 
 /** A component that reads nothing. */
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
+/** Components whose names are another's: a second KPI rail, and ones named as a text block and as a view are. */
+const namedAsRail = Studio.component("kpi_rail_b", { name: "KPI rail", category: "Display", icon: "gauge-high" },
+    East.function([], UIComponentType, (_$) => Text.Root("More KPIs")));
+const namedText = Studio.component("words", { name: "Text", category: "Display", icon: "font" },
+    East.function([], UIComponentType, (_$) => Text.Root("Words")));
+const namedList = Studio.component("ranks", { name: "List", category: "Display", icon: "list" },
+    East.function([], UIComponentType, (_$) => Text.Root("Ranks")));
+
+/** Two visuals of one view over two sources, a list, and a text block. */
+const byRegion = Studio.visual.group("region");
+const salesColumns = Studio.visual.of("sales", Studio.visual.column({ x: byRegion, values: [Studio.visual.sum("revenue")] }));
+const stockColumns = Studio.visual.of("stock", Studio.visual.column({ x: byRegion, values: [Studio.visual.sum("units")] }));
+const topRegions = Studio.visual.of("sales", Studio.visual.list({ item: byRegion, values: [Studio.visual.sum("revenue")] }));
+const aNote = Studio.visual.text("Figures are to last night.");
 
 /** The record: in ops, the Overview live, the Detail never published, the Weekly drafted past its live version, and two templates; a retail page. */
 const PAGES = new SortedMap<Key, Entry>([
@@ -52,20 +68,22 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
+            filters: [],
         },
         live: some({
             version: 2n,
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
         }),
     })],
@@ -73,27 +91,29 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Detail",
             cells: [
-                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "c-trend", row: "r1", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
+            filters: [],
         },
         live: none,
     })],
     [{ project: "ops", page: "c-weekly" }, variant("page", {
-        draft: { title: "Weekly", cells: [] },
-        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [] } }),
+        draft: { title: "Weekly", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } }),
     })],
     [{ project: "ops", page: "t-summary" }, variant("template", {
         title: "Summary",
         cells: [
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
         ],
+        filters: [],
     })],
-    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [] })],
+    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [], filters: [] })],
     [{ project: "retail", page: "home" }, variant("page", {
-        draft: { title: "Home", cells: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [] } }),
+        draft: { title: "Home", cells: [], filters: [] },
+        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
     })],
 ], compareFor(StudioKeyType));
 
@@ -107,13 +127,39 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
     test("D3: a layout's summary names each component it places, in the order they first appear, counted when placed more than once; an unlisted one by its key", $ => {
         const listed = $.let([kpiRail, revenueTrend]);
         const cells = $.let([
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-            { key: "c-old", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, component: "orders_v0" },
+            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-old", row: "r3", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_v0") },
         ], ArrayType(Studio.Types.Cell));
         $(Assert.equal(layoutSummary(listed, cells), "KPI rail ×2 · Revenue trend · orders_v0"));
         $(Assert.equal(layoutSummary(listed, []), ""));
+    });
+
+    test("#1669: a layout's summary names a visual by its view and a text block as Text, counted like any other", $ => {
+        const listed = $.let([kpiRail]);
+        const cells = $.let([
+            { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: aNote },
+            { key: "c-sales", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: salesColumns },
+            { key: "c-kpi", row: "r2", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-stock", row: "r3", span: 6n, height: none, align: variant("top", null), title: some("Stock"), content: stockColumns },
+            { key: "c-top", row: "r3", span: 6n, height: none, align: variant("top", null), title: none, content: topRegions },
+        ], ArrayType(Studio.Types.Cell));
+        $(Assert.equal(layoutSummary(listed, cells), "Text · Column chart ×2 · KPI rail · List"));
+    });
+
+    test("#1669: a layout's summary counts placements by what they are, never by the words they are shown in: two components of one name are two, and a component named as a text block or a view is none of them", $ => {
+        const listed = $.let([kpiRail, namedAsRail, namedText, namedList]);
+        const cells = $.let([
+            { key: "c-rail", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-rail-b", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail_b") },
+            { key: "c-note", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: aNote },
+            { key: "c-words", row: "r3", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "words") },
+            { key: "c-note-2", row: "r3", span: 6n, height: none, align: variant("top", null), title: none, content: aNote },
+            { key: "c-top", row: "r4", span: 6n, height: none, align: variant("top", null), title: none, content: topRegions },
+            { key: "c-ranks", row: "r4", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "ranks") },
+        ], ArrayType(Studio.Types.Cell));
+        $(Assert.equal(layoutSummary(listed, cells), "KPI rail · KPI rail · Text ×2 · Text · List · List"));
     });
 
     test("D3: the project's templates in name order, each with its title, summary and placements; its pages and other projects' entries are not listed", $ => {
@@ -160,7 +206,8 @@ describe("<Studio.Library> — the surface (#997)", () => {
         const surface = ui("library_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let(Record.bind(pages));
-            return Studio.Library({ pages: record, components, project: "ops" });
+            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return Studio.Library({ pages: record, components, project: "ops", onOpen: go });
         }))));
         const manifest = surface.role.value!;
         assert.deepEqual(manifest.records, ["library_pages"]);
@@ -170,8 +217,9 @@ describe("<Studio.Library> — the surface (#997)", () => {
         ]);
     });
 
-    test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project and the builder it opens pages in", () => {
-        const value = East.compile(East.function([], UIComponentType, ($) => {
+    test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project, the open page its host gives it and who it tells of another; no page given marks none", () => {
+        const keyEqual = equalFor(Studio.Types.Key);
+        const build = (given: boolean) => East.compile(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let({
                 read: East.function([], StudioPagesType, (_$2) => PAGES),
@@ -181,13 +229,27 @@ describe("<Studio.Library> — the surface (#997)", () => {
                         (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
                 },
             }, StudioPagesHandleType);
-            return Studio.Library({ pages: record, components, project: "ops", id: "north" });
+            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return given
+                ? Studio.Library({ pages: record, components, project: "ops", page: { project: "ops", page: "b-overview" }, onOpen: go })
+                : Studio.Library({ pages: record, components, project: "ops", onOpen: go });
         }), [])();
+        const value = build(true);
         if (value.type !== "Extension") assert.fail(`expected the StudioLibrary carrier, got ${value.type}`);
         assert.equal(value.value.kind, "StudioLibrary");
         const payload = decodeBeast2For(StudioLibraryPayloadType)(value.value.payload);
-        assert.deepEqual([payload.project, payload.id, payload.onOpen], ["ops", some("north"), none]);
+        assert.equal(payload.project, "ops");
+        if (payload.page.type !== "some") assert.fail("expected the open page the host gave");
+        assert.ok(keyEqual(payload.page.value, { project: "ops", page: "b-overview" }));
+        // Its host is told through the function it gave.
+        assert.equal(payload.onOpen({ project: "ops", page: "a-detail" }), null);
         assert.deepEqual(payload.components.map((component) => component.key), ["revenue_trend", "kpi_rail"]);
+        // It reads no source: its payload holds none, and its surface binds none for it.
+        assert.deepEqual(Object.keys(StudioLibraryPayloadType.fields), ["pages", "components", "project", "page", "onOpen"]);
         assert.equal(payload.pages.read().size, PAGES.size);
+
+        const bare = build(false);
+        if (bare.type !== "Extension") assert.fail(`expected the StudioLibrary carrier, got ${bare.type}`);
+        assert.deepEqual(decodeBeast2For(StudioLibraryPayloadType)(bare.value.payload).page, none);
     });
 });

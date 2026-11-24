@@ -15,7 +15,9 @@
  * are each one commit, and a name another write took first is refused in the
  * words their popovers show (D5, D7, #997). The publish preview's Publish is
  * one commit, and one another publish overtook is refused in the preview's
- * words (E6, #998).
+ * words (E6, #998). The builder's Apply of a page's starting filters,
+ * `Studio.saveFilters`, is one commit on them, and a Save of the placements
+ * beside it, drafted over the same read, lands too (#1673).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -24,7 +26,7 @@ import { dirname, join } from "node:path";
 
 import {
     AsyncFunctionType, East, FunctionType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor,
-    encodeBeast2For, none, some, variant, type ValueTypeOf,
+    encodeBeast2For, none, parseJq, some, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import type { RecordPlan } from "@elaraai/e3-types";
@@ -75,9 +77,10 @@ const pages = e3.record("pages", StudioPagesType, {
             draft: {
                 title: "Overview",
                 cells: [
-                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
+                filters: [],
             },
             live: none,
         })],
@@ -240,6 +243,88 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length, "the refused save made no commit");
     });
 
+    it("#1673: the builder's Apply of the starting filters — Studio.saveFilters — is one patch commit on them; a Save of the placements drafted over the same read lands beside it; an edit of a filter another write changed since the edit began is a conflict that leaves the first standing", async () => {
+        const save = East.compileAsync(Studio.save, []) as unknown as
+            (handle: unknown, key: Key, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
+        const saveFilters = East.compileAsync(Studio.saveFilters, []) as unknown as
+            (handle: unknown, key: Key, batch: unknown) => Promise<ValueTypeOf<typeof Editing.Types.ApplyResult>>;
+        const cellPatch = diffFor(OptionType(Studio.Types.Cell));
+        const filterPatch = diffFor(OptionType(Studio.Types.PageFilter));
+        const jq = (text: string): JqNode => {
+            const parsed = parseJq(text);
+            if (parsed.program.type === "none") assert.fail(`does not parse: ${text}`);
+            return parsed.program.value;
+        };
+        const nsw = { key: "f-nsw", source: "orders", where: jq(`.region == "NSW"`) };
+        // What the builder last read, and its handle over the repository, as B12's.
+        let read = await current();
+        const overview = read.get(OVERVIEW_KEY)!;
+        if (overview.type !== "page") assert.fail("expected a page");
+        const handle = {
+            read: () => read,
+            history: () => none,
+            commit: {
+                patch: async (_requestId: string, patch: unknown) => {
+                    const outcome = await commit(patch, "ana");
+                    switch (outcome.kind) {
+                        case "committed": return variant("committed", { commitHash: outcome.commitHash, stateHash: outcome.stateHash });
+                        case "conflict": return variant("conflict", { attempts: BigInt(outcome.attempts), detail: outcome.detail === undefined ? none : some(outcome.detail) });
+                        case "invalid": return variant("invalid", { message: outcome.message });
+                        case "failed": return variant("failed", { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr });
+                        case "timed_out": return variant("timed_out", { ms: BigInt(outcome.ms), stderr: outcome.stderr });
+                    }
+                },
+            },
+        };
+        const cells = overview.value.draft.cells;
+        // One Save, as a history over both sessions sends it: each session's own request, both over the one read —
+        // the placements' patch lands on the record the filters' changed.
+        const filtered = await saveFilters(handle, OVERVIEW_KEY, {
+            requestId: "start-nsw", base: variant("snapshot", []), label: "Add starting filter",
+            changes: [{ id: "f-nsw", patch: filterPatch(none, some(nsw)), place: some(variant("ordered", variant("start", null))) }],
+        });
+        const resized = await save(handle, OVERVIEW_KEY, {
+            requestId: "resize-6", base: variant("snapshot", [...cells]), label: "Resize Revenue trend",
+            changes: [{ id: "c-trend", patch: cellPatch(some(cells[1]!), some({ ...cells[1]!, span: 6n })), place: none }],
+        });
+        assert.deepEqual([filtered.type, resized.type], ["applied", "applied"]);
+        const saved = (await current()).get(OVERVIEW_KEY)!;
+        if (saved.type !== "page") assert.fail("expected a page");
+        assert.deepEqual(saved.value.draft.filters, [nsw]);
+        assert.deepEqual(saved.value.draft.cells.map((c) => [c.key, c.span]), [["c-kpi", 12n], ["c-trend", 6n]]);
+        const history = await recordHistory(storage, repo, "main", "pages");
+        assert.deepEqual(history.slice(0, 2).map((entry) => entry.commit.mutation), ["patch", "patch"], "one commit each");
+
+        // Two builders read that Save. One makes the filter South Australia's and saves. The other, still holding
+        // New South Wales's, takes it off: its Apply reaches e3, which refuses it — the filter it takes off is no
+        // longer the one there — and the first stands.
+        read = await current();
+        const toSA = { ...nsw, where: jq(`.region == "SA"`) };
+        const first = await saveFilters(handle, OVERVIEW_KEY, {
+            requestId: "nsw-sa", base: variant("snapshot", [nsw]), label: "Change starting filter",
+            changes: [{ id: "f-nsw", patch: filterPatch(some(nsw), some(toSA)), place: none }],
+        });
+        assert.equal(first.type, "applied");
+        const stale = await saveFilters(handle, OVERVIEW_KEY, {
+            requestId: "nsw-off", base: variant("snapshot", [nsw]), label: "Remove starting filter",
+            changes: [{ id: "f-nsw", patch: filterPatch(some(nsw), none), place: none }],
+        });
+        if (stale.type !== "conflict") assert.fail(`expected a conflict, got ${stale.type}`);
+        assert.deepEqual(stale.value.map((issue) => issue.message), ["The entry changed since this edit began"]);
+        // Once it has read the first's Save, its edit of the filter it began from is refused before it writes.
+        read = await current();
+        const refused = await saveFilters(handle, OVERVIEW_KEY, {
+            requestId: "nsw-vic", base: variant("snapshot", [nsw]), label: "Change starting filter",
+            changes: [{ id: "f-nsw", patch: filterPatch(some(nsw), some({ ...nsw, where: jq(`.region == "VIC"`) })), place: none }],
+        });
+        if (refused.type !== "conflict") assert.fail(`expected a conflict, got ${refused.type}`);
+        assert.deepEqual(refused.value.map((issue) => issue.message), ["The entry changed since this edit began"]);
+        const after = (await current()).get(OVERVIEW_KEY)!;
+        if (after.type !== "page") assert.fail("expected a page");
+        assert.deepEqual(after.value.draft.filters, [toSA]);
+        assert.equal((await recordHistory(storage, repo, "main", "pages")).length, history.length + 1, "the refused save made no commit");
+    });
+
     it("R8: a saved template and a new page from it are one commit each", async () => {
         const templateKey: Key = { project: "ops", page: "tpl-overview" };
         const detailKey: Key = { project: "ops", page: "detail" };
@@ -250,7 +335,7 @@ describe("the pages record in e3 (#992)", () => {
         const template = now.get(templateKey)!;
         const detail = now.get(detailKey)!;
         if (template.type !== "template" || detail.type !== "page") assert.fail("expected a template and a page");
-        assert.deepEqual(detail.value, { draft: { title: "Detail", cells: template.value.cells }, live: none });
+        assert.deepEqual(detail.value, { draft: { title: "Detail", cells: template.value.cells, filters: template.value.filters }, live: none });
         assert.equal((await recordHistory(storage, repo, "main", "pages")).length, 3, "the deploy's commit and one each");
     });
 
@@ -295,8 +380,10 @@ describe("the pages record in e3 (#992)", () => {
         const template = now.get({ project: "ops", page: "Overview template" })!;
         const overview = now.get(OVERVIEW_KEY)!;
         if (template.type !== "template" || overview.type !== "page") assert.fail("expected a template and a page");
-        assert.deepEqual(template.value, { title: "Overview template", cells: overview.value.draft.cells }, "the page as last saved");
-        assert.deepEqual(now.get({ project: "ops", page: "Q3 review" }), variant("page", { draft: { title: "Q3 review", cells: overview.value.draft.cells }, live: none }));
+        assert.deepEqual(template.value, { title: "Overview template", cells: overview.value.draft.cells, filters: overview.value.draft.filters }, "the page as last saved");
+        assert.deepEqual(now.get({ project: "ops", page: "Q3 review" }), variant("page", {
+            draft: { title: "Q3 review", cells: overview.value.draft.cells, filters: overview.value.draft.filters }, live: none,
+        }));
         const history = await recordHistory(storage, repo, "main", "pages");
         assert.deepEqual(history.map((entry) => entry.commit.mutation).slice(0, 2), ["patch", "patch"], "one commit each");
 

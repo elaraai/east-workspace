@@ -61,9 +61,10 @@ import {
     type CheckJqResult, type JqCombine, type JqPruning, type JqRange, type JqSplit, type JqSplitCall, type JqSplitStages, type JqWholeReason,
 } from "@elaraai/east";
 import { PIECE_SIZES, pieceSizesFor, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
+import { messageOf } from "../shared/message.js";
 import {
-    entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits,
-    type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
+    NOW_FIELD, argsOf, clockArg, datasetEntries, entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits, rootHasClock,
+    type CheckedProgram, type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
 } from "./one-shot.js";
 
 // ─── What planning takes ─────────────────────────────────────────────────────
@@ -274,10 +275,11 @@ export type QueryPlan =
     | { readonly kind: "split"; readonly request: SplitCallRequest; readonly reading: QueryReading; readonly explanation: PlanExplanation }
     /**
      * A re-keyed join (#942): two split calls, the second over the first's
-     * output by its hash; the second's answer, with what the first read
-     * ({@link RekeyCalls.answer}), is read as a one-shot call's.
+     * output by its hash; the run's answer, and what reading it needs, are
+     * made of the two calls' ({@link RekeyCalls.answer}), and read as a
+     * one-shot call's.
      */
-    | ({ readonly kind: "rekey"; readonly reading: QueryReading; readonly explanation: PlanExplanation } & RekeyCalls);
+    | ({ readonly kind: "rekey"; readonly explanation: PlanExplanation } & RekeyCalls);
 
 /** A re-keyed join's two split calls ({@link rekeyCallRequests}), and how their answers make the run's. */
 export interface RekeyCalls {
@@ -291,16 +293,18 @@ export interface RekeyCalls {
      */
     join(output: string): SplitCallRequest;
     /**
-     * The run's answer: the join call's, or the re-key call's when it gave no
-     * output to join, with every dataset the run read — the re-key call's
-     * dataset, pinned as it pinned it, then the join call's — in the order
-     * the reading's entries name them.
+     * The run's answer, and what reading it needs: the join call's answer, or
+     * the re-key call's when it gave no output to join, with every dataset the
+     * run read — the re-key call's dataset, pinned as it pinned it, then the
+     * join call's — in the order the reading's entries name them; and each
+     * argument as the call that answered numbers them, which e3 numbers a
+     * refused one by, so a refusal names its own data source (#1670).
      *
      * @param first - the re-key call's result
      * @param join - the join call's result; `undefined` when the re-key call gave no output
-     * @returns the run's answer
+     * @returns the run's answer, and its reading
      */
-    answer(first: ExecuteResult, join: ExecuteResult | undefined): ExecuteResult;
+    answer(first: ExecuteResult, join: ExecuteResult | undefined): { readonly result: ExecuteResult; readonly reading: QueryReading };
 }
 
 /**
@@ -308,8 +312,10 @@ export interface RekeyCalls {
  * first half of a plan, which says which data source's weight decides it.
  */
 export interface PlanDraft {
-    /** The data sources the query reads, in the order it first reads them: what a run says it reads. */
+    /** The data sources the query reads, in the order it first reads them: what a run says it reads. `.now` is no data source, and is not among them. */
     readonly reads: readonly string[];
+    /** Whether the query reads `.now`, the minute it is asked (#1670): its answer is that minute's. */
+    readonly readsNow: boolean;
     /** The data source a split call would cut, whose weight decides the path; `undefined` when the query runs as one unit. */
     readonly over: string | undefined;
     /**
@@ -512,11 +518,6 @@ function serverOf(options: PlanOptions): { memoryBytes: number | null; cores: nu
     return { memoryBytes, cores };
 }
 
-/** An error's message. */
-function messageOf(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-}
-
 /**
  * Checks and splits a query: the first half of a plan, which says the data
  * source whose weight decides the path ({@link PlanDraft.over}).
@@ -556,9 +557,11 @@ export function draftPlan(programs: PlanPrograms | string, root: QueryRoot, opti
     } catch (err) {
         split = { kind: "failed", message: messageOf(err) };
     }
+    const clock = rootHasClock(root);
     return {
         draft: {
-            reads: [...checked.reads],
+            reads: checked.reads.filter(name => !(clock && name === NOW_FIELD)),
+            readsNow: clock && checked.reads.includes(NOW_FIELD),
             over: split.kind === "split" ? split.over : undefined,
             weighs: split.kind === "split" ? [...new Set([split.over, ...split.copartitioned, ...(split.rekey === null ? [] : [split.rekey.name])])] : [],
             programs: all, root, options, checked, split,
@@ -642,18 +645,20 @@ export function weighPlan(
         else if (tooLarge) why = "size";
         else return oneCall({ kind: "faster", over: split.over }, split.pruning, estimates);
     }
-    let call: { request: SplitCallRequest; reading: QueryReading } | ({ reading: QueryReading } & RekeyCalls);
+    let call: { request: SplitCallRequest; reading: QueryReading } | RekeyCalls;
     try {
         call = splitCallOf(draft, split, rekey !== null);
     } catch (err) {
         return oneCall({ kind: "unsplit", over: split.over, message: messageOf(err) }, split.pruning);
     }
+    const clock = rootHasClock(root);
     const explanation: PlanExplanation = {
         program,
         path: {
             kind: "split", why, over: split.over, heaviest, bytes, pieceBytes, output: split.output.kind, stages: split.stages,
-            // A re-keyed join reads its other side cut at the same keys, not whole.
-            broadcast: rekey === null ? split.broadcast : split.broadcast.filter(name => name !== rekey.name),
+            // Every piece reads these whole: not `.now`, the minute it is asked, a value and no data source (#1670), nor a
+            // re-keyed join's other side, which it reads cut at the same keys.
+            broadcast: split.broadcast.filter(name => !(clock && name === NOW_FIELD) && name !== rekey?.name),
             copartitioned: split.copartitioned,
             rekey: rekey === null ? null : { name: rekey.name, key: rekey.key, bytes },
         },
@@ -693,7 +698,8 @@ export function weighPlan(
  * if (plan.kind === "rekey") {
  *     const first = await splitCall(url, repo, workspace, plan.first, { token });
  *     const join = first.output === null ? undefined : (await splitCall(url, repo, workspace, plan.join(first.output), { token })).result;
- *     return queryResultOf(plan.reading, plan.answer(first.result, join));
+ *     const { result, reading } = plan.answer(first.result, join);
+ *     return queryResultOf(reading, result);
  * }
  * return queryResultOf(plan.prepared, await oneShotExecute(url, repo, workspace, plan.prepared.request, { token }));
  * ```
@@ -715,7 +721,7 @@ export function planQuery(
  * @throws {Error} When the split program does not check, or splits otherwise
  *   than the query.
  */
-function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { request: SplitCallRequest; reading: QueryReading } | ({ reading: QueryReading } & RekeyCalls) {
+function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { request: SplitCallRequest; reading: QueryReading } | RekeyCalls {
     const { programs, root, options } = draft;
     const { maxOutputs } = queryLimits(options);
     let checked = draft.checked;
@@ -732,11 +738,12 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
         call = wrapped;
     }
     if (!programChecks(checked)) throw new Error("the query does not check");
-    const entry = (name: string) => entryNamed(root, name, "splitCallRequest");
-    if (!rekey) return { request: splitCallRequest(call, root, options), reading: { checked, entries: call.inputs.map(input => entry(input.name)), maxOutputs } };
-    // The re-key call reads the dataset, and the join call the rest: what the run read, in that order.
-    const joined = call.inputs.filter(input => input.name !== call.over).map(input => entry(input.name));
-    return { ...rekeyCallRequests(call, root, options), reading: { checked, entries: [entry(call.over), ...joined], maxOutputs } };
+    if (!rekey) {
+        // `.now`, when the query reads it, is a value argument: the call names the datasets it read alone (#1670).
+        const args = argsOf(call.inputs, root);
+        return { request: splitCallRequest(call, root, options), reading: { checked, entries: datasetEntries(args, root, "splitCallRequest"), args, maxOutputs } };
+    }
+    return rekeyCallRequests(call, checked, root, options);
 }
 
 // ─── The request ─────────────────────────────────────────────────────────────
@@ -764,7 +771,8 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
  *   data source's path; the one the pieces are cut from, `over`, is
  *   partitioned with no `by`, so any key may start a piece, and so is each of
  *   `copartitioned`, which e3 cuts at the same keys (#942); every other
- *   argument reaches each piece whole.
+ *   argument reaches each piece whole. `.now` is a `value` argument: the
+ *   minute the options name, else the current one (#1670).
  * - `output` is the split's output kind: a dict's merge and a fold's combine
  *   encoded as the programs are, and a fold's zero as beast2 at its type; a
  *   stream's first rows a `first` output of their count (#1113).
@@ -786,10 +794,11 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
 export function splitCallRequest(split: JqSplitCall, root: QueryRoot, options: QueryOptions = {}): SplitCallRequest {
     const { limits, runner } = queryLimits(options);
     const then = split.then();
+    const args = argsOf(split.inputs, root);
     return {
         bodyIr: encodeEastIR(split.piece().toIR()),
-        args: split.inputs.map(input => ({
-            arg: variant("dataset", entryNamed(root, input.name, "splitCallRequest").path),
+        args: split.inputs.map((input, i) => ({
+            arg: args[i] === null ? clockArg(options) : variant("dataset", entryNamed(root, input.name, "splitCallRequest").path),
             partition: input.name === split.over || split.copartitioned.includes(input.name) ? some({ by: [] }) : none,
         })),
         output: outputOf(split.output),
@@ -804,6 +813,7 @@ export function splitCallRequest(split: JqSplitCall, root: QueryRoot, options: Q
  * both sides of a join weigh more than one piece.
  *
  * @param split - the query's split, whose `rekey` is the join
+ * @param checked - what the checker made of the query that split: what reading the run's answer needs
  * @param root - the root
  * @param options - the calls' limits and their runner, as a one-shot call's
  * @returns the re-key call, the join call over its output, and how their
@@ -823,12 +833,14 @@ export function splitCallRequest(split: JqSplitCall, root: QueryRoot, options: Q
  *   function `rekey.joinThen()`.
  * - **The answer** is the join call's, with the re-key call's dataset first in
  *   what the run read, as the re-key call pinned it; or the re-key call's own
- *   when it ended without an output.
+ *   when it ended without an output. Its reading numbers the arguments as the
+ *   call that answered does: e3 numbers a refused argument among its own
+ *   call's, the minute's value among the join call's (#1670).
  */
-export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: QueryOptions = {}): RekeyCalls {
+export function rekeyCallRequests(split: JqSplitCall, checked: CheckedProgram, root: QueryRoot, options: QueryOptions = {}): RekeyCalls {
     const rekey = split.rekey;
     if (rekey === null) throw new Error("rekeyCallRequests: the split re-keys no join");
-    const { limits, runner } = queryLimits(options);
+    const { limits, runner, maxOutputs } = queryLimits(options);
     const path = (name: string) => entryNamed(root, name, "rekeyCallRequests").path;
     const first: SplitCallRequest = {
         bodyIr: encodeEastIR(rekey.piece().toIR()),
@@ -845,22 +857,33 @@ export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: 
     const piece = encodeEastIR(rekey.joinPiece().toIR());
     const then = rekey.joinThen();
     const thenIr = then === null ? none : some(encodeEastIR(then.toIR()));
+    // `.now`, when the join reads it, is a value argument (#1670).
+    const joinArgs = argsOf(rekey.inputs, root);
+    // What reading each call's answer needs. The re-key call reads the dataset alone. The join call reads the re-keyed
+    // rows — the dataset they are of — by their hash, the minute's value and the rest, in its own order; the run read
+    // the re-key call's dataset first, then the join call's.
+    const firstReading: QueryReading = { checked, entries: datasetEntries([split.over], root, "rekeyCallRequests"), args: [split.over], maxOutputs };
+    const joinReading: QueryReading = {
+        checked, args: joinArgs, maxOutputs,
+        entries: datasetEntries([split.over, ...joinArgs.filter(name => name !== split.over)], root, "rekeyCallRequests"),
+    };
     return {
         first,
         join: (output) => ({
             bodyIr: piece,
-            args: rekey.inputs.map(input => input.name === split.over
+            args: rekey.inputs.map((input, i) => input.name === split.over
                 ? { arg: variant("object", output), partition: some({ by: [] }) }
-                : { arg: variant("dataset", path(input.name)), partition: input.name === rekey.name ? some({ by: [] }) : none }),
+                : joinArgs[i] === null
+                    ? { arg: clockArg(options), partition: none }
+                    : { arg: variant("dataset", path(input.name)), partition: input.name === rekey.name ? some({ by: [] }) : none }),
             output: outputOf(split.output),
             then: thenIr,
             runner,
             limits,
         }),
-        answer: (firstResult, joinResult) => ({
-            ...(joinResult ?? firstResult),
-            inputs: [...firstResult.inputs, ...(joinResult?.inputs ?? [])],
-        }),
+        answer: (firstResult, joinResult) => (joinResult === undefined
+            ? { result: firstResult, reading: firstReading }
+            : { result: { ...joinResult, inputs: [...firstResult.inputs, ...joinResult.inputs] }, reading: joinReading }),
     };
 }
 

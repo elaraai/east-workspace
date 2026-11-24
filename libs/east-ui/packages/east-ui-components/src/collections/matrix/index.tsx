@@ -19,6 +19,7 @@ import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { VirtualRows } from "../virtual-rows.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { useFontsIn } from "../../hooks/useFontsIn.js";
 import { keptRead } from "../../platform/kept.js";
 import { EastChakraComponent } from "../../component";
 import {
@@ -28,6 +29,8 @@ import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 import { followPointer } from "../../pointer/follow-pointer.js";
+import { measureLabel, measureText, themeFont } from "../table/phone-fit.js";
+import { TILE_EDGE, TILE_PAD } from "../table/tile.js";
 
 const matrixRootEqual = equivalentFor(Matrix.Types.Root);
 
@@ -49,6 +52,14 @@ export interface EastChakraMatrixProps {
     value: MatrixRootValue;
     /** Storage key for persisting layout state. Omit for ephemeral state. */
     storageKey: string;
+    /**
+     * Whether it is a tile's grid (#1671) — a Studio pivot's heat blocks, edge
+     * to edge in a Frame: its header on the surface, its rows unruled around
+     * 30px blocks, its row names' column as wide as the names need and never
+     * resized, its value columns sharing the rest, each as wide as its widest
+     * head at the least (#1692), the grid scrolling inside its tile past them.
+     */
+    tile?: boolean | undefined;
 }
 
 /** Persisted layout — the row-header column width, and the viewer's folds. */
@@ -367,22 +378,22 @@ function MatrixCell({
 const ROW_HEADER_DEFAULT = 180;
 
 /** Renders an East Matrix value as a CSS-grid of status-coloured segment bars. */
-export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageKey }: EastChakraMatrixProps) {
+export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageKey, tile = false }: EastChakraMatrixProps) {
     const densityTag = getSomeorUndefined(value.density)?.type;
     const size = sizeFromDensity(value);
     const recipe = useSlotRecipe({ key: "matrix" });
     const tableRecipe = useSlotRecipe({ key: "table" });
     const sliceRecipe = useSlotRecipe({ key: "sliceFrame" });
-    const base = useMemo(() => recipe({ size }) as unknown as RecipeStyles, [recipe, size]);
+    const base = useMemo(() => recipe({ size, tile }) as unknown as RecipeStyles, [recipe, size, tile]);
     // The header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule), identical to Table / Gantt — one source, three views.
-    const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
+    const headerCellStyle = useMemo(() => (tableRecipe({ size, tile }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size, tile]);
     // A nested row's indent and caret are the Table's too (#955): one step
     // per depth — the Plan's gutter step (#949) — and the Plan's caret.
     const treeStyles = useMemo(() => {
-        const t = tableRecipe({ size }) as unknown as RecipeStyles;
+        const t = tableRecipe({ size, tile }) as unknown as RecipeStyles;
         return { indent: t.treeIndent ?? {}, toggle: t.treeToggle ?? {} };
-    }, [tableRecipe, size]);
+    }, [tableRecipe, size, tile]);
     // The legend reuses the Slice.Legend rail + item slots (the same swatch · label
     // chips), so a Matrix legend reads identically to a Slice breakdown legend.
     const sliceStyles = useMemo(() => sliceRecipe() as unknown as RecipeStyles, [sliceRecipe]);
@@ -401,23 +412,23 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     // every cell/segment picks from these maps (no per-element recipe calls).
     const barStyles = useMemo(() => {
         const out = {} as Record<Orientation, Record<string, unknown>>;
-        for (const o of ORIENTATIONS) out[o] = (recipe({ size, orientation: o } as Record<string, unknown>) as unknown as RecipeStyles).bar ?? {};
+        for (const o of ORIENTATIONS) out[o] = (recipe({ size, tile, orientation: o } as Record<string, unknown>) as unknown as RecipeStyles).bar ?? {};
         return out;
-    }, [recipe, size]);
+    }, [recipe, size, tile]);
     const cellStyles = useMemo(() => {
         const out = {} as Record<Orientation, Record<string, unknown>>;
-        for (const o of ORIENTATIONS) out[o] = (recipe({ size, orientation: o } as Record<string, unknown>) as unknown as RecipeStyles).cell ?? {};
+        for (const o of ORIENTATIONS) out[o] = (recipe({ size, tile, orientation: o } as Record<string, unknown>) as unknown as RecipeStyles).cell ?? {};
         return out;
-    }, [recipe, size]);
+    }, [recipe, size, tile]);
     const segStyles = useMemo(() => {
         const out = {} as Record<Orientation, Record<FillKey, Record<string, unknown>>>;
         for (const o of ORIENTATIONS) {
             const byFill = {} as Record<FillKey, Record<string, unknown>>;
-            for (const f of FILLS) byFill[f] = (recipe({ size, orientation: o, fill: f } as Record<string, unknown>) as unknown as RecipeStyles).seg ?? {};
+            for (const f of FILLS) byFill[f] = (recipe({ size, tile, orientation: o, fill: f } as Record<string, unknown>) as unknown as RecipeStyles).seg ?? {};
             out[o] = byFill;
         }
         return out;
-    }, [recipe, size]);
+    }, [recipe, size, tile]);
     const statusStyles = useMemo(() => {
         const out = {} as Record<StatusKey, RecipeStyles>;
         for (const s of STATUSES) out[s] = recipe({ size, status: s } as Record<string, unknown>) as unknown as RecipeStyles;
@@ -488,13 +499,34 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     const columnSizeVars = useColumnSizeVars(table);
     const headerCells = table.getHeaderGroups()[0]?.headers ?? [];
 
-    const leftPaneWidth = `${table.getTotalSize()}px`;
-    const colMin = "90px";
-    const colMinPx = 90;
+    // A tile's row names (#1671): their column as wide as the widest of them, or their head, needs — measured as the
+    // recipe's type draws them, again once the fonts arrive.
+    const fontsIn = useFontsIn(tile);
+    const tileLeft = useMemo(() => {
+        if (!tile || typeof document === "undefined") return undefined;
+        const mono = themeFont("mono", document.body, "monospace");
+        const widest = value.rows.reduce((most, row) => Math.max(most, measureText(row.value, `400 11px ${mono}`)),
+            measureLabel(rowHeaderLabel, `600 10px ${mono}`, 1.6));
+        return `${Math.ceil(widest) + 2 + TILE_PAD + TILE_EDGE}px`;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
+    }, [tile, value.rows, rowHeaderLabel, fontsIn]);
+    const leftPaneWidth = tileLeft ?? `${table.getTotalSize()}px`;
+    // A tile's blocks may stand narrower than a bar's 90 before its grid scrolls, but never narrower than their widest
+    // head (#1692) — the label voice, tracked, in the 2 either side of it — so no head is cut; past them the grid
+    // scrolls inside its tile (TBL-5).
+    const tileHead = useMemo(() => {
+        if (!tile || typeof document === "undefined") return 0;
+        const mono = themeFont("mono", document.body, "monospace");
+        const widest = cols.reduce((most, c) => Math.max(most, measureLabel(c.label, `600 10px ${mono}`, 1.6)), 0);
+        return Math.ceil(widest) + 2 + 4;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
+    }, [tile, cols, fontsIn]);
+    const colMinPx = tile ? Math.max(44, tileHead) : 90;
+    const colMin = `${colMinPx}px`;
     const slotTemplate = `repeat(${nCols}, minmax(${colMin}, 1fr))`;
     const gridMinWidth = `calc(${leftPaneWidth} + ${nCols * colMinPx}px)`;
     const stickyLeft = { position: "sticky" as const, left: 0, zIndex: 1, background: "bg.surface" };
-    const stickyLeftHeader = { ...stickyLeft, zIndex: 2, background: "bg.panel" };
+    const stickyLeftHeader = { ...stickyLeft, zIndex: 2, background: tile ? "bg.surface" : "bg.panel" };
 
     // Shared plot gutter (#147) — own field wins over a PlotGutterProvider
     // context. When active the value-grid is pinned to [left, W−right]: the
@@ -508,10 +540,11 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     const rightCol = gRight ?? "0px";
     const effectiveLeftPane = gLeft ?? leftPaneWidth;
-    // When `left` pins the header pane, override the TanStack size vars so the
+    // When `left` pins the header pane — or a tile's names size it — override the TanStack size vars so the
     // inner cells match the outer track (otherwise the 180px cell overflows `left`).
-    const effectiveSizeVars = gLeft !== undefined
-        ? { ...columnSizeVars, "--col-__rowheader__-size": gLeft, "--header-__rowheader__-size": gLeft }
+    const pinnedLeft = gLeft ?? tileLeft;
+    const effectiveSizeVars = pinnedLeft !== undefined
+        ? { ...columnSizeVars, "--col-__rowheader__-size": pinnedLeft, "--header-__rowheader__-size": pinnedLeft }
         : columnSizeVars;
     const outerCols = gutterActive ? `${effectiveLeftPane} 1fr ${rightCol}` : `${leftPaneWidth} 1fr`;
     const rightCols = gutterActive ? `repeat(${nCols}, minmax(0, 1fr))` : slotTemplate;
@@ -557,10 +590,10 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             alignItems="center"
                             style={getHeaderCellStyle(header, hasFrozen, columnSizing, false)}
                         >
-                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
+                            <Box as="span" css={base.colHeader}>
                                 {header.column.columnDef.header as string}
                             </Box>
-                            <ColumnResizeHandle header={header} />
+                            {!tile && <ColumnResizeHandle header={header} />}
                         </Box>
                     ))}
                 </Box>
@@ -571,8 +604,8 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             css={{ ...headerCellStyle, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}
                             data-slot="headerCell"
                         >
-                            {c.label}
-                            {ci < cols.length - 1 && <ColumnDividerBar />}
+                            <Box as="span" css={base.headerCell}>{c.label}</Box>
+                            {!tile && ci < cols.length - 1 && <ColumnDividerBar />}
                         </Box>
                     ))}
                 </Box>
@@ -740,4 +773,4 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     return densityTag !== undefined
         ? <DensityProvider value={densityTag}>{frame}</DensityProvider>
         : frame;
-}, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.tile === next.tile);

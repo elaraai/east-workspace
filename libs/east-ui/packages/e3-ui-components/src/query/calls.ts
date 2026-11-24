@@ -6,8 +6,10 @@
 /**
  * A query's calls without the builder (#941) — `@elaraai/e3-ui-components/query`:
  * the root a query reads, its one-shot call and the reading of its answer
- * (`one-shot.ts`), a run's plan and its split call (`plan.ts`), and each call
- * answered in memory where there is no server (`in-memory-call.ts`).
+ * (`one-shot.ts`), a run's plan and its split call (`plan.ts`), a planned
+ * run made as the builder makes it — one call, a split call or a re-keyed
+ * join's two (`run-draft.ts`, #1670) — and each call answered in memory where
+ * there is no server (`in-memory-call.ts`).
  *
  * It imports neither React nor the renderers — only East and e3's wire types —
  * so a host in Node, where the package's main entry cannot load (its renderers
@@ -31,7 +33,8 @@
  *         // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
  *         const first = await splitCall(url, repo, workspace, plan.first, { token });
  *         const join = first.output === null ? undefined : (await splitCall(url, repo, workspace, plan.join(first.output), { token })).result;
- *         return queryResultOf(plan.reading, plan.answer(first.result, join));
+ *         const { result, reading } = plan.answer(first.result, join);
+ *         return queryResultOf(reading, result);
  *     }
  *     case "one_shot":
  *         return queryResultOf(plan.prepared, await oneShotExecute(url, repo, workspace, plan.prepared.request, { token }));
@@ -78,6 +81,39 @@ export {
     type SplitWhy,
 } from "./plan.js";
 export {
+    runDraft,
+    type DraftRun,
+    type DraftRunEvents,
+    type DraftRunSeams,
+} from "./run-draft.js";
+// A Studio visual's programs, and asking them (#1670). A visual's source is the
+// printer's `PrintSource`: a host here makes one from e3-ui's `sourceRowsOf`,
+// which this entry does not reach, as it reaches no east-ui.
+export {
+    periodWindow,
+    printVisual,
+    VISUAL_GROUP_LIMIT,
+    VISUAL_RECORDS_PAGE,
+    type PrintRange,
+    type PrintSource,
+    type PrintState,
+    type PrintWindow,
+    type PrintedVisual,
+    type VisualAsk,
+    type VisualPeriod,
+    type VisualValue,
+} from "./visual/print.js";
+export { pageRange, printStateOf, type PageFilter } from "./visual/filters.js";
+export {
+    askProgram,
+    visualValue,
+    VisualAnswers,
+    VisualAskError,
+    type VisualAnswer,
+    type VisualRequest,
+} from "./visual/ask.js";
+export { AnswerCache, readHashes, type KeptRequest, type KeptResult } from "./model/summaries.js";
+export {
     createInMemoryQueryCall,
     createInMemorySplitCall,
     createInMemorySourceStatus,
@@ -87,5 +123,5 @@ export {
 } from "./in-memory-call.js";
 // The calls' shapes, as the builder's seams take them: types only, so nothing of React is reached.
 export type {
-    QueryCall, QueryCallOptions, QuerySplitCall, QuerySplitCallOptions, QuerySplitExplain, QuerySourceStatus, SourceStatus,
+    QueryCall, QueryCallOptions, QueryCollection, QuerySplitCall, QuerySplitCallOptions, QuerySplitExplain, QuerySourceStatus, SourceStatus,
 } from "./hooks.js";

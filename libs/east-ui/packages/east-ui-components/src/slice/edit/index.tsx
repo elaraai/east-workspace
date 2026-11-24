@@ -9,13 +9,13 @@ import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from
 import { useSliceDensity } from "../density";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
-import { frameBounds } from "../../overlays/popover/frame-bounds.js";
+import { frameBounds, ownHeight, roomAround, sideThatFits, sideToHold, type PopoverSide } from "../../overlays/popover/frame-bounds.js";
 import { FOCUSABLE } from "../../primitives/focusable.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
-import { layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { escapeTakenWithin, layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -57,8 +57,8 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     onOpenChange: (open: boolean) => void;
     /** Mono head label naming the edit target. */
     label: ReactNode;
-    /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors. */
-    size?: "sm" | "lg";
+    /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors, `xl` (460px) for a filter's rows of conditions. */
+    size?: "sm" | "lg" | "xl";
     /**
      * Drop the body's own padding and gap, for a body that is a LIST.
      *
@@ -74,8 +74,16 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     footLeft?: ReactNode;
     /** Right foot cluster — the action grammar (`Cancel · Apply`, `Done`, …). */
     footActions?: ReactNode;
-    /** The element the focus goes to as it opens — the first focusable in it
-     *  (its head's ×) when omitted, or when this finds none. */
+    /**
+     * Whether its head draws its close ×. `false` for an editor whose foot holds what closes it — a filter's or an
+     * alert's Cancel — so no × stands in its head over the ×s of its rows; Esc and a press outside it close it as
+     * before, and its head is as tall as with one. Drawn unless given. A phone's view keeps its ← back, and the bottom
+     * panel its ⌄.
+     */
+    headClose?: boolean | undefined;
+    /** The element the focus goes to as it opens — the first focusable in it (its head's ×) when omitted, or when
+     *  this finds none; with no × in its head ({@link editorFocus}), its body's first control, else its foot's first
+     *  action. */
     initialFocusEl?: (() => HTMLElement | null) | undefined;
     /**
      * Whether it stays open as the focus leaves it — for one whose action
@@ -102,9 +110,31 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     contentRef?: Ref<HTMLDivElement> | undefined;
     /** It appears and goes at once, with no fade or scale. */
     still?: boolean | undefined;
+    /**
+     * What it shows, for one that shows one thing and then another while it is open — its list, then the editor of one
+     * of its rows (`+N more`'s, a visual's alerts'). As it changes, the side the popover holds is weighed again by its
+     * height now: kept while what it shows fits there, else chosen as when it opened — an editor too tall for the room
+     * under what it hangs from opens over it, where it fits. One that shows one thing gives none.
+     */
+    view?: string | undefined;
     /** The editor body. */
     children: ReactNode;
 };
+
+/**
+ * Where the focus goes in an editor whose head holds no close × (`headClose: false`): its body's first control — else
+ * its foot's first action, as Cancel is. Never the link at its foot's start, which may take what it edits away
+ * (Remove filter), and which the first control of the whole popover would be once its body holds none.
+ *
+ * @param editor - The editor's element: the popover's content, a phone's view, or the bottom panel
+ * @returns The control, or `null` where it holds none the focus can go to
+ */
+export function editorFocus(editor: Element | null | undefined): HTMLElement | null {
+    if (editor === null || editor === undefined) return null;
+    return editor.querySelector("[data-slice-edit-body]")?.querySelector<HTMLElement>(FOCUSABLE)
+        ?? editor.querySelector("[data-slice-edit-actions]")?.querySelector<HTMLElement>(FOCUSABLE)
+        ?? null;
+}
 
 /** Places an open popover again as what it hangs from changes: Zag places it again only as its anchor or the page moves. */
 function Rehang({ from }: { from: unknown }) {
@@ -115,6 +145,42 @@ function Rehang({ from }: { from: unknown }) {
         last.current = from;
         if (popover.open) popover.reposition();
     });
+    return null;
+}
+
+/**
+ * Chooses the side an open popover opens on once its content is there, and lets it go as it shuts (#1701). Its content
+ * is there by the frame after it opens — the draws its opening asks for, a field's list opened as it mounts, done by
+ * then — where Zag places it too: chosen, it is placed again at once, on the side it holds.
+ *
+ * As what it shows changes while it is open (`view`: its list for the editor of one of its rows), the side it holds is
+ * weighed again the frame after, what it shows now there: moved, it is placed again.
+ */
+function HoldSide({ choose, weigh, release, view }: { choose: () => boolean; weigh: () => boolean; release: () => void; view: string | undefined }) {
+    const popover = usePopoverContext();
+    const { open } = popover;
+    const place = useRef(popover.reposition);
+    place.current = popover.reposition;
+    useLayoutEffect(() => {
+        if (!open) {
+            release();
+            return undefined;
+        }
+        const frame = requestAnimationFrame(() => {
+            if (choose()) place.current();
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, choose, release]);
+    const shown = useRef(view);
+    useLayoutEffect(() => {
+        if (shown.current === view) return undefined;
+        shown.current = view;
+        if (!open) return undefined;
+        const frame = requestAnimationFrame(() => {
+            if (weigh()) place.current();
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, view, weigh]);
     return null;
 }
 
@@ -136,14 +202,22 @@ function Rehang({ from }: { from: unknown }) {
  * the frame's sides while it fits between them (#1393): it slides along its
  * trigger's edge rather than hang past the frame's side, as it slides inside
  * the page anywhere else, and in a frame narrower than it — a phone's — inside
- * the page. Down the page it keeps to the page, flipping above its trigger
- * where there is no room below ({@link frameBounds}).
+ * the page. Down the page it opens under its trigger, or over it where its own
+ * height does not fit under it and there is more room over it: the side is
+ * chosen once its content is there and held while it is open, so an edit that
+ * grows or shrinks it moves it to neither side (#1701, {@link frameBounds}).
+ * One that shows one thing and then another says which (`view`): as its list
+ * gives way to the editor of one of its rows, the side it holds is weighed
+ * again — kept while the editor fits there, else chosen as when it opened, so
+ * an editor is never left the room its list took.
  *
  * Esc closes it from the moment it opens. Its own dismissal begins to listen a
  * frame after it opens, so an Esc pressed in that frame — a press that follows
  * the one that opened it at once — was heard by nothing, and the popover
  * stayed. It is heard here first and taken, and a layer open over it, a field's
- * list or a popover of its own, keeps its own.
+ * list or a popover of its own, keeps its own — as does a control in its body
+ * that takes Esc itself and says so (`data-escape-layer`: a Chooser laid in
+ * it, #1673), which closes while the popover stays.
  *
  * In a phone's frame (560px or narrower), a popover its toolbar opens is a
  * view over the whole builder instead, in the frame's overlay slot, as the
@@ -155,7 +229,7 @@ function Rehang({ from }: { from: unknown }) {
  * giving way to it ({@link FramePanelView}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, headClose = true, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, view, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -169,22 +243,47 @@ export function SliceEditPopover({
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const hangRef = useRef(hangFrom);
+    hangRef.current = hangFrom;
+    // The side it opens on (#1701): chosen once its content is there ({@link HoldSide}) — by its own height and the room
+    // under and over what it hangs from — and held while it is open, so an edit that grows or shrinks it moves it to
+    // neither side; let go as it shuts. One that hangs from a rect of its host's keeps to the page's. Whether it chose.
+    const sideRef = useRef<PopoverSide | undefined>(undefined);
+    const choose = useCallback((): boolean => {
+        const content = contentRef.current;
+        const origin = anchored ? anchorRef.current : triggerRef.current;
+        if (sideRef.current !== undefined || hangRef.current !== undefined || content === null || origin === null || content.offsetHeight === 0) return false;
+        sideRef.current = sideThatFits(ownHeight(content), roomAround(origin, POPOVER_GUTTER));
+        return true;
+    }, [anchored]);
+    const release = useCallback(() => { sideRef.current = undefined; }, []);
+    // What it shows changed (`view`): the side it holds weighed again by its own height now. Whether it moved.
+    const weigh = useCallback((): boolean => {
+        const content = contentRef.current;
+        const origin = anchored ? anchorRef.current : triggerRef.current;
+        const held = sideRef.current;
+        if (held === undefined || hangRef.current !== undefined || content === null || origin === null || content.offsetHeight === 0) return false;
+        sideRef.current = sideToHold(held, ownHeight(content), roomAround(origin, POPOVER_GUTTER));
+        return sideRef.current !== held;
+    }, [anchored]);
+    // Where the focus goes as it opens: its host's choice; else, with no × in its head, its editor's own first control.
+    const ownFocus = useCallback(() => editorFocus(contentRef.current), []);
+    const firstFocus = initialFocusEl ?? (headClose ? undefined : ownFocus);
     // The box its bounds read, and its host's ref given it too.
     const setContent = useCallback((el: HTMLDivElement | null) => {
         contentRef.current = el;
         if (typeof hostContent === "function") hostContent(el);
         else if (hostContent !== null && hostContent !== undefined) hostContent.current = el;
     }, [hostContent]);
-    // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
-    // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one. Its
-    // bounds are made as it is placed: Zag copies the positioning it is given as the popover draws, which would keep what
-    // the bounds read then — the page's, the first time it opens, its content not there yet.
-    const hangRef = useRef(hangFrom);
-    hangRef.current = hangFrom;
+    // Below its trigger — or above it, on the side it holds — kept across the page to the builder's frame it opens in —
+    // its trigger's or its anchor's — while it fits there, read at every placement; below the rect it hangs from in their
+    // place, where it is given one. Its bounds are made as it is placed: Zag copies the positioning it is given as the
+    // popover draws, which would keep what the bounds read then — the page's, the first time it opens, its content not
+    // there yet.
     const positioning = useMemo(() => ({
         placement: "bottom" as const,
         gutter: POPOVER_GUTTER,
-        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+        boundary: () => frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current, () => sideRef.current),
         getAnchorRect: () => hangRef.current?.() ?? null,
     }), [anchored]);
     const regionId = useId();
@@ -212,6 +311,7 @@ export function SliceEditPopover({
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
             if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
             if (layerOpenOver(contentRef.current, anchored ? anchorRef.current : triggerRef.current)) return;
+            if (escapeTakenWithin(event, contentRef.current)) return;
             event.preventDefault();
             close.current(false);
         };
@@ -277,7 +377,7 @@ export function SliceEditPopover({
             onOpenChange={(d) => onOpenChange(d.open)}
             positioning={positioning}
             lazyMount
-            {...(initialFocusEl !== undefined && { initialFocusEl })}
+            {...(firstFocus !== undefined && { initialFocusEl: firstFocus })}
             onInteractOutside={(e) => {
                 // Portalled select / combobox listboxes render at body level;
                 // interacting with them must not dismiss the editor.
@@ -285,11 +385,14 @@ export function SliceEditPopover({
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
             {...(keepOnFocusOut && { onFocusOutside: (e: { preventDefault: () => void }) => { e.preventDefault(); } })}
+            // Its own dismissal leaves an Esc a control in its body takes itself to that control.
+            onEscapeKeyDown={(e) => { if (escapeTakenWithin(e, contentRef.current)) e.preventDefault(); }}
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
                 : <ChakraPopover.Trigger ref={triggerRef} asChild>{trigger}</ChakraPopover.Trigger>}
             <Rehang from={hangFrom} />
+            <HoldSide choose={choose} weigh={weigh} release={release} view={view} />
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content ref={setContent} css={styles.content} data-still={still ? "" : undefined}>
@@ -298,19 +401,21 @@ export function SliceEditPopover({
                                 <ChakraPopover.ArrowTip />
                             </ChakraPopover.Arrow>
                         )}
-                        <Box css={styles.head}>
-                            <Box as="span" css={styles.headLabel}>{label}</Box>
-                            <ChakraPopover.CloseTrigger asChild>
-                                <chakra.button type="button" css={styles.headClose} aria-label="Close">
-                                    <FontAwesomeIcon icon={faXmark} />
-                                </chakra.button>
-                            </ChakraPopover.CloseTrigger>
+                        <Box css={styles.head} data-slice-edit-head="">
+                            <Box as="span" css={styles.headLabel} data-slice-edit-label="">{label}</Box>
+                            {headClose && (
+                                <ChakraPopover.CloseTrigger asChild>
+                                    <chakra.button type="button" css={styles.headClose} aria-label="Close">
+                                        <FontAwesomeIcon icon={faXmark} />
+                                    </chakra.button>
+                                </ChakraPopover.CloseTrigger>
+                            )}
                         </Box>
-                        <Box css={styles.body}>{children}</Box>
+                        <Box css={styles.body} data-slice-edit-body="">{children}</Box>
                         {(footLeft !== undefined || footActions !== undefined) && (
                             <Box css={styles.foot}>
                                 {footLeft}
-                                <Box css={styles.footActions}>{footActions}</Box>
+                                <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                             </Box>
                         )}
                     </ChakraPopover.Content>
@@ -403,11 +508,11 @@ function FramePhoneView({ slot, open, onOpenChange, toggle, anchored, label, foo
                         </chakra.button>
                         <Box as="span" css={styles.title}>{label}</Box>
                     </Box>
-                    <Box css={styles.body}>{children}</Box>
+                    <Box css={styles.body} data-slice-edit-body="">{children}</Box>
                     {(footLeft !== undefined || footActions !== undefined) && (
                         <Box css={styles.foot}>
                             {footLeft}
-                            <Box css={styles.footActions}>{footActions}</Box>
+                            <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                         </Box>
                     )}
                 </Box>,
@@ -435,7 +540,7 @@ function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flu
     useEffect(() => {
         if (!open) return undefined;
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
-            if (event.key !== "Escape" || layerOpen()) return;
+            if (event.key !== "Escape" || layerOpen() || escapeTakenWithin(event, viewRef.current)) return;
             event.preventDefault();
             event.stopPropagation();
             close.current(false);
@@ -470,11 +575,11 @@ function FramePanelView({ slot, open, onOpenChange, toggle, anchored, label, flu
                             <FontAwesomeIcon icon={faChevronDown} aria-hidden />
                         </chakra.button>
                     </Box>
-                    <Box css={styles.panelBody} data-flush={flush ? "" : undefined}>{children}</Box>
+                    <Box css={styles.panelBody} data-flush={flush ? "" : undefined} data-slice-edit-body="">{children}</Box>
                     {(footLeft !== undefined || footActions !== undefined) && (
                         <Box css={styles.panelFoot}>
                             {footLeft}
-                            <Box css={styles.footActions}>{footActions}</Box>
+                            <Box css={styles.footActions} data-slice-edit-actions="">{footActions}</Box>
                         </Box>
                     )}
                 </Box>,

@@ -178,6 +178,30 @@ export function DocList({
         else virtualizer.scrollToOffset(0);
     }, [entries, scrollTarget, targetIndex, virtualizer]);
 
+    /* A link to an example near its page's end waits at the list's end: till
+     * the linked example and those after it have drawn, the list is too short
+     * below the link to scroll it to the top. The virtualizer aims a scroll no
+     * further than the list's drawn end and stops once the scroll stands
+     * there, and the rule above holds that end only while rows before the link
+     * grow — so the linked example growing as it drew left the link below the
+     * top, the example above it in view. So when the list grows while the
+     * view still stands at the end it was held at, short of the link, the link
+     * is scrolled to again; a reader who has scrolled away from that end is
+     * left where they are. (The manual test of 22 Nov 2026: a reload of a link
+     * to the Studio page's last example showed the example above it.) */
+    const total = virtualizer.getTotalSize();
+    const heldEnd = useRef<number | undefined>(undefined);
+    useLayoutEffect(() => {
+        const scroller = parentRef.current;
+        if (scroller === null || targetIndex < 0) return;
+        const wanted = virtualizer.getOffsetForIndex(targetIndex, "start")?.[0];
+        const held = heldEnd.current;
+        if (held !== undefined && wanted !== undefined && Math.abs(scroller.scrollTop - held) <= 1 && wanted > scroller.scrollTop + 1) {
+            virtualizer.scrollToIndex(targetIndex, { align: "start" });
+        }
+        heldEnd.current = scroller.scrollHeight - scroller.clientHeight;
+    }, [total, targetIndex, virtualizer]);
+
     const virtualItems = virtualizer.getVirtualItems();
     const offset = virtualizer.scrollOffset ?? 0;
     const current = virtualItems.find(v => v.end > offset + ACTIVE_SLACK) ?? virtualItems[0];

@@ -3,8 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * The session's banners (#1184): what the history bar says under its buttons,
- * for a host that leaves it to its banners. Each is driven from a real
+ * The session's banners (#1184): everything an editing session has to say
+ * beyond its history bar's buttons — the bar repeats none of it, and every
+ * host that draws the bar draws these. Each is driven from a real
  * session put in its state — a Save's conflicts and its refusal, a write
  * with no answer, a confirmation read that failed, drafts the source moved
  * under — and each leaves when its state does, without the host rendering
@@ -22,7 +23,7 @@ import { formatters } from "../format/index.js";
 import { liftDraft } from "./draft.js";
 import { SessionBanners } from "./banners.js";
 import type { HistoryAction } from "./HistoryBar.js";
-import { editingMessages, type EditingWords } from "./messages.js";
+import { editingMessages, SESSION_TEXT, type EditingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EditSessionBinding, type EntryVersion } from "./session.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { keptName, resetKept } from "../platform/kept.js";
@@ -94,6 +95,26 @@ test("a refusal gives its reasons; an issue about the source as a whole names no
     expect(banner(container, "rejected")!.textContent).toContain(editingMessages.bannerRejected());
     expect([...banner(container, "rejected")!.querySelectorAll("li")].map((li) => li.textContent))
         .toEqual(["The write ran out of time after 30000 ms and wrote nothing"]);
+});
+
+test("a Save that could not be prepared says why, and its Retry sends it again: the session's own reason in the collection's words, a host's as it wrote it", () => {
+    // Every message marked `⟦`: a word without the mark did not come from the words handed in.
+    const marked: EditingWords = { ...WORDS, m: Object.fromEntries(Object.entries(editingMessages).map(([k, f]) =>
+        [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as EditingMessages };
+    for (const [error, said] of [[SESSION_TEXT.noRevision, `⟦${SESSION_TEXT.noRevision}`], ["Refused by the host", "Refused by the host"]] as const) {
+        const session = drafted();
+        session.error = error;
+        const actions: HistoryAction[] = [];
+        const { container, unmount } = render(<ChakraProvider value={system}>
+            <SessionBanners session={session} words={marked} onAction={(action) => actions.push(action)} />
+        </ChakraProvider>);
+        expect(kinds(container), error).toEqual(["prepare"]);
+        expect(banner(container, "prepare")!.querySelector("[data-banner-title]")!.textContent, error).toContain(`⟦${editingMessages.bannerRejected()}`);
+        expect(banner(container, "prepare")!.textContent, error).toContain(said);
+        fireEvent.click(banner(container, "prepare")!.querySelector("[data-banner-action]")!);
+        expect(actions, error).toEqual(["apply"]);
+        unmount();
+    }
 });
 
 test("a write with no answer says so with its error, and its Retry sends the same request", async () => {

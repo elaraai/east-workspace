@@ -8,15 +8,18 @@
  * from the SAME sources `catalog.ts` globs (the east-ui + e3-ui
  * `*.examples.tsx` files), so new examples are covered automatically. A
  * `*.examples.ts` file beside them holds non-UI examples (`Sheet.apply`, say):
- * the catalog builds no page for it, so it has no route. `#<pathKey>` deep
- * links resolve to the owning category page and scroll the group into view
- * (App.tsx resolveHash), which mounts the virtualized rows for that file's
- * examples.
+ * the catalog builds no page for it, so it has no route; nor has a
+ * `*.examples.tsx` file that exports no example — one holding the e3
+ * definitions other files' examples read (`example-declarations.ts`).
+ * `#<pathKey>` deep links resolve to the owning category page and scroll the
+ * group into view (App.tsx resolveHash), which mounts the virtualized rows for
+ * that file's examples.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exampleDeclarations } from "../../scripts/example-declarations";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const EAST_UI_TEST = join(HERE, "..", "..", "..", "east-ui", "test");
@@ -35,6 +38,8 @@ function walk(dir: string): string[] {
 function pathKeys(root: string, prefix: string): string[] {
     return walk(root)
         .filter((p) => /\.examples\.tsx$/.test(p))
+        // The catalog builds a page of a file's examples alone: one that exports none has no page.
+        .filter((p) => exampleDeclarations(p, readFileSync(p, "utf8")).examples.length > 0)
         .map((p) => relative(root, p).split(sep).join("/").replace(/\.examples\.tsx$/, ""))
         // catalog.ts skips root-level files for east-ui (pathKey must nest).
         .filter((rel) => prefix !== "" || rel.includes("/"))

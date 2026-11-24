@@ -364,17 +364,22 @@ describe("nested rows (#954)", () => {
         expect(descending).toEqual(["a", "a2", "a1", "a1x", "b"]);
     });
 
-    test("a page holds whole top-level rows, and the pager counts top-level rows", () => {
+    test("a page holds whole top-level rows, and the pager counts top-level rows", async () => {
+        const turns: bigint[] = [];
         const page = (n: bigint) => tableRoot(TREE, NAME_V, {
-            pagination: some({ pageSize: 1n, page: n, onPageChange: () => null }),
+            pagination: some({ pageSize: 1n, page: n, onPageChange: (next: bigint) => { turns.push(next); return null; } }),
         });
         const { container, rerender } = renderTable(page(0n), "tree-page");
         expect(firstCells(container)).toEqual(["a", "a1", "a1x", "a2"]);
-        expect(container.textContent).toContain("Page 1 of 2 (2 total)");
+        // Its foot says where the page stands among the TOP-LEVEL rows, and its pager turns to the next of them.
+        expect(container.querySelector("[data-page-range]")?.textContent).toBe("Showing 1–1 of 2");
+        fireEvent.click(container.querySelector('[data-page-foot] [aria-label="Next page"]')!);
+        await flush();
+        expect(turns).toEqual([1n]);
         // The second page is the second TOP-LEVEL row — not the second row.
         rerender(page(1n));
         expect(firstCells(container)).toEqual(["b"]);
-        expect(container.textContent).toContain("Page 2 of 2 (2 total)");
+        expect(container.querySelector("[data-page-range]")?.textContent).toBe("Showing 2–2 of 2");
     });
 
     test("events and the render context carry the row's pre-order index and path", async () => {

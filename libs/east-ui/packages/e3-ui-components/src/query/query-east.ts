@@ -5,9 +5,10 @@
 
 /**
  * The query builder's East, compiled for its renderers (#935) — what a save
- * writes, what refused a write under a new name, and whether a saved query's
- * data sources are bound here are computed by the functions `@elaraai/e3-ui`
- * declares, compiled once, on first use; nothing here restates them.
+ * writes, what refused a write under a new name, whether a saved query's data
+ * sources are bound here, and the new query on a data source (#1668) are
+ * computed by the functions `@elaraai/e3-ui` declares, compiled once, on first
+ * use; nothing here restates them.
  *
  * @packageDocumentation
  */
@@ -26,6 +27,8 @@ export interface QueryEast {
     nameWriteRefusal: Compiled<typeof Query.nameWriteRefusal>;
     /** Whether a saved query's data sources are bound here, and if not, why not. */
     rootBound: Compiled<typeof Query.rootBound>;
+    /** The new query on a data source: what `Query.open.on` gives, and a builder that holds its own begins with. */
+    openOn: Compiled<typeof Query.openOn>;
 }
 
 /** Compiles every function the renderers call. */
@@ -34,6 +37,7 @@ function compileQuery(): QueryEast {
         save: East.compile(Query.save, []),
         nameWriteRefusal: East.compile(Query.nameWriteRefusal, []),
         rootBound: East.compile(Query.rootBound, []),
+        openOn: East.compile(Query.openOn, []),
     };
 }
 

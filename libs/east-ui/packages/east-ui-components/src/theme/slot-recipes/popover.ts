@@ -33,6 +33,10 @@ export const popoverSlotRecipe = defineSlotRecipe({
             maxHeight: "min(var(--available-height, 60vh), 85vh)",
             display: "flex",
             flexDirection: "column",
+            /* Read at its own height (`ownHeight`, #1701): the room around its
+             * anchor no limit, its 85vh still its most — what the side it opens
+             * on is chosen by. Set and cleared in one go, never drawn. */
+            "&[data-own-height]": { "--available-height": "100vh" },
         },
         /* A square turned on its point: this side draws the arrow as wide and
          * as deep as the design system's. */

@@ -17,14 +17,15 @@ import {
     SortedMap, StringType, checkJq, compareFor, none, parseJq, some, toQuerySpan, variant,
     type EastType, type JqNode, type ParsedJq, type QueryErrorType, type ValueTypeOf,
 } from "@elaraai/east";
+import { NOW_FIELD } from "../one-shot.js";
 import { comparisonsFor, fieldsOf, type StepField } from "./fields.js";
 import {
-    at, readCall, readChain, readLiteral, readObject, readPath, readPipe, readStepValue,
+    at, readCall, readChain, readIfElse, readLiteral, readObject, readPath, readPipe, readStepValue,
 } from "./jq.js";
-import { SEP, itemShape, knownAfter, nameFor, pathFor, scalarFieldsOf, stageAt, variableName } from "./print.js";
+import { SEP, itemShape, knownAfter, nameFor, pathFor, queryReadsNow, scalarFieldsOf, stageAt, variableName } from "./print.js";
 import { UNKNOWN, shapeOf, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
-    comparison, freshId, type Aggregate, type ComparisonKind, type Condition, type PickField, type Step, type StepInput,
+    comparison, freshId, isLastUnit, lastComparison, type Aggregate, type ComparisonKind, type Condition, type LastUnit, type PickField, type Step, type StepInput,
     type StepQuery, type StepValue,
 } from "./values.js";
 
@@ -101,6 +102,28 @@ function test(ref: string, kind: ComparisonKind, value: StepValue | undefined, e
     }) as Condition;
 }
 
+/**
+ * `$now | datetime_add(-N; "unit")`, as an "is in the last" test prints it
+ * (#1670): its count back, and its unit.
+ *
+ * @param node - the node
+ * @returns the count — a number, or text as written — and the unit; `undefined` when the node is not that read
+ */
+function readLast(node: JqNode): { value: StepValue; unit: LastUnit } | undefined {
+    const segments = readPipe(node);
+    if (segments.length !== 2 || segments[0]!.type !== "variable" || segments[0]!.value !== NOW_FIELD) return undefined;
+    const args = readCall(segments[1]!, "datetime_add", 2);
+    const unit = args === undefined ? undefined : readLiteral(args[1]!);
+    const name = unit?.type.type === "String" ? unit.value as string : undefined;
+    if (args === undefined || name === undefined || !isLastUnit(name)) return undefined;
+    // `-N` reads as a negation of `N`. A count with none moves the minute on — a bound to come, which is no "is in the
+    // last" — and so does a negation of one with its own minus, which reads as no literal.
+    const count = args[0]!;
+    if (count.type !== "negate") return undefined;
+    const value = readStepValue(count.value);
+    return value === undefined ? undefined : { value, unit: name };
+}
+
 /** Whether a field takes a comparison: one the rows do not have takes any, which the check judges. */
 function takes(field: StepField | undefined, kind: ComparisonKind, whole: boolean): boolean {
     if (field === undefined) return true;
@@ -114,8 +137,12 @@ function takes(field: StepField | undefined, kind: ComparisonKind, whole: boolea
  * @param node - the condition's node
  * @param shape - the rows it tests
  * @returns the condition, or `undefined` when it is no canonical form
+ *
+ * @remarks
+ * What a Keep rows where step's rows are read by, and what a Studio page's
+ * filters are read by for the window they hold a date to (`visual/filters.ts`).
  */
-function readCondition(node: JqNode, shape: Shape): Condition | undefined {
+export function readCondition(node: JqNode, shape: Shape): Condition | undefined {
     if (node.type === "binary" && (node.value.op === "and" || node.value.op === "or")) {
         const op = node.value.op;
         const conds = readChain(node, op).map(n => readCondition(n, shape));
@@ -144,6 +171,13 @@ function readCondition(node: JqNode, shape: Shape): Condition | undefined {
         }
         const cmp = COMPARISON[op];
         if (cmp === undefined) return undefined;
+        // `p >= ($now | datetime_add(-7; "day"))`: is in the last 7 days (#1670).
+        const last = op === ">=" ? readLast(right) : undefined;
+        if (last !== undefined) {
+            const ref = refOfNode(shape, left);
+            const kind = lastComparison(last.unit);
+            return ref !== undefined && takes(field(ref), kind, false) ? test(ref, kind, last.value) : undefined;
+        }
         const literal = readLiteral(right);
         if (literal === undefined) return undefined;
         // A variant compared as a whole value, which the check refuses: kept, so it can say so.
@@ -225,22 +259,60 @@ function readFilter(node: JqNode, shape: Shape): Step | undefined {
     return variant("filter", { id: freshId("step"), match: variant(match, null), conds });
 }
 
-/** The name a total takes until its author names it: count, the field's name for a sum, `fn_field` otherwise. */
-export function defaultTotalName(shape: Shape, fn: Aggregate["fn"]["type"], ref: string | undefined): string {
+/**
+ * The name a total takes until its author names it: count, the field's name
+ * for a sum, `field_per_other` for a ratio, `fn_field` otherwise.
+ *
+ * @param shape - the rows it totals
+ * @param fn - what it totals with
+ * @param ref - its field
+ * @param per - the field a ratio is per
+ * @returns the name
+ */
+export function defaultTotalName(shape: Shape, fn: Aggregate["fn"]["type"], ref: string | undefined, per?: string): string {
     if (fn === "count") return "count";
     const name = ref === undefined ? "value" : nameFor(shape, ref);
+    if (fn === "ratio") return `${name}_per_${per === undefined ? "value" : nameFor(shape, per)}`;
     return fn === "sum" ? name : `${fn}_${name}`;
+}
+
+/** The field added up, when a node is `map(p) | add`. */
+function sumOf(shape: Shape, node: JqNode): string | undefined {
+    const segments = readPipe(node);
+    const map = segments.length === 2 ? readCall(segments[0]!, "map", 1) : undefined;
+    return map !== undefined && readCall(segments[1]!, "add", 0) !== undefined ? refOfNode(shape, map[0]) : undefined;
+}
+
+/**
+ * A ratio's fields, where a node is `if (map(q) | add) == 0 then null else (map(p) | add) / (map(q) | add) end`: the
+ * field added up, and the field it is per.
+ */
+function ratioOf(shape: Shape, node: JqNode): { readonly of: string; readonly per: string } | undefined {
+    const guarded = readIfElse(node);
+    if (guarded === undefined) return undefined;
+    const { condition, then, otherwise } = guarded;
+    if (condition.type !== "binary" || condition.value.op !== "==" || otherwise.type !== "binary" || otherwise.value.op !== "/") return undefined;
+    const zero = readStepValue(condition.value.right);
+    if (zero?.type !== "number" || zero.value !== 0 || readStepValue(then)?.type !== "null") return undefined;
+    const tested = sumOf(shape, condition.value.left);
+    const of = sumOf(shape, otherwise.value.left);
+    const per = sumOf(shape, otherwise.value.right);
+    return of === undefined || per === undefined || tested !== per ? undefined : { of, per };
 }
 
 /** Reads one total of a Group and total step. */
 function readAggregate(shape: Shape, as: string, node: JqNode | undefined): Aggregate | undefined {
     if (node === undefined) return undefined;
-    const total = (fn: Aggregate["fn"]["type"], ref: string | undefined): Aggregate => ({
+    // A ratio carries the field it is per, so it is made apart from the totals that carry nothing.
+    const total = (fn: Exclude<Aggregate["fn"]["type"], "ratio">, ref: string | undefined): Aggregate => ({
         id: freshId("aggregate"),
         fn: variant(fn, null) as Aggregate["fn"],
         field: ref === undefined ? none : some(ref),
         as,
     });
+    // A ratio (#1670): its field added up over the field it is per, added up — nothing where that adds up to nothing.
+    const ratio = ratioOf(shape, node);
+    if (ratio !== undefined) return { id: freshId("aggregate"), fn: variant("ratio", some(ratio.per)), field: some(ratio.of), as };
     if (readCall(node, "length", 0) !== undefined) return total("count", undefined);
     const segments = readPipe(node);
     const map = segments.length >= 2 ? readCall(segments[0]!, "map", 1) : undefined;
@@ -286,6 +358,12 @@ function recognise(seg: JqNode, next: JqNode | undefined, shape: Shape, binds: R
     // group_by(p) | map({name: .[0]p, totals…})
     const groupBy = readCall(seg, "group_by", 1);
     if (groupBy !== undefined && next !== undefined) {
+        // group_by({a, b: p}) | map({a: .[0].a, b: .[0]p, totals…}): several fields (#1670).
+        const byObject = readObject(groupBy[0]!);
+        if (byObject !== undefined) {
+            const step = readGroupByFields(byObject, next, shape);
+            return step === undefined ? undefined : { step, used: 2 };
+        }
         const byRef = refOfNode(shape, groupBy[0]);
         const entries = readCall(next, "map", 1)?.[0];
         const object = entries === undefined ? undefined : readObject(entries);
@@ -360,6 +438,36 @@ function recognise(seg: JqNode, next: JqNode | undefined, shape: Shape, binds: R
     }
     if (seg.type === "array" && seg.value.type === "some") return one(readArrayStep(seg.value.value, shape));
     return undefined;
+}
+
+/**
+ * `group_by({a, b: p}) | map({a: .[0].a, b: .[0]p, totals…})`: a Group and
+ * total step by several fields (#1670) — each key a field under its own name,
+ * read again from the group's first row, then the totals.
+ *
+ * @param keys - the entries of `group_by`'s object
+ * @param next - the segment after it
+ * @param shape - the rows it groups
+ * @returns the step, or `undefined` when the segments are no such form
+ */
+function readGroupByFields(keys: readonly { key: string; value: JqNode | undefined }[], next: JqNode, shape: Shape): Step | undefined {
+    const refs: string[] = [];
+    for (const entry of keys) {
+        const ref = entry.value === undefined ? refOf(shape, [entry.key]) : refOfNode(shape, entry.value);
+        if (ref === undefined || nameFor(shape, ref) !== entry.key) return undefined;
+        refs.push(ref);
+    }
+    const entries = readCall(next, "map", 1)?.[0];
+    const object = entries === undefined ? undefined : readObject(entries);
+    if (refs.length === 0 || object === undefined || object.length < refs.length) return undefined;
+    for (const [i, ref] of refs.entries()) {
+        const entry = object[i]!;
+        const read = entry.value === undefined ? undefined : readPath(entry.value, isFirstRow);
+        const path = pathFor(shape, ref);
+        if (entry.key !== keys[i]!.key || read === undefined || read.length !== path.length || !read.every((n, j) => n === path[j])) return undefined;
+    }
+    const aggs = readTotals(shape, object.slice(refs.length));
+    return aggs === undefined ? undefined : variant("group", { id: freshId("step"), by: some(variant("fields", refs)), aggs });
 }
 
 /** `map(. + {f: $ds[k].f, …})` */
@@ -595,11 +703,15 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
         i += found.used;
     }
 
-    // A dataset bound but read by no Look up would be lost when the steps print again.
+    // A dataset bound but read by no Look up would be lost when the steps print again; so would `$now` read by no
+    // "is in the last" condition and no jq step (#1670): the steps print its bind for either (`queryReadsNow`).
     const looked = new Set(steps.flatMap(s => s.type === "lookup" && s.value.dataset.type === "some" ? [s.value.dataset.value] : []));
+    if (queryReadsNow({ source, steps })) looked.add(NOW_FIELD);
     const unused = binds.find(b => !looked.has(b.name));
     if (unused !== undefined) {
-        return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but no Look up reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
+        // The minute is read by an "is in the last" condition or a jq step, a dataset by a Look up: what the steps would say it with.
+        const reader = unused.name === NOW_FIELD ? 'no "is in the last" condition or jq step' : "no Look up";
+        return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but ${reader} reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
     }
     return { query: { source, steps }, spans };
 }

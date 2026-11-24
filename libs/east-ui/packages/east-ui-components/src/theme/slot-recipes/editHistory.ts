@@ -12,7 +12,9 @@
  * issues, #1585), the history buttons (the `iconButton` recipe: on a coarse
  * pointer they keep their size and take a 44px touch target from its halo,
  * #346, so a phone's toolbar row holds them beside the rest — the user's
- * ruling, #1193), and under them the latest error in `fg.danger`. While a
+ * ruling, #1193). What the session has to say beyond them — an error, drafts
+ * a reload would lose — is its banners' (`SessionBanners`, the shared Banner),
+ * never a line of the bar. While a
  * Save is out, and until its saved state is read back, Save holds the live dot
  * in place of its tick, at full strength in `fg` over its disabled look (#1573,
  * `aria-busy`). Each square's icon stands at its middle on whole pixels — the
@@ -22,9 +24,8 @@
  * the buttons, while a conflict waits, the conflicts button: the not-equal
  * icon in `--warn` and how many wait in mono 11/600 in its text step, at its
  * neighbours' height, on the third paper while its popover is open
- * (`editConflicts` draws the popover's body). A host that
- * shows the error in its banners instead (`SessionBanners`) lists an Apply's
- * issues there, one to a line. Where its builder keeps a choice of an
+ * (`editConflicts` draws the popover's body). The banners list an Apply's
+ * issues one to a line. Where its builder keeps a choice of an
  * automatic Save, Save is a split button: Save, then a chevron at its
  * neighbours' height, 16 wide, one `--r-sm` box of two parts, the edge between
  * them the chevron's — and the bar is no wider for it: its five squares stand
@@ -164,7 +165,7 @@ const JOINED = { borderTopRightRadius: "0", borderBottomRightRadius: "0", border
 
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
-    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue",
+    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "notice", "bannerIssues", "bannerIssue",
         "summary", "changes", "live", "issuesCount", "ask", "askHead", "askTitle", "askBody", "askActions", "askButton",
         "save", "saveMore", "more", "fits", "autosave", "autosaveSwitch", "autosaveHeld"],
     base: {
@@ -321,12 +322,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         /* Its figure on a whole line of 16px (#1638), centred in the 26px inside the button's edge: 1.5 of its 11px face, 16.5px, was centred at a fraction. */
         conflictsCount: { fontFamily: "mono", fontSize: "11px", lineHeight: centredLine(26, 16), fontWeight: "semibold", color: "fg.warning", fontVariantNumeric: "tabular-nums" },
-        error: {
-            marginTop: "{spacing.2}",
-            fontSize: "body.sm",
-            color: "fg.danger",
-        },
-        /* What the bar says of drafts a reload would lose, or could not restore, where it says its error. */
+        /* The conflicts popover's line while it checks the source, or while a run of the optimiser holds its choices. */
         notice: {
             marginTop: "{spacing.2}",
             fontSize: "body.sm",

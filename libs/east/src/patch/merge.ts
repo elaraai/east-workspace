@@ -25,7 +25,7 @@ import { isVariant, variant, type variant as VariantValue } from "../containers/
 import { equalFor, compareFor } from "../comparison.js";
 import { printFor } from "../serialization/east.js";
 import { SortedMap } from "../containers/sortedmap.js";
-import { type MergeContext, type Conflict, type Resolution, ConflictError } from "./types.js";
+import { type MergeContext, type Conflict, type Resolution, ConflictError, equalWithin } from "./types.js";
 import {
     joinField as join,
     joinIndex as arrayIdx,
@@ -232,12 +232,13 @@ function buildWalker(t: EastTypeValue, ctx: MergeContext): MergeWalker {
       return variant("patch", merged);
     };
 
-    // Push self into ctx, recurse for element walkers, pop.
+    // Push self into ctx, recurse for element walkers, pop. The equalities are built first, as apply's are, so the
+    // element's and its walker's reuse a recursive type the array's registered (`equalWithin`).
     ctx.merge.push(ret);
     ctx.types.push(t);
-    elementMerge = buildWalker(t.value, ctx);
-    elementEqual = equalFor(t.value, ctx.equal);
     arrayValueEqual = equalFor(t, ctx.equal);
+    elementEqual = equalWithin(t.value, ctx.equal);
+    elementMerge = buildWalker(t.value, ctx);
     ctx.merge.pop();
     ctx.types.pop();
     return ret;
@@ -368,9 +369,9 @@ function buildWalker(t: EastTypeValue, ctx: MergeContext): MergeWalker {
 
     ctx.merge.push(ret);
     ctx.types.push(t);
-    valueMerge = buildWalker(t.value.value, ctx);
-    valueEqual = equalFor(t.value.value, ctx.equal);
     dictValueEqual = equalFor(t, ctx.equal);
+    valueEqual = equalWithin(t.value.value, ctx.equal);
+    valueMerge = buildWalker(t.value.value, ctx);
     ctx.merge.pop();
     ctx.types.pop();
     return ret;
@@ -515,8 +516,8 @@ function buildWalker(t: EastTypeValue, ctx: MergeContext): MergeWalker {
 
     ctx.merge.push(ret);
     ctx.types.push(t);
-    innerMerge = buildWalker(t.value, ctx);
     refValueEqual = equalFor(t, ctx.equal);
+    innerMerge = buildWalker(t.value, ctx);
     ctx.merge.pop();
     ctx.types.pop();
     return ret;
@@ -524,7 +525,8 @@ function buildWalker(t: EastTypeValue, ctx: MergeContext): MergeWalker {
 
   // ----- Recursive (replace-only) -----
   if (t.type === "Recursive") {
-    const recursiveValueEqual = equalFor(t, ctx.equal);
+    // The one a container around it registered as it built its own, where one did (`equalWithin`).
+    const recursiveValueEqual = equalWithin(t, ctx.equal);
     return (a, b, path, acc, lookup) => {
       if (a.type === "unchanged" && b.type === "unchanged") return variant("unchanged", null);
       if (a.type === "unchanged") return b;

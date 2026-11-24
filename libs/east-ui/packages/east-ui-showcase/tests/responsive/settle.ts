@@ -9,7 +9,7 @@
  * machine's speed, and the suite runs with no retries.
  */
 
-import { expect, type Page } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
 
 /**
  * How long the page may take to start what it shows: an example's East
@@ -103,6 +103,20 @@ function panesStill(page: Page): Promise<boolean> {
         await Promise.all(moving.map(animation => animation.finished.then(() => undefined, () => undefined)));
         return moving.length > 0;
     });
+}
+
+/**
+ * Waits for every animation running in a part to end — a popover's opening scale, say. A box read under a scale a frame
+ * short of its end measures a fraction under its own size (21.4996 for 21.5), and nothing {@link settled} reads moves
+ * with it: a spec that measures a size inside a layer just opened waits for it here first. An animation that never
+ * ends is not waited for, and one cut short is over.
+ *
+ * @param part - The part: the layer's content
+ */
+export async function animationsOver(part: Locator): Promise<void> {
+    await part.evaluate((el) => Promise.all(el.getAnimations({ subtree: true })
+        .filter((run) => run.effect?.getTiming().iterations !== Infinity)
+        .map((run) => run.finished.then(() => undefined, () => undefined))));
 }
 
 /**

@@ -20,7 +20,7 @@ import { comparisonsFor, defaultComparison, fieldByRef, fieldsOf, fieldsOfRecord
 import { layOutSteps, itemShape } from "./print.js";
 import { baseType, optionPayload, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
-    comparison, freshId, type Aggregate, type Condition, type Match, type Step, type StepKind, type StepOf, type StepQuery, type StepValue,
+    comparison, freshId, withGroupField, type Aggregate, type Condition, type Match, type Step, type StepKind, type StepOf, type StepQuery, type StepValue,
 } from "./values.js";
 
 /** A query with one step replaced. */
@@ -148,14 +148,63 @@ export function addGroup(query: StepQuery, stepId: string, groupId?: string): St
     });
 }
 
-/** A query without a condition, wherever it is in a filter. */
-export function removeCondition(query: StepQuery, stepId: string, condId: string): StepQuery {
-    return mapFilter(query, stepId, s => variant("filter", { ...s.value, conds: mapConditions(s.value.conds, condId, () => undefined) }));
-}
-
 /** Conditions with each group of a match taken apart into them. */
 function dissolve(conds: readonly Condition[], match: Match): Condition[] {
     return conds.flatMap(c => c.type === "group" && c.value.match.type === match.type ? c.value.conds : [c]);
+}
+
+/**
+ * Conditions without one, wherever it is, and whether they held it. Each
+ * group it was in is tidied on the way out: one left with no condition goes
+ * with it, and one left with a single condition is that condition in the
+ * group's place — a group of one says nothing — which, a group of the match
+ * it now stands among, joins it ({@link dissolve}).
+ */
+function withoutCondition(conds: readonly Condition[], id: string, match: Match): { readonly conds: Condition[]; readonly found: boolean } {
+    const out: Condition[] = [];
+    let found = false;
+    let joined = false;
+    for (const c of conds) {
+        if (c.value.id === id) {
+            found = true;
+        } else if (c.type === "group") {
+            const inside = withoutCondition(c.value.conds, id, c.value.match);
+            if (!inside.found) {
+                out.push(c);
+                continue;
+            }
+            found = true;
+            if (inside.conds.length === 1) {
+                joined = true;
+                out.push(inside.conds[0]!);
+            } else if (inside.conds.length > 1) {
+                out.push(variant("group", { ...c.value, conds: inside.conds }) as Condition);
+            }
+        } else if (c.value.inner.type === "some") {
+            // A test of a list's items: its inner condition stands alone, among no others.
+            const inside = withoutCondition([c.value.inner.value], id, variant("all", null));
+            found = found || inside.found;
+            out.push(inside.found ? variant("test", { ...c.value, inner: inside.conds.length === 0 ? none : some(inside.conds[0]!) }) as Condition : c);
+        } else {
+            out.push(c);
+        }
+    }
+    return { conds: joined ? dissolve(out, match) : out, found };
+}
+
+/**
+ * A query without a condition — a test, or a group and all it holds —
+ * wherever it is in a filter, and the groups it was in tidied: a group left
+ * with no condition is removed with it, and a group left with one becomes
+ * that condition, plain. The filter itself stays, with whatever is left.
+ *
+ * @param query - the query
+ * @param stepId - the filter
+ * @param condId - the condition
+ * @returns the new query
+ */
+export function removeCondition(query: StepQuery, stepId: string, condId: string): StepQuery {
+    return mapFilter(query, stepId, s => variant("filter", { ...s.value, conds: withoutCondition(s.value.conds, condId, s.value.match).conds }));
 }
 
 /**
@@ -262,9 +311,15 @@ function setSlotField(query: StepQuery, fix: Extract<StepFix, { kind: "setField"
     if (fix.condId !== undefined) return setConditionField(query, fix.stepId, fix.condId, fix.field, root);
     return mapStep(query, fix.stepId, s => {
         switch (s.type) {
-            case "group":
-                if (fix.slot === "by") return variant("group", { ...s.value, by: some(variant("field", fix.field)) });
+            case "group": {
+                // One of several fields is replaced in its place (#1670).
+                if (fix.slot === "by") return variant("group", { ...s.value, by: withGroupField(s.value.by, fix.id, fix.field) });
+                // A ratio's field it is per.
+                if (fix.slot === "agg-per") {
+                    return variant("group", { ...s.value, aggs: s.value.aggs.map(a => (a.id === fix.id && a.fn.type === "ratio" ? { ...a, fn: variant("ratio", some(fix.field)) } : a)) });
+                }
                 return variant("group", { ...s.value, aggs: s.value.aggs.map(a => a.id === fix.id ? { ...a, field: some(fix.field) } : a) });
+            }
             case "pick":
                 return variant("pick", { ...s.value, fields: s.value.fields.map(p => p.id === fix.id ? { ...p, field: some(fix.field) } : p) });
             case "lookup":

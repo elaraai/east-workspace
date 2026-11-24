@@ -18,6 +18,7 @@ type ChartBuilders = {
     Area: typeof ChartFactory.Area;
     Scatter: typeof ChartFactory.Scatter;
     Band: typeof ChartFactory.Band;
+    Pie: typeof ChartFactory.Pie;
     Series: typeof ChartFactory.Series;
     refLine: typeof ChartFactory.refLine;
     refBand: typeof ChartFactory.refBand;
@@ -65,7 +66,9 @@ type ChartBuilders = {
  * `Chart.Line` / `Chart.Column` (vertical columns) / `Chart.Bar` (horizontal
  * bars — numeric `x`, categorical `y`; flips the frame, #249) / `Chart.Area`
  * / `Chart.Scatter` / `Chart.Band` (each takes `(rows, encoding, style?)`
- * with typed-accessor encodings, e.g. `x: r => r.month`); reference
+ * with typed-accessor encodings, e.g. `x: r => r.month`); `Chart.Pie`
+ * (`(rows, { label, value }, style?)` — shares of one total, a chart of its
+ * own, taking no other layer and no axis props); reference
  * annotations `Chart.refLine` / `Chart.refBand` / `Chart.refDot`; the axis
  * tick formatters under `Chart.format` (`date` / `currency` / `percent` /
  * `compact`); and the low-level `Chart.Spec` escape hatch. Desugars to
@@ -79,6 +82,7 @@ export const Chart: JsxTag<ValueProps<typeof ChartFactory.Root, "layers">> & Cha
         Area: ChartFactory.Area,
         Scatter: ChartFactory.Scatter,
         Band: ChartFactory.Band,
+        Pie: ChartFactory.Pie,
         Series: ChartFactory.Series,
         refLine: ChartFactory.refLine,
         refBand: ChartFactory.refBand,

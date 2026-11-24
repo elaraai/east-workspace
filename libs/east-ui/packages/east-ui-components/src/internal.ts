@@ -20,14 +20,15 @@
 // ends, its codecs and the readers of plain view state's shape; another store
 // cleared with it at a sign-out.
 export {
-    kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept, keptName, resetKept,
+    kept, useKept, useKeptValue, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept, keptName, resetKept,
     type Kept, type KeptCodec, type KeptOptions, type KeptReader,
 } from "./platform/kept.js";
 // A developer's debug flag, set by hand in the browser's console.
 export { debugFlag } from "./platform/debug-flag.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,
 // the theme's colour lookup, and a density's row heights.
-export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";
+export { formatDatePattern, parseDatePattern, tickFormatter } from "./charts/spec/tick-format.js";
+export type { TickFormat } from "./charts/spec/context.js";
 export { resolveColor, useDensityHeights } from "./collections/shared/helpers.js";
 // The review chrome's foot, its toolbar item, and the decision column's width.
 export {
@@ -69,6 +70,8 @@ export { capturePointer, useSurfaceGestures, type SurfaceGestures, type SurfaceO
 export { followPointer, type PointerFollow, type PointerPress } from "./pointer/follow-pointer.js";
 export { makeTouches, pinchMoves, type PinchStep, type TouchBegan, type TouchPoint, type Touches } from "./pointer/touches.js";
 export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
+// The dashed mark of an empty place that takes a drop, its words the host's: a Studio visual's empty well (#1672).
+export { DropHint, type DropHintProps } from "./dnd/drop-hint.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
@@ -107,6 +110,11 @@ export { brushHorizon, type BrushHeld } from "./slice/brush-math.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
+// The rail's shared visual layer over the rail engine (#1673), for a rail whose filters are its host's own — a Studio
+// page's jq filters: the toolbar items a model's affordances fold into, and the row of filter chips they are drawn as.
+export { useSliceRailItems, type SliceRailDescriptor, type SliceRailModel } from "./slice/rail/toolbar.js";
+export { SliceFilterChips, type SliceFilterChip, type SliceFilterChipsProps } from "./slice/filter/chips.js";
+export { useSliceDensity } from "./slice/density.js";
 export { SliceRangeContent } from "./slice/range/index.js";
 // The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342); and its
 // choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).
@@ -162,6 +170,17 @@ export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
+
+// The foot of rows that page — the design system's footer band: its range line and its page buttons — for a host that
+// pages rows of its own: a Studio visual's records, list, summary and pivot (#1667); and where a page stands among its
+// rows, which its range line says.
+export { PageButtons, PageFoot, PageRange, type PageButtonsProps, type PageFootProps } from "./collections/pagination/page-foot.js";
+export { pagePlace, type PagePlace } from "./collections/page-place.js";
+
+// The metric chip's frame — the design system's DeltaPill — around a value a renderer has as text: a Studio KPI's change (#1671).
+export { MetricChipFrame, type MetricChipFrameProps, type MetricChipTone } from "./display/metric-chip/index.js";
+// The drawer's content, open as its host says, around what the host draws in it: a Studio tile's Show rows (#1671).
+export { DrawerContent, type DrawerContentProps, type DrawerOpenInputValue } from "./overlays/drawer/index.js";
 
 // Paged builder palettes reuse the Library face, its search box — finding within the tab alone, through its
 // source's part of the rail (#1340, ruling 11) — and the shared bounded window plan; and a builder's own tab — the

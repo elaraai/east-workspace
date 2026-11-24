@@ -17,21 +17,28 @@
  * and hands them to the author's `editing.onDrafted` whenever they change
  * (#996), so a pane beside the canvas reads what it shows.
  *
+ * A host whose own sessions are edited beside the tiles — a page's starting
+ * filters (#1673) — joins them to the canvas's under one history it keeps
+ * ({@link SnapGridJoined}): the canvas's gestures are steps of that history,
+ * and Undo, Redo, Discard and Save its own.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
-    ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
+    ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { useEditSession, type EditingValue } from "../../editing/use-edit-session.js";
 import { EntryRefType } from "../../editing/keep.js";
-import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin, Placement } from "../../editing/session.js";
+import type { EditHistory } from "../../editing/history.js";
+import { historyKeyOf } from "../../editing/kept.js";
+import type { EditIssue, EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin, Placement } from "../../editing/session.js";
 import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import {
-    heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
+    MAX_TILES, SNAP_GRID_COLUMNS, heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
     type SnapGridDrop, type SnapGridEdit, type SnapGridTile, type SnapGridWrite,
 } from "./model.js";
 import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
@@ -45,13 +52,48 @@ export interface SnapGridEntryRef {
 /** A drafted tile's mark — the Sheet's (#879). */
 export type SnapGridDraftMark = "pending" | "incomplete" | "invalid";
 
+/** A host's own session, edited beside the canvas's tiles (#1673): its gestures are steps of the canvas's history. */
+export interface SnapGridJoinedSession {
+    /** Its key in the history. */
+    readonly key: string;
+    /** The session. */
+    readonly session: EditSession<SnapGridEntryRef>;
+    /** What its banners call it — `Starting filters`. */
+    readonly name: string;
+    /** Where an issue of its is, in the host's words; the issue's entry by default. */
+    readonly where?: ((issue: EditIssue) => string) | undefined;
+}
+
+/**
+ * A host's sessions under one history with the canvas's (#1673): the history
+ * the host keeps (`useKeptHistory`) and records its own gestures through,
+ * which the canvas syncs its session and these into, its own first.
+ */
+export interface SnapGridJoined {
+    /** The history. */
+    readonly history: EditHistory<SnapGridEntryRef>;
+    /** The host's sessions, after the canvas's. */
+    readonly sessions: readonly SnapGridJoinedSession[];
+}
+
+/** No history to hear: a canvas whose session is its own history. */
+const NO_SUBSCRIBE = (): (() => void) => () => undefined;
+const NO_VERSION = (): number => 0;
+
 /** A row, decoded — a struct of the author's fields. */
 type Entry = Record<string, unknown>;
 
 /** What {@link useSnapGridEditing} hands the canvas. */
 export interface SnapGridEditing {
-    /** The session — the history item reads it. */
+    /** The session: the tiles' drafts, marks and conflicts. */
     session: EditSession<SnapGridEntryRef>;
+    /**
+     * What the history item, the keys and a screen's Apply act on: the one
+     * history over the session and its host's (#1673), else the session itself.
+     */
+    subject: EditSession<SnapGridEntryRef> | EditHistory<SnapGridEntryRef>;
+    /** The session's key in that history. */
+    key: string;
     /** Whether a gesture can be drafted now: a base observed, the session writable. */
     available: boolean;
     /** The session's version — moves with every change to it. */
@@ -82,6 +124,30 @@ export interface SnapGridEditing {
     height(key: string, height: number | null, span?: number): boolean;
     /** Remove a tile. Stable. @returns Whether it was drafted */
     remove(key: string): boolean;
+    /**
+     * Set a field of a tile's entry, by name, to the value its bytes hold at the
+     * field's type — what it shows, edited (#1672). Never its identity or its
+     * place: its key, row, span, height and alignment are the other gestures',
+     * by their rules. Stable.
+     * @returns Whether it was drafted: not for a field the entry lacks, one of
+     *   those, bytes of a value of another type, or the value it holds
+     */
+    field(key: string, name: string, bytes: Uint8Array): boolean;
+    /**
+     * Copy a tile's entry under a fresh key, after it in its row while the row
+     * has room for it at its span — else in a new row after its row (#1672).
+     * Stable.
+     * @returns The copy's key, when it was drafted
+     */
+    duplicate(key: string): string | undefined;
+    /**
+     * Add an entry a host built, in a new row after a tile's row (#1673): its
+     * bytes the entry's at the entries' type; its identity a fresh key made
+     * from the one it holds, and its row the new row's — never the host's.
+     * Stable.
+     * @returns The new tile's key and its name, when it was drafted: not for bytes that are no entry, or after a tile the canvas does not hold
+     */
+    insert(after: string, bytes: Uint8Array): { readonly key: string; readonly label: string } | undefined;
     /** A history item action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -95,9 +161,10 @@ const idOfRef = (ref: SnapGridEntryRef): string => ref.id;
  *
  * @param value - The canvas's value, its `editing` declared
  * @param storageKey - The view's key
- * @returns The session, what the canvas draws, and the gestures
+ * @param joined - A host's sessions under one history with the canvas's (#1673); omitted, the session is its own history
+ * @returns The session, what acts on it, what the canvas draws, and the gestures
  */
-export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: string): SnapGridEditing {
+export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: string, joined?: SnapGridJoined): SnapGridEditing {
     const editing = value.editing.type === "some" ? value.editing.value : undefined;
     if (editing === undefined) throw new Error("SnapGrid: the editing canvas needs its editing declaration");
     const fields = editing.fields;
@@ -112,6 +179,16 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
         };
     }, [editing.entryType]);
     const idOf = useCallback((row: Entry): string => row[fields.key] as string, [fields.key]);
+    // Each field of an entry a host may set, by name: how its value is read, and told from the one it holds (#1672) —
+    // every field but the identity and the place, which are the other gestures'.
+    const fieldCodecs = useMemo(() => {
+        const entry = fromEastTypeValue(editing.entryType);
+        const types: Record<string, EastType> = entry.type === "Struct" ? entry.fields : {};
+        const placed = new Set([fields.key, fields.row, fields.span,
+            ...(fields.height.type === "some" ? [fields.height.value] : []), ...(fields.align.type === "some" ? [fields.align.value] : [])]);
+        return new Map(Object.entries(types).filter(([name]) => !placed.has(name))
+            .map(([name, type]) => [name, { decode: decodeBeast2For(type), equal: equalFor(type) }] as const));
+    }, [editing.entryType, fields]);
 
     // ── The source's rows — the base every batch checks ─────────────────
     const rows = useMemo(
@@ -130,6 +207,19 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     const { session, observed, original, available, version } = useEditSession<SnapGridEntryRef>(
         editing as unknown as EditingValue, undefined, refs, positions, storageKey, { idOf: idOfRef, ready, wireType: EntryRefType });
     sessionRef.current = session;
+
+    // ── One history over it and its host's own (#1673) ─────────────────
+    // The session's key names it as the history's keys do: its source, its view and its schema.
+    const key = useMemo(() => historyKeyOf(storageKey, editing as unknown as EditingValue),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- what names it, not the declaration's every field
+        [storageKey, editing.sourceId, editing.entryType, editing.draftType]);
+    const history = joined?.history;
+    useLayoutEffect(() => {
+        if (joined === undefined) return;
+        joined.history.sync([[key, session], ...joined.sessions.map((held) => [held.key, held.session] as const)]);
+    }, [joined, key, session]);
+    // What the history says moves the canvas's bar: a gesture of the host's, as of its own.
+    useSyncExternalStore(history?.subscribe ?? NO_SUBSCRIBE, history?.getSnapshot ?? NO_VERSION, history?.getSnapshot ?? NO_VERSION);
 
     // ── The drafted rows, and the cells they draw ───────────────────────
     const drafted = useMemo((): Entry[] => {
@@ -188,13 +278,14 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
      * Record a gesture as one transaction: every row it writes or removes,
      * the rows it places, and every row placed before whose place moved with
      * it — each stated after the row before it in the order the gesture
-     * leaves.
+     * leaves. `written` is a row the gesture writes whole, in place of the
+     * one drafted: a card's or a copy's new row, or a row with a field set.
      */
-    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, added?: Entry, joins?: string): boolean => {
+    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, written?: Entry, joins?: string): boolean => {
         if (observed === undefined || !session.writable) return false;
         session.observeBase(observed.base);
         const byId = new Map(drafted.map((row) => [idOf(row), row] as const));
-        if (added !== undefined) byId.set(idOf(added), added);
+        if (written !== undefined) byId.set(idOf(written), written);
         // The rows placed before: a draft stands elsewhere than its original.
         const placed = new Set(edit.placed);
         for (const [id, now] of session.entries) {
@@ -232,7 +323,26 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
                     : some(variant("ordered", variant("after", edit.order[at - 1]!)));
             updates.push({ id, before, after: { draft: variant("value", next), wire: { id }, place } });
         }
-        return updates.length > 0 && session.record(updates, origin, label, joins);
+        if (updates.length === 0) return false;
+        // A step of the one history where the host's sessions join it, else of the session's own.
+        return history === undefined ? session.record(updates, origin, label, joins) : history.record([{ key, updates }], origin, label, joins);
+    };
+    /**
+     * A new row's tile: its own cell's — the key and the name the author maps
+     * it to — at its entry's span, or at the span and height of the tile it
+     * copies. `undefined` when its cell cannot be drawn, which is said.
+     */
+    const tileFor = (entry: Entry, what: string, named: string, like?: SnapGridTile): SnapGridTile | undefined => {
+        let cell: SnapGridEditorCell | undefined;
+        try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
+        catch (err) {
+            console.error(`[SnapGrid] ${what} could not be drawn:`, err);
+            return undefined;
+        }
+        return {
+            key: cell?.key ?? idOf(entry), id: idOf(entry), row: entry[fields.row] as string, span: like?.span ?? Number(entry[fields.span] as bigint),
+            height: like?.height, minHeight: like?.minHeight, label: cell?.label.type === "some" ? cell.label.value : named,
+        };
     };
     const gestures = {
         move(key: string, drop: SnapGridDrop, narrows?: number): boolean {
@@ -275,23 +385,13 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
                 return undefined;
             }
             entry = { ...entry, [fields.row]: rowKey };
-            // Its tile is its own cell's: the key and the name the author maps it to.
-            let cell: SnapGridEditorCell | undefined;
-            try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
-            catch (err) {
-                console.error("[SnapGrid] a dropped card's tile could not be drawn:", err);
-                return undefined;
-            }
-            const label = cell?.label.type === "some" ? cell.label.value : card.key;
-            const tile: SnapGridTile = {
-                key: cell?.key ?? idOf(entry), id: idOf(entry), row: rowKey, span: Number(entry[fields.span] as bigint),
-                height: undefined, minHeight: undefined, label,
-            };
+            const tile = tileFor(entry, "a dropped card's tile", card.key);
+            if (tile === undefined) return undefined;
             if (narrows !== undefined) tile.span = narrows;
             const edit = placeTile(tiles, tile, landing.drop);
             // The new row is written whole: the row it lands in, and its fitted span.
             edit.writes.set(tile.id, { ...edit.writes.get(tile.id), row: rowKey, ...(narrows !== undefined ? { span: narrows } : {}) });
-            return record(edit, "drop", `Add ${label}`, undefined, entry) ? tile.key : undefined;
+            return record(edit, "drop", `Add ${tile.label}`, undefined, entry) ? tile.key : undefined;
         },
         resize(key: string, span: number, joins?: string): boolean {
             const tile = tiles.find((t) => t.key === key);
@@ -320,8 +420,66 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             return record({ order: tiles.map((t) => t.id).filter((id) => id !== tile.id), writes: new Map(), placed: [] },
                 "remove", `Remove ${tile.label}`, tile.id);
         },
+        field(key: string, name: string, bytes: Uint8Array): boolean {
+            const tile = tiles.find((t) => t.key === key);
+            const held = fieldCodecs.get(name);
+            if (tile === undefined || held === undefined) return false;
+            const row = drafted.find((r) => idOf(r) === tile.id);
+            if (row === undefined) return false;
+            let value: unknown;
+            try { value = held.decode(bytes); }
+            catch (err) {
+                console.error(`[SnapGrid] the value asked for "${name}" could not be read:`, err);
+                return false;
+            }
+            if (held.equal(row[name], value)) return false;
+            return record({ order: tiles.map((t) => t.id), writes: new Map([[tile.id, {}]]), placed: [] },
+                "typed", `Edit ${tile.label}`, undefined, { ...row, [name]: value });
+        },
+        duplicate(key: string): string | undefined {
+            const tile = tiles.find((t) => t.key === key);
+            const row = tile === undefined ? undefined : drafted.find((r) => idOf(r) === tile.id);
+            if (tile === undefined || row === undefined) return undefined;
+            const rows = rowsOf(tiles);
+            const at = rows.findIndex((r) => r.tiles.some((t) => t.key === key));
+            const own = rows[at]!;
+            // After it in its row while the row has room for it at its span — nothing in the row narrows — else in a new
+            // row after its row.
+            const free = SNAP_GRID_COLUMNS - own.tiles.reduce((sum, t) => sum + t.span, 0);
+            const drop: SnapGridDrop = free >= tile.span && own.tiles.length < MAX_TILES
+                ? { kind: "join", row: at, pos: own.tiles.findIndex((t) => t.key === key) + 1 }
+                : { kind: "gap", at: at + 1 };
+            const rowKey = drop.kind === "join" ? rows[at]!.key : newRowKey(tiles);
+            const id = freshKey(tile.id, new Set(tiles.map((t) => t.id)));
+            const entry: Entry = { ...row, [fields.key]: id, [fields.row]: rowKey };
+            const copy = tileFor(entry, "a copied tile", tile.label, tile);
+            if (copy === undefined) return undefined;
+            const edit = placeTile(tiles, copy, drop);
+            edit.writes.set(id, { ...edit.writes.get(id), row: rowKey });
+            return record(edit, "insert", `Duplicate ${tile.label}`, undefined, entry) ? copy.key : undefined;
+        },
+        insert(after: string, bytes: Uint8Array): { readonly key: string; readonly label: string } | undefined {
+            const at = rowsOf(tiles).findIndex((r) => r.tiles.some((t) => t.key === after));
+            if (at < 0) return undefined;
+            let given: Entry;
+            try { given = codec.decodeEntry(bytes) as Entry; }
+            catch (err) {
+                console.error("[SnapGrid] the entry asked to be added could not be read:", err);
+                return undefined;
+            }
+            // Its identity and its row are the canvas's: a fresh key from the one it holds, and the new row's.
+            const rowKey = newRowKey(tiles);
+            const id = freshKey(idOf(given), new Set(tiles.map((t) => t.id)));
+            const entry: Entry = { ...given, [fields.key]: id, [fields.row]: rowKey };
+            const tile = tileFor(entry, "an added tile", id);
+            if (tile === undefined) return undefined;
+            const edit = placeTile(tiles, tile, { kind: "gap", at: at + 1 });
+            edit.writes.set(id, { ...edit.writes.get(id), row: rowKey });
+            return record(edit, "insert", `Add ${tile.label}`, undefined, entry) ? { key: tile.key, label: tile.label } : undefined;
+        },
         action(action: HistoryAction): void {
-            if (action === "apply") void session.apply();
+            if (history !== undefined) history.act(action);
+            else if (action === "apply") void session.apply();
             else if (action === "refresh") session.refresh();
             else session[action]();
         },
@@ -336,6 +494,9 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     const resize = useCallback((key: string, span: number, joins?: string) => current.current.resize(key, span, joins), []);
     const height = useCallback((key: string, h: number | null, span?: number) => current.current.height(key, h, span), []);
     const remove = useCallback((key: string) => current.current.remove(key), []);
+    const field = useCallback((key: string, name: string, bytes: Uint8Array) => current.current.field(key, name, bytes), []);
+    const duplicate = useCallback((key: string) => current.current.duplicate(key), []);
+    const insert = useCallback((after: string, bytes: Uint8Array) => current.current.insert(after, bytes), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
     // ── The rows the canvas draws, heard by the author (#996) ──────────
@@ -359,10 +520,10 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     }, [drafted, editing.onDrafted, codec]);
 
     return {
-        session, available, version, cells, tiles, marks,
+        session, subject: history ?? session, key, available, version, cells, tiles, marks,
         creates: editing.create.type === "some",
         heights: fields.height.type === "some",
         aligns: fields.align.type === "some",
-        move, rowTo, align, add, resize, height, remove, action,
+        move, rowTo, align, add, resize, height, remove, field, duplicate, insert, action,
     };
 }

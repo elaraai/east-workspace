@@ -408,8 +408,12 @@ export interface SnapGridConfig<R extends EastType> {
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /**
      * The design widths the editing canvas's toolbar offers (#995) — a device
-     * each, such as Desktop and Tablet. The one the canvas draws at is
-     * pressed, and pressing another draws it at that width.
+     * each, such as Desktop, Tablet and Mobile. The one the canvas draws at is
+     * pressed, and pressing another draws it at that width. Under 480px — a
+     * phone's — the canvas lays the page out as a phone shows it: every tile
+     * the full width, stacked in reading order. A tile is selected and edited
+     * there, but neither dragged nor resized, and a card lands only between
+     * rows, a row of its own.
      */
     widths?: SnapGridWidthInput[];
     /**
@@ -503,7 +507,7 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
  *
  * @example
  * ```ts
- * import { East, NullType, variant } from "@elaraai/east";
+ * import { East, IntegerType, NullType, StringType, StructType, variant } from "@elaraai/east";
  * import { SnapGrid, State } from "@elaraai/east-ui";
  *
  * const select = East.function([], NullType, ($) => {
@@ -517,6 +521,27 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
  *     $(ui.write(SnapGrid.uiState({
  *         selected: "revenue-trend",
  *         request: { key: "revenue-trend", change: variant("span", 8n) },
+ *     })));
+ * });
+ *
+ * // Its Duplicate: a copy after it, selected in its place (#1672).
+ * const copy = East.function([], NullType, ($) => {
+ *     const ui = $.const(State.bind([SnapGrid.Types.UiState], "builder.selection", SnapGrid.uiState()));
+ *     $(ui.write(SnapGrid.uiState({
+ *         selected: "revenue-trend",
+ *         request: { key: "revenue-trend", change: variant("duplicate", null) },
+ *     })));
+ * });
+ *
+ * // A tile of the host's own, in a new row after it (#1673): the entry, encoded at the rows' type. The canvas
+ * // gives it a fresh key made from the one it holds, and the new row's.
+ * const Tile = StructType({ id: StringType, row: StringType, span: IntegerType });
+ * const add = East.function([], NullType, ($) => {
+ *     const ui = $.const(State.bind([SnapGrid.Types.UiState], "builder.selection", SnapGrid.uiState()));
+ *     const entry = $.const({ id: "revenue-by-region", row: "", span: 6n }, Tile);
+ *     $(ui.write(SnapGrid.uiState({
+ *         selected: "revenue-trend",
+ *         request: { key: "revenue-trend", change: variant("add", East.Blob.encodeBeast(entry, "v2")) },
  *     })));
  * });
  * ```
@@ -592,7 +617,9 @@ function createViewState(state?: {
  * A pane beside the canvas works with it through the host's state (#996): it
  * reads the rows the canvas draws, which `editing.onDrafted` hears, and asks
  * for a change by writing a `request` to the bound `ui` — a span, a row, a
- * height or an alignment, taken as one gesture of the session. A screen that
+ * height or an alignment, a field of the tile's row that sets what it shows,
+ * a copy of the tile (#1672), or an entry of its own to add in a new row
+ * after the tile (#1673) — taken as one gesture of the session. A screen that
  * must not leave drafts behind asks for an Apply through the bound `apply`
  * (#998), and the canvas answers once its drafts land or cannot.
  *

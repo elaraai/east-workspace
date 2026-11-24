@@ -40,6 +40,7 @@ export { EntryMerger, conflictSteps, type ConflictKind, type ConflictPoint, type
 export { EditHistory, type EditHistoryPart } from "./history.js";
 export {
     useEditHistory,
+    useKeptHistory,
     type EditHistorySource,
     type EditHistoryPaged,
     type EditHistoryJoined,

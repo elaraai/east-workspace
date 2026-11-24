@@ -4,36 +4,9 @@
  */
 
 import {
-    type ExprType,
-    type SubtypeExprOrValue,
-    East,
-    Expr,
-    ArrayType,
-    DateTimeType,
-    StringType,
-    FloatType,
-    BooleanType,
-    OptionType,
-    RecursiveType,
-    StructType,
-    VariantType,
-    variant,
-    some,
-    none,
-} from "@elaraai/east";
-
-import { localSliceHandle, SliceChromeType } from "../../platform/slice/index.js";
-import {
-    FontFamilyType,
-    type FontFamilyLiteral,
-    FontWeightType,
-    type FontWeightLiteral,
-} from "../../style/typography.js";
-import {
     ChartPointType,
     ChartXType,
     ChartDomainType,
-    ChartTickValuesType,
     ChartAxisTextStyleType,
     ChartSeriesType,
     ChartSeriesArrayType,
@@ -43,12 +16,9 @@ import {
     ChartScaleType,
     ChartTickFormatType,
     ChartCurveType,
-    type ChartCurveLiteral,
     ChartMarkType,
     ChartStackOffsetType,
-    type ChartStackOffsetLiteral,
     YAxisSideType,
-    type YAxisSideLiteral,
     ChartAnchorType,
     ChartMarginType,
     ChartAxisType,
@@ -68,477 +38,31 @@ import {
     ChartLegendPositionType,
     ChartTooltipType,
     ChartTooltipCursorType,
+    ChartSliceType,
+    ChartSliceArrayType,
+    ChartPieType,
+    ChartPieLegendType,
 } from "./types.js";
+import {
+    ChartSpecType,
+    chartFrame,
+    chartSeries,
+    chartBandArea,
+    chartPie,
+    chartAxisBottom,
+    chartAxisLeft,
+    chartAxisRight,
+    chartReferenceDot,
+    chartReferenceArea,
+    chartGridRows,
+    chartGridColumns,
+} from "./nodes.js";
 
 // Internal re-export for sibling modules (slice/chart, component dispatch).
 // NOT surfaced on the east-ui barrel — public access is via `Chart.Spec.Types.*`.
 export * from "./types.js";
-
-/**
- * `ChartSpecType` — the recursive visx-primitive chart IR. A chart value is a
- * tree of these variant nodes; `EastVisxChart` interprets it, deriving the
- * shared scales from the `frame`'s scale kinds + descendant data and passing
- * them down so every mark / axis / grid aligns. Factory helpers (`Slice.Chart.*`,
- * and the migrated `Chart.*` later) assemble the tree.
- *
- * @property frame         - Sized (responsive when `width` is `none`) plotting frame; owns margins, x/y scale kinds, optional secondary y-scale, tooltip / legend, children
- * @property group         - A translated container (`visx` `Group`) of children
- * @property linePath      - A polyline (`visx` `LinePath`)
- * @property area          - A filled area (`visx` `AreaClosed`)
- * @property bandArea      - A filled band between low/high bounds per x (area-range)
- * @property bars          - Bars (`visx` `Bar`) at band positions (vertical, or growing along x when the frame's `yScale` is `band`)
- * @property points        - Point markers (`visx` `Circle`)
- * @property rule          - A reference line spanning the plot at a data coordinate
- * @property referenceDot  - A highlighted marker at a data coordinate
- * @property referenceArea - A shaded region spanning a range on one or both axes
- * @property text          - A free SVG text label at a data coordinate
- * @property axisBottom    - X axis (`visx` `AxisBottom`) from the band/time scale
- * @property axisLeft      - Primary y axis (`visx` `AxisLeft`) from the linear scale
- * @property axisRight     - Secondary y axis for a dual-axis chart
- * @property gridRows      - Horizontal gridlines (`visx` `GridRows`)
- * @property gridColumns   - Vertical gridlines (`visx` `GridColumns`)
- * @property series        - Multi-series layer: one mark per coloured series
- */
-export const ChartSpecType = RecursiveType(node => VariantType({
-    frame: StructType({
-        height:   FloatType,
-        width:    OptionType(FloatType),
-        margin:   OptionType(ChartMarginType),
-        xScale:   ChartScaleType,
-        yScale:   ChartScaleType,
-        yScale2:  OptionType(ChartScaleType),
-        tooltip:  OptionType(ChartTooltipType),
-        legend:   OptionType(ChartLegendType),
-        slice:    OptionType(SliceChromeType),
-        children: ArrayType(node),
-    }),
-    group: StructType({
-        left:     FloatType,
-        top:      FloatType,
-        children: ArrayType(node),
-    }),
-    linePath:      ChartLinePathType,
-    area:          ChartAreaType,
-    bandArea:      ChartBandAreaType,
-    bars:          ChartBarsType,
-    points:        ChartPointsType,
-    rule:          ChartRuleType,
-    referenceDot:  ChartReferenceDotType,
-    referenceArea: ChartReferenceAreaType,
-    text:          ChartTextType,
-    axisBottom:    ChartAxisType,
-    axisLeft:      ChartAxisType,
-    axisRight:     ChartAxisType,
-    gridRows:      ChartGridType,
-    gridColumns:   ChartGridType,
-    series:        ChartSeriesMarkType,
-}));
-export type ChartSpecType = typeof ChartSpecType;
-
-/** A `ChartSpec` node value (one arm of {@link ChartSpecType}). */
-export type ChartSpecValue = ExprType<ChartSpecType>;
-
-// ============================================================================
-// Node constructors — assemble a ChartSpec tree.
-// ============================================================================
-
-/** Default margins: room for the mono y labels (left) and x labels (bottom). */
-const DEFAULT_MARGIN = { top: 8, right: 8, bottom: 24, left: 40 };
-
-/**
- * Options for {@link chartFrame}.
- *
- * @remarks
- * The x/y scale kinds default to `band` / `linear`; the high-level mark builders
- * set `xScale` to match the data's coordinate type ({@link ChartXType}).
- *
- * @property height  - Plot height in px
- * @property width   - Plot width in px; omit for responsive (fills the container)
- * @property margin  - Margins around the plotting area; defaults reserve axis room
- * @property xScale  - X-scale kind
- * @property yScale  - Y-scale kind
- * @property yScale2 - Secondary (right) y-scale kind; omit for a single y-axis
- * @property tooltip - Enable the in-chart tooltip
- * @property legend  - Enable the in-chart legend
- */
-export interface ChartFrameOptions {
-    /** Plot height in px. */
-    height: SubtypeExprOrValue<FloatType>;
-    /** Plot width in px; omit for responsive (fills the container). */
-    width?: SubtypeExprOrValue<FloatType>;
-    /** Margins around the plotting area; sensible defaults reserve axis room. */
-    margin?: { top: number; right: number; bottom: number; left: number };
-    /** X-scale kind (default `band`). */
-    xScale?: "band" | "linear" | "time";
-    /** Y-scale kind (default `linear`). A `band` y flips the frame horizontal
-     *  (#249): the points' coordinate keys band the y axis and their values
-     *  measure along a linear x. */
-    yScale?: "band" | "linear" | "time";
-    /** Secondary (right) y-scale kind; omit for a single y-axis. */
-    yScale2?: "band" | "linear" | "time";
-    /** Enable the in-chart tooltip. */
-    tooltip?: boolean;
-    /** Enable the in-chart legend. */
-    legend?: boolean;
-    /** Slice chrome — the bound handle + rail affordances (set by `Chart.Root`'s `slice` option). */
-    slice?: SubtypeExprOrValue<SliceChromeType>;
-}
-
-/**
- * Creates a sized plotting `frame` node — the root of a chart tree.
- *
- * @param children - The marks / axes / grids drawn inside the frame
- * @param options  - Sizing, scale kinds, and tooltip / legend toggles (see {@link ChartFrameOptions})
- * @returns A `frame` {@link ChartSpecValue}
- *
- * @remarks
- * Owns the x/y scale kinds and child nodes; the renderer derives each scale's
- * domain from the descendant points. A secondary `yScale2` enables a right axis
- * that series bound with `axis: "right"` scale against.
- */
-export function chartFrame(children: Array<ChartSpecValue>, options: ChartFrameOptions): ChartSpecValue {
-    return East.value(variant("frame", {
-        height:  options.height,
-        width:   options.width !== undefined ? some(options.width) : none,
-        margin:  some(options.margin ?? DEFAULT_MARGIN),
-        xScale:  variant(options.xScale ?? "band", null),
-        yScale:  variant(options.yScale ?? "linear", null),
-        yScale2: options.yScale2 !== undefined ? some(variant(options.yScale2, null)) : none,
-        tooltip: options.tooltip ? some({ cursor: none }) : none,
-        legend:  options.legend ? some({ orientation: none, position: none }) : none,
-        slice:   options.slice === undefined ? none : options.slice instanceof Expr ? some(options.slice) : some({
-            slice: localSliceHandle(options.slice.slice),
-            affordances: options.slice.affordances,
-        }),
-        children,
-    }), ChartSpecType);
-}
-
-/**
- * Options for {@link chartSeries} — the styling that applies to a whole layer.
- *
- * @remarks
- * Mirrors the optional fields of {@link ChartSeriesMarkType}. Per-series colours
- * live on each series in `data`; these apply across the layer.
- *
- * @property curve       - Line/area interpolation
- * @property stackId     - Group id; layers sharing one stack accumulate together
- * @property stackOffset - Stacking offset for the group (`none` or `expand`)
- * @property axis        - Which y-axis the layer scales against
- * @property strokeWidth - Stroke width for line marks and mark outlines
- * @property dashArray   - SVG dash pattern for line marks
- * @property dots        - Draw point markers on line marks
- * @property fillOpacity - Fill opacity for area and bar marks
- * @property radius      - Marker radius for scatter marks
- * @property opacity     - Stroke opacity for line, area, and scatter marks (distinct from `fillOpacity`)
- * @property legend      - Include this layer's series in the legend
- * @property tooltip     - Include this layer's series in the tooltip
- */
-export interface ChartSeriesOptions {
-    /** Line/area interpolation. */
-    curve?: SubtypeExprOrValue<ChartCurveType> | ChartCurveLiteral;
-    /** Group id; layers sharing one stack accumulate together. */
-    stackId?: SubtypeExprOrValue<StringType>;
-    /** Stacking offset for the group. */
-    stackOffset?: SubtypeExprOrValue<ChartStackOffsetType> | ChartStackOffsetLiteral;
-    /** Which y-axis the layer scales against. */
-    axis?: SubtypeExprOrValue<YAxisSideType> | YAxisSideLiteral;
-    /** Stroke width for line marks and mark outlines. */
-    strokeWidth?: SubtypeExprOrValue<FloatType>;
-    /** SVG dash pattern for line marks. */
-    dashArray?: SubtypeExprOrValue<StringType>;
-    /** Draw point markers on line marks. */
-    dots?: SubtypeExprOrValue<BooleanType>;
-    /** Fill opacity for area and bar marks. */
-    fillOpacity?: SubtypeExprOrValue<FloatType>;
-    /** Marker radius for scatter marks. */
-    radius?: SubtypeExprOrValue<FloatType>;
-    /** Stroke opacity 0–1 for line and scatter marks (distinct from `fillOpacity`). */
-    opacity?: SubtypeExprOrValue<FloatType>;
-    /** Include this layer's series in the legend (default true). */
-    legend?: SubtypeExprOrValue<BooleanType>;
-    /** Include this layer's series in the tooltip (default true). */
-    tooltip?: SubtypeExprOrValue<BooleanType>;
-}
-
-/**
- * Creates a multi-series `series` node — one `mark` per coloured series in `data`.
- *
- * @param data    - The coloured series to draw
- * @param mark    - The mark drawn per series (`line` / `bar` / `area` / `scatter`)
- * @param options - Layer styling (see {@link ChartSeriesOptions})
- * @returns A `series` {@link ChartSpecValue}
- *
- * @remarks
- * A homogeneous layer is one node; a composed chart places several `series`
- * nodes (with differing marks) in the same frame. Stacking, interpolation and
- * the y-axis binding ride on the node.
- */
-export function chartSeries(
-    data: SubtypeExprOrValue<ChartSeriesArrayType>,
-    mark: "line" | "bar" | "area" | "scatter",
-    options?: ChartSeriesOptions,
-): ChartSpecValue {
-    return East.value(variant("series", {
-        data,
-        mark:        variant(mark, null),
-        curve:       options?.curve !== undefined ? some(typeof options.curve === "string" ? East.value(variant(options.curve, null), ChartCurveType) : options.curve) : none,
-        stackId:     options?.stackId !== undefined ? some(options.stackId) : none,
-        stackOffset: options?.stackOffset !== undefined ? some(typeof options.stackOffset === "string" ? East.value(variant(options.stackOffset, null), ChartStackOffsetType) : options.stackOffset) : none,
-        axis:        options?.axis !== undefined ? some(typeof options.axis === "string" ? East.value(variant(options.axis, null), YAxisSideType) : options.axis) : none,
-        strokeWidth: options?.strokeWidth !== undefined ? some(options.strokeWidth) : none,
-        dashArray:   options?.dashArray !== undefined ? some(options.dashArray) : none,
-        dots:        options?.dots !== undefined ? some(options.dots) : none,
-        fillOpacity: options?.fillOpacity !== undefined ? some(options.fillOpacity) : none,
-        radius:      options?.radius !== undefined ? some(options.radius) : none,
-        opacity:     options?.opacity !== undefined ? some(options.opacity) : none,
-        legend:      options?.legend !== undefined ? some(options.legend) : none,
-        tooltip:     options?.tooltip !== undefined ? some(options.tooltip) : none,
-    }), ChartSpecType);
-}
-
-/**
- * Creates a filled `bandArea` node — one band per series in `data`.
- *
- * @param data    - The coloured band series to draw (low/high per x)
- * @param options - Edge interpolation and fill opacity
- * @returns A `bandArea` {@link ChartSpecValue}
- *
- * @remarks
- * The area-range analogue of {@link chartSeries}; backs `Chart.Band`.
- */
-export function chartBandArea(
-    data: SubtypeExprOrValue<ChartBandSeriesArrayType>,
-    options?: { curve?: SubtypeExprOrValue<ChartCurveType> | ChartCurveLiteral; fillOpacity?: SubtypeExprOrValue<FloatType> },
-): ChartSpecValue {
-    return East.value(variant("bandArea", {
-        data,
-        curve:       options?.curve !== undefined ? some(typeof options.curve === "string" ? East.value(variant(options.curve, null), ChartCurveType) : options.curve) : none,
-        fillOpacity: options?.fillOpacity !== undefined ? some(options.fillOpacity) : none,
-    }), ChartSpecType);
-}
-
-/**
- * Typography override for one run of axis text (#315) — flat TS input for
- * {@link ChartAxisTextStyleType}. Every field optional; string shorthands for
- * the shared family / weight enums.
- *
- * @property fontSize      - CSS font size (e.g. `"12px"`)
- * @property fontFamily    - Theme font family — `"sans"` / `"serif"` / `"mono"` or an expression
- * @property fontWeight    - Font weight — `"normal"` / `"medium"` / `"semibold"` / `"bold"` / `"light"` or an expression
- * @property color         - Theme colour token (e.g. `"fg.default"`) or CSS colour
- * @property letterSpacing - CSS letter spacing (e.g. `"0.04em"`)
- */
-export interface ChartAxisTextStyle {
-    /** CSS font size (e.g. `"12px"`). */
-    fontSize?: SubtypeExprOrValue<StringType>;
-    /** Theme font family (resolves through the theme font tokens). */
-    fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
-    /** Font weight. */
-    fontWeight?: SubtypeExprOrValue<FontWeightType> | FontWeightLiteral;
-    /** Theme colour token (e.g. `"fg.default"`) or a raw CSS colour. */
-    color?: SubtypeExprOrValue<StringType>;
-    /** CSS letter spacing (e.g. `"0.04em"`). */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
-}
-
-/** Envelope a {@link ChartAxisTextStyle} input into the {@link ChartAxisTextStyleType} struct. */
-function axisTextStyle(s: ChartAxisTextStyle): ExprType<ChartAxisTextStyleType> {
-    return East.value({
-        fontSize:      s.fontSize !== undefined ? some(s.fontSize) : none,
-        fontFamily:    s.fontFamily !== undefined ? some(typeof s.fontFamily === "string" ? East.value(variant(s.fontFamily, null), FontFamilyType) : s.fontFamily) : none,
-        fontWeight:    s.fontWeight !== undefined ? some(typeof s.fontWeight === "string" ? East.value(variant(s.fontWeight, null), FontWeightType) : s.fontWeight) : none,
-        color:         s.color !== undefined ? some(s.color) : none,
-        letterSpacing: s.letterSpacing !== undefined ? some(s.letterSpacing) : none,
-    }, ChartAxisTextStyleType);
-}
-
-/** Options shared by {@link chartAxisBottom} / {@link chartAxisLeft} / {@link chartAxisRight}. */
-export interface AxisNodeOptions {
-    /** Optional axis caption. */
-    label?: SubtypeExprOrValue<StringType>;
-    /** Suggested tick count (a hint; the scale chooses nice ticks). */
-    numTicks?: SubtypeExprOrValue<FloatType>;
-    /** Explicit tick positions overriding `numTicks` — float domain values on
-     *  a linear axis (e.g. integer day ticks `[0,1,2,…]`), or `Date` instants
-     *  on a `time` axis (#318; rendered
-     *  through the date `tickFormat`). */
-    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>;
-    /** Hide the small tick marks (labels stay). */
-    hideTicks?: SubtypeExprOrValue<BooleanType>;
-    /** Hide the axis baseline rule. */
-    hideLine?: SubtypeExprOrValue<BooleanType>;
-    /** Explicit `[min, max]` domain for a linear/time axis (see {@link ChartDomainType}). */
-    domain?: SubtypeExprOrValue<ChartDomainType>;
-    /** Tick-label format (see {@link ChartTickFormatType}). */
-    tickFormat?: SubtypeExprOrValue<ChartTickFormatType>;
-    /** Typography override for the tick labels (#315); omit for the spec default. */
-    tickStyle?: ChartAxisTextStyle;
-    /** Typography override for the axis caption (#315); omit for the spec default. */
-    titleStyle?: ChartAxisTextStyle;
-    /** Extra px between the tick labels and the axis caption (#327). Widens the
-     *  axis's own margin band (bottom for x, left for y, right for y2) — never the
-     *  shared plot gutter — so it cannot shift a gutter-aligned lane. */
-    titleGap?: SubtypeExprOrValue<FloatType>;
-}
-
-/**
- * Wraps explicit tick positions into the scale-kind variant (#318) — `Date`
- * ticks as the `time` arm, floats as `number` — following the
- * {@link ChartDomainType} pattern, keyed off the value's East element type.
- *
- * @param tv - Tick positions (floats or Dates; plain values or expressions)
- * @returns The {@link ChartTickValuesType} expression
- */
-function tickValuesExpr(
-    tv: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>,
-): ExprType<ChartTickValuesType> {
-    const expr = East.value(tv as unknown as SubtypeExprOrValue<ArrayType<FloatType>>) as ExprType<ArrayType<FloatType>>;
-    const isTemporal = (Expr.type(expr) as unknown as ArrayType).value.type === "DateTime";
-    return East.value(
-        isTemporal
-            ? variant("time", tv as SubtypeExprOrValue<ArrayType<DateTimeType>>)
-            : variant("number", tv as SubtypeExprOrValue<ArrayType<FloatType>>),
-        ChartTickValuesType,
-    );
-}
-
-/** Builds the shared {@link ChartAxisType} struct fields from {@link AxisNodeOptions}. */
-function axisFields(options?: AxisNodeOptions) {
-    return {
-        label:      options?.label !== undefined ? some(options.label) : none,
-        numTicks:   options?.numTicks !== undefined ? some(options.numTicks) : none,
-        tickValues: options?.tickValues !== undefined ? some(tickValuesExpr(options.tickValues)) : none,
-        hideTicks:  options?.hideTicks !== undefined ? some(options.hideTicks) : none,
-        hideLine:   options?.hideLine !== undefined ? some(options.hideLine) : none,
-        domain:     options?.domain !== undefined ? some(options.domain) : none,
-        tickFormat: options?.tickFormat !== undefined ? some(options.tickFormat) : none,
-        tickStyle:  options?.tickStyle !== undefined ? some(axisTextStyle(options.tickStyle)) : none,
-        titleStyle: options?.titleStyle !== undefined ? some(axisTextStyle(options.titleStyle)) : none,
-        titleGap:   options?.titleGap !== undefined ? some(options.titleGap) : none,
-    };
-}
-
-/**
- * Creates the x (bottom) axis from the frame's x scale.
- *
- * @param options - Caption, tick count hint, explicit domain, and tick format
- * @returns An `axisBottom` {@link ChartSpecValue}
- *
- * @remarks
- * The renderer derives ticks from the scale's domain, so a `time` axis chooses
- * range-appropriate ticks itself; `numTicks` is only a hint and `domain` an
- * optional override.
- */
-export function chartAxisBottom(options?: AxisNodeOptions): ChartSpecValue {
-    return East.value(variant("axisBottom", axisFields(options)), ChartSpecType);
-}
-
-/**
- * Creates the primary (left) y axis from the frame's y scale.
- *
- * @param options - Caption, tick count hint, explicit domain, and tick format
- * @returns An `axisLeft` {@link ChartSpecValue}
- */
-export function chartAxisLeft(options?: AxisNodeOptions): ChartSpecValue {
-    return East.value(variant("axisLeft", axisFields(options)), ChartSpecType);
-}
-
-/**
- * Creates the secondary (right) y axis for a dual-axis chart.
- *
- * @param options - Caption, tick count hint, explicit domain, and tick format
- * @returns An `axisRight` {@link ChartSpecValue}
- *
- * @remarks
- * Pair with `frame.yScale2` and series bound via `axis: "right"`.
- */
-export function chartAxisRight(options?: AxisNodeOptions): ChartSpecValue {
-    return East.value(variant("axisRight", axisFields(options)), ChartSpecType);
-}
-
-/**
- * Creates a reference-dot node — a highlighted marker at a data coordinate.
- *
- * @param options - The `x` ({@link ChartXType}) / `y` coordinate and marker styling
- * @returns A `referenceDot` {@link ChartSpecValue}
- */
-export function chartReferenceDot(options: {
-    x: SubtypeExprOrValue<ChartXType>;
-    y: SubtypeExprOrValue<FloatType>;
-    fill?: SubtypeExprOrValue<StringType>;
-    radius?: SubtypeExprOrValue<FloatType>;
-    stroke?: SubtypeExprOrValue<StringType>;
-    strokeWidth?: SubtypeExprOrValue<FloatType>;
-    label?: SubtypeExprOrValue<StringType>;
-}): ChartSpecValue {
-    return East.value(variant("referenceDot", {
-        x:           options.x,
-        y:           options.y,
-        fill:        options.fill !== undefined ? some(options.fill) : none,
-        radius:      options.radius !== undefined ? some(options.radius) : none,
-        stroke:      options.stroke !== undefined ? some(options.stroke) : none,
-        strokeWidth: options.strokeWidth !== undefined ? some(options.strokeWidth) : none,
-        label:       options.label !== undefined ? some(options.label) : none,
-    }), ChartSpecType);
-}
-
-/**
- * Creates a reference-area node — a shaded region spanning a range on one or both axes.
- *
- * @param options - Optional `x1`/`x2` ({@link ChartXType}) and `y1`/`y2` bounds, plus styling
- * @returns A `referenceArea` {@link ChartSpecValue}
- *
- * @remarks
- * A bound left unset extends to the plot edge.
- */
-export function chartReferenceArea(options: {
-    x1?: SubtypeExprOrValue<ChartXType>;
-    x2?: SubtypeExprOrValue<ChartXType>;
-    y1?: SubtypeExprOrValue<FloatType>;
-    y2?: SubtypeExprOrValue<FloatType>;
-    fill?: SubtypeExprOrValue<StringType>;
-    fillOpacity?: SubtypeExprOrValue<FloatType>;
-    stroke?: SubtypeExprOrValue<StringType>;
-    label?: SubtypeExprOrValue<StringType>;
-}): ChartSpecValue {
-    return East.value(variant("referenceArea", {
-        x1:          options.x1 !== undefined ? some(options.x1) : none,
-        x2:          options.x2 !== undefined ? some(options.x2) : none,
-        y1:          options.y1 !== undefined ? some(options.y1) : none,
-        y2:          options.y2 !== undefined ? some(options.y2) : none,
-        fill:        options.fill !== undefined ? some(options.fill) : none,
-        fillOpacity: options.fillOpacity !== undefined ? some(options.fillOpacity) : none,
-        stroke:      options.stroke !== undefined ? some(options.stroke) : none,
-        label:       options.label !== undefined ? some(options.label) : none,
-    }), ChartSpecType);
-}
-
-/**
- * Creates horizontal gridlines at the y ticks.
- *
- * @param options - Suggested gridline count and dash pattern
- * @returns A `gridRows` {@link ChartSpecValue}
- */
-export function chartGridRows(options?: { numTicks?: number; dashArray?: string }): ChartSpecValue {
-    return East.value(variant("gridRows", {
-        numTicks:  options?.numTicks !== undefined ? some(options.numTicks) : none,
-        dashArray: options?.dashArray !== undefined ? some(options.dashArray) : none,
-    }), ChartSpecType);
-}
-
-/**
- * Creates vertical gridlines at the x positions.
- *
- * @param options - Suggested gridline count and dash pattern
- * @returns A `gridColumns` {@link ChartSpecValue}
- */
-export function chartGridColumns(options?: { numTicks?: number; dashArray?: string }): ChartSpecValue {
-    return East.value(variant("gridColumns", {
-        numTicks:  options?.numTicks !== undefined ? some(options.numTicks) : none,
-        dashArray: options?.dashArray !== undefined ? some(options.dashArray) : none,
-    }), ChartSpecType);
-}
+// The chart tree's node type and its constructors, which the namespace below names.
+export * from "./nodes.js";
 
 // ============================================================================
 // Namespace — single entry point: Chart.Spec.{frame,series,…} + Chart.Spec.Types.*
@@ -745,6 +269,34 @@ export const ChartSpec = {
      * ```
      */
     referenceArea: chartReferenceArea,
+    /**
+     * Creates a pie — shares of one total, with its legend — the only node of its frame.
+     *
+     * @param data    - The slices, in any order: each its key, its value and, optionally, its colour
+     * @param options - How many slices before Other, the total, Other's label, a donut, the value format, a donut's caption and the legend's note
+     * @returns A `pie` {@link ChartSpecValue}
+     *
+     * @remarks
+     * Drawn largest first from twelve o'clock: the first `top` slices (4 by
+     * default), then one Other slice for the rest. The legend carries each
+     * slice's value and share, and a `note` under its rows; a donut has the
+     * total in its centre, over its `caption`.
+     *
+     * @example
+     * ```ts
+     * import { East, none, variant } from "@elaraai/east";
+     * import { Chart, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const example = East.function([], UIComponentType, (_$) =>
+     *     East.value(variant("VisxChart", Chart.Spec.frame([
+     *         Chart.Spec.pie([
+     *             { key: "NSW", value: 42, color: none },
+     *             { key: "VIC", value: 31, color: none },
+     *         ], { donut: true }),
+     *     ], { height: 200 })), UIComponentType));
+     * ```
+     */
+    pie: chartPie,
     Types: {
         /**
          * The recursive visx-primitive chart IR.
@@ -966,7 +518,7 @@ export const ChartSpec = {
          * Mirror of {@link ChartAxisTextStyleType} — the `tickStyle` /
          * `titleStyle` of an axis config, reusing the shared typography
          * vocabulary. Absent fields fall back to the spec chrome (mono 11px,
-         * `fg.muted`).
+         * weight 500 for ticks, `fg.muted`).
          *
          * @property fontSize      - CSS font size
          * @property fontFamily    - Theme font family (sans / serif / mono)
@@ -1128,6 +680,47 @@ export const ChartSpec = {
          * @property tooltip     - Include this layer's series in the tooltip
          */
         SeriesMark: ChartSeriesMarkType,
+        /**
+         * One slice of a pie.
+         *
+         * @remarks
+         * Mirror of {@link ChartSliceType}.
+         *
+         * @property key   - What the slice stands for: its legend label
+         * @property value - Its value
+         * @property color - Its colour; `none` takes the series order by rank
+         */
+        Slice: ChartSliceType,
+        /**
+         * An array of {@link ChartSliceType}.
+         *
+         * @remarks
+         * Mirror of {@link ChartSliceArrayType}.
+         */
+        SliceArray: ChartSliceArrayType,
+        /**
+         * A pie: shares of one total.
+         *
+         * @remarks
+         * Mirror of {@link ChartPieType}.
+         *
+         * @property data   - The slices
+         * @property top    - How many slices are drawn before Other
+         * @property total  - The whole the slices are shares of
+         * @property other  - Other's label
+         * @property donut  - Drawn as a ring with the total in its centre
+         * @property format - How a value prints
+         * @property legend - What the legend shows
+         */
+        Pie: ChartPieType,
+        /**
+         * What a pie's legend shows: each slice's value and share, its name
+         * alone, or no legend.
+         *
+         * @remarks
+         * Mirror of {@link ChartPieLegendType}.
+         */
+        PieLegend: ChartPieLegendType,
         /**
          * In-chart legend configuration.
          *

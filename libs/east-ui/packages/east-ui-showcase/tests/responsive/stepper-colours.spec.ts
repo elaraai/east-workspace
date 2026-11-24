@@ -53,10 +53,13 @@ for (const theme of ["light", "dark"] as const) {
         const [subtle, strong, brand] = await Promise.all([token(page, "border-subtle"), token(page, "border-strong"), token(page, "brand-solid")]);
         expect(new Set([subtle, strong, brand]).size, "three distinct tokens to tell apart").toBe(3);
         expect(await colours(builder.locator("[data-snap-grid-zoom]"))).toEqual({ strip: strong, start: subtle, end: subtle, widths: ["1px", "1px"] });
-        // The inspector's column span is the selected tile's: select one, if none is.
+        // The inspector's column span is the selected tile's, on its Layout tab — it opens on what the tile holds (#1672):
+        // select one, if none is, and open the tab.
         const span = builder.getByRole("group", { name: "Column span" });
         if (!(await span.isVisible())) {
             await builder.locator("[data-snap-grid-tile]").first().click();
+            await settled(page);
+            await builder.getByRole("tab", { name: "Layout" }).click();
             await settled(page);
         }
         await expect(span).toBeVisible();

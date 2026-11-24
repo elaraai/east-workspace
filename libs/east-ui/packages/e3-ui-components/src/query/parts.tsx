@@ -6,12 +6,18 @@
 /**
  * A step card's parts (#936) — #934's `CardPart`s and `CardLine`s as the
  * Query tab draws them (`Query Editor Spec.md` §4.3): words, with joiners in
- * a fixed column so conditions line up; slots, each the `select` trigger —
+ * a fixed column so conditions line up; a row's parts in three — its joiner,
+ * what it says, its × (`rowSides`) — so a row longer than its room wraps what
+ * it says under its own first part, its × held on its first line, at its end;
+ * slots, each the `select` trigger —
  * dashed while empty, the danger ink with a problem — which open the
  * autocomplete; inputs, which edit on leaving; chips with their ×; adds,
- * dashed in a row and quiet in a foot; a row's ×; a jq step's code; groups
- * with their own head; and the problem lines under the rows that caused
- * them, with the checker's own sentence on hover and its fixes as buttons.
+ * dashed in a row and quiet in a foot; a row's × and — in words, at its
+ * foot's end — a group's Remove group, each marked by what it takes
+ * (`data-query-remove`), so the row or the group it is pointed at is tinted
+ * before it goes; a jq step's code; groups with their own head; and the
+ * problem lines under the rows that caused them, with the checker's own
+ * sentence on hover and its fixes as buttons.
  *
  * Every part says what it was asked to do through {@link PartActions}; the
  * Query tab makes each one gesture of the editing session. State reaches the
@@ -27,7 +33,7 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faCaretDown, faCircleExclamation, faCircleInfo, faPlus, faTriangleExclamation, faXmark, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
 import { useValueSync } from "@elaraai/east-ui-components";
-import type { CardLine, CardPart, ProblemLine } from "./model/cards.js";
+import { rowSides, type CardLine, type CardPart, type ProblemLine } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
 import type { QueryWords } from "./model/words.js";
 import type { StepFix } from "./steps/check.js";
@@ -101,6 +107,22 @@ export function slotKey(slot: SlotRef): string {
 }
 
 /**
+ * The element in a block of rows that carries a slot's key: what a slot's
+ * list hangs from once the rows have drawn again.
+ *
+ * @param root - The block: the builder, or a host's rows in place
+ * @param key - The slot's key ({@link slotKey})
+ * @returns The element, or `undefined` when the block draws no such slot
+ */
+export function slotElement(root: HTMLElement | null, key: string): HTMLElement | undefined {
+    if (root === null) return undefined;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-slot-key]")) {
+        if (el.getAttribute("data-slot-key") === key) return el;
+    }
+    return undefined;
+}
+
+/**
  * A tooltip over a control: the design system's, after a moment's hover.
  *
  * @param props - The words it shows, and the control
@@ -119,15 +141,16 @@ export function Tip({ label, children }: { label: string; children: ReactElement
 /**
  * An icon button, named for a screen reader and by its tooltip.
  *
- * @param props - Its name, its icon, whether it is off, what it does, and its styles
+ * @param props - Its name, its icon, whether it is off, what it does, its styles, and the data attributes it is marked by
  * @returns The button
  */
-export function IconPart({ label, icon, disabled = false, css, onClick }: {
-    label: string; icon: IconDefinition; disabled?: boolean; css: SystemStyleObject | SystemStyleObject[]; onClick: () => void;
+export function IconPart({ label, icon, disabled = false, css, data, onClick }: {
+    label: string; icon: IconDefinition; disabled?: boolean; css: SystemStyleObject | SystemStyleObject[];
+    data?: Readonly<Record<`data-${string}`, string | undefined>> | undefined; onClick: () => void;
 }) {
     return (
         <Tip label={label}>
-            <chakra.button type="button" css={css} aria-label={label} disabled={disabled} onClick={onClick}>
+            <chakra.button type="button" css={css} aria-label={label} disabled={disabled} {...data} onClick={onClick}>
                 <FontAwesomeIcon icon={icon} />
             </chakra.button>
         </Tip>
@@ -175,7 +198,9 @@ function Part({ part, ps, actions, ghost }: { part: CardPart; ps: PartStyles; ac
     const m = words.messages;
     switch (part.t) {
         case "word":
-            return <Box as="span" css={part.joiner === true ? styles.joiner : styles.word}>{part.text}</Box>;
+            return part.joiner === true
+                ? <Box as="span" css={styles.joiner} data-query-joiner="">{part.text}</Box>
+                : <Box as="span" css={styles.word}>{part.text}</Box>;
         case "slot": {
             const key = slotKey(part.slot);
             const open = actions.openSlot === key;
@@ -210,7 +235,10 @@ function Part({ part, ps, actions, ghost }: { part: CardPart; ps: PartStyles; ac
             );
         }
         case "remove":
-            return <IconPart label={part.label} icon={faXmark} css={[ps.icon, styles.remove!]} onClick={() => actions.onRemove(part.target)} />;
+            // A group's is its words; a row's, and a part's, a ×. Each says what it takes, which the recipe tints as it is pointed at.
+            return part.takes === "group"
+                ? <Button size="xs" variant="ghost" css={styles.removeGroup} data-query-remove="group" onClick={() => actions.onRemove(part.target)}>{part.label}</Button>
+                : <IconPart label={part.label} icon={faXmark} css={[ps.icon, styles.remove!]} data={{ "data-query-remove": part.takes }} onClick={() => actions.onRemove(part.target)} />;
         case "code":
             return (
                 <Box css={ps.code.root} data-query-code="">
@@ -260,8 +288,9 @@ export function Problems({ problems, ps, actions }: { problems: readonly Problem
 }
 
 /**
- * A card's lines: rows, groups with their head and lines, feet, notes and a
- * jq step's code, each with the problems under it.
+ * A card's lines: rows — each its joiner, what it says and its × — groups
+ * with their head and lines, feet — a group's with its Remove group at its
+ * end — notes and a jq step's code, each with the problems under it.
  *
  * @param props - The lines, their styles and what they ask
  * @returns The lines
@@ -270,25 +299,28 @@ export function Lines({ lines, ps, actions }: { lines: readonly CardLine[]; ps: 
     const { styles } = ps;
     return lines.map((line, i) => {
         switch (line.kind) {
-            case "row":
+            case "row": {
+                // Its joiner, what it says, and its ×: what it says wraps between the two, which stay where they stand.
+                const sides = rowSides(line.parts);
                 return (
                     <Fragment key={i}>
-                        <Box css={styles.row} data-query-line="row"><Parts parts={line.parts} ps={ps} actions={actions} /></Box>
+                        <Box css={styles.row} data-query-line="row">
+                            <Parts parts={sides.start} ps={ps} actions={actions} />
+                            <Box css={styles.rowBody} data-query-row-body=""><Parts parts={sides.body} ps={ps} actions={actions} /></Box>
+                            <Parts parts={sides.end} ps={ps} actions={actions} />
+                        </Box>
                         <Problems problems={line.problems} ps={ps} actions={actions} />
                     </Fragment>
                 );
+            }
             case "group": {
                 const head = line.head ?? [];
                 return (
                     <Fragment key={i}>
                         <Box css={styles.group} data-query-line="group">
                             <Parts parts={line.parts} ps={ps} actions={actions} />
-                            <Box css={styles.groupBox}>
-                                <Box css={styles.groupHead}>
-                                    <Parts parts={head.filter(p => p.t !== "remove")} ps={ps} actions={actions} />
-                                    <Box css={styles.cardSpacer} />
-                                    <Parts parts={head.filter(p => p.t === "remove")} ps={ps} actions={actions} />
-                                </Box>
+                            <Box css={styles.groupBox} data-query-group-box="">
+                                <Box css={styles.groupHead} data-query-group-head=""><Parts parts={head} ps={ps} actions={actions} /></Box>
                                 <Lines lines={line.lines ?? []} ps={ps} actions={actions} />
                             </Box>
                         </Box>

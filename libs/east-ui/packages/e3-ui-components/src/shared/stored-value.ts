@@ -60,3 +60,29 @@ export function useStoredValue<T extends EastType>(codec: StoredCodec<T>, key: s
     const write = useCallback((next: ValueTypeOf<T>) => { store.write(key, codec.encode(next)); }, [store, key, codec]);
     return [value, write];
 }
+
+/**
+ * Changes the value the UI store holds under a key, from what it holds: a
+ * write to a key no part on the surface reads — another page's — which every
+ * reader of the key follows once it is drawn.
+ *
+ * @typeParam T - The value's East type
+ * @param codec - The value's codec ({@link storedCodec})
+ * @param key - The key the value is kept under
+ * @param change - The value to hold, from the value held — `undefined` until one is written
+ */
+export function changeStoredValue<T extends EastType>(codec: StoredCodec<T>, key: string, change: (held: ValueTypeOf<T> | undefined) => ValueTypeOf<T>): void {
+    const store = StateRuntime.getStore();
+    const bytes = store.read(key);
+    store.write(key, codec.encode(change(bytes === undefined ? undefined : codec.decode(bytes))));
+}
+
+/**
+ * Forgets the value the UI store holds under a key: every reader of the key
+ * holds nothing again — as before a value was written — once it is drawn.
+ *
+ * @param key - The key the value is kept under
+ */
+export function forgetStoredValue(key: string): void {
+    StateRuntime.getStore().write(key, undefined);
+}

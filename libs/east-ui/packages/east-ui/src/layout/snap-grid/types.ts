@@ -38,7 +38,7 @@ import { EditingReadinessType, EditingSessionFields } from "../../contracts/edit
  *
  * @property top - At the row's top
  * @property center - Centred in the row
- * @property stretch - As tall as the row
+ * @property stretch - As tall as the row: its `height` is then the least it takes
  */
 export const SnapGridAlignType = VariantType({
     top: NullType,
@@ -72,16 +72,24 @@ export type SnapGridVariantType = typeof SnapGridVariantType;
 export type SnapGridVariantLiteral = "tiles" | "wireframe";
 
 /**
- * A change a host asks the editing canvas to make to one tile (#996) — an
- * inspector's edit. The canvas takes it as ONE gesture of its session, by the
- * rules its own handles and drags keep, and writes the `ui` state's `request`
- * back to `none`.
+ * A change a host asks the editing canvas to make to one tile (#996, #1672) —
+ * an inspector's edit — or a row to add after it (#1673). The canvas takes it as ONE gesture of its session, by
+ * the rules its own handles and drags keep, and writes the `ui` state's
+ * `request` back to `none`.
  *
  * @property key - The tile's key
  * @property change - What to change: its `span`, held to what its row has room
  *   for; its `row`, counting from 1 — a row past the last, or one already
  *   holding its most tiles, is a new row after it; its `height`, `none` for its
- *   content's own; or its `align`, written to the field `edit.align` names
+ *   content's own; its `align`, written to the field `edit.align` names; a
+ *   `field` of its entry, by name, its value encoded at the field's type — what
+ *   it shows, edited (#1672): never a field `edit` names, which is its identity
+ *   or its place, and the other cases'; a `duplicate`: a copy of its entry
+ *   under a fresh key, after it in its row while the row has room for it at its
+ *   span — else in a new row after its row — and selected (#1672); or an `add`:
+ *   an entry the host built, encoded at the entries' type, placed in a new row
+ *   after the tile's row and selected — its identity a fresh key made from the
+ *   one it holds, its row the new row's, both the canvas's to set (#1673)
  */
 export const SnapGridRequestType = StructType({
     key: StringType,
@@ -90,6 +98,9 @@ export const SnapGridRequestType = StructType({
         row: IntegerType,
         height: OptionType(IntegerType),
         align: SnapGridAlignType,
+        field: StructType({ name: StringType, value: BlobType }),
+        duplicate: NullType,
+        add: BlobType,
     }),
 });
 
@@ -310,7 +321,7 @@ export const SnapGridReadyEntryType = StructType({ id: StringType, entry: BlobTy
  * @property key - The cell's identity
  * @property row - The key of the row it sits in
  * @property span - Its width, in columns of 12
- * @property height - Its height in px; `none` is its content's height
+ * @property height - Its height in px — the least it takes where it stretches (`align`), which is as tall as its row; `none` is its content's height
  * @property minHeight - The least height a height drag leaves it, in px; `none` stops it at its content's height
  * @property align - Where it sits in a taller row
  * @property frame - Drawn in a tile frame, or bare

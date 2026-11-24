@@ -62,6 +62,12 @@ export { decodedWeightFor } from './serialization/beast2/v5/weight.js';
 export { beast2SegmentRowsFor, type Beast2SegmentRows } from './serialization/beast2/v5/segment-rows.js';
 // What a struct is written as in TypeScript, an object literal: a key range's bound, and e3's index readers' `on`
 export { isObjectLiteral } from './expr/key_range.js';
+// A jq program's nodes walked as East's checker, translator and split planner
+// walk them: each node's children, with the steps that lead to them — what a
+// host reads a stored program's nodes by (e3-ui-components' Studio printer,
+// which binds `.now` only for a visual whose filter reads `$now`)
+export { jqChildren, type JqChild } from './query/jq/spans.js';
+export { isoDateTime } from './query/jq/literals.js';
 
 /**
  * Type helper for platform function definitions.

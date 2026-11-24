@@ -7,9 +7,9 @@
  * `EastChakraQueryLibrary` — the renderer of the `QueryLibrary` extension
  * declared in `@elaraai/e3-ui` (#1063): the query library, built in the
  * browser from its interface — the saved queries record bound with its patch,
- * the data sources a query may read, the builder it opens queries in, and who
- * to tell — as Studio's page library is built from its own
- * (`Query Editor Spec.md` §5):
+ * the data sources a query may read, the query open in the builder, and who
+ * to tell when another is asked for — as Studio's page library is built from
+ * its own (`Query Editor Spec.md` §5):
  *
  * - **One toolbar row**, the shared `Toolbar`: the search, "Search N
  *   queries…", over names, descriptions and data sources; Sort · Recent or
@@ -25,12 +25,13 @@
  *   its description (the author's, else the generated sentence), "{source} ·
  *   {n} steps · {what it gives} · saved {when}", and "Open in builder →". A
  *   saved query's card drags onto the builder that shares the id (#939).
- * - **Opening**: a card's click writes the builder's open query, shared by
- *   `id`, with the notice it arrives with, and tells the host — a saved query
- *   as itself, a recent run of one as the saved query, a run never saved as a
- *   new query begun as it. A query whose data sources aren't bound here
- *   carries the reason in the warning tone, and its click says so in a notice
- *   instead of opening.
+ * - **Opening**: a card's click tells the host which query is asked for — a
+ *   saved query as itself, a recent run of one as the saved query, a run never
+ *   saved as a new query begun as it — and the host shows it in its builder:
+ *   the query library opens nothing itself, shares no store entry with a
+ *   builder (#1668), and marks the query the host says is open. A query whose
+ *   data sources aren't bound here carries the reason in the warning tone, and
+ *   its click says so in a notice instead of asking.
  * - **Empty**: no queries yet, no recent runs, or none matching the search —
  *   each with what to do.
  *
@@ -51,7 +52,7 @@ import {
     fas, faArrowDownAZ, faCaretDown, faCheck, faClockRotateLeft, faMagnifyingGlass, faPlus, faXmark, type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import {
-    DateTimeType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf,
+    DateTimeType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { QueryLibraryComponent, QueryLibraryPayloadType, SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -63,9 +64,10 @@ import { sourceKind } from "./datasets-tab.js";
 import { useQueryRoot, useRecentQueries } from "./hooks.js";
 import type { QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
-import { newQuery, useOpenQuery, type QueryOpen } from "./open-query.js";
+import { newQuery, type QueryOpen } from "./open-query.js";
 import type { SavedQueries, SavedQuery } from "./session.js";
 import { useQueryWords } from "./words.js";
+import { tellHost } from "../shared/open.js";
 
 // A step's icon is a Font Awesome name; register the free-solid set so it resolves by name (idempotent).
 iconLibrary.add(fas);
@@ -271,7 +273,7 @@ export const EastChakraQueryLibrary = memo(function EastChakraQueryLibrary({ val
 
 /** Props of {@link QueryLibraryView}. */
 interface QueryLibraryViewProps {
-    /** The payload: the builder's id, and who to tell. */
+    /** The payload: the open query, who to tell, and the builder's id. */
     readonly value: QueryLibraryValue;
     /** The saved queries. */
     readonly record: SavedQueries;
@@ -293,14 +295,12 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
     const id = useId();
     const builder = value.id.type === "some" ? value.id.value : undefined;
     const keys = useMemo(() => queryKeys(builder), [builder]);
-    const tellHost = value.onOpen.type === "some" ? value.onOpen.value : undefined;
+    const onOpen = value.onOpen;
 
-    // This viewer's recent runs, the builder's; and the builder's open query —
-    // a new query on the first data source until one opens.
+    // This viewer's recent runs, the builder's; and the query its host says is open in the builder.
     const { recent } = useRecentQueries(keys.recent);
     const firstSource = root.entries[0]?.name ?? "";
-    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: firstSource, from: none }), [firstSource]);
-    const [open, writeOpen] = useOpenQuery(keys.query, first);
+    const open: option<QueryOpen> = value.query;
 
     // Its own view: what the pane shows, the search, the order and the layout; and a notice.
     const [shown, setShown] = useState<Shown>({ kind: "all" });
@@ -350,11 +350,11 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
     const byKey = useMemo(() => new Map(rows.map((c) => [c.key, c])), [rows]);
 
     // The query the builder has open is placed: a saved query by its name; a run never saved by itself, whenever it ran.
-    const isOpenSaved = useCallback((name: string) => open.type === "saved" && nameEqual(open.value, name), [open]);
-    const isOpenRun = useCallback((run: SavedQuery) => open.type === "new" && open.value.from.type === "some"
-        && runEqual({ ...open.value.from.value, saved_at: run.saved_at }, run), [open]);
+    const isOpenSaved = useCallback((name: string) => open.type === "some" && open.value.type === "saved" && nameEqual(open.value.value, name), [open]);
+    const isOpenRun = useCallback((run: SavedQuery) => open.type === "some" && open.value.type === "new" && open.value.value.from.type === "some"
+        && runEqual({ ...open.value.value.from.value, saved_at: run.saved_at }, run), [open]);
 
-    // A card opens its query in the builder, with its notice, and tells the host.
+    // A card's click tells the host the query asked for — in a turn of its own — which shows it in its builder.
     const onOpenCard = useCallback((key: string) => {
         const card = byKey.get(key);
         if (card === undefined) return;
@@ -363,21 +363,17 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
             return;
         }
         setNotice(undefined);
-        const name = card.query.name;
         const target = card.run ? card.opens : card.query;
-        writeOpen(target !== undefined ? variant("saved", target.name) : newQuery(card.about.source, card.query), m.openedFromQueryLibrary({ name }));
-        if (tellHost !== undefined) queueMicrotask(() => tellHost(name));
-    }, [byKey, writeOpen, tellHost, m]);
+        tellHost(onOpen, target !== undefined ? variant("saved", target.name) : newQuery(card.about.source, card.query));
+    }, [byKey, onOpen]);
 
     // "+ New query on …": the data source the pane shows, else the first bound.
     const startOn = shown.kind === "source" ? shown.name : firstSource;
     const onNew = useCallback(() => {
         if (startOn === "") return;
         setNotice(undefined);
-        writeOpen(newQuery(startOn), m.startedOn({ name: startOn }));
-        const name = m.untitled({ source: startOn });
-        if (tellHost !== undefined) queueMicrotask(() => tellHost(name));
-    }, [startOn, writeOpen, tellHost, m]);
+        tellHost(onOpen, newQuery(startOn));
+    }, [startOn, onOpen]);
 
     // Each card: its name, its description, what it reads and gives, and its action; the reason it can't open, in the warning tone.
     const items = useMemo(() => {

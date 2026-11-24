@@ -143,6 +143,22 @@ export const RACK_TIER_MANIFESTS = 'tier-manifests';
 export const RACK_INLINE_OBJECTS = 'inline-objects';
 
 /**
+ * The feature by which a source and a rack say they spread a lease's data URLs
+ * over several origins, each its own connection (a tunnel's TCP window bounds
+ * every transfer inside it). A source's hello names it, and lists the origins
+ * beside its own that reach it ({@link RackHello.dataOrigins}), each serving
+ * the certificate its own origin serves; a rack's report names it when the
+ * rack fetches a data URL on any origin its source's hello lists, through its
+ * source's pinned certificate. A source gives data URLs on those origins only
+ * to a rack whose report names it, and every other rack all of them on its own
+ * origin, as before it.
+ */
+export const RACK_DATA_ORIGINS = 'data-origins';
+
+/** The most data origins a hello's list is read for: the rest are passed over. */
+export const RACK_DATA_ORIGINS_MAX = 16;
+
+/**
  * The header of a storage request in which a rack names the largest object it
  * takes inline in the reply, in bytes, as a decimal: a source that names
  * {@link RACK_INLINE_OBJECTS} serves an object of at most that size inline, and
@@ -361,10 +377,19 @@ export interface RackHello {
   };
   /**
    * What the source takes beyond the protocol: {@link RACK_CALL_VALUE_OBJECTS},
-   * {@link RACK_TIER_MANIFESTS}, {@link RACK_INLINE_OBJECTS}. An agent uses a feature only with a source
+   * {@link RACK_TIER_MANIFESTS}, {@link RACK_INLINE_OBJECTS},
+   * {@link RACK_DATA_ORIGINS}. An agent uses a feature only with a source
    * that names it; a source that names none takes none.
    */
   readonly features: readonly string[];
+  /**
+   * The origins beside its own that the source may build a data URL on, of a
+   * source that names {@link RACK_DATA_ORIGINS}: each an `http(s)://host:port`
+   * origin that reaches the source, serving the certificate its own origin
+   * serves. Absent of a source that lists none, as one that names no
+   * {@link RACK_DATA_ORIGINS} does.
+   */
+  readonly dataOrigins?: readonly string[];
 }
 
 /**
@@ -379,7 +404,8 @@ export interface RackReport {
    * composes a lease's environment from layers),
    * {@link RACK_ENVIRONMENTS_OVER_TIER} (it composes one built over a tier),
    * {@link RACK_SPLIT_SCOPES} (it keeps a scope's outputs for its later
-   * leases).
+   * leases), {@link RACK_DATA_ORIGINS} (it fetches a data URL on any origin its
+   * source's hello lists).
    */
   readonly features: readonly string[];
   /** The platform environments are installed for, as e3-core names one
@@ -515,7 +541,10 @@ export function readRackOffer(json: string): RackOffer {
  * @returns The hello; a source that states no limit serves
  *   {@link RACK_TRANSFERS_AT_ONCE} transfers at once, one that names no
  *   feature takes none, and an entry of its features that is no word is
- *   passed over
+ *   passed over; of its data origins, the first
+ *   {@link RACK_DATA_ORIGINS_MAX} that are HTTP(S) origins, each as its
+ *   origin, and none unless it names {@link RACK_DATA_ORIGINS}: a hello that
+ *   lists none has no `dataOrigins`
  * @throws {Error} When it is not a JSON object that names a protocol and an e3
  *   release, or its features are not a list
  *
@@ -531,7 +560,29 @@ export function readRackHello(json: string): RackHello {
   const limits = typeof fields.limits === 'object' && fields.limits !== null ? fields.limits as Record<string, unknown> : {};
   const transfers = limits.transfersAtOnce === undefined ? RACK_TRANSFERS_AT_ONCE : count(limits.transfersAtOnce, 'the hello\'s transfersAtOnce');
   if (transfers < 1) throw new Error('the hello\'s transfersAtOnce is not at least one');
-  return { protocol: count(fields.protocol, 'the hello\'s protocol'), e3: fields.e3, limits: { transfersAtOnce: transfers }, features: features(fields.features, 'the hello\'s features') };
+  const named = features(fields.features, 'the hello\'s features');
+  const dataOrigins = named.includes(RACK_DATA_ORIGINS) ? origins(fields.dataOrigins) : [];
+  return { protocol: count(fields.protocol, 'the hello\'s protocol'), e3: fields.e3, limits: { transfersAtOnce: transfers }, features: named,
+    ...(dataOrigins.length > 0 && { dataOrigins }) };
+}
+
+/**
+ * A JSON value's origins: the first {@link RACK_DATA_ORIGINS_MAX} of its
+ * entries that are HTTP(S) origins with no credentials, path or query, each as
+ * its origin; an entry of another kind is passed over, as a feature is.
+ */
+function origins(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const read: string[] = [];
+  for (const entry of value) {
+    if (read.length >= RACK_DATA_ORIGINS_MAX) break;
+    if (typeof entry !== 'string') continue;
+    let url: URL;
+    try { url = new URL(entry); } catch { continue; }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') continue;
+    if (!read.includes(url.origin)) read.push(url.origin);
+  }
+  return read;
 }
 
 /**

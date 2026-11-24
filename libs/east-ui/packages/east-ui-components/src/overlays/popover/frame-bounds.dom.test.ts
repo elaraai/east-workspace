@@ -5,10 +5,14 @@
  *
  * Where a popover opened inside a builder's frame keeps to (#1393): across the
  * page the frame's sides while it fits between them, else the page's; down the
- * page always the page's; read live, as the frame moves and narrows.
+ * page the page's — held to a side, the page on that side of what it hangs
+ * from (#1701); read live, as the frame moves and narrows. And the side it
+ * opens on: by its own height and the room under and over what it hangs from
+ * — and the side it holds as what it shows changes.
  */
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { POPOVER_OVERFLOW, frameBounds } from "./frame-bounds.js";
+import { system } from "../../theme/index.js";
+import { POPOVER_OVERFLOW, frameBounds, ownHeight, roomAround, sideThatFits, sideToHold, type PopoverSide } from "./frame-bounds.js";
 
 /** The page's size, as its root's client box gives it. */
 const PAGE = { width: 1600, height: 1000 };
@@ -89,4 +93,53 @@ test("its sides are read live: the frame's place as the page scrolls, and whethe
     expect([bounds.x, bounds.width]).toEqual([0, PAGE.width]);
     popoverWidth = 240;
     expect([bounds.x, bounds.width]).toEqual([40, 294]);
+});
+
+test("held to a side (#1701), down the page it keeps to the page on that side of what it hangs from alone — read live, as the page scrolls; let go, the page's", () => {
+    const { trigger, content } = mount();
+    let top = 800;
+    trigger.getBoundingClientRect = () => DOMRect.fromRect({ x: 100, y: top, width: 80, height: 28 });
+    let held: PopoverSide | undefined = "top";
+    const bounds = frameBounds(() => trigger, () => content, () => held);
+    expect([bounds.y, bounds.height], "over it: the page down to its foot").toEqual([0, 828]);
+    held = "bottom";
+    expect([bounds.y, bounds.height], "under it: the page from its top").toEqual([800, PAGE.height - 800]);
+    top = 600;
+    expect([bounds.y, bounds.height], "as the page scrolls").toEqual([600, PAGE.height - 600]);
+    held = undefined;
+    expect([bounds.y, bounds.height]).toEqual([0, PAGE.height]);
+});
+
+test("the room under and over what it hangs from, past its gap and the overflow at the page's edge; the side its own height opens it on (#1701)", () => {
+    const { trigger } = mount();
+    trigger.getBoundingClientRect = () => DOMRect.fromRect({ x: 100, y: 800, width: 80, height: 28 });
+    const room = roomAround(trigger, 4);
+    expect(room).toEqual({ below: PAGE.height - 828 - 4 - POPOVER_OVERFLOW, above: 800 - 4 - POPOVER_OVERFLOW });
+    // Under it while its own height fits there; over it where it does not and more room is over it; else under it.
+    expect([
+        sideThatFits(room.below, room), sideThatFits(room.below + 1, room),
+        sideThatFits(900, { below: 300, above: 200 }), sideThatFits(900, { below: 300, above: 300 }),
+    ]).toEqual(["bottom", "top", "bottom", "bottom"]);
+});
+
+test("as what it shows changes — its list for the editor of one of its rows — it keeps the side it holds while its height now fits there, and is chosen a side again where it does not", () => {
+    // Low on a phone's screen: its list opened under what it hangs from, 276 of room there and 540 over it.
+    const room = { below: 276, above: 540 };
+    expect(sideToHold("bottom", 206, room), "its list, which fits under it").toBe("bottom");
+    expect(sideToHold("bottom", 276, room), "an editor exactly as tall as the room").toBe("bottom");
+    expect(sideToHold("bottom", 304, room), "an editor taller than the room under it, which fits over it").toBe("top");
+    // Back to its list from over it: the list fits there too, so it stays — it moves no more than it must.
+    expect(sideToHold("top", 206, room)).toBe("top");
+    // Too tall for either side: the side with more room, as when it opened.
+    expect([sideToHold("bottom", 900, room), sideToHold("top", 900, { below: 300, above: 200 }), sideToHold("top", 900, { below: 300, above: 300 })])
+        .toEqual(["top", "bottom", "bottom"]);
+});
+
+test("its own height is read with its data-own-height set — by which its recipe lifts the room's limit, its own most still its most — and set back at once (#1701)", () => {
+    const { content } = mount();
+    content.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 320, height: content.hasAttribute("data-own-height") ? 620 : 254 });
+    expect([ownHeight(content), content.hasAttribute("data-own-height")]).toEqual([620, false]);
+    const recipe = system.getSlotRecipe("popover") as { base: Record<string, Record<string, unknown>> };
+    expect([recipe.base["content"]!["maxHeight"], recipe.base["content"]!["&[data-own-height]"]])
+        .toEqual(["min(var(--available-height, 60vh), 85vh)", { "--available-height": "100vh" }]);
 });

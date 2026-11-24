@@ -1,0 +1,177 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * @vitest-environment jsdom
+ *
+ * A Studio summary table (#1671, TBL-2, TBL-3): a row a group, or each head of
+ * a first group over its groups of the second, with its count; each head's
+ * values and the total row the query's own — a mean or a ratio never a mean
+ * of the rows shown — each total after what made it; a value's cells on the
+ * wrong side of its goal marked, named; a group's first N, then Other where
+ * the fold is exact, else left out and said; an absent value in words.
+ */
+
+import { describe, expect, it } from "vitest";
+import { none, printJq, some, variant } from "@elaraai/east";
+import { Studio } from "@elaraai/e3-ui";
+import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
+import { queryWords } from "../../query/model/words.js";
+import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
+import type { VisualPage } from "../../query/visual/print.js";
+import { LISTED_ORDERS, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
+import { studioMessages } from "../messages-en.js";
+import { SUMMARY_LABEL_KEY, summaryModel, summaryValueKey, type SummaryView } from "./summary-table.js";
+
+const v = Studio.visual;
+const words = queryWords(formatters("en-AU"));
+const m = studioMessages;
+
+/** A summary visual's summary. */
+function summaryOf(content: ReturnType<typeof v.of>): SummaryView {
+    if (content.type !== "visual" || content.value.view.type !== "table" || content.value.view.value.type !== "summary") throw new Error("not a summary");
+    return content.value.view.value.value;
+}
+
+/** A summary over the quarter's orders, read from its answers: a page of it, its first unless given. */
+async function modelOf(content: ReturnType<typeof v.of>, page?: VisualPage) {
+    const { asks, answers } = await answered(content, QUARTER, page);
+    const model = summaryModel(summaryOf(content), asks, answers, LISTED_ORDERS, words, m, page?.offset);
+    if (model === undefined) throw new Error("no model");
+    return model;
+}
+
+/** A Table value's rows, inline: each one's label, its depth, and its values' cells. */
+function rowsOf(table: TableRootValue, values: number) {
+    if (table.rows.type !== "inline") throw new Error("not inline");
+    return table.rows.value.map((row) => [
+        row.cells.get(SUMMARY_LABEL_KEY)?.value, Number(row.depth),
+        ...Array.from({ length: values }, (_, i) => row.cells.get(summaryValueKey(i))),
+    ]);
+}
+
+const float = (n: number) => variant("Float", n);
+/** The groups a click is made on, each as the jq condition it stands for. */
+const said = (groups: readonly ClickedGroup[] | undefined) => groups?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
+
+describe("summaryModel", () => {
+    it("nests each region's head over its customers, their values the query's, each head's count after it; the total row names each function (TBL-2)", async () => {
+        const model = await modelOf(v.of("orders", v.summary({
+            rows: [v.group("region", { sort: "high" }), v.group("customer")],
+            values: [v.sum("revenue"), v.ratio("revenue", "units", { goal: 30 })], total: true,
+        })));
+        expect(model.table.columns.map((c) => [c.key, c.header])).toEqual([
+            ["g", some("Region · customer")], ["v0", some("Revenue AUD")], ["v1", some("Revenue per unit AUD")],
+        ]);
+        // A value's goal is a note after its header; a column of no value, and one with no goal, has none.
+        expect(["g", "v0", "v1"].map((key) => model.note(key))).toEqual([undefined, undefined, "goal 30.00"]);
+        // A column's numbers are short, at the scale of the largest it draws: a currency's amounts with their cents.
+        expect([model.number(170, "v0"), model.number(100 / 3, "v1"), model.number(1, "g")]).toEqual(["170.00", "33.33", undefined]);
+        // The heads by revenue, high first; under each, its customers as is natural, A to Z.
+        expect(rowsOf(model.table, 2)).toEqual([
+            ["SA", 0, float(170), float(34)], ["Northwind", 1, float(100), float(100 / 3)], ["Summit", 1, float(70), float(35)],
+            ["NSW", 0, float(50), float(50)], ["Harbour", 1, float(50), float(50)],
+            ["VIC", 0, float(30), float(6)], ["Northwind", 1, float(30), float(6)],
+            ["WA", 0, float(20), float(20)], ["Summit", 1, float(20), float(20)],
+        ]);
+        expect(Array.from({ length: 9 }, (_, i) => model.head(i))).toEqual([
+            { count: 2 }, undefined, undefined, { count: 1 }, undefined, { count: 1 }, undefined, { count: 1 }, undefined,
+        ]);
+        // The total row: the query's revenue, and its ratio of the sums — 270 over 12 units — after their functions.
+        expect(model.totals).toEqual([new Map([
+            ["g", { value: variant("String", "Total") }],
+            ["v0", { value: float(270), label: "sum", tone: undefined }],
+            ["v1", { value: float(22.5), label: "ratio", tone: { tone: "negative", label: "below goal" } }],
+        ])]);
+        expect(model.shown).toBeUndefined();
+    });
+
+    it("says the groups a row stands for, by its pre-order index: a head's its own, a customer under it both, and none for Other's (TBL-6)", async () => {
+        const nested = await modelOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" }), v.group("customer")], values: [v.sum("revenue")] })));
+        // SA's head, then Northwind under it, as the rows above stand.
+        expect([said(nested.clicked(0)), said(nested.clicked(1))]).toEqual([[`.region == "SA"`], [`.region == "SA"`, `.customer == "Northwind"`]]);
+        expect(nested.clicked(99)).toBeUndefined();
+        const cut = await modelOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high", top: 1n })], values: [v.sum("revenue")] })));
+        expect([said(cut.clicked(0)), cut.clicked(1)]).toEqual([[`.region == "SA"`], undefined]);
+    });
+
+    it("marks the cells on the wrong side of a value's goal, named, and no other (TBL-3)", async () => {
+        const model = await modelOf(v.of("orders", v.summary({
+            rows: [v.group("region", { sort: "high" }), v.group("customer")],
+            values: [v.sum("revenue"), v.ratio("revenue", "units", { goal: 30 })], total: false,
+        })));
+        const below = { tone: "negative", label: "below goal" };
+        // Revenue per unit under 30: Victoria's 6 and Western Australia's 20, their heads and their customers.
+        expect(Array.from({ length: 9 }, (_, i) => [model.tone(i, "v0"), model.tone(i, "v1")])).toEqual([
+            [undefined, undefined], [undefined, undefined], [undefined, undefined], [undefined, undefined], [undefined, undefined],
+            [undefined, below], [undefined, below], [undefined, below], [undefined, below],
+        ]);
+        expect(model.totals).toBeUndefined();
+        // Where less is better, a value over its goal is the wrong side.
+        const lower = await modelOf(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.sum("units", { goal: 2, better: "lower" })], total: false })));
+        // As is natural: NSW 1, SA 5, VIC 5, WA 1.
+        expect([0, 1, 2, 3].map((i) => lower.tone(i, "v0")?.label)).toEqual([undefined, "above goal", "above goal", undefined]);
+    });
+
+    it("totals a mean as the query does, over every row, never as a mean of the rows shown; an absent value in words", async () => {
+        const model = await modelOf(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.mean("margin")], total: true })));
+        // As is natural: New South Wales has no margin, so no mean.
+        expect(rowsOf(model.table, 1)).toEqual([
+            ["NSW", 0, variant("String", "no data")], ["SA", 0, float(0.15000000000000002)], ["VIC", 0, float(0.3)], ["WA", 0, float(0.4)],
+        ]);
+        const total = model.totals?.[0]?.get("v0")?.value;
+        if (total?.type !== "Float") throw new Error("no total");
+        // The four margins' mean, 0.25 — not the three means' 0.283.
+        expect(total.value).toBeCloseTo(0.25, 10);
+        expect([model.head(0), model.totals?.[0]?.get("v0")?.label]).toEqual([undefined, "average"]);
+    });
+
+    it("keeps a group's first N, then Other: the heads past them folded, and under a head its customers past theirs", async () => {
+        const model = await modelOf(v.of("orders", v.summary({
+            rows: [v.group("region", { sort: "high", top: 2n }), v.group("customer", { top: 1n })], values: [v.sum("revenue")], total: false,
+        })));
+        expect(rowsOf(model.table, 1)).toEqual([
+            ["SA", 0, float(170)], ["Northwind", 1, float(100)], ["Other", 1, float(70)],
+            ["NSW", 0, float(50)], ["Harbour", 1, float(50)],
+            // Victoria and Western Australia.
+            ["Other", 0, float(50)],
+        ]);
+        expect([model.head(0), model.head(3), model.head(5)]).toEqual([{ count: 2 }, { count: 1 }, {}]);
+        expect(model.shown).toBeUndefined();
+    });
+
+    it("leaves out a rest no fold makes — a distinct count — and says what it holds of how many", async () => {
+        const model = await modelOf(v.of("orders", v.summary({ rows: [v.group("region", { top: 2n })], values: [v.distinct("customer")], total: true })));
+        expect(rowsOf(model.table, 1)).toEqual([["NSW", 0, float(1)], ["SA", 0, float(2)]]);
+        expect(model.shown).toEqual({ shown: 2, of: 4 });
+        // The total is the query's: three customers, not one and two.
+        expect(model.totals?.[0]?.get("v0")).toEqual({ value: float(3), label: "distinct", tone: undefined });
+    });
+
+    it("pages its first group's groups of their first N (#1667): Other closes the last page, and each page says where it stands", async () => {
+        // Revenue by region, high first: SA 170, NSW 50, VIC 30, WA 20 — the first three, then Western Australia as Other.
+        const summary = v.of("orders", v.summary({ rows: [v.group("region", { sort: "high", top: 3n })], values: [v.sum("revenue")], total: true }));
+        const first = await modelOf(summary, { offset: 0, size: 2 });
+        expect([rowsOf(first.table, 1), first.place]).toEqual([[["SA", 0, float(170)], ["NSW", 0, float(50)]], { first: 1, last: 2, total: 3 }]);
+        const last = await modelOf(summary, { offset: 2, size: 2 });
+        expect([rowsOf(last.table, 1), last.place]).toEqual([[["VIC", 0, float(30)], ["Other", 0, float(20)]], { first: 3, last: 3, total: 3 }]);
+        // The total row is every row's, on every page.
+        expect([first.totals?.[0]?.get("v0")?.value, last.totals?.[0]?.get("v0")?.value]).toEqual([float(270), float(270)]);
+    });
+
+    it("pages a summary of two groups by its heads, each over every customer it holds", async () => {
+        const summary = v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" }), v.group("customer")], values: [v.sum("revenue")] }));
+        const model = await modelOf(summary, { offset: 1, size: 2 });
+        expect(rowsOf(model.table, 1)).toEqual([["NSW", 0, float(50)], ["Harbour", 1, float(50)], ["VIC", 0, float(30)], ["Northwind", 1, float(30)]]);
+        expect([model.head(0), model.head(2), model.place]).toEqual([{ count: 1 }, { count: 1 }, { first: 2, last: 3, total: 4 }]);
+    });
+
+    it("prints a value with no unit grouped, to two decimals at most; a currency's, each amount with its cents", async () => {
+        const model = await modelOf(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.count(), v.mean("revenue")], total: false })));
+        const amount = some(variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none }));
+        const cents = some(variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none }));
+        expect(model.table.columns.map((c) => [c.header, c.format])).toEqual([[some("Region"), none], [some("Orders"), amount], [some("Average revenue AUD"), cents]]);
+    });
+});

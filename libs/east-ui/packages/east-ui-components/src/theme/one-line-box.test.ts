@@ -65,8 +65,10 @@ import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
+import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
+import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
@@ -166,9 +168,20 @@ describe("a control of a toolbar's row that holds words", () => {
         expect(sized(at(chipRecipe.base, IN_TOOLBAR_ROW))).toEqual(["28px", "26px"]);
     });
 
-    test("a segment fills its strip's 26 of room in the row, its label on a line as tall", () => {
+    test("a segment fills its strip's 26 of room in the row, its label on a line as tall, and its icon an even glyph in it", () => {
         expect(at(segSlotRecipe.base, "root", IN_TOOLBAR_ROW).height).toBe("28px");
-        expect(at(segSlotRecipe.base, "item", IN_TOOLBAR_ROW)).toEqual({ paddingBlock: "0", lineHeight: "26px" });
+        expect(at(segSlotRecipe.base, "item", IN_TOOLBAR_ROW)).toEqual({ paddingBlock: "0", lineHeight: "26px", "& svg": { fontSize: "10px" } });
+    });
+
+    test("a segment centres what it holds, its icon an odd glyph on its odd 13px line outside a row, and holding its icon alone it is as tall as one holding words", () => {
+        const item = at(segSlotRecipe.base, "item");
+        expect([item.display, item.alignItems, item.justifyContent]).toEqual(["inline-flex", "center", "center"]);
+        expect([item.lineHeight, item.paddingBlock, item.minHeight]).toEqual(["13px", "5px", "23px"]);
+        expect(at(item, "& svg")).toEqual({ flex: "none", fontSize: "11px" });
+    });
+
+    test("the Studio preview's device icon is an even glyph in the even 26px of its device, out of the line's baseline", () => {
+        expect(at(studioPublishSlotRecipe.base, "deviceIcon")).toEqual({ display: "inline-flex", fontSize: "10px" });
     });
 
     test("a stepper is one at both sizes, in its 1px edge", () => {
@@ -374,6 +387,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Roster agency badge", at(roster, "agencyBadge"), "16px", "14px"],
         ["a Roster skill tag", at(roster, "skillTag"), "16px", "14px"],
         ["an Allocation band's count", at(allocation, "bandCount"), "16px", "16px"],
+        ["a Table group head's count", at(tableSlotRecipe.base, "rowCount"), "16px", "16px"],
+        ["a metric chip: the 20px DeltaPill in its clear edge", at(metricChipSlotRecipe.base, "root"), "20px", "18px"],
         ["the Allocation inspector's resource field", at(allocationInspectorSlotRecipe.base, "resourceField"), "32px", "30px"],
         ["the Studio preview's device", at(studioPublishSlotRecipe.base, "device"), "26px", "26px"],
         ["the Studio preview's environment", at(studioPublishSlotRecipe.base, "env"), "26px", "24px"],
@@ -388,6 +403,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Query card's wire row", at(queryLibrarySlotRecipe.base, "wireRow"), "17px", "15px"],
         ["a phone Studio's button", at(studioPhoneSlotRecipe.base, "box"), "32px", "30px"],
         ["the Snap grid's chip", at(snapGridSlotRecipe.base, "chip"), "20px", "18px"],
+        ["the Snap grid's selected tile's badge", at(snapGridSlotRecipe.base, "tileBadge"), "18px", "18px"],
+        ["a Studio pill's aggregate", at(studioInspectorSlotRecipe.base, "pillAgg"), "22px", "22px"],
+        ["the Studio's fields' count", at(studioInspectorSlotRecipe.base, "count"), "16px", "16px"],
         ["the Snap grid's drag ghost", at(snapGridSlotRecipe.base, "ghost"), "32px", "30px"],
     ];
 
@@ -469,6 +487,27 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         }
         // The header's box, a pixel above its row's middle: its margin leaves an even number of pixels over at either pointer.
         expect([at(record, "tick", "[data-tick] > &").marginBottom, at(record, "tick", "[data-tick] > &", "_coarse").marginBottom]).toEqual(["2px", "1px"]);
+    });
+
+    test("a Studio tile's eyebrow strip centres its row in an even room: a pixel of padding over it balances its rule (#1671)", () => {
+        const tile = studioVisualSlotRecipe.base;
+        expect([at(tile, "head").height, at(tile, "head").borderBottomWidth, at(tile, "head").paddingTop]).toEqual(["36px", "1px", "1px"]);
+        // On a touch screen it stands 44, its room an even 42: its 24px controls stand 10 under its top edge, their 44px tap
+        // targets the strip's whole height.
+        expect(at(tile, "head", "_coarse").height).toBe("44px");
+        // Its name and its meta on a whole, even line: 12 in the 34 and in the 42, and in the 24 of the menu the meta stands beside.
+        expect([at(tile, "name").lineHeight, at(tile, "meta").lineHeight]).toEqual(["12px", "12px"]);
+    });
+
+    test("a Studio list's row pads its words a whole number of pixels under its edge, and centres none (#1671)", () => {
+        const list = studioVisualSlotRecipe.base;
+        // A name alone 16 under the row's top, a name over its caption 8; with the ranking bar, 10.
+        expect([at(list, "listRow").justifyContent, at(list, "listRow").paddingTop]).toEqual(["flex-start", "16px"]);
+        expect(at(list, "listRow", "&[data-caption]").paddingTop).toBe("8px");
+        expect(at(list, "listRow", "&[data-bar]").paddingBlock).toBe("10px");
+        // Each of its words on a whole line: the name's 16, the caption's 15 a pixel under it, a value's 15 and its unit's 13.
+        expect(["listName", "listCaption", "listValue", "listUnit"].map((slot) => at(list, slot).lineHeight)).toEqual(["16px", "15px", "15px", "13px"]);
+        expect(at(list, "listText").gap).toBe("1px");
     });
 
     test("a rail's chip has a whole padding and a whole line at every density: 15, 22 and 33 tall in its edge", () => {

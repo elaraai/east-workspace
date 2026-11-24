@@ -8,7 +8,8 @@
  * query with no query code on the server. The query is checked once against
  * the whole root its data sources make, translated to East IR here, and run
  * as a function, as one-shot runs any caller's IR (#1031), with one dataset
- * argument per data source it reads (`devdocs/QUERY.md` §17). The call is
+ * argument per data source it reads (`devdocs/QUERY.md` §17), and the minute
+ * it is asked as a value beside them where it reads `.now` (#1670). The call is
  * platform-free — east-c given no platform package, and a body that calls no
  * platform function — so a caller who may read the workspace may run it.
  *
@@ -20,7 +21,7 @@
  */
 
 import {
-    ArrayType, OptionType, StringType, StructType,
+    ArrayType, DateTimeType, OptionType, StringType, StructType,
     checkJq, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, fromEastTypeValue, none, printFor, runtimeErrorAt, some,
     translateJq, variant,
     type CheckJqResult, type EastType, type EastTypeValue, type JqMultiplicity, type JqNode, type QueryDiagnostic, type ValueTypeOf,
@@ -61,6 +62,53 @@ export interface QueryRoot {
 /** A name `.name` reads: the jq lexer's field name, a letter or `_`, then letters, digits and `_`. */
 const JQ_IDENTIFIER = /^[A-Za-z_][A-Za-z_0-9]*$/;
 
+/**
+ * The root field a query reads the minute it is asked by (#1670): `.now`, a
+ * DateTime, passed to the call as a value beside the datasets — unless a data
+ * source of the root has the name, which `.now` then reads.
+ */
+export const NOW_FIELD = "now";
+
+/** A DateTime as beast2: the minute a call is given as `.now`. */
+const encodeNow = encodeBeast2For(DateTimeType);
+
+/**
+ * The minute an instant is in: its seconds and milliseconds dropped, so every
+ * ask within a minute reads the same `.now`.
+ *
+ * @param at - the instant
+ * @returns the start of its minute
+ */
+export function minuteOf(at: Date): Date {
+    return new Date(Math.floor(at.getTime() / 60_000) * 60_000);
+}
+
+/** A minute as East's text writes a DateTime. */
+const printMinute = printFor(DateTimeType);
+
+/**
+ * What an answer that read `.now` is kept by, under {@link NOW_FIELD}, in
+ * place of a dataset's hash (#1670): the minute it read, so the next minute
+ * asks again.
+ *
+ * @param at - an instant
+ * @returns its minute, as East's text writes it
+ */
+export function minuteKey(at: Date): string {
+    return printMinute(minuteOf(at));
+}
+
+/**
+ * Whether a root's `.now` is the minute a query is asked, rather than a data
+ * source of that name.
+ *
+ * @param root - the root
+ * @returns whether `.now` is the clock
+ */
+export function rootHasClock(root: QueryRoot): boolean {
+    return !root.entries.some(entry => entry.name === NOW_FIELD);
+}
+
 /** A name as East's text writes a string, for a message. */
 const printString = printFor(StringType);
 
@@ -79,8 +127,12 @@ const printString = printFor(StringType);
  * one dataset each, because a lazy dataset put into a struct is read whole
  * (`devdocs/QUERY.md` §15.6). A name is a jq identifier — a letter or `_`,
  * then letters, digits and `_` — so `.name` reads it. A root of no data
- * sources is the empty Struct, and a query that reads a data source of it is
- * refused when it is checked.
+ * sources is a Struct of `now` alone, and a query that reads a data source of
+ * it is refused when it is checked.
+ *
+ * The root's last field is {@link NOW_FIELD}, `now`: the minute the query is
+ * asked, a DateTime, which a call is given as a value beside its datasets
+ * (#1670) — unless a data source is named `now`, which `.now` then reads.
  *
  * @example
  * ```ts
@@ -88,7 +140,7 @@ const printString = printFor(StringType);
  *     { name: "customers", path: [variant("field", "inputs"), variant("field", "customers")], type: toEastTypeValue(Customers) },
  *     { name: "orders", path: [variant("field", "inputs"), variant("field", "orders")], type: toEastTypeValue(Orders) },
  * ]);
- * // root.type is StructType({ customers: Customers, orders: Orders })
+ * // root.type is StructType({ customers: Customers, orders: Orders, now: DateTimeType })
  *
  * queryRoot([{ name: "order lines", path, type }]);
  * // throws: queryRoot: "order lines" is not a jq identifier: …
@@ -103,8 +155,9 @@ export function queryRoot(entries: readonly QueryRootEntry[]): QueryRoot {
         if (names.has(name)) throw new Error(`queryRoot: ${printString(name)} is given twice: each data source of a root has a name of its own`);
         names.add(name);
     }
+    const clock = names.has(NOW_FIELD) ? [] : [[NOW_FIELD, DateTimeType] as const];
     return {
-        type: StructType(entries.map(entry => [entry.name, fromEastTypeValue(entry.type)] as const)),
+        type: StructType([...entries.map(entry => [entry.name, fromEastTypeValue(entry.type)] as const), ...clock]),
         entries: [...entries],
     };
 }
@@ -141,6 +194,11 @@ export interface QueryOptions {
     readonly timeoutMs?: number;
     /** The runner: east-c given no platform package by default, which any caller who may read the workspace may run. */
     readonly runner?: RunnerValue;
+    /**
+     * The minute a query is asked, which it reads as `.now` (#1670): the
+     * current minute when omitted. A query that reads no `.now` is given none.
+     */
+    readonly now?: Date;
 }
 
 /** What a run of a query answered: a {@link QueryResultType} value. */
@@ -180,15 +238,26 @@ export function programChecks(checked: CheckJqResult): checked is CheckedProgram
  * A query's one-shot call, ready to send, and what reading its answer needs.
  *
  * @property checked - What the checker made of the program: the program as written, the type of each output and how many there are, and the spans a runtime error is placed by
- * @property entries - The data sources the query reads, one per argument of the call, in its order
+ * @property entries - The data sources the query reads, one per dataset argument of the call, in its order: `.now`'s value is none of them
+ * @property args - Each argument of the call, in order: its data source, by name, or `null` for `.now`'s value — what e3 numbers a refused argument by
  * @property request - The call, which e3-api-client's `oneShotExecute` sends
  * @property maxOutputs - The most outputs a `many` query returns
  */
 export interface PreparedQuery {
     /** What the checker made of the program: the program as written, the type of each output and how many there are, and the spans a runtime error is placed by. */
     readonly checked: CheckedProgram;
-    /** The data sources the query reads, one per argument of the call, in its order: the order the query first reads them. */
+    /**
+     * The data sources the query reads, one per dataset argument of the call,
+     * in its order — the order the query first reads them — as the call's
+     * result names what it read.
+     */
     readonly entries: QueryRootEntry[];
+    /**
+     * Each argument of the call, in order: the data source it reads, by name,
+     * or `null` for the minute a query reads as `.now`, given as a value
+     * (#1670). e3 numbers a refused argument among all of them.
+     */
+    readonly args: readonly (string | null)[];
     /** The call, which e3-api-client's `oneShotExecute` sends. */
     readonly request: OneShotRequest;
     /** The most outputs a `many` query returns; the call gives one more, which says the answer was cut short. */
@@ -198,11 +267,12 @@ export interface PreparedQuery {
 /**
  * What reading a call's answer needs ({@link queryResultOf}): the checker's
  * record of the query that ran — the type of each output, and how many there
- * are — the data sources in the call's argument order, and its most outputs. A
+ * are — the data sources it read, in the call's argument order, each
+ * argument's source, which e3 numbers a refused one by, and its most outputs. A
  * one-shot call's {@link PreparedQuery} is one; so is a split call's, which
  * the planner gives (`plan.ts`).
  */
-export type QueryReading = Pick<PreparedQuery, "checked" | "entries" | "maxOutputs">;
+export type QueryReading = Pick<PreparedQuery, "checked" | "entries" | "args" | "maxOutputs">;
 
 /** A call's limits and runner, as its options set them: what a one-shot call and a split call both send. */
 export interface QueryLimits {
@@ -260,8 +330,12 @@ export function queryLimits(options: QueryOptions = {}): QueryLimits {
  *   datasets it reads, in the order it first reads them.
  * - **The request.** `bodyIr` is the translation as an East function, its IR
  *   encoded with its source map, so a runtime error names its place in the
- *   jq; `args` is one `dataset` argument per dataset read, in the
- *   translation's order; `runner` is east-c given no platform package, unless
+ *   jq; `args` is one argument per root field the query reads, in the
+ *   translation's order: a `dataset` argument at its data source's path, and
+ *   for `.now` a `value` argument, the minute the options name, else the
+ *   current one (#1670) — so the prepared call's `entries`, the data sources
+ *   alone, are not numbered as `args` are once `.now` is read before one of
+ *   them, and its `args` say each argument's source; `runner` is east-c given no platform package, unless
  *   the options name another; `limits` holds `maxBytes` as `maxResultBytes`,
  *   and `timeoutMs` when the options give one. A call that names no time limit
  *   runs under the server's: its default for a call that names none, under
@@ -301,14 +375,51 @@ export function prepareCheckedQuery(checked: CheckJqResult, root: QueryRoot, opt
     const { maxOutputs, limits, runner } = queryLimits(options);
     if (!programChecks(checked)) return { result: { inputs: [], outcome: variant("error", checked.diagnostics) } };
     const translation = translateJq(checked, checked.multiplicity === "many" ? { maxOutputs } : {});
-    const entries = translation.inputs.map(input => entryNamed(root, input.name));
+    const args = argsOf(translation.inputs, root);
     const request: OneShotRequest = {
         bodyIr: encodeEastIR(translation.fn().toIR()),
-        args: entries.map(entry => variant("dataset", entry.path)),
+        args: args.map(name => (name === null ? clockArg(options) : variant("dataset", entryNamed(root, name).path))),
         runner,
         limits,
     };
-    return { prepared: { checked, entries, request, maxOutputs } };
+    return { prepared: { checked, entries: datasetEntries(args, root), args, request, maxOutputs } };
+}
+
+/**
+ * Each argument a translation's inputs make, in order: the data source a root
+ * field is, by name, or `null` for `.now`, the clock (#1670).
+ *
+ * @param inputs - the translation's inputs, or a split's: the root fields read, in order
+ * @param root - the root
+ * @returns each argument's source
+ */
+export function argsOf(inputs: readonly { readonly name: string | null }[], root: QueryRoot): (string | null)[] {
+    const clock = rootHasClock(root);
+    return inputs.map(input => (clock && input.name === NOW_FIELD ? null : input.name ?? ""));
+}
+
+/**
+ * The data sources of a call's dataset arguments, in order.
+ *
+ * @param args - each argument's source ({@link argsOf})
+ * @param root - the root
+ * @param caller - what asks, for the error
+ * @returns the data sources, the clock left out
+ * @throws {Error} When an argument reads a root field no data source of the root is.
+ */
+export function datasetEntries(args: readonly (string | null)[], root: QueryRoot, caller = "prepareQuery"): QueryRootEntry[] {
+    return args.flatMap(name => (name === null ? [] : [entryNamed(root, name, caller)]));
+}
+
+/**
+ * The argument `.now` is given: the minute the options name, else the
+ * current one, as beast2.
+ *
+ * @param options - the call's options
+ * @returns the value argument
+ */
+export function clockArg(options: QueryOptions): Extract<OneShotRequest["args"][number], { type: "value" }> {
+    return variant("value", encodeNow(minuteOf(options.now ?? new Date())));
 }
 
 /**
@@ -522,8 +633,9 @@ const UNASSIGNED = /^Dataset argument (\d+) is not assigned\b/;
  */
 function refused(prepared: QueryReading, message: string): QueryDiagnostic {
     const unassigned = UNASSIGNED.exec(message);
-    const entry = unassigned === null ? undefined : prepared.entries[Number(unassigned[1])];
-    if (entry !== undefined) return problem("no_value", `no_value: ${entry.name} has no value yet.`, none);
+    // e3 numbers the call's arguments, `.now`'s value among them.
+    const name = unassigned === null ? undefined : prepared.args[Number(unassigned[1])];
+    if (name !== undefined && name !== null) return problem("no_value", `no_value: ${name} has no value yet.`, none);
     return problem("invalid", `invalid: ${message}`, none);
 }
 

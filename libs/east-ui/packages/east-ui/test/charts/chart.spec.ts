@@ -22,6 +22,8 @@ describeEast("Chart", (test) => {
         bandConfidence: ex.bandConfidence,
         scatterQuadrants: ex.scatterQuadrants,
         scatterBubble: ex.scatterBubble,
+        pieShares: ex.pieShares,
+        pieLegendNames: ex.pieLegendNames,
         composedColumnLine: ex.composedColumnLine,
         composedDualAxis: ex.composedDualAxis,
         composedAnnotations: ex.composedAnnotations,
@@ -275,6 +277,140 @@ describeEast("Chart", (test) => {
             (Chart.Bar as typeof Chart.Column)(rows, { x: r => r.site, y: r => r.v });
         } catch (e) { msg = (e as Error).message; }
         $(Assert.equal(East.value(msg.includes("Chart.Column"), BooleanType), true));
+    });
+
+    // =========================================================================
+    // Pie — shares of one total, a chart of its own (#1671)
+    // =========================================================================
+
+    test("Chart.Pie lowers to a pie node alone in its frame — no axes, no gridlines — a slice per row", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), { height: 200 }));
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        $(Assert.equal(frame.height, 200.0));
+        $(Assert.equal(frame.children.length(), 1n));
+        const pie = $.const(frame.children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.data.length(), 2n));
+        $(Assert.equal(pie.data.get(0n).key, "NSW"));
+        $(Assert.equal(pie.data.get(1n).value, 310.0));
+        $(Assert.equal(pie.data.get(0n).color.hasTag("none"), true));
+        $(Assert.equal(pie.top.hasTag("none"), true));
+        $(Assert.equal(pie.total.hasTag("none"), true));
+        $(Assert.equal(pie.donut, false));
+        // Its legend carries each slice's value and share unless it says otherwise.
+        $(Assert.equal(pie.legend.hasTag("none"), true));
+    });
+
+    test("Chart.Pie's legend is as it says: its slices' names alone, or none at all", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const names = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "names" })));
+        const namesPie = $.const(names.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(namesPie.legend.unwrap("some").hasTag("names"), true));
+        const hidden = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "hidden" })));
+        const hiddenPie = $.const(hidden.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(hiddenPie.legend.unwrap("some").hasTag("hidden"), true));
+        const values = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "values" })));
+        const valuesPie = $.const(values.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(valuesPie.legend.unwrap("some").hasTag("values"), true));
+    });
+
+    test("Chart.Pie prints a label that is no text as East prints it, and takes a slice's colour by its label", $ => {
+        const rows = $.const([
+            { year: 2025n, units: 12n }, { year: 2026n, units: 30n },
+        ], ArrayType(StructType({ year: IntegerType, units: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.year, value: r => r.units }, { colors: { "2026": "teal.solid" } })));
+        const pie = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.data.get(0n).key, "2025"));
+        $(Assert.equal(pie.data.get(0n).value, 12.0));
+        $(Assert.equal(pie.data.get(0n).color.hasTag("none"), true));
+        $(Assert.equal(pie.data.get(1n).color.unwrap("some"), "teal.solid"));
+    });
+
+    test("Chart.Pie's options lower onto the node: the slices before Other, the total, Other's label, a donut, the value format, a donut's caption and the legend's note", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, {
+            top: 3n, total: 1000.0, other: "Rest", donut: true, format: Chart.format.percent(), caption: "AUD · total", note: "AUD · share of 1,000",
+        })));
+        const pie = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.top.unwrap("some"), 3n));
+        $(Assert.equal(pie.total.unwrap("some"), 1000.0));
+        $(Assert.equal(pie.other.unwrap("some"), "Rest"));
+        $(Assert.equal(pie.donut, true));
+        $(Assert.equal(pie.format.unwrap("some").hasTag("percent"), true));
+        $(Assert.equal(pie.caption.unwrap("some"), "AUD · total"));
+        $(Assert.equal(pie.note.unwrap("some"), "AUD · share of 1,000"));
+    });
+
+    test("a pie with no caption and no note carries none", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue })));
+        const pie = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.caption.hasTag("none"), true));
+        $(Assert.equal(pie.note.hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // The chart rules — a reference line's colour and caption, solid gridlines (#1671)
+    // =========================================================================
+
+    test("Chart.refLine lowers to a rule in the chart rules' ink, its label kept and its dash as given", $ => {
+        const rows = $.const([
+            { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
+        ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
+        const chart = $.let(Chart.Root([
+            Chart.Line(rows, { x: r => r.month, y: r => r.sales }),
+            Chart.refLine({ y: 120, label: "target 120", dash: "4 3" }),
+            Chart.refLine({ x: "Feb" }),
+        ], { grid: false }));
+        // grid: false ⇒ children = [series, rule, rule, axisBottom, axisLeft].
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        const target = $.const(frame.children.get(1n).unwrap().unwrap("rule"));
+        $(Assert.equal(target.axis.hasTag("y"), true));
+        $(Assert.equal(target.at, "120.0"));
+        $(Assert.equal(target.stroke, "fg.muted"));
+        $(Assert.equal(target.dashArray.unwrap("some"), "4 3"));
+        $(Assert.equal(target.label.unwrap("some"), "target 120"));
+        const bare = $.const(frame.children.get(2n).unwrap().unwrap("rule"));
+        $(Assert.equal(bare.axis.hasTag("x"), true));
+        $(Assert.equal(bare.at, "Feb"));
+        $(Assert.equal(bare.dashArray.hasTag("none"), true));
+        $(Assert.equal(bare.label.hasTag("none"), true));
+    });
+
+    test("a chart's gridlines are solid: rows under a vertical chart, columns under a horizontal one", $ => {
+        const rows = $.const([
+            { site: "North", v: 120n }, { site: "South", v: 90n },
+        ], ArrayType(StructType({ site: StringType, v: IntegerType })));
+        const vertical = $.let(Chart.Root(Chart.Column(rows, { x: r => r.site, y: r => r.v })));
+        const gridRows = $.const(vertical.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("gridRows"));
+        $(Assert.equal(gridRows.dashArray.hasTag("none"), true));
+        const horizontal = $.let(Chart.Root(Chart.Bar(rows, { x: r => r.v, y: r => r.site })));
+        const gridColumns = $.const(horizontal.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("gridColumns"));
+        $(Assert.equal(gridColumns.dashArray.hasTag("none"), true));
+    });
+
+    test("Chart.Pie beside another layer, or with axis options, is a build-time error naming why", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        let beside = "";
+        try {
+            $.const(Chart.Root([Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), Chart.refLine({ y: 100 })]));
+        } catch (e) { beside = (e as Error).message; }
+        $(Assert.equal(East.value(beside.includes("a chart of its own"), BooleanType), true));
+        let axes = "";
+        try {
+            $.const(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), { y: { label: "Revenue" } }));
+        } catch (e) { axes = (e as Error).message; }
+        $(Assert.equal(East.value(axes.includes("draws no axes — drop y"), BooleanType), true));
     });
 
     test("a categorical y on a vertical mark is a build-time error pointing at Chart.Bar", $ => {

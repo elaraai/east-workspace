@@ -32,6 +32,12 @@ export const HEIGHT_SNAP = 16;
 export const MAX_HEIGHT = 960;
 /** A row's top and bottom bands, where a drop makes a new row — at most this many px, and a quarter of the row. */
 export const EDGE_BAND = 28;
+/**
+ * Under this width, in px, the grid lays the page out as a phone shows it:
+ * every tile the full width, stacked in reading order — the `snapGrid`
+ * recipe's first container query, and the canvas at a phone's design width.
+ */
+export const SNAP_GRID_STACKED_BELOW = 480;
 
 /** One tile, as the canvas lays it out and edits it. */
 export interface SnapGridTile {
@@ -436,17 +442,21 @@ export function startColumn(row: readonly SnapGridTile[], key: string): number {
 /**
  * The tile the arrow keys move the selection to (L15): left and right step
  * through the tiles in reading order; up and down to the row above or below,
- * onto the tile whose columns lie nearest the selected one's middle.
+ * onto the tile whose columns lie nearest the selected one's middle. Stacked,
+ * as a phone shows the page, the tiles are one column in reading order: up
+ * and down step through it, and left and right go nowhere.
  *
  * @param rows - The canvas's rows
  * @param key - The selected tile's key
  * @param arrow - The arrow
+ * @param stacked - Whether the tiles stand in one column, as a phone shows them
  * @returns The tile's key, or `undefined` when there is none that way
  */
-export function neighbourOf(rows: readonly SnapGridRowModel[], key: string, arrow: "left" | "right" | "up" | "down"): string | undefined {
+export function neighbourOf(rows: readonly SnapGridRowModel[], key: string, arrow: "left" | "right" | "up" | "down", stacked = false): string | undefined {
     const flat = rows.flatMap((r) => r.tiles);
     const i = flat.findIndex((t) => t.key === key);
     if (i < 0) return undefined;
+    if (stacked) return arrow === "up" ? flat[i - 1]?.key : arrow === "down" ? flat[i + 1]?.key : undefined;
     if (arrow === "left") return flat[i - 1]?.key;
     if (arrow === "right") return flat[i + 1]?.key;
     const r = rows.findIndex((row) => row.tiles.some((t) => t.key === key));

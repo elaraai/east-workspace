@@ -24,6 +24,7 @@ import {
     type EastType,
     type JqNode,
 } from "@elaraai/east";
+import { jqChildren } from "@elaraai/east/internal";
 import type { StepValue } from "./values.js";
 
 /**
@@ -121,6 +122,18 @@ export function call(name: string, args: readonly JqNode[] = []): JqNode {
 /** `left op right` */
 export function binary(left: JqNode, op: string, right: JqNode): JqNode {
     return variant("binary", { left, op, right });
+}
+
+/**
+ * `if condition then then else otherwise end`
+ *
+ * @param condition - what it tests
+ * @param then - its output where the test holds
+ * @param otherwise - its output where it does not
+ * @returns the node
+ */
+export function ifElse(condition: JqNode, then: JqNode, otherwise: JqNode): JqNode {
+    return variant("if", { branches: [{ condition, then }], otherwise: some(otherwise) });
 }
 
 /**
@@ -337,6 +350,18 @@ export function readStepValue(node: JqNode): StepValue | undefined {
 }
 
 /**
+ * An `if … then … else … end` of one test, as {@link ifElse} builds it.
+ *
+ * @param node - the node
+ * @returns its test, its output where the test holds and its output where it does not; `undefined` when the node is no such `if`
+ */
+export function readIfElse(node: JqNode): { condition: JqNode; then: JqNode; otherwise: JqNode } | undefined {
+    if (node.type !== "if" || node.value.branches.length !== 1 || node.value.otherwise.type !== "some") return undefined;
+    const branch = node.value.branches[0]!;
+    return { condition: branch.condition, then: branch.then, otherwise: node.value.otherwise.value };
+}
+
+/**
  * A pipe's segments, in order.
  *
  * @param node - the node
@@ -367,6 +392,24 @@ export function readObject(node: JqNode): { key: string; value: JqNode | undefin
         entries.push({ key: entry.key.value, value: entry.value.type === "some" ? entry.value.value : undefined });
     }
     return entries;
+}
+
+/**
+ * Whether a node reads a variable anywhere in it — `$now` in
+ * `.at >= ($now | datetime_add(-7; "day"))` — walked as East's checker walks a
+ * program (`jqChildren`), and an object's `{$now}` key with it.
+ *
+ * @param node - the node
+ * @param name - the variable's name, without its `$`
+ * @returns whether it reads it; a read of a `$name` the node binds itself
+ *   counts too, so a reader that binds it before the node binds one it need
+ *   not, and never misses one it needs
+ */
+export function readsVariable(node: JqNode, name: string): boolean {
+    if (node.type === "variable") return node.value === name;
+    // `{$now}` reads `$now` for the entry's key and value: a key, which `jqChildren` gives no node for.
+    if (node.type === "object" && node.value.some(entry => entry.key.type === "variable" && entry.key.value === name)) return true;
+    return jqChildren(node).some(child => child.node !== undefined && readsVariable(child.node, name));
 }
 
 /**

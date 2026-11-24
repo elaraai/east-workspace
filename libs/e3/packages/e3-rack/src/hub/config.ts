@@ -5,17 +5,20 @@
 
 import { BlockList, isIP } from 'node:net';
 import { join } from 'node:path';
-import { StringType, StructType, decodeBeast2For, encodeBeast2For, none } from '@elaraai/east';
+import { ArrayType, BooleanType, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, type ValueTypeOf } from '@elaraai/east';
 import { ensureRackHome, HUB_CONFIG_FILE, HUB_TLS_FILE, rackHome } from '../paths.js';
-import { readStateFile, writeStateFile } from '../state-file.js';
+import { readStateEnvelope, readStateFile, writeStateFile } from '../state-file.js';
 import { createHubCertificate, type HubCertificate } from '../tls/tls.js';
 
 import { HubConfigType, type HubConfig } from '../protocol/control.js';
 export { HubConfigType, type HubConfig } from '../protocol/control.js';
 
+/** The most origins beside the advertised one a hub spreads its data URLs over. */
+export const MAX_DATA_ORIGINS = 16;
+
 /** Creates independent defaults with external access disabled; a listener, once configured, serves TLS. */
 export function defaultHubConfig(): HubConfig {
-  return { listen: none, allow: [], idleExitMinutes: 15n, advertiseUrl: none, tls: true };
+  return { listen: none, allow: [], idleExitMinutes: 15n, advertiseUrl: none, tls: true, dataOrigins: [] };
 }
 
 // The addresses plain HTTP may be served on: this machine's loopback and the
@@ -54,7 +57,8 @@ function privateHost(host: string): boolean {
  * URL, input, output and log on it, so plain HTTP is served only on the
  * loopback or a private address, to the addresses `allow` names: for a TLS
  * terminator in front of the hub, or for a network path encrypted end to end.
- * A TLS listener must advertise an https:// origin.
+ * A TLS listener must advertise an https:// origin, and its data origins must
+ * be https:// too: a rack reaches each through the listener's own certificate.
  * @param config - The hub configuration
  * @returns The reason, or undefined when the listener may be served
  * @example
@@ -67,6 +71,7 @@ export function listenerProblem(config: HubConfig): string | undefined {
     if (config.advertiseUrl.type === 'some' && new URL(config.advertiseUrl.value).protocol !== 'https:') {
       return 'A TLS rack listener must advertise an https:// origin';
     }
+    if (config.dataOrigins.some((origin) => new URL(origin).protocol !== 'https:')) return 'A TLS rack listener\'s data origins must be https:// origins';
     return undefined;
   }
   if (wildcardHost(host)) return `Plain HTTP cannot be served on every address (${host}); bind the loopback or a private address, or serve TLS`;
@@ -75,7 +80,14 @@ export function listenerProblem(config: HubConfig): string | undefined {
   return undefined;
 }
 
-/** Checks the configuration's form: addresses, ports, timers and origin. */
+/** Whether a text is an HTTP(S) origin without credentials, path or query, as an advertised or a data origin is. */
+function isOrigin(text: string): boolean {
+  let url: URL;
+  try { url = new URL(text); } catch { return false; }
+  return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/';
+}
+
+/** Checks the configuration's form: addresses, ports, timers and origins. */
 function validateForm(config: HubConfig): void {
   if (config.listen.type === 'some') {
     if (!config.listen.value.host.trim()) throw new Error('Rack listen host is empty');
@@ -85,11 +97,18 @@ function validateForm(config: HubConfig): void {
   for (const address of config.allow) if (isIP(unmapped(address)) === 0) throw new Error(`Rack allowed address '${address}' is not an IP address`);
   const minutes = Number(config.idleExitMinutes);
   if (!Number.isSafeInteger(minutes) || minutes < 0 || minutes > 35_000) throw new Error('Rack idle timeout must be 0–35000 minutes');
-  if (config.advertiseUrl.type === 'some') {
-    const url = new URL(config.advertiseUrl.value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
-      throw new Error('Rack advertise URL must be an HTTP(S) origin without credentials, path or query');
-    }
+  if (config.advertiseUrl.type === 'some' && !isOrigin(config.advertiseUrl.value)) {
+    throw new Error('Rack advertise URL must be an HTTP(S) origin without credentials, path or query');
+  }
+  // Each reaches the same listener as the advertised origin, which is always
+  // one of those the hub spreads data URLs over: none names it again
+  const origins = new Set(config.advertiseUrl.type === 'some' ? [new URL(config.advertiseUrl.value).origin] : []);
+  if (config.dataOrigins.length > MAX_DATA_ORIGINS) throw new Error(`A rack hub spreads its data URLs over at most ${MAX_DATA_ORIGINS} data origins`);
+  for (const origin of config.dataOrigins) {
+    if (!isOrigin(origin)) throw new Error(`Rack data origin '${origin}' must be an HTTP(S) origin without credentials, path or query`);
+    const named = new URL(origin).origin;
+    if (origins.has(named)) throw new Error(`Rack data origin '${origin}' is named twice, or is the advertised origin, which is always one`);
+    origins.add(named);
   }
 }
 
@@ -116,10 +135,53 @@ export function validateHubConfig(config: HubConfig): void {
  * const config = await loadHubConfig();
  */
 export async function loadHubConfig(home = rackHome()): Promise<HubConfig> {
-  const bytes = await readStateFile(join(home, HUB_CONFIG_FILE));
-  const config = bytes === null ? defaultHubConfig() : decodeBeast2For(HubConfigType)(bytes);
+  const file = join(home, HUB_CONFIG_FILE);
+  const stored = await readStateEnvelope(file);
+  let config = defaultHubConfig();
+  if (stored !== null) {
+    try {
+      config = decodeBeast2For(HubConfigType)(stored.value);
+    } catch {
+      throw new Error(`${file} holds a hub configuration e3 ${stored.release} wrote, in a form this release does not read; stop the hub, remove it and configure the hub again (e3 rack config)`);
+    }
+  }
   validateForm(config);
   return config;
+}
+
+/**
+ * The hub configuration as releases before data origins stored it (1.0.115
+ * and earlier): this release's less `dataOrigins`. Frozen: what
+ * {@link upgradeHubConfig} reads.
+ */
+export const HubConfigBeforeDataOriginsType = StructType({
+  listen: OptionType(StructType({ host: StringType, port: IntegerType })), allow: ArrayType(StringType),
+  idleExitMinutes: IntegerType, advertiseUrl: OptionType(StringType), tls: BooleanType,
+});
+
+/**
+ * The hub's own upgrade step, `hub-config-data-origins`: carries a hub
+ * configuration an earlier release stored into this release's form, everything
+ * as it was and no data origin, so the upgraded hub serves every data URL on
+ * the origin it did. The hub takes it as it starts, holding its lock, before
+ * it reads its configuration ({@link loadHubConfig}). Idempotent: a file in
+ * this release's form, or none, is left as it is; one in neither form is left
+ * too, and the read then refuses it, naming the release that wrote it.
+ * @param home - Private rack home
+ * @returns Whether the file was rewritten
+ * @example
+ * await upgradeHubConfig(home);
+ */
+export async function upgradeHubConfig(home = rackHome()): Promise<boolean> {
+  const file = join(home, HUB_CONFIG_FILE);
+  const stored = await readStateEnvelope(file);
+  if (stored === null) return false;
+  try { decodeBeast2For(HubConfigType)(stored.value); return false; } catch { /* not this release's form */ }
+  let earlier: ValueTypeOf<typeof HubConfigBeforeDataOriginsType>;
+  try { earlier = decodeBeast2For(HubConfigBeforeDataOriginsType)(stored.value); } catch { return false; }
+  // Written as it was read: a listener it may no longer serve is loaded, and reported down, as before
+  await writeStateFile(file, encodeBeast2For(HubConfigType)({ ...earlier, dataOrigins: [] }));
+  return true;
 }
 
 /**

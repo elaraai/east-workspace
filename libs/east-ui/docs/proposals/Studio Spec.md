@@ -65,21 +65,27 @@ changes or removes one runs no migration.
 
 ```tsx
 // The builder, for operators: it reads the pages and writes their patch.
+// The surface holds the open page, and changes it when the builder's Pages tab asks for another.
 export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
         const record     = $.let(Record.bind(pages, [pagesPatch]));
-        return <Studio.Builder pages={record} components={components} project="Ops console"
+        const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+        const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+        return <Studio.Builder pages={record} components={components} project="Ops console" page={open.read()} onOpen={go}
             env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
     }}</Reactive>
 )));
 
-// The page library: the project's pages and templates, and where new pages start.
+// The page library: the project's pages and templates, and where new pages start. It marks the open page,
+// and tells the surface which is asked for next — here the State the builder reads; across routes, a navigation.
 export const library = ui("library", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
         const record     = $.let(Record.bind(pages, [pagesPatch]));
-        return <Studio.Library pages={record} components={components} project="Ops console" />;
+        const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+        const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+        return <Studio.Library pages={record} components={components} project="Ops console" page={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 
@@ -95,7 +101,14 @@ export const opsConsole = ui("ops_console", [], East.function([], UIComponentTyp
 ```
 
 The public `Studio` namespace is exactly this: `Studio.component`,
-`<Studio.Builder>`, `<Studio.Library>`, `<Studio.Page>` and `Studio.Types`.
+`<Studio.Builder>`, `<Studio.Library>`, `<Studio.Page>` and `Studio.Types` —
+and, since a placement holds content (a component's key, a visual or a text
+block), `Studio.source`, which declares a source a surface's visuals may read
+(`sources={{ orders: Studio.source(handle, meta) }}` on the builder and the page: the page library reads none),
+`Studio.visual`, which builds a placement's content for a record's seeds, and
+`Studio.migrations`, the steps a pages record lists
+(`migration.rows("cell_content", Studio.migrations.cellContent)` carries pages
+stored when a placement held a component's key alone).
 
 ---
 
@@ -142,8 +155,8 @@ The public `Studio` namespace is exactly this: `Studio.component`,
 
 | Component | Carrier | Payload |
 |---|---|---|
-| `<Studio.Builder>` | `StudioBuilder` | `pages` — the bound record's `read`, `history` and `commit.patch`; `components`; `project`; `env`, `audience`, `rollout`, `id` as options |
-| `<Studio.Library>` | `StudioLibrary` | `pages` as above; `components`; `project`; `id`; `onOpen` |
+| `<Studio.Builder>` | `StudioBuilder` | `pages` — the bound record's `read`, `history` and `commit.patch`; `components`; `project`; `page`, `onOpen`, `env`, `audience`, `rollout`, `id` as options |
+| `<Studio.Library>` | `StudioLibrary` | `pages` as above; `components`; `project`; `onOpen`; `page` as an option |
 | `<Studio.Page>` | `StudioPage` | `pages` — the record's value; `components`; `page`; `version` |
 
 A surface's `ui()` manifest follows from the payload: the builder's and the
@@ -177,10 +190,14 @@ change list (`pageChanges`) and the writes' patches.
   two Library galleries whose media are wireframes of each layout.
 - **A page** lays its layout's placements out on the snap grid; each placement
   runs its component's function, re-run when what it read changes.
-- **The open page** is the UI store's, under the builder's key
-  (`builderKeys(id).page`), where `State.bind` keeps State: the page library
-  writes it when it opens a page, and the builder reads it. It begins as the
-  project's first page.
+- **The open page** is the host's (#1668): a route's params, or the surface's
+  own State. The builder shows the `page` it is given, and tells the host in
+  `onOpen` when its palette's Pages tab asks for another; the page library
+  tells the host in `onOpen` and opens nothing itself, marking the `page` it
+  is given. A builder given no `page` holds its own, kept in the browser under
+  its storage key, and begins at the project's first page. Nothing is shared
+  through a store entry named by `id`, which names the builder's drag sources
+  alone.
 
 ---
 

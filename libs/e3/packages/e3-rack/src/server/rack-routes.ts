@@ -71,6 +71,7 @@ import {
   RackStorageResponseType,
   RackLogsRequestType,
   RACK_CALL_VALUE_OBJECTS,
+  RACK_DATA_ORIGINS,
   RACK_INLINE_MAX_HEADER,
   RACK_INLINE_OBJECTS,
   RACK_TIER_MANIFESTS,
@@ -232,6 +233,14 @@ export interface RackRouteOptions {
    * rack names a size; one that does is served as it asks all the same.
    */
   inlineObjects?: boolean;
+  /**
+   * The origins beside its own that the source builds data URLs on, asked as
+   * each hello is answered, so a change to them is said at once: the hello
+   * names {@link RACK_DATA_ORIGINS} and lists them while there are any. The
+   * bridge builds a URL on them only for a rack whose report names the
+   * feature. Absent or empty, the hello names neither.
+   */
+  dataOrigins?: () => readonly string[];
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
@@ -483,14 +492,21 @@ export function createRackRoutes(
   // the protocol this source speaks, its e3 release, its limits, and what it
   // takes beyond the protocol. JSON, so an agent of any protocol reads it.
   const callValueObjects = options?.callValueObjects === true;
-  const hello: RackHello = {
-    protocol: RACK_PROTOCOL,
-    e3: e3Version ?? E3_RACK_VERSION,
-    limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
-    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : []),
-      ...(options?.inlineObjects === true ? [RACK_INLINE_OBJECTS] : [])],
-  };
-  app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
+  const features = [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : []),
+    ...(options?.inlineObjects === true ? [RACK_INLINE_OBJECTS] : [])];
+  app.get('/api/rack/hello', () => {
+    // As configured when asked: a hub's data origins change as it runs
+    const dataOrigins = [...(options?.dataOrigins?.() ?? [])];
+    // A source with none says the hello it said before them
+    const hello: RackHello = {
+      protocol: RACK_PROTOCOL,
+      e3: e3Version ?? E3_RACK_VERSION,
+      limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
+      features: dataOrigins.length > 0 ? [...features, RACK_DATA_ORIGINS] : features,
+      ...(dataOrigins.length > 0 && { dataOrigins }),
+    };
+    return new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } });
+  });
 
   /**
    * Resolve a lease the caller actively holds — the scope gate for the
