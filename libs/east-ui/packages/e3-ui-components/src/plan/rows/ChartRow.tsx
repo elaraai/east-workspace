@@ -37,6 +37,9 @@
  *   its own value at the same line, inside the plot's right edge; a chart at a
  *   row's own height reads its scale by its gridlines alone. A row whose
  *   `grid` is off draws no gridline, its numbers standing alone (#1753);
+ * - a chart taller than a row's own lines lists its named series down its
+ *   gutter under its name (#1750), each in its colour — a phone card on one
+ *   line under its title;
  * - hovering a bucket reads out each data layer's value there — unless the
  *   row's `tooltip` is off.
  *
@@ -67,8 +70,8 @@ import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
     CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks, lonePoint,
     readoutLayers, readoutTable, splitAtNow, styleOf, valueScale,
-    type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartPointValue, type ChartSide, type ChartStyleValue,
-    type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
+    type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartLegend, type ChartPointValue, type ChartSide,
+    type ChartStyleValue, type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -596,6 +599,79 @@ export function ChartGutterTicks({ kind, styles, height, banded, taken, controls
                 <Box key={i} css={styles.chartTickGutter} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tickpx={t.y}
                     data-under-controls={controls && t.y - TICK_HALF < firstLine ? "" : undefined}>
                     {t.left}
+                </Box>
+            ))}
+        </Box>
+    );
+}
+
+/**
+ * A chart row's legend down its gutter (#1750): a line a named series under
+ * the row's lines, the spec's 24px of room each — its stroke in its colour,
+ * its name and unit, and on a chart that draws on both axes, its axis. Where
+ * the row has room for fewer lines than series, the last line it has room for
+ * says how many more there are; the readout names every one.
+ *
+ * It stands from the name's x — the gutter's indent at the row's level — to
+ * the value slot, which the left axis's numbers keep, and takes the place of
+ * the row's meta and its swatches, which stood in for it (the row's shell
+ * leaves them out). The names are the plot's to say to a reader (#819), so a
+ * reader skips these.
+ *
+ * @param props.legend - The chart's legend ({@link chartLegend})
+ * @param props.shown - How many of its lines the row has room for
+ * @param props.more - How many series the last line stands for; none where every line is drawn ({@link legendFit})
+ * @param props.styles - The Plan's slot styles
+ * @param props.top - Where its first line starts down the gutter, px: under the row's lines
+ * @param props.leaf - The row folds nothing: its words start at its level's indent, with no caret's cell before them
+ */
+export function ChartGutterLegend({ legend, shown, more, styles, top, leaf }: {
+    legend: ChartLegend;
+    shown: number;
+    more: number;
+    styles: Styles;
+    top: number;
+    leaf: boolean;
+}) {
+    const words = usePlanWords();
+    const system = useChakraContext();
+    return (
+        <Box css={styles.chartLegend} style={{ top: `${top}px` }} data-leaf={leaf ? "" : undefined}
+            data-plan-legend="" aria-hidden="true">
+            {legend.entries.slice(0, shown).map((entry) => (
+                <Box key={entry.name} css={styles.chartLegendItem} data-plan-legend-item="">
+                    <Box as="span" css={styles.chartLegendSwatch} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
+                    <Box as="span" css={styles.chartLegendName}>{words.m.chartSeries({ name: entry.name, unit: entry.unit })}</Box>
+                    {legend.bothAxes && <Box as="span" css={styles.chartLegendAxis}>{words.m.chartAxisSide({ side: entry.side })}</Box>}
+                </Box>
+            ))}
+            {more > 0 && (
+                <Box css={styles.chartLegendItem} data-plan-legend-item="" data-plan-legend-more="">
+                    <Box as="span" css={styles.chartLegendName}>
+                        {words.m.chartLegendMore({ n: more, count: words.number(more), every: shown === 0 })}
+                    </Box>
+                </Box>
+            )}
+        </Box>
+    );
+}
+
+/**
+ * A narrow card's legend (#1750): one line under its title, wrapping where it
+ * must — each named series' stroke in its colour, and its name. A card has no
+ * gutter, so it lists every series, and in place of the card's meta.
+ *
+ * @param props.legend - The chart's legend ({@link chartLegend})
+ * @param props.styles - The Plan's slot styles
+ */
+export function ChartCardLegend({ legend, styles }: { legend: ChartLegend; styles: Styles }) {
+    const system = useChakraContext();
+    return (
+        <Box css={styles.chartLegendCard} data-plan-legend="" aria-hidden="true">
+            {legend.entries.map((entry) => (
+                <Box key={entry.name} css={styles.chartLegendItem} data-plan-legend-item="">
+                    <Box as="span" css={styles.chartLegendSwatch} data-plan-legend-swatch="" {...markLook(entry.ink, undefined, system)} />
+                    <Box as="span" css={styles.chartLegendName}>{entry.name}</Box>
                 </Box>
             ))}
         </Box>

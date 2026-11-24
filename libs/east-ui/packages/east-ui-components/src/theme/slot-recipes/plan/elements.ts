@@ -25,12 +25,12 @@ import {
     PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
 } from "./status.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
-import { PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
+import { GUTTER_SLOT_W, PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
     "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
-    "chartTickGutter", "refLabel",
+    "chartTickGutter", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -69,6 +69,31 @@ const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
  * figure a row higher or lower by where it stood the row.
  */
 const TICK_LINE = "14px";
+
+/**
+ * A chart's series colours (#949, #1753), by a mark's place among the series (`data-series`): the brand first
+ * (`--brand-d`, the chart rule), then the chart accents in their fixed order — teal, purple, blue, orange. Each sets the
+ * custom property a mark draws in, and a legend's stroke beside it (#1750), so the two never disagree.
+ */
+const CHART_SERIES_INKS = {
+    "& [data-series='0']": { "--mark-ink": "{colors.brand.solid}" },
+    "& [data-series='1']": { "--mark-ink": "{colors.accent.teal}" },
+    "& [data-series='2']": { "--mark-ink": "{colors.accent.purple}" },
+    "& [data-series='3']": { "--mark-ink": "{colors.accent.blue}" },
+    "& [data-series='4']": { "--mark-ink": "{colors.accent.orange}" },
+} satisfies SystemStyleObject;
+
+/** The room of a legend's line (#1750), and the even line its words stand on in it, so they start on a whole pixel (#1638). */
+const LEGEND_ROOM = "24px";
+const LEGEND_LINE = "14px";
+
+/** A legend's words, wherever it stands: mono 10, one line. */
+const legendWords = {
+    fontFamily: "mono",
+    fontSize: "10px",
+    lineHeight: LEGEND_LINE,
+    whiteSpace: "nowrap",
+} satisfies SystemStyleObject;
 
 /** A chart row's axis tick, wherever it stands: mono in the label ink, one line, its middle on its value's pixel. */
 const chartTick = {
@@ -319,11 +344,7 @@ export const elementsBase = {
             strokeWidth: "1px",
             shapeRendering: "crispEdges",
         },
-        "& [data-series='0']": { "--mark-ink": "{colors.brand.solid}" },
-        "& [data-series='1']": { "--mark-ink": "{colors.accent.teal}" },
-        "& [data-series='2']": { "--mark-ink": "{colors.accent.purple}" },
-        "& [data-series='3']": { "--mark-ink": "{colors.accent.blue}" },
-        "& [data-series='4']": { "--mark-ink": "{colors.accent.orange}" },
+        ...CHART_SERIES_INKS,
         "& [data-plan-mark='column']": { fill: "var(--mark-ink, {colors.brand.solid})", fillOpacity: "var(--mark-fill, 1)" },
         "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, var(--mark-ink, {colors.brand.solid}) 40%, {colors.bg.surface})" },
         "& [data-plan-mark='column'][data-warn]": { fill: "{colors.status.warn}" },
@@ -390,8 +411,16 @@ export const elementsBase = {
         pointerEvents: "none",
         zIndex: 5,
     },
-    chartTickLeft: { ...chartTick, left: "3px" },
-    chartTickRight: { ...chartTick, right: "3px", zIndex: 4 },
+    // Over the marks, a number stands on the paper, as a reference line's caption does (#1750): a column under it does
+    // not show through. Its words keep their place, 3px in from the plot's edge.
+    chartTickLeft: { ...chartTick, left: 0, padding: "0 3px", background: "bg.surface" },
+    chartTickRight: {
+        ...chartTick,
+        right: "3px",
+        zIndex: 4,
+        // On a phone card, which has no rail, its numbers stand on the paper too.
+        "[data-plan-cardbody] &": { right: 0, padding: "0 3px", background: "bg.surface" },
+    },
     // A canvas row's left-axis tick, in the gutter's value slot (#1750): at the
     // slot's end, beside the plot it scales, in the slot's own tabular figures
     // a weight up. One that stands where the row's controls show
@@ -404,6 +433,64 @@ export const elementsBase = {
         fontWeight: "medium",
         fontVariantNumeric: "tabular-nums",
         [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
+    },
+    // A chart row's legend (#1750), down its gutter under the row's lines, which the renderer places it beneath: a line a
+    // named series, the spec's 24px of room each, from the name's x — the gutter's own indent, which it takes from the
+    // cell, then past the caret's cell and its gap on a row that folds — to the value slot and its gap, which the left
+    // axis's numbers keep. It takes no pointer.
+    chartLegend: {
+        position: "absolute",
+        left: 0,
+        right: `calc(12px + ${GUTTER_SLOT_W} + 6px)`,
+        paddingLeft: "inherit",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 0,
+        pointerEvents: "none",
+        ...CHART_SERIES_INKS,
+        "& > [data-plan-legend-item]": { height: LEGEND_ROOM, paddingLeft: "20px" },
+        "&[data-leaf] > [data-plan-legend-item]": { paddingLeft: 0 },
+    },
+    // A phone card's legend (#1750): one line under its title, wrapping where it must, each series' stroke and name.
+    chartLegendCard: {
+        display: "flex",
+        flexWrap: "wrap",
+        columnGap: "12px",
+        rowGap: "2px",
+        padding: "0 12px 6px",
+        minWidth: 0,
+        ...CHART_SERIES_INKS,
+    },
+    // One series: its stroke, then 6 and its name and unit, then 6 and — on a chart that draws on both axes — its axis.
+    chartLegendItem: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: 0,
+    },
+    // A series' stroke, 12 × 2 in its colour: the series colour its name takes, or the colour its author chose.
+    chartLegendSwatch: {
+        flex: "none",
+        width: "12px",
+        height: "2px",
+        background: "var(--mark-ink, {colors.brand.solid})",
+    },
+    // Its name and unit, mono 10 / 500 in the muted ink — the part of the line that gives way.
+    chartLegendName: {
+        ...legendWords,
+        fontWeight: "medium",
+        color: "fg.muted",
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+    },
+    // Its axis, mono 10 / 400 in the label ink.
+    chartLegendAxis: {
+        ...legendWords,
+        flex: "none",
+        fontWeight: "normal",
+        color: "fg.subtle",
     },
     // A reference layer's caption, on a paper knockout — a coloured line's in its colour (#1753).
     refLabel: {

@@ -30,7 +30,8 @@
 import { memo, useEffect, type ReactNode } from "react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
-import { ChartGutterTicks } from "./ChartRow.js";
+import { ChartGutterLegend, ChartGutterTicks } from "./ChartRow.js";
+import { chartLegend, legendFit } from "./chart-geometry.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
@@ -275,6 +276,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         lanes?: readonly PlanGutterLane[] | undefined;
         gutterTop?: boolean;
         gutterAxis?: ReactNode;
+        gutterLegend?: ReactNode;
     } = {};
     // The plot height a chart row scales against (see the chart case).
     let plotH = h;
@@ -308,11 +310,25 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             // into the render (#591). At rest it is the plot cell's: the row
             // less its rule, so a value's px is the px it is drawn at (#1750).
             plotH = isFocal ? (bandHeight ?? h) : h - geometry.rule;
+            // A chart taller than a spark at rest stands its name on the row's first line, never in the middle of the
+            // chart's height (#1750). A spark at rest is a row's own lines tall, and keeps them as any row does.
+            const gutterTop = chartExpanded_ || kind.value.height.type !== "spark" || v.row.height.type === "some";
+            // Its legend (#1750): a line a named series under the row's lines — its name's, and its sub line's where
+            // it has one, as a gathered row's path is — in the room the row has under them. A strip, a row open on
+            // its render and a diagnostic draw none, nor does a row with no room for a line: its meta stays.
+            const drawn = derived.charts.get(v.row.key) ?? kind.value;
+            const legend = chartLegend(drawn);
+            const twoLine = v.row.gutter.sub.type === "some" || (v.gathered !== undefined && v.gathered.path.length > 0);
+            const legendTop = (twoLine ? geometry.rowStacked : geometry.row) - geometry.rule;
+            const fit = gutterTop && !isCtx && !isFocal && diagnostic === undefined
+                ? legendFit(legend.entries.length, plotH - legendTop) : { shown: 0, more: 0 };
             shellExtras = {
                 noGrid: false, caret, onCaretClick,
-                // A chart taller than a spark at rest stands its name on the row's first line, never in the middle of
-                // the chart's height (#1750). A spark at rest is a row's own lines tall, and keeps them as any row does.
-                gutterTop: chartExpanded_ || kind.value.height.type !== "spark" || v.row.height.type === "some",
+                gutterTop,
+                gutterLegend: fit.shown === 0 && fit.more === 0 ? undefined : (
+                    <ChartGutterLegend legend={legend} shown={fit.shown} more={fit.more} styles={styles} top={legendTop}
+                        leaf={caret === undefined} />
+                ),
                 // Its left axis, in the gutter's value slot (#1750). A STRIP
                 // carries no value axis — its plot re-encodes as a tone strip
                 // (`ToneStrip`), so the ticks would label a scale that is not
@@ -323,7 +339,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 // failure stays in the row, as its plot's does (#811).
                 gutterAxis: isCtx || diagnostic !== undefined ? undefined : (
                     <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
-                        <ChartGutterTicks kind={derived.charts.get(v.row.key) ?? kind.value} styles={styles} height={plotH} banded={isFocal}
+                        <ChartGutterTicks kind={drawn} styles={styles} height={plotH} banded={isFocal}
                             taken={v.row.gutter.value.type === "some"
                                 || statusDraws(v.row.status.type === "some" ? v.row.status.value.type : undefined)
                                 || rowControls.some((c) => c.active)}

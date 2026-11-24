@@ -571,6 +571,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     chartSummary: (p: { parts: readonly string[] }) => string;
     /** A chart row with no data layers. */
     chartNoData: () => string;
+    /** A named series of a chart row, on its legend's line (#1750) — `Output k sheets`: `unit` its axis's label, where
+     *  the axis names one. */
+    chartSeries: (p: { name: string; unit: string | undefined }) => string;
+    /** The value axis a series scales against, on its legend's line where its chart draws on both (#1750) — `left`. */
+    chartAxisSide: (p: { side: "left" | "right" }) => string;
+    /** A chart row's legend's last line, where the row has no room for every series (#1750) — `+2 more`; `every` where it
+     *  has room for this line alone, which then stands for every series — `3 series`. */
+    chartLegendMore: (p: { n: number; count: string; every: boolean }) => string;
 
     // ── The live region (#819) ─────────────────────────────────────────────
     /** A row was selected. */
@@ -914,6 +922,9 @@ export const planMessages: PlanMessages = {
     chartLayerEmpty: ({ layer }) => `${layer} no data in the window`,
     chartSummary: ({ parts }) => `Chart: ${parts.join("; ")}`,
     chartNoData: () => "Chart: no data",
+    chartSeries: ({ name, unit }) => (unit !== undefined && unit !== "" ? `${name} ${unit}` : name),
+    chartAxisSide: ({ side }) => side,
+    chartLegendMore: ({ count, every }) => (every ? `${count} series` : `+${count} more`),
 
     announceSelected: ({ label }) => `Selected ${label}`,
     announceEvents: ({ n, count }) => (n === 0 ? "No event selected" : `${count} ${plural(n, "event", "events")} selected`),

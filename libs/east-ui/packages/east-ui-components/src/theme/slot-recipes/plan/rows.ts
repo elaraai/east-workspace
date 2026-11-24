@@ -32,8 +32,9 @@ export const rowsSlots = [
     "stickyParent", "stickyPath",
 ] as const;
 
-/** The value slot's width: a status and a value, at one x down the canvas. */
-const GUTTER_SLOT_W = "56px";
+/** The value slot's width: a status and a value, at one x down the canvas — and the column a chart row's legend leaves
+ *  to its left axis's numbers (#1750). */
+export const GUTTER_SLOT_W = "56px";
 
 /**
  * The gutter's line, one grid (#1749): caret · name · value slot. A row that folds has its caret's cell; a leaf has

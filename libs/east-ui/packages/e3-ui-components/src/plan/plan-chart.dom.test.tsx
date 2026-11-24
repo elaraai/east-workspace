@@ -17,7 +17,9 @@
  * point's, a dashed line's planned part, the order the layers draw in, the
  * columns side by side in a bucket, the areas on a stack, bubbles, a reference
  * line's own dash and colour, and target zones; and a row's switches — its grid
- * and its tooltip — and how many numbers an axis asks for.
+ * and its tooltip — and how many numbers an axis asks for. And its legend
+ * (#1750): a line a named series down its gutter, in place of its meta and its
+ * swatches, as many as the row has room for.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -632,5 +634,147 @@ describe("a chart row's switches, and how many numbers an axis asks for (#1753)"
         expect([labels(row), gridlines(row).length]).toEqual([["4", "6", "8"], 3]);
         // Its domain is its values' own: the line runs from the scale's foot to its top, as with no numbers asked for.
         expect(subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!)).toEqual([[[250, 76.5], [750, 12.5]]]);
+    });
+});
+
+describe("the chart row's legend (#1750)", () => {
+    /** Each line's words: a series' name and unit, and its axis where the line names one. */
+    const lines = (row: Element) => [...row.querySelectorAll("[data-plan-legend-item]")].map((item) =>
+        [...item.querySelectorAll("span")].filter((s) => !s.hasAttribute("data-plan-legend-swatch")).map((s) => s.textContent));
+    const legendOf = (row: Element) => row.querySelector<HTMLElement>("[data-plan-legend]");
+    const prop = (el: Element, name: string) => (el as HTMLElement).style.getPropertyValue(name);
+
+    test("a line a named series, in the order the series are declared — layers of one name share one — and none for an unnamed or a reference layer, in place of the row's meta and its swatches", () => {
+        const { container } = renderPlan(planRoot([{
+            ...planRow("c", chartKind([
+                variant("column", { points: [pt(0.5, 4)], axis: left, breach: none, fold: SUM,
+                    style: { label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 3)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("Output"), color: some("red.solid"), curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: some(-1) } }),
+                variant("band", { points: [{ t: numberInstant(0.5), lo: 2, hi: 4 }], axis: left,
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("refLine", { y: 2, axis: left, label: some("CAP"), dash: none, color: none }),
+            ])),
+            gutter: { label: "c", id: false, sub: none, value: none, meta: some("k sheets"), stacked: false, swatches: [{ color: "teal.solid", label: "SW-A" }] },
+        } as unknown as PlanWireRow], 1), "chart-1750-legend");
+        const row = container.querySelector(rowSel("c"))!;
+        // Printed before Output, as declared, though Output draws first; one line for Output's line and band; none for
+        // the unnamed line or the reference line; and no axis named, on a chart that draws on one.
+        expect(lines(row)).toEqual([["Printed"], ["Output"]]);
+        // Each stroke in its series' ink: Printed the first series colour, Output its author's.
+        const [printed, output] = [...row.querySelectorAll("[data-plan-legend-swatch]")];
+        expect([printed!.getAttribute("data-series"), output!.hasAttribute("data-series"), prop(output!, "--mark-ink")])
+            .toEqual(["0", false, "var(--chakra-colors-red-solid)"]);
+        // Under the row's first line, from the name's x, in the gutter: a leaf has no caret's cell before its words.
+        const legend = legendOf(row)!;
+        expect([legend.style.top, legend.hasAttribute("data-leaf"), legend.closest("[role='rowheader']") !== null]).toEqual(["31px", true, true]);
+        expect(row.querySelector("[data-plan-gutter='meta']")).toBeNull();
+        expect(row.textContent).not.toContain("SW-A");
+    });
+
+    test("a series' unit is its axis's label, and its axis is named only on a chart that draws on both", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("both", chartKind([
+                variant("line", { points: [pt(0.5, 3)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 40)], axis: right, breach: none, fold: MEAN,
+                    style: { label: some("Rate"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            ], {
+                left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }),
+                right: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("%") }),
+            })),
+            planRow("one", chartKind([
+                variant("line", { points: [pt(0.5, 3)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            ], { left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }) })),
+        ], 1), "chart-1750-units");
+        expect(lines(container.querySelector(rowSel("both"))!)).toEqual([["Output k sheets", "left"], ["Rate %", "right"]]);
+        expect(lines(container.querySelector(rowSel("one"))!)).toEqual([["Output k sheets"]]);
+    });
+
+    test("where the row has room for fewer lines than series, the last it has room for says how many more, the row keeping its height; under a sub line, its lines start below it", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("many", chartKind([
+                variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("A"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 2)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("B"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 3)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("C"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 4)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("D"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            ])),
+            {
+                ...planRow("subbed", chartKind([
+                    variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("A"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("line", { points: [pt(0.5, 2)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("B"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                ])),
+                gutter: { label: "subbed", id: false, sub: some("sheets/h"), value: none, meta: none, stacked: false, swatches: [] },
+            } as unknown as PlanWireRow,
+        ], 1), "chart-1750-more");
+        // An 88px row's 87px plot, less its first line's 31: room for two lines of 24 — A, then the three more.
+        const many = container.querySelector(rowSel("many"))!;
+        expect([lines(many), many.getAttribute("data-plan-h"), legendOf(many)!.style.top]).toEqual([[["A"], ["+3 more"]], "88", "31px"]);
+        // Under its name and its sub line's 41, room for one, which then stands for every series.
+        const subbed = container.querySelector(rowSel("subbed"))!;
+        expect([lines(subbed), legendOf(subbed)!.style.top]).toEqual([[["2 series"]], "41px"]);
+    });
+
+    test("a layer whose legend is off is left out of it; a row whose legend is off draws none, its meta as before", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("layer", chartKind([
+                variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 2)], axis: left, breach: none, fold: MEAN,
+                    style: { label: some("Plan"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: false, tooltip: true, order: none } }),
+            ])),
+            {
+                ...planRow("off", variant("chart", {
+                    layers: [variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                    left: none, right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+                    grid: true, legend: false, tooltip: true,
+                })),
+                gutter: { label: "off", id: false, sub: none, value: none, meta: some("k sheets"), stacked: false, swatches: [] },
+            } as unknown as PlanWireRow,
+        ], 1), "chart-1750-switch");
+        expect(lines(container.querySelector(rowSel("layer"))!)).toEqual([["Output"]]);
+        const off = container.querySelector(rowSel("off"))!;
+        expect([legendOf(off), off.querySelector("[data-plan-gutter='meta']")?.textContent]).toEqual([null, "k sheets"]);
+    });
+
+    test("a chart at a row's own height draws none, its meta as before, and opened taller it does; a row with no room under its lines for one keeps its meta", () => {
+        const { container } = renderPlan(planRoot([
+            {
+                ...planRow("spark", variant("chart", {
+                    layers: [variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                    left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+                    grid: true, legend: true, tooltip: true,
+                })),
+                gutter: { label: "spark", id: false, sub: none, value: none, meta: some("k sheets"), stacked: false, swatches: [] },
+            } as unknown as PlanWireRow,
+            {
+                ...planRow("short", variant("chart", {
+                    layers: [variant("line", { points: [pt(0.5, 1)], axis: left, breach: none, fold: MEAN,
+                        style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                    left: none, right: none, height: variant("fixed", "56px"), expandedHeight: none, expandable: false,
+                    grid: true, legend: true, tooltip: true,
+                })),
+                gutter: { label: "short", id: false, sub: some("sheets/h"), value: none, meta: some("k sheets"), stacked: false, swatches: [] },
+            } as unknown as PlanWireRow,
+        ], 1), "chart-1750-spark-legend");
+        const spark = () => container.querySelector(rowSel("spark"))!;
+        const meta = (row: Element) => row.querySelector("[data-plan-gutter='meta']")?.textContent;
+        expect([legendOf(spark()), meta(spark())]).toEqual([null, "k sheets"]);
+        fireEvent.click(spark().querySelector('[data-plan-control="expand"]')!);
+        expect([spark().getAttribute("data-plan-h"), lines(spark()), meta(spark())]).toEqual(["88", [["Output"]], undefined]);
+        // A 56px row's 55px plot, less its two lines' 41: no room for a line of 24.
+        const short = container.querySelector(rowSel("short"))!;
+        expect([legendOf(short), meta(short)]).toEqual([null, "k sheets"]);
     });
 });

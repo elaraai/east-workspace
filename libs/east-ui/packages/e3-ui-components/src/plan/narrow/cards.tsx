@@ -18,7 +18,8 @@ import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
 import { KindPlot } from "../rows/KindPlot.js";
-import { ChartLeftTicks } from "../rows/ChartRow.js";
+import { ChartCardLegend, ChartLeftTicks } from "../rows/ChartRow.js";
+import { CHART_TALL_PX, chartLegend } from "../rows/chart-geometry.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
 import { statusText } from "../a11y.js";
@@ -101,11 +102,16 @@ export const NarrowRowCard = memo(function NarrowRowCard({
     const isId = gutter.id;
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
-    const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     // A row that cannot be placed shows its diagnostic in the card body
     // (#811) — no marks, and no value ticks for marks that are not there.
     const diagnostic = derived.diagnostics.get(row.key);
+    // A chart taller than a row's own lines names its series under the card's lines (#1750), in place of its meta,
+    // which stood in for them; a spark, as the canvas's row, names none.
+    const chart = row.kind.type === "chart" ? derived.charts.get(row.key) ?? row.kind.value : undefined;
+    const legend = useMemo(() => (chart === undefined ? undefined : chartLegend(chart)), [chart]);
+    const drawsLegend = legend !== undefined && legend.entries.length > 0 && diagnostic === undefined && h >= CHART_TALL_PX;
+    const meta = gutter.meta.type === "some" && !drawsLegend ? gutter.meta.value : undefined;
     return (
         <Box ref={watch} css={styles.narrowCard} data-plan-card={row.key}
             data-selected={selected ? "" : undefined}
@@ -131,6 +137,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 </Box>
             </Box>
             {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
+            {drawsLegend && <ChartCardLegend legend={legend} styles={styles} />}
             {drill !== undefined && drill.gutter !== null && (
                 <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
                     <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={drill.gutter} styles={styles}>
@@ -150,9 +157,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                         <KindPlot v={v} styles={styles} derived={derived}
                             hasChildren={hasChildren}
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} />
-                        {row.kind.type === "chart" && (
-                            <ChartLeftTicks kind={derived.charts.get(row.key) ?? row.kind.value} styles={styles} height={h} />
-                        )}
+                        {chart !== undefined && <ChartLeftTicks kind={chart} styles={styles} height={h} />}
                     </PlanPartBoundary>
                 )}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline />}

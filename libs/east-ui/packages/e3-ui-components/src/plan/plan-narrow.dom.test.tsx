@@ -11,7 +11,8 @@
  * — the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
- * through when an arrow key moves between them (`CSS.escape`, #819).
+ * through when an arrow key moves between them (`CSS.escape`, #819). A chart
+ * card taller than a row's own lines names its series under its title (#1750).
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
@@ -529,6 +530,35 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(tabCount(container, "measures")).toEqual(["not counted", "notCounted"]);
         // The rows are still the source's own count.
         expect(tabCount(container, "rows")).toEqual(["450", "450"]);
+    });
+
+    test("a chart card taller than a row's own lines names its series on a line under its title — each its stroke and its name — in place of its meta; a spark's card keeps its meta (#1750)", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("tall", variant("chart", {
+                layers: [
+                    variant("column", { points: [{ t: t(W27), y: 4 }], axis: variant("left", null), breach: none, fold: variant("sum", null),
+                        style: { label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("line", { points: [{ t: t(W27), y: 3 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: some("Output"), color: some("red.solid"), curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                    variant("refLine", { y: 2, axis: variant("left", null), label: some("CAP"), dash: none, color: none }),
+                ],
+                left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            }), { gutter: gutter("TALL", { meta: "sheets · plan" }) }),
+            planRow("spark", variant("chart", {
+                layers: [variant("line", { points: [{ t: t(W27), y: 3 }], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
+            }), { gutter: gutter("SPARK", { meta: "sheets · plan" }) }),
+        ]), "plan-1750-card-legend");
+        const tall = container.querySelector(rowSel("tall", "data-plan-card"))!;
+        // Its names alone, no unit and no axis; each stroke in its series' ink, the reference line's none.
+        expect([...tall.querySelectorAll("[data-plan-legend-item]")].map((item) => item.textContent)).toEqual(["Printed", "Output"]);
+        const [printed, output] = [...tall.querySelectorAll<HTMLElement>("[data-plan-legend-swatch]")];
+        expect([printed!.getAttribute("data-series"), output!.style.getPropertyValue("--mark-ink")]).toEqual(["0", "var(--chakra-colors-red-solid)"]);
+        expect(tall.textContent).not.toContain("sheets · plan");
+        const spark = container.querySelector(rowSel("spark", "data-plan-card"))!;
+        expect([spark.querySelector("[data-plan-legend]"), spark.textContent?.includes("sheets · plan")]).toEqual([null, true]);
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

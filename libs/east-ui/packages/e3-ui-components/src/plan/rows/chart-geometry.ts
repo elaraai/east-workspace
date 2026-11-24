@@ -7,9 +7,9 @@
  * A chart row's geometry as numbers (#743) — its stacks: each column's place
  * in its bucket and its extent, and each stacked area's; the value domain each
  * axis side spans, the points a continuous series draws, a bubble's radius,
- * and each layer's value per bucket. The marks, the gutter ticks and the
- * crosshair readout all read it, so an axis can never label a scale the marks
- * do not use.
+ * each layer's value per bucket, and the series its legend lists. The marks,
+ * the gutter ticks, the legend and the crosshair readout all read it, so an
+ * axis can never label a scale the marks do not use.
  *
  * Everything here is in DATA units and window FRACTIONS — the row maps them
  * into its viewBox. Positions are the scale's UNCLAMPED `fracOf`: clamping a
@@ -395,6 +395,86 @@ export function drawOrder(kind: ChartKindValue): number[] {
     };
     const orders = kind.layers.map(orderOf);
     return kind.layers.map((_, i) => i).sort((a, b) => orders[a]! - orders[b]! || a - b);
+}
+
+/** A legend's line (#1750): the spec's 24px of room. */
+export const LEGEND_LINE_PX = 24;
+
+/** One line of a chart row's legend (#1750): a named series. */
+export interface ChartLegendEntry {
+    /** Its name — the `label` its layers give. */
+    name: string;
+    /** Its ink, which its stroke draws in ({@link chartInks}). */
+    ink: ChartInk;
+    /** The value axis it scales against — its first layer's. */
+    side: ChartSide;
+    /** Its unit: its axis's `label`, where the axis names one. */
+    unit: string | undefined;
+}
+
+/** A chart row's legend (#1750). */
+export interface ChartLegend {
+    /** Its lines, a named series each, in the order the series are declared. */
+    entries: ChartLegendEntry[];
+    /** Whether the chart draws data on both its axes — only then does a line name its series' axis. */
+    bothAxes: boolean;
+}
+
+/**
+ * A chart row's legend (#1750): a line a named data series.
+ *
+ * @remarks
+ * The series are listed in the order they are declared — not the order they
+ * draw in, which a layer's `order` changes. Layers of one name are one series,
+ * as they share one ink: a line on the axis of the first of them. An unnamed
+ * layer has no line, nor has a reference layer; a layer whose `legend` is off
+ * is left out, and a row whose `legend` is off lists none.
+ *
+ * @param kind - The chart row
+ * @returns Its lines, and whether its chart draws on both axes
+ */
+export function chartLegend(kind: ChartKindValue): ChartLegend {
+    const inks = chartInks(kind);
+    const entries: ChartLegendEntry[] = [];
+    const listed = new Set<string>();
+    const drawsOn = { left: false, right: false };
+    kind.layers.forEach((layer, li) => {
+        switch (layer.type) {
+            case "line": case "area": case "column": case "scatter": case "band": {
+                const { axis, style } = layer.value;
+                drawsOn[axis.type] = true;
+                if (!kind.legend || !style.legend || style.label.type === "none" || listed.has(style.label.value)) return;
+                listed.add(style.label.value);
+                const declared = axis.type === "left" ? kind.left : kind.right;
+                entries.push({
+                    name: style.label.value,
+                    ink: inks[li] ?? {},
+                    side: axis.type,
+                    unit: declared.type === "some" && declared.value.label.type === "some" ? declared.value.label.value : undefined,
+                });
+                return;
+            }
+            case "refLine": case "refBand": case "refDot":
+                return;
+        }
+    });
+    return { entries, bothAxes: drawsOn.left && drawsOn.right };
+}
+
+/**
+ * How much of a legend a room holds (#1750): every line, where it has room
+ * for them all; else every line it has room for but the last, which says how
+ * many more there are; none where it has room for no line.
+ *
+ * @param lines - The legend's lines
+ * @param room - Its room, in px
+ * @returns The lines drawn, and how many series the last line stands for — none where every line is drawn
+ */
+export function legendFit(lines: number, room: number): { shown: number; more: number } {
+    const fits = Math.max(0, Math.floor(room / LEGEND_LINE_PX));
+    if (lines <= fits) return { shown: lines, more: 0 };
+    if (fits === 0) return { shown: 0, more: 0 };
+    return { shown: fits - 1, more: lines - (fits - 1) };
 }
 
 /**

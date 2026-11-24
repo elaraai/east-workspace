@@ -174,6 +174,10 @@ export interface RowShellProps {
     /** A value axis the row's plot scales against, down the gutter's value slot (#1750): its tick labels, each on its
      *  tick's y. The row's kind draws it; the shell gives it the cell. */
     gutterAxis?: ReactNode;
+    /** What the row's plot draws, named down its gutter under the row's lines (#1750) — a chart's legend. The row's
+     *  kind draws it, where it has room; the shell gives it the cell, and leaves out the meta and the swatches, which
+     *  stood in for it. */
+    gutterLegend?: ReactNode;
     /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
      *  line says them, then its own sub — which tells two rows of one name apart. */
     path?: readonly string[] | undefined;
@@ -222,7 +226,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, noGrid,
-    controls, lanes: gutterLanes, gutterTop, gutterAxis, path, axisMode, ctx, keep, drop, draft, children,
+    controls, lanes: gutterLanes, gutterTop, gutterAxis, gutterLegend, path, axisMode, ctx, keep, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -245,7 +249,9 @@ export function RowShell({
     const own = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     // A gathered row's sub line: what it nests under, then its own sub (#1680's review).
     const sub = path !== undefined && path.length > 0 ? words.m.focusPath({ path, sub: own }) : own;
-    const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
+    // A legend down the gutter says what the meta and the swatches stood in for (#1750): neither draws beside it.
+    const meta = gutter.meta.type === "some" && gutterLegend === undefined ? gutter.meta.value : undefined;
+    const swatches = gutterLegend === undefined ? gutter.swatches : [];
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const isId = gutter.id;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
@@ -753,9 +759,9 @@ export function RowShell({
                         {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</Box>}
                     </>
                 )}
-                {gutter.swatches.length > 0 && (
+                {swatches.length > 0 && (
                     <Box display="flex" gap="7px" marginTop="1px">
-                        {gutter.swatches.map((s, i) => (
+                        {swatches.map((s, i) => (
                             <Box key={i} as="span" css={styles.gutterSwatch} data-ctx={ctxAttr}>
                                 <Box as="i" background={resolveColor(system, s.color)} />
                                 {s.label}
@@ -768,6 +774,7 @@ export function RowShell({
                 {expandGutter !== undefined && (
                     <Box css={styles.expandGutterBody} data-plan-expandgutter>{expandGutter}</Box>
                 )}
+                {gutterLegend}
                 {gutterAxis}
             </Box>
             <Box
