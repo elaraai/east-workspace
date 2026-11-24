@@ -120,6 +120,7 @@ import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
 import type { SheetGroupCell } from "./group.js";
 import { dedupeMembers, type SheetDriverValue, type SheetRegisterValue } from "./registers.js";
 import { actionRuleCells, buildActionCodec, buildComplete, describeAction, type SheetActionCodec } from "./actions.js";
+import { keyOfTextOrNone, keyTextOf } from "../schedule/window.js";
 
 /** The wire cells dictionary type. */
 export const SheetCellsType = DictType(StringType, SheetCellType);
@@ -198,6 +199,12 @@ export interface SheetColumnMeta {
     action?: SheetActionCodec;
     /** A cycle over a variant's steps: the register they make, and how a case and its key cross. */
     steps?: SheetStepsCodec;
+    /**
+     * A column whose cell holds the text of its value's key: how its value crosses — a key of its register's where the
+     * register is keyed by another type than String (east-workspace#1747), or a variant's case, its step's key. A
+     * String key needs none: its text is the key.
+     */
+    keys?: SheetKeyCodec;
     /** The column's `mark` over the row and the Record's day — words on its cells, or a lock; a column from data's is its {@link SheetFromDataMeta}'s. */
     mark?: ExprType<FunctionType<[StructType, DateTimeType], OptionType<typeof RecordMarkType>>>;
     /** A column from data: where its columns come from, and how each cell reads and writes the field. */
@@ -251,13 +258,15 @@ export type SheetFromDataMeta = {
     from: "register";
     /** The register, by name. */
     register: string;
+    /** The type of the register's keys: what the functions take a member's key as (east-workspace#1747). */
+    memberKey: EastType;
     /** The register whose members head the columns' groups, through each member's `parent`. */
     groups: string | undefined;
     /** The value a cell holds: the kind's, or an `Option` of it. */
     valueType: EastType;
     /** Whether a clear writes `none`: the value `write` takes is an `Option`. */
     clears: boolean;
-    /** `(field, member, day) → value`. */
+    /** `(field, member, day) → value`, the member's key at its register's type. */
     read: ExprType<FunctionType>;
     /** `(field, member, value, day) → field`; none for read-only columns. */
     write: ExprType<FunctionType> | undefined;
@@ -279,6 +288,36 @@ export type SheetFromDataMeta = {
 };
 
 /**
+ * How a column whose cell holds the text of its value's key crosses
+ * (east-workspace#1747): its value to that text, and the text back. A register
+ * keyed by another type than String holds its members' keys so, each as East
+ * prints it, and a cycle over a variant its cases, each by its step's key. The
+ * cell holds the text, so the renderer draws it as it draws a String key's.
+ *
+ * @internal
+ */
+export interface SheetKeyCodec {
+    /** The value's type: the register's key type, or the variant. */
+    type: EastType;
+    /** A value → its key's text. */
+    encode: ExprType<FunctionType<[EastType], StringType>>;
+    /** A key's text → its value; `none` for a text no value has. */
+    decode: ExprType<FunctionType<[StringType], OptionType<EastType>>>;
+}
+
+/**
+ * A register's keys of another type than String as their text, and back
+ * (east-workspace#1747): a key as East prints it, and a text read at the key's
+ * type, `none` for one no key of it prints as.
+ *
+ * @param keyType - The register's key type
+ * @returns The codec
+ */
+function keyCodecOf(keyType: EastType): SheetKeyCodec {
+    return { type: keyType, encode: keyTextOf(keyType), decode: keyOfTextOrNone(keyType) };
+}
+
+/**
  * A cycle over a variant (`Record.column.cycle(R, V, { steps })`): its steps
  * as a register keyed by the cases' names, and how a case and its key cross.
  * The cell holds the key, so the renderer's cycle draws it as it draws any
@@ -286,13 +325,9 @@ export type SheetFromDataMeta = {
  *
  * @internal
  */
-export interface SheetStepsCodec {
+export interface SheetStepsCodec extends SheetKeyCodec {
     /** The steps as a register's members, in stepping order. */
-    members: SheetRegisterValue;
-    /** A case → its key. */
-    encode: ExprType<FunctionType<[VariantType], StringType>>;
-    /** A key → its case; `none` for a key no case has. */
-    decode: ExprType<FunctionType<[StringType], OptionType<VariantType>>>;
+    members: ExprType<typeof SheetRegisterMembersType>;
 }
 
 /** Whether a type is `Option<T>` — a variant of exactly `none: Null` and `some`. */
@@ -338,6 +373,31 @@ const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
     title: StringType, person: StringType, cycle: StringType, boolean: BooleanType, toggle: BooleanType,
     trace: SERIES_TYPE, sparkline: SERIES_TYPE, meter: FloatType,
 };
+
+/** The kinds that hold one member's key of their register: in a field of the register's key type, or its Option (east-workspace#1747). */
+const KEYED_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["reference", "enum", "person", "cycle"]);
+
+/**
+ * What a column of a kind that holds one member's key holds of its register
+ * (east-workspace#1747): the register's key type, and how a key crosses where it
+ * is no String. A column of any other kind, or over a register not declared —
+ * which the root refuses, naming it — holds none.
+ *
+ * @param col - The built column
+ * @param registerKeys - Each declared register's key type, by name
+ * @returns The key type and its codec; `undefined` for a column holding no member's key
+ */
+function heldKey(col: SheetColumn<StructType, EastType>, registerKeys: ReadonlyMap<string, EastType>): { type: EastType; codec: SheetKeyCodec | undefined } | undefined {
+    if (!KEYED_KINDS.has(col.kind) || col.register === undefined) return undefined;
+    const type = registerKeys.get(col.register);
+    if (type === undefined) return undefined;
+    return { type, codec: type.type === "String" ? undefined : keyCodecOf(type) };
+}
+
+/** A column holding a member's key in a value of another type, refused: the column, its register's key type, and what holds the value. */
+function keyRefusal(key: string, col: SheetColumn<StructType, EastType>, keyType: EastType, held: string): Error {
+    return new Error(`Sheet: ${col.kind} column "${key}" holds a key of the register "${col.register}", keyed by ${describeType(keyType)} — ${held}`);
+}
 
 /** Compile one rule accessor and check its payload — `String` or `DateTime`, or its Option. */
 function ruleCell(
@@ -411,10 +471,11 @@ function ruleCellsOf(key: string, col: SheetColumn<StructType, EastType>, rowTyp
  * @param key - The column key
  * @param col - The built column
  * @param rowType - The host's row type
+ * @param registerKeys - Each declared register's key type, by name: what a column over it holds one member's key as (east-workspace#1747)
  * @returns The column's metadata
  * @throws Error naming the column when the kind cannot sit on the field
  */
-export function describeColumn(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+export function describeColumn(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType, registerKeys: ReadonlyMap<string, EastType>): SheetColumnMeta {
     const cfg = col.config;
     if (cfg.each === undefined) {
         for (const option of ["groups", "field", "read", "write"] as const) {
@@ -423,7 +484,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
             }
         }
     }
-    const meta = cfg.each !== undefined ? describeFromData(key, col, rowType) : describeKind(key, col, rowType);
+    const meta = cfg.each !== undefined ? describeFromData(key, col, rowType, registerKeys) : describeKind(key, col, rowType, registerKeys);
     const ruleCells = ruleCellsOf(key, col, rowType);
     if (cfg.options !== undefined && col.kind !== "enum" && col.kind !== "lookup" && col.kind !== "link") {
         throw new Error(`Sheet: column "${key}" is a ${col.kind} column — an \`options\` rule narrows an enum, lookup or link column's members`);
@@ -486,10 +547,11 @@ function customPayload(key: string, cfg: SheetAnyColumnConfig): { payload: EastT
  * which its kind decides, and the functions its cells are read and written
  * through, each checked against the field, the members' key, that value and
  * the day, or the defaults the field's shape makes obvious: a `Dict` keyed by
- * the member, and the struct `each` names. Every refusal names the column and
- * the remedy.
+ * the member, and the struct `each` names. A member's key is at its register's
+ * key type (east-workspace#1747), as is a cell's value of a kind holding a key
+ * of its own register. Every refusal names the column and the remedy.
  */
-function describeFromData(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+function describeFromData(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType, registerKeys: ReadonlyMap<string, EastType>): SheetColumnMeta {
     const cfg = col.config;
     const kind = col.kind;
     const where = `Sheet: column "${key}"`;
@@ -537,6 +599,8 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
     let cellTag: SheetColumnMeta["cellTag"];
     let valueName: string;
     let steps: SheetStepsCodec | undefined;
+    // A kind holding a key of its own register holds it at the register's key type (east-workspace#1747).
+    const held = heldKey(col, registerKeys);
     if (kind === "cycle" && col.variantType !== undefined) {
         steps = stepsOf(key, col);
         accepted = [col.variantType];
@@ -561,9 +625,9 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
         valueName = kind === "age" ? "a DateTime or a Record.Types.Change" : "a Record.Types.Change";
     } else {
         payloadType = SCALAR_PAYLOAD[kind] as EastType;
-        accepted = [payloadType];
+        accepted = [held?.type ?? payloadType];
         cellTag = cellTagOf(payloadType)!;
-        valueName = describeType(payloadType);
+        valueName = describeType(held?.type ?? payloadType);
     }
     const holds = (t: EastType): boolean => {
         const own = optionPayload(t) ?? t;
@@ -591,8 +655,10 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
     let optional = false;
     const each = cfg.each!;
     if (typeof each === "string") {
-        // One column per member of a register: the functions take the member's key.
-        const entry = fieldType.type === "Dict" && (fieldType.key as EastType).type === "String" && holds(fieldType.value as EastType) && optionPayload(fieldType.value as EastType) === undefined
+        // One column per member of a register: the functions take the member's key, at the register's key type.
+        const memberKey = registerKeys.get(each) ?? StringType;
+        const memberSpelt = `the member's key (${describeType(memberKey)})`;
+        const entry = fieldType.type === "Dict" && isTypeEqual(fieldType.key as EastType, memberKey) && holds(fieldType.value as EastType) && optionPayload(fieldType.value as EastType) === undefined
             ? fieldType.value as EastType : undefined;
         let valueType: EastType;
         let read: ExprType<FunctionType>;
@@ -604,11 +670,11 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
             }
             // The member's entry, or none; an edit sets it, and a clear removes it.
             valueType = OptionType(entry);
-            read = East.function([fieldType, StringType, DateTimeType], valueType, (_$, value, member, _day) =>
-                (value as unknown as ExprType<DictType<StringType, EastType>>).tryGet(member)) as unknown as ExprType<FunctionType>;
+            read = East.function([fieldType, memberKey, DateTimeType], valueType, (_$, value, member, _day) =>
+                (value as unknown as ExprType<DictType<EastType, EastType>>).tryGet(member)) as unknown as ExprType<FunctionType>;
             if (writes) {
-                write = East.function([fieldType, StringType, valueType, DateTimeType], fieldType, ($, value, member, given, _day) => {
-                    const next = $.let((value as unknown as ExprType<DictType<StringType, EastType>>).copy());
+                write = East.function([fieldType, memberKey, valueType, DateTimeType], fieldType, ($, value, member, given, _day) => {
+                    const next = $.let((value as unknown as ExprType<DictType<EastType, EastType>>).copy());
                     $.match(given as unknown as ExprType<OptionType<EastType>>, {
                         some: ($2, set) => { $2(next.insertOrUpdate(member, set)); },
                         none: ($2) => { $2(next.tryDelete(member)); },
@@ -619,8 +685,8 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
             }
         } else {
             const pinned = pinDataFunction(key, "read", cfg.read);
-            if (pinned.inputs.length !== 3 || !isTypeEqual(pinned.inputs[0]!, fieldType) || !isTypeEqual(pinned.inputs[1]!, StringType) || !isTypeEqual(pinned.inputs[2]!, DateTimeType)) {
-                throw new Error(`${where} has a \`read\` over (${spell(pinned.inputs)}) — it reads ${fieldSpelt}, the member's key (String) and the day (DateTime)`);
+            if (pinned.inputs.length !== 3 || !isTypeEqual(pinned.inputs[0]!, fieldType) || !isTypeEqual(pinned.inputs[1]!, memberKey) || !isTypeEqual(pinned.inputs[2]!, DateTimeType)) {
+                throw new Error(`${where} has a \`read\` over (${spell(pinned.inputs)}) — it reads ${fieldSpelt}, ${memberSpelt} and the day (DateTime)`);
             }
             if (!holds(pinned.output)) {
                 throw new Error(`${where} has a \`read\` returning ${describeType(pinned.output)} — it returns ${valueName}, or an Option of it, for each member`);
@@ -631,9 +697,9 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
                 const own = optionPayload(valueType) ?? valueType;
                 const pinnedWrite = pinDataFunction(key, "write", cfg.write);
                 const [writeField, writeMember, writeValue, writeDay] = pinnedWrite.inputs;
-                if (pinnedWrite.inputs.length !== 4 || !isTypeEqual(writeField!, fieldType) || !isTypeEqual(writeMember!, StringType)
+                if (pinnedWrite.inputs.length !== 4 || !isTypeEqual(writeField!, fieldType) || !isTypeEqual(writeMember!, memberKey)
                     || !(isTypeEqual(writeValue!, own) || isTypeEqual(writeValue!, OptionType(own))) || !isTypeEqual(writeDay!, DateTimeType)) {
-                    throw new Error(`${where} has a \`write\` over (${spell(pinnedWrite.inputs)}) — it writes ${fieldSpelt} given the member's key (String), the value its \`read\` gives (${describeType(own)}, or an Option of it) and the day (DateTime)`);
+                    throw new Error(`${where} has a \`write\` over (${spell(pinnedWrite.inputs)}) — it writes ${fieldSpelt} given ${memberSpelt}, the value its \`read\` gives (${describeType(own)}, or an Option of it) and the day (DateTime)`);
                 }
                 if (!isTypeEqual(pinnedWrite.output, fieldType)) {
                     throw new Error(`${where} has a \`write\` returning ${describeType(pinnedWrite.output)} — it returns the field's new value, ${describeType(fieldType)}`);
@@ -646,8 +712,8 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
         }
         optional = optionPayload(valueType) !== undefined;
         data = {
-            from: "register", register: each, groups: cfg.groups, valueType, clears, read, write,
-            mark: markOf([fieldType, StringType, DateTimeType], `${fieldSpelt}, the member's key (String) and the day (DateTime)`),
+            from: "register", register: each, memberKey, groups: cfg.groups, valueType, clears, read, write,
+            mark: markOf([fieldType, memberKey, DateTimeType], `${fieldSpelt}, ${memberSpelt} and the day (DateTime)`),
         };
     } else {
         // One column per field of a struct: the functions take the struct.
@@ -713,7 +779,8 @@ function describeFromData(key: string, col: SheetColumn<StructType, EastType>, r
         key, field, kind, config: cfg, fieldType, optional, payloadType, cellTag,
         editable: writes && data.write !== undefined,
         ...(col.register !== undefined ? { register: col.register } : {}),
-        ...(steps !== undefined ? { register: `$steps:${key}`, steps } : {}),
+        ...(held?.codec !== undefined ? { keys: held.codec } : {}),
+        ...(steps !== undefined ? { register: `$steps:${key}`, steps, keys: steps } : {}),
         ...(kind === "set" || kind === "link" ? { form: "link" as const } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
         data,
@@ -765,11 +832,12 @@ function describeSteps(key: string, col: SheetColumn<StructType, EastType>, fiel
     if (!isTypeEqual(fieldType, col.variantType!)) {
         throw new Error(`Sheet: cycle column "${key}" steps through a variant's cases, but sits on ${fieldType.type === "Variant" ? "a field holding another variant" : `a ${describeType(fieldType)} field`} — it sits on a field holding the variant it steps through`);
     }
+    const steps = stepsOf(key, col);
     return {
         key, field: key, kind: "cycle", config: col.config, fieldType, optional: false,
         payloadType: StringType, cellTag: "String", editable: col.config.editable !== false,
         register: `$steps:${key}`,
-        steps: stepsOf(key, col),
+        steps, keys: steps,
     };
 }
 
@@ -815,11 +883,11 @@ function stepsOf(key: string, col: SheetColumn<StructType, EastType>): SheetStep
         const byKey = $.const(new Map(names.map((name) => [name, variant(name, null)])), DictType(StringType, variantType));
         return byKey.tryGet(text);
     }) as unknown as SheetStepsCodec["decode"];
-    return { members, encode, decode };
+    return { type: variantType, members, encode, decode };
 }
 
 /** {@link describeColumn}'s kind-by-kind half. */
-function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType, registerKeys: ReadonlyMap<string, EastType>): SheetColumnMeta {
     if (col.kind === "age") return describeAge(key, col, rowType);
     const fields = rowType.fields as Record<string, EastType>;
     const fieldType = fields[key];
@@ -876,6 +944,8 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     // A meter's max and tone over the row, checked (east-workspace#1730).
     const meter = kind === "meter" ? meterOf(key, cfg, rowType) : undefined;
     const metered = meter !== undefined ? { meter } : {};
+    // A kind holding a member's key holds it at its register's key type (east-workspace#1747).
+    const held = heldKey(col, registerKeys);
 
     // A derived read — the projection decides the payload; the field is free.
     if (cfg.value !== undefined && kind !== "set" && kind !== "link" && kind !== "stamped" && kind !== "custom") {
@@ -884,7 +954,10 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         const out = (Expr.type(derived) as FunctionType).output as EastType;
         const outPayload = optionPayload(out);
         const outUnwrapped = outPayload ?? out;
-        if (!isTypeEqual(outUnwrapped, payloadType)) {
+        if (held !== undefined && !isTypeEqual(outUnwrapped, held.type)) {
+            throw keyRefusal(key, col, held.type, `its \`value\` projection returns one of that type, or its Option, and it returns ${describeType(out)}`);
+        }
+        if (held === undefined && !isTypeEqual(outUnwrapped, payloadType)) {
             // A display column's value is named whole; a primitive by its kind, as ever.
             const spelt = (t: EastType) => (shows !== undefined ? describeType(t) : (t as { type: string }).type);
             throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${spelt(outUnwrapped)} — a ${kind} column's projection must return ${spelt(payloadType)} or its Option`);
@@ -894,6 +967,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
             cellTag: cellTagOf(payloadType)!, editable: false,
             derived, derivedOptional: outPayload !== undefined,
             ...(col.register !== undefined ? { register: col.register } : {}),
+            ...(held?.codec !== undefined ? { keys: held.codec } : {}),
             ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
             ...metered,
         };
@@ -949,7 +1023,10 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         const held = describeType(payloadType);
         throw new Error(`Sheet: ${kind} column "${key}" must sit on ${/^[AEIOU]/.test(held) ? "an" : "a"} ${held} or Option<${held}> field, or read one through \`value\` — got ${describeType(fieldType)}`);
     }
-    if (!isTypeEqual(unwrapped, payloadType)) {
+    if (held !== undefined && !isTypeEqual(unwrapped, held.type)) {
+        throw keyRefusal(key, col, held.type, `it sits on a field of that type, or its Option, and "${key}" holds ${describeType(fieldType)}`);
+    }
+    if (held === undefined && !isTypeEqual(unwrapped, payloadType)) {
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
@@ -958,6 +1035,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
         // A stamped code and the numbers a display column shows are never written.
         editable: kind !== "stamped" && shows === undefined && cfg.editable !== false,
         ...(col.register !== undefined ? { register: col.register } : {}),
+        ...(held?.codec !== undefined ? { keys: held.codec } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
         ...metered,
     };
@@ -1005,16 +1083,17 @@ function meterOf(key: string, cfg: SheetAnyColumnConfig, rowType: StructType): S
  * @param cellKey - The line column the cell sits under, or `$title`
  * @param cell - The built band cell
  * @param groupType - The group's row type
+ * @param registerKeys - Each declared register's key type, by name: what a cell over it holds one member's key as (east-workspace#1747)
  * @returns The cell's metadata
  * @throws Error naming the band cell when the kind cannot sit on the field, or is not a band kind
  */
-export function describeGroupCell(cellKey: string, cell: SheetGroupCell<StructType>, groupType: StructType): SheetColumnMeta {
+export function describeGroupCell(cellKey: string, cell: SheetGroupCell<StructType>, groupType: StructType, registerKeys: ReadonlyMap<string, EastType>): SheetColumnMeta {
     if (cell.kind === "lookup" || cell.kind === "set" || cell.kind === "link" || cell.kind === "custom" || cell.kind === "action") {
         throw new Error(`Sheet: band cell "${cellKey}" is a ${cell.kind} cell — a band draws text, date, quantity, integer, reference, enum and stamped cells only`);
     }
     let meta: SheetColumnMeta;
     try {
-        meta = describeColumn(cell.field, { kind: cell.kind, config: cell.config, ...(cell.register !== undefined ? { register: cell.register } : {}) }, groupType);
+        meta = describeColumn(cell.field, { kind: cell.kind, config: cell.config, ...(cell.register !== undefined ? { register: cell.register } : {}) }, groupType, registerKeys);
     } catch (e) {
         throw new Error(`Sheet: band cell "${cellKey}" — ${(e as Error).message.replace(/^Sheet: /, "")}`);
     }
@@ -1033,11 +1112,17 @@ export function cellOfPayload(tag: SheetColumnMeta["cellTag"], v: ExprType<EastT
 /** The blank cell. */
 export const NULL_CELL = East.value(variant("Null", null), SheetCellType);
 
-/** A field VALUE (the payload or its Option) as a cell, by the column's static shape. */
-function cellOfFieldValue(tag: SheetColumnMeta["cellTag"], v: ExprType<EastType>, optional: boolean): ExprType<SheetCellType> {
-    if (!optional) return cellOfPayload(tag, v);
+/**
+ * A field VALUE (the payload or its Option) as a cell, by the column's static
+ * shape — a value whose key's text the cell holds, as that text
+ * ({@link SheetKeyCodec}).
+ */
+function cellOfFieldValue(tag: SheetColumnMeta["cellTag"], v: ExprType<EastType>, optional: boolean, keys?: SheetKeyCodec): ExprType<SheetCellType> {
+    const cellOf = (x: ExprType<EastType>): ExprType<SheetCellType> =>
+        (keys !== undefined ? cellOfPayload("String", keys.encode(x) as ExprType<EastType>) : cellOfPayload(tag, x));
+    if (!optional) return cellOf(v);
     return (v as unknown as ExprType<OptionType<EastType>>).match({
-        some: (_$, x) => cellOfPayload(tag, x as ExprType<EastType>),
+        some: (_$, x) => cellOf(x as ExprType<EastType>),
         none: (_$) => NULL_CELL,
     }) as ExprType<SheetCellType>;
 }
@@ -1054,7 +1139,7 @@ function projectCell(
 ): ExprType<SheetCellType> {
     const row = r as unknown as Record<string, ExprType<EastType>>;
     if (meta.derived !== undefined) {
-        return cellOfFieldValue(meta.cellTag, meta.derived(r), meta.derivedOptional === true);
+        return cellOfFieldValue(meta.cellTag, meta.derived(r), meta.derivedOptional === true, meta.keys);
     }
     const fv = row[meta.field] as ExprType<EastType>;
     // An action column's case and its value (#1474).
@@ -1064,8 +1149,9 @@ function projectCell(
             ? (fv as unknown as ExprType<OptionType<VariantType>>).match({ some: (_$, v) => encode(v), none: (_$) => NULL_CELL }) as ExprType<SheetCellType>
             : encode(fv as ExprType<VariantType>);
     }
-    // A cycle over a variant: its case's key.
-    if (meta.steps !== undefined) return cellOfPayload("String", meta.steps.encode(fv as ExprType<VariantType>) as ExprType<EastType>);
+    // A value whose key's text the cell holds: a register's key of another type than String (east-workspace#1747), or a
+    // variant's case by its step's key.
+    if (meta.keys !== undefined) return cellOfFieldValue("String", fv, meta.optional, meta.keys);
     if (meta.form === undefined) return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "link") return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "array") {
@@ -1103,25 +1189,6 @@ export type SheetBridgeSource =
     | { kind: "inline"; rows: ExprType<ArrayType<StructType>> }
     | { kind: "keyed"; rows: ExprType<DictType<EastType, EastType>>; keyType: EastType }
     | { kind: "paged"; source: ExprType<StructType>; keyed: boolean; keyType?: EastType | undefined };
-
-/**
- * A row's id → its key in a keyed source: a String key is its own text, any
- * other key its `.east` printing (as `Record.onApply` reads it), and text that
- * names no key of the type names none.
- *
- * @param keyType - The source's key type
- * @returns `id` → `some(key)`, or `none`
- */
-function keyOfId(keyType: EastType): ExprType<FunctionType<[StringType], OptionType<EastType>>> {
-    if (keyType.type === "String") {
-        return East.function([StringType], OptionType(StringType), (_$, id) => some(id)) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
-    }
-    return East.function([StringType], OptionType(keyType), ($, id) => {
-        const key = $.let(none, OptionType(keyType));
-        $.try(($2) => { $2.assign(key, some(id.parse(keyType))); }).catch((_$2) => {});
-        return key;
-    }) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
-}
 
 /**
  * The group half of a bridge (#740) — the group's summary cells and child rows on
@@ -1299,7 +1366,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
-            bound.set(name, $.const(registers[name]!, SheetRegisterMembersType));
+            bound.set(name, $.const(registers[name]!.members, SheetRegisterMembersType));
         }
         for (const m of metas) {
             $(cells.insert(m.key, projectCell(m, r, m.register !== undefined ? bound.get(m.register) : undefined)));
@@ -1326,12 +1393,13 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // quadratic in the rows (#859). The search starts inside the rows, so a
     // stale offset still finds the row. A keyed source — a record read whole
     // (#1182), or a keyed window — reads the row by its key.
+    // A row's id is its key's text, as `Record.onApply` reads it; a text naming no key of the type names no row.
     const pagedKeyOf = source.kind === "paged" && source.keyed && source.keyType !== undefined && source.keyType.type !== "String"
-        ? keyOfId(source.keyType) : undefined;
+        ? keyOfTextOrNone(source.keyType) : undefined;
     const rowById = hold((source.kind === "keyed"
         ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, _offset) => {
             const rows = $.const(source.rows, DictType(source.keyType, rowType));
-            const keyOf = $.const(keyOfId(source.keyType));
+            const keyOf = $.const(keyOfTextOrNone(source.keyType));
             return keyOf(id).match({
                 none: (_$2) => East.value(none, OptionType(rowType)),
                 some: (_$2, key) => rows.tryGet(key),
@@ -1438,11 +1506,17 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     if (metered && groupInput !== undefined) {
         throw new Error("Sheet: a meter's max and tone are read over a flat row's draft — a grouped sheet draws no meter");
     }
-    // Each register columns from data are made from, its members once in the sheet's block: one column per key.
+    // Each register columns from data are made from, its members once in the sheet's block: one column per key — and,
+    // where they are keyed by another type than String, their keys at it, as the columns' functions take a member's key
+    // (east-workspace#1747), each read back from the text it was printed as.
     const members = new Map(dataMetas.flatMap((m) => m.data?.from === "register" ? [m.data.register] : [])
-        .map((name) => [name, hold(dedupeMembers(registers[name]!))] as const));
-    const cellsAt = dataMetas.length > 0 || marked || metered ? hold(buildCellsAt(lineType, metas, dataMetas, members)) : undefined;
-    const writes = buildWriteData(lineType, dataMetas, members);
+        .map((name) => [name, hold(dedupeMembers(registers[name]!.members))] as const));
+    const memberKeys = new Map([...members].flatMap(([name, held]) => {
+        const keyType = registers[name]!.keyType;
+        return keyType.type === "String" ? [] : [[name, hold(held.map((_$, member) => member.key.parse(keyType)) as ExprType<ArrayType<EastType>>)] as const];
+    }));
+    const cellsAt = dataMetas.length > 0 || marked || metered ? hold(buildCellsAt(lineType, metas, dataMetas, members, memberKeys)) : undefined;
+    const writes = buildWriteData(lineType, dataMetas, members, memberKeys);
     const writeData = writes !== undefined ? hold(writes) : undefined;
 
     return {
@@ -1468,7 +1542,7 @@ export function buildPatchCells(rowType: StructType, metas: readonly SheetColumn
         const p = patch as unknown as Record<string, ExprType<OptionType<EastType>>>;
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
-            bound.set(name, $.const(registers[name]!, SheetRegisterMembersType));
+            bound.set(name, $.const(registers[name]!.members, SheetRegisterMembersType));
         }
         for (const m of metas) {
             if ((editableOnly && !m.editable) || m.derived !== undefined) continue;
@@ -1507,6 +1581,13 @@ export function buildPatchCells(rowType: StructType, metas: readonly SheetColumn
 /** The registers columns from data are made from, by name: each one's members, held once in the sheet's block. */
 type SheetDataMembers = ReadonlyMap<string, ExprType<typeof SheetRegisterMembersType>>;
 
+/**
+ * Those of them keyed by another type than String, by name: each member's key at
+ * the register's type, in its members' order, held once — what a column's
+ * functions take a member's key as (east-workspace#1747).
+ */
+type SheetDataMemberKeys = ReadonlyMap<string, ExprType<ArrayType<EastType>>>;
+
 /** A block a member's cells are written in, whatever the function it sits in returns. */
 type SheetAnyBlock = BlockBuilder<EastType>;
 
@@ -1514,15 +1595,16 @@ type SheetAnyBlock = BlockBuilder<EastType>;
 type SheetDraftField = VariantType<{ value: EastType; missing: NullType; invalid: StringType }>;
 
 /**
- * A member's value as its column's cell draws it: a variant's case by its
- * step's key, a change by its moment, any other value as its kind's payload —
- * an `Option`'s none the blank cell.
+ * A member's value as its column's cell draws it: a key by its text — a
+ * register's of another type than String as East prints it (east-workspace#1747),
+ * a variant's case by its step's key — a change by its moment, any other value
+ * as its kind's payload — an `Option`'s none the blank cell.
  */
 function memberCell(meta: SheetColumnMeta, valueType: EastType, value: ExprType<EastType>): ExprType<SheetCellType> {
     const own = optionPayload(valueType);
     const change = isTypeEqual(own ?? valueType, RecordChangeType);
-    const cellOf = (v: ExprType<EastType>): ExprType<SheetCellType> => meta.steps !== undefined
-        ? cellOfPayload("String", meta.steps.encode(v as ExprType<VariantType>) as ExprType<EastType>)
+    const cellOf = (v: ExprType<EastType>): ExprType<SheetCellType> => meta.keys !== undefined
+        ? cellOfPayload("String", meta.keys.encode(v) as ExprType<EastType>)
         : cellOfPayload(meta.cellTag, change ? (v as unknown as ExprType<RecordChangeType>).at as ExprType<EastType> : v);
     if (own === undefined) return cellOf(value);
     return (value as unknown as ExprType<OptionType<EastType>>).match({
@@ -1556,9 +1638,10 @@ function insertMark($: SheetAnyBlock, cells: ExprType<typeof SheetCellsType>, ke
 
 /**
  * A member's cell as the value its column's `write` takes — `some` of it, or
- * `none` where the cell writes nothing: text no column could read, a cell of
- * another kind, or a blank where the value is no `Option`, which has nowhere
- * to hold one. A blank where it is one writes `none`.
+ * `none` where the cell writes nothing: text no column could read — a key's
+ * text no key of its type prints as among it — a cell of another kind, or a
+ * blank where the value is no `Option`, which has nowhere to hold one. A blank
+ * where it is one writes `none`.
  */
 function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cell: ExprType<SheetCellType>): ExprType<OptionType<EastType>> {
     const out = OptionType(clears ? OptionType(own) : own);
@@ -1566,8 +1649,8 @@ function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cel
     const given = (v: ExprType<EastType>): ExprType<OptionType<EastType>> => East.value(some(clears ? some(v) : v) as never, out);
     return cell.match({
         Null: (_$: unknown) => (clears ? East.value(some(none) as never, out) : nothing),
-        [meta.cellTag]: (_$: unknown, payload: ExprType<EastType>) => (meta.steps === undefined ? given(payload)
-            : meta.steps.decode(payload as ExprType<StringType>).match({
+        [meta.cellTag]: (_$: unknown, payload: ExprType<EastType>) => (meta.keys === undefined ? given(payload)
+            : meta.keys.decode(payload as ExprType<StringType>).match({
                 some: (_$2, v) => given(v as ExprType<EastType>),
                 none: (_$2) => nothing,
             })),
@@ -1591,9 +1674,12 @@ function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cel
  * @param metas - The declared columns, for their marks and meters
  * @param dataMetas - The columns from data
  * @param members - Each register they are made from, its members held once
+ * @param memberKeys - Each of those keyed by another type than String, its members' keys at it
  * @returns What a row is read over, and the day → its cells
  */
-function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], dataMetas: readonly SheetColumnMeta[], members: SheetDataMembers): NonNullable<SheetBridge["cellsAt"]> {
+function buildCellsAt(
+    rowType: StructType, metas: readonly SheetColumnMeta[], dataMetas: readonly SheetColumnMeta[], members: SheetDataMembers, memberKeys: SheetDataMemberKeys,
+): NonNullable<SheetBridge["cellsAt"]> {
     const draftType = SheetDraftTypeFor(rowType) as StructType;
     const lift = buildDraftLift(rowType) as unknown as ExprType<FunctionType<[StructType], StructType>>;
     const marked = metas.filter((m) => m.mark !== undefined);
@@ -1652,14 +1738,17 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
                     $read.match(drafted[m.field]!, {
                         value: ($2, value) => {
                             if (data.from === "register") {
-                                const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], EastType>>);
+                                const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, EastType, DateTimeType], EastType>>);
                                 const mark = data.mark !== undefined
-                                    ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], OptionType<typeof RecordMarkType>>>)
+                                    ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, EastType, DateTimeType], OptionType<typeof RecordMarkType>>>)
                                     : undefined;
-                                $2.for(members.get(data.register)!, ($3, member) => {
+                                const typed = memberKeys.get(data.register);
+                                $2.for(members.get(data.register)!, ($3, member, at) => {
                                     const key = $3.const(East.str`${m.key}:${member.key}`);
-                                    insertMember($3 as unknown as SheetAnyBlock, cells, m, data.valueType, key, read(value, member.key, day));
-                                    if (mark !== undefined) insertMark($3 as unknown as SheetAnyBlock, cells, key, mark(value, member.key, day));
+                                    // The member's key as the column's functions take it: at its register's type.
+                                    const memberKey = typed === undefined ? member.key as ExprType<EastType> : $3.const(typed.get(at));
+                                    insertMember($3 as unknown as SheetAnyBlock, cells, m, data.valueType, key, read(value, memberKey, day));
+                                    if (mark !== undefined) insertMark($3 as unknown as SheetAnyBlock, cells, key, mark(value, memberKey, day));
                                 });
                                 return;
                             }
@@ -1699,9 +1788,12 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
  * @param rowType - The row type
  * @param dataMetas - The columns from data
  * @param members - Each register they are made from, its members held once
+ * @param memberKeys - Each of those keyed by another type than String, its members' keys at it
  * @returns The gesture's cells, the draft before it, the draft its cells decode to and the day → the draft; `undefined` where no column from data writes
  */
-function buildWriteData(rowType: StructType, dataMetas: readonly SheetColumnMeta[], members: SheetDataMembers): NonNullable<SheetBridge["writeData"]> | undefined {
+function buildWriteData(
+    rowType: StructType, dataMetas: readonly SheetColumnMeta[], members: SheetDataMembers, memberKeys: SheetDataMemberKeys,
+): NonNullable<SheetBridge["writeData"]> | undefined {
     const byField = new Map<string, SheetColumnMeta[]>();
     for (const m of dataMetas) if (m.data!.write !== undefined) byField.set(m.field, [...(byField.get(m.field) ?? []), m]);
     if (byField.size === 0) return undefined;
@@ -1738,19 +1830,22 @@ function buildWriteData(rowType: StructType, dataMetas: readonly SheetColumnMeta
                 const data = m.data!;
                 if (data.from === "register") {
                     const own = optionPayload(data.valueType) ?? data.valueType;
-                    const read = $.const(data.read as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], EastType>>);
-                    const write = $.const(data.write as unknown as ExprType<FunctionType<[EastType, StringType, EastType, DateTimeType], EastType>>);
-                    $.for(members.get(data.register)!, ($2, member) => {
+                    const read = $.const(data.read as unknown as ExprType<FunctionType<[EastType, EastType, DateTimeType], EastType>>);
+                    const write = $.const(data.write as unknown as ExprType<FunctionType<[EastType, EastType, EastType, DateTimeType], EastType>>);
+                    const typed = memberKeys.get(data.register);
+                    $.for(members.get(data.register)!, ($2, member, at) => {
                         const key = $2.const(East.str`${m.key}:${member.key}`);
+                        // The member's key as the column's functions take it: at its register's type.
+                        const memberKey = typed === undefined ? member.key as ExprType<EastType> : $2.const(typed.get(at));
                         $2.match(cells.tryGet(key), {
                             some: ($3, cell) => {
-                                const shown = $3.const(before.match({ value: (_$4, v) => memberCell(m, data.valueType, read(v, member.key, day)) }, (_$4) => NULL_CELL), SheetCellType);
+                                const shown = $3.const(before.match({ value: (_$4, v) => memberCell(m, data.valueType, read(v, memberKey, day)) }, (_$4) => NULL_CELL), SheetCellType);
                                 $3.if(East.notEqual(cell, shown), ($4) => {
                                     $4.match(writtenValue(m, own, data.clears, cell), {
                                         some: ($5, given) => {
                                             $5.match(now, {
                                                 some: ($6, field) => {
-                                                    $6.assign(now, some(write(field, member.key, given, day)) as never);
+                                                    $6.assign(now, some(write(field, memberKey, given, day)) as never);
                                                     $6.assign(wrote, true);
                                                 },
                                             });
@@ -1941,18 +2036,25 @@ function describeType(t: EastType): string {
 
 /**
  * Wrap a fill provider — `Sheet.Types.DraftContext(R, D)` → `Option<Fill(T)>` —
- * into the wire provider variant (sync or async by the function's type).
+ * into the wire provider variant (sync or async by the function's type). A
+ * column holding a key's text is filled with the key, at its type
+ * (east-workspace#1747), and the cell takes its text.
  */
 export function wrapProvider(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown, index: number): ExprType<SheetProviderType> {
-    const fillType = StructType({ value: meta.payloadType, meta: StringType });
+    const keys = meta.keys;
+    const fillType = StructType({ value: keys?.type ?? meta.payloadType, meta: StringType });
     const { fn: author, async } = pinProvider(bridge, fn, `column "${meta.key}" fill provider #${index + 1}`, OptionType(fillType));
     const body = ($: BlockBuilder<OptionType<SheetFillType>>, ctx: ExprType<SheetContextType>): ExprType<OptionType<SheetFillType>> => {
         const a = $.const(author as unknown as ExprType<FunctionType<[StructType], OptionType<StructType<{ value: EastType; meta: StringType }>>>>);
         const bc = $.const(bridge.bridgeCtx);
+        const encode = keys !== undefined ? $.const(keys.encode) : undefined;
         const typed = $.let(bc(ctx), bridge.ctxType);
         return a(typed).match({
             none: (_$) => East.value(none, OptionType(SheetFillType)),
-            some: (_$, f) => East.value(some({ value: cellOfPayload(meta.cellTag, f.value as ExprType<EastType>), meta: f.meta }), OptionType(SheetFillType)),
+            some: (_$, f) => East.value(some({
+                value: encode !== undefined ? cellOfPayload("String", encode(f.value as ExprType<EastType>) as ExprType<EastType>) : cellOfPayload(meta.cellTag, f.value as ExprType<EastType>),
+                meta: f.meta,
+            }), OptionType(SheetFillType)),
         }) as ExprType<OptionType<SheetFillType>>;
     };
     const wire = async
@@ -1993,16 +2095,23 @@ export function wrapArity(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknow
 
 /**
  * Wrap an options rule (#844) — `Sheet.Types.DraftContext(R, D)` →
- * `Option<Array<String>>` — into the wire rule. Synchronous: the menu reads
- * it as the cell opens.
+ * `Option<Array<K>>`, the keys offered at the register's key type `K`
+ * (east-workspace#1747) — into the wire rule, each key as its text.
+ * Synchronous: the menu reads it as the cell opens.
  */
 export function wrapOptions(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown): ExprType<SheetOptionsRuleType> {
-    const { fn: author, async } = pinProvider(bridge, fn, `column "${meta.key}" options rule`, OptionType(ArrayType(StringType)));
+    const keys = meta.keys;
+    const { fn: author, async } = pinProvider(bridge, fn, `column "${meta.key}" options rule`, OptionType(ArrayType(keys?.type ?? StringType)));
     if (async) throw new Error(`Sheet: column "${meta.key}" options rule must be synchronous — the menu reads it as the cell opens`);
     return East.function([SheetContextType], OptionType(ArrayType(StringType)), ($, ctx) => {
-        const a = $.const(author as unknown as ExprType<FunctionType<[StructType], OptionType<ArrayType<StringType>>>>);
+        const a = $.const(author as unknown as ExprType<FunctionType<[StructType], OptionType<ArrayType<EastType>>>>);
         const bc = $.const(bridge.bridgeCtx);
-        return a(bc(ctx));
+        if (keys === undefined) return a(bc(ctx)) as unknown as ExprType<OptionType<ArrayType<StringType>>>;
+        const encode = $.const(keys.encode);
+        return a(bc(ctx)).match({
+            some: (_$2, offered) => East.value(some(offered.map((_$3, k) => encode(k))), OptionType(ArrayType(StringType))),
+            none: (_$2) => East.value(none, OptionType(ArrayType(StringType))),
+        });
     });
 }
 

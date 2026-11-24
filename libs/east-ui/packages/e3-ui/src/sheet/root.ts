@@ -1068,9 +1068,13 @@ function buildSheet(
             ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`
             : `Sheet: column "${key}" was built over a different row type than the sheet's — pass the same StructType to Sheet.column.${col.kind}(RowType, …) and \`data\``);
     }
+    // Each declared register's key type, by name — the driver's, keyed by String, under its column: what a column over a
+    // register holds one member's key as (east-workspace#1747).
+    const registerKeys = new Map<string, EastType>(Object.entries(opts.registers ?? {}).map(([name, register]) => [name, register.keyType]));
+    if (opts.driver !== undefined) registerKeys.set(opts.driver.column, StringType);
     // Every column, described in the columns map's order; a column from data's cells are read at the Record's day, so
     // its row carries none of them, and the session reaches its field through its own functions.
-    const described = columnEntries.map(([key, col]) => describeColumn(key, col, lineType));
+    const described = columnEntries.map(([key, col]) => describeColumn(key, col, lineType, registerKeys));
     const metas = described.filter((m) => m.data === undefined);
     const dataMetas = described.filter((m) => m.data !== undefined);
     const metaByKey = new Map(metas.map((m) => [m.key, m]));
@@ -1111,11 +1115,11 @@ function buildSheet(
 
     // Registers — by name, plus the driver's under its column name, and each cycle over a variant's steps under its own.
     const registers: Record<string, SheetRegisterValue> = { ...(opts.registers ?? {}) };
-    if (driver !== undefined) registers[driver.column] = driver.members;
+    if (driver !== undefined) registers[driver.column] = driver.register;
     for (const m of described) {
         if (m.steps === undefined) continue;
         if (registers[m.register!] !== undefined) throw new Error(`Sheet: \`registers\` declares "${m.register}", the name column "${m.key}"'s steps take — name the register another way`);
-        registers[m.register!] = m.steps.members;
+        registers[m.register!] = { members: m.steps.members, keyType: StringType };
     }
     for (const m of described) {
         if (m.register !== undefined && registers[m.register] === undefined) {
@@ -1138,14 +1142,14 @@ function buildSheet(
         if (titleType === undefined || (titleType as { type: string }).type !== "String") {
             throw new Error(`Sheet: \`group.title\` must name a String field of the row — "${cfg.title}" is ${titleType === undefined ? "not a field" : (titleType as { type: string }).type}`);
         }
-        cellMetas = [describeGroupCell(SHEET_TITLE_CELL, { kind: "text", field: cfg.title, config: {} }, groupType)];
+        cellMetas = [describeGroupCell(SHEET_TITLE_CELL, { kind: "text", field: cfg.title, config: {} }, groupType, registerKeys)];
         for (const [key, cell] of Object.entries(cfg.cells ?? {})) {
             if (cell === undefined) continue;
             const under = metaByKey.get(key);
             if (under === undefined) {
                 throw new Error(`Sheet: band cell "${key}" is not a declared column — \`group.cells\` is keyed by the line columns the cells sit under (${[...metaByKey.keys()].join(", ")})`);
             }
-            const meta = describeGroupCell(key, cell, groupType);
+            const meta = describeGroupCell(key, cell, groupType, registerKeys);
             // Under an action column (#1474) a band shows the group's own status — a word, never an action.
             if (under.kind === "action") {
                 if (meta.kind !== "enum" && meta.kind !== "text" && meta.kind !== "stamped") {
@@ -1255,10 +1259,10 @@ function buildSheet(
         }
         if (fixed.length > 0) parts.push(East.value(fixed, ArrayType(SheetColumnType)));
         fixed = [];
-        const members = registers[data.register]!;
+        const members = registers[data.register]!.members;
         const ordered = data.groups === undefined
             ? dedupeMembers(members)
-            : groupMembers(members, registers[data.groups]!).flatMap((_$, group) => group.members);
+            : groupMembers(members, registers[data.groups]!.members).flatMap((_$, group) => group.members);
         // The column's element type as TypeScript infers it expands the recursive type of a type, which the wire's names once.
         parts.push(ordered.map(($, member) => {
             const key = $.const(East.str`${m.key}:${member.key}`);
@@ -1426,9 +1430,9 @@ function buildSheet(
         editing,
         cellsAt:       bridge.cellsAt !== undefined ? some(bridge.cellsAt) : none,
         columns:       columnValues,
-        registers:     East.value(new Map(Object.entries(registers).map(([name, members]) => [name, East.value({ members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
+        registers:     East.value(new Map(Object.entries(registers).map(([name, register]) => [name, East.value({ members: register.members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
         driver:        driver !== undefined
-            ? East.value(some({ column: driver.column, members: driver.members }), OptionType(SheetDriverType))
+            ? East.value(some({ column: driver.column, members: driver.register.members }), OptionType(SheetDriverType))
             : East.value(none, OptionType(SheetDriverType)),
         suggest,
         slice,
