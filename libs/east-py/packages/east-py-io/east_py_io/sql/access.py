@@ -251,8 +251,10 @@ async def access_tables(handle: str) -> EastStruct:
             raise Exception(f"Invalid connection handle: {handle}")
 
         reader = _access_connections[handle]
-        # access-parser's catalog is a dict mapping table names to offsets
-        tables = list(reader.catalog.keys())
+        # access-parser's catalog maps table names to their pages: the user's
+        # tables, and MSysObjects, the system catalog, which it keeps for its
+        # own reading. The database's tables are the rest, as Node lists them.
+        tables = [name for name in reader.catalog if name != "MSysObjects"]
 
         return EastStruct({"tables": EastArray(StringType, tables)})
     except Exception as e:

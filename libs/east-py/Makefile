@@ -113,8 +113,13 @@ test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_NODE_STD_IR) -p east_py_std $(QUIET_FLAG)
 	cd packages/east-py-std && uv run pytest tests -q --no-cov
 
+## east-node-io's suites run from its package's directory, as they do on Node:
+## a test opens a file the package keeps by its path from there (the Access
+## tests' database, test/sql/fixtures/actors.mdb).
+EAST_NODE_IO_DIR = ../east-node/packages/east-node-io
+
 test-east-py-io:
-	uv run --package elaraai-east-py-io python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_NODE_IO_IR) -p east_py_std -p east_py_io $(QUIET_FLAG)
+	cd $(EAST_NODE_IO_DIR) && uv run --project $(CURDIR) --package elaraai-east-py-io python $(CURDIR)/packages/east-py/tests/test_compliance.py --ir-dir $(EAST_NODE_IO_IR) -p east_py_std -p east_py_io $(QUIET_FLAG)
 
 test-east-py-datascience:
 	@cd packages/east-py-datascience && pnpm run test:export
