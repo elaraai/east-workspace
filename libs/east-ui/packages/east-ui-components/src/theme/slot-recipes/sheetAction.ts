@@ -355,14 +355,17 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             "& [data-consequence]": { whiteSpace: "normal" },
         },
         /* A phone's action bar (X5–X7; `Mobile Sheet Spec.md` SH9, the designer's `WorkOrdersPhone`): in the bottom
-         * container — `--paper-2`, a `--rule-strong` above, padded 0 16 12, its parts 8 apart, at most 420 then scrolling. */
+         * container — `--paper-2`, a `--rule-strong` above, padded 0 16 12, its parts 8 apart, at most 420 then scrolling.
+         * At main's foot, its 12 stands clear of the band a phone's footer lays over that foot (main's
+         * `--builder-foot-inset`, the frame's measure, kept whether the band speaks or not), as a Schematic's scale does:
+         * a notice never covers what the bar holds, and nothing in it moves as one comes and goes. */
         bar: {
             display: "flex",
             flexDirection: "column",
             gap: "8px",
             paddingTop: "0",
             paddingX: "16px",
-            paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "calc(12px + var(--builder-foot-inset, 0px) + env(safe-area-inset-bottom, 0px))",
             background: "bg.canvas",
             borderTopWidth: "1px",
             borderTopStyle: "solid",
