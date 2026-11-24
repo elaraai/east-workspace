@@ -18,7 +18,7 @@
  * `onApply`. `editable: false` and a `value:` projection are read-only.
  *
  * The builders only CAPTURE; the root describes each cell against the group's
- * row type and reifies the accessors (`root.ts`, `bridge.ts`).
+ * row type and reifies the accessors (`root.ts`, `describe.ts`, `bridge.ts`).
  *
  * @packageDocumentation
  */

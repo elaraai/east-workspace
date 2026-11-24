@@ -62,7 +62,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { FIELD_HINT, FieldEditorType, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
-import { DISPLAY_KINDS, SheetCellsType, buildPatchCells, optionPayload, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import { buildPatchCells, type SheetBridge } from "./bridge.js";
+import { SheetCellsType, optionPayload, type SheetColumnMeta, DISPLAY_KINDS } from "./column-meta.js";
 import type { SheetUnsettableInput } from "./editing-bridge.js";
 import { SheetPatchTypeFor } from "./types.js";
 

@@ -15,10 +15,8 @@
  */
 
 import { Record as RecordBinding } from "../bind/record.js";
-import {
-    text, stamped, integer, quantity, date, enumColumn, reference, set,
-    title, person, booleanColumn, toggle, cycle, age, audit,
-} from "../sheet/columns.js";
+import { text, stamped, integer, quantity, date, enumColumn, reference, set } from "../sheet/columns.js";
+import { title, person, booleanColumn, toggle, cycle, age, audit } from "../sheet/record-columns.js";
 import { action } from "../sheet/actions.js";
 import { meter, sparkline, trace } from "../sheet/display-columns.js";
 import { createMembers, concatMembers } from "../sheet/registers.js";

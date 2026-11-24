@@ -78,7 +78,8 @@ import {
 import { SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
 import type { SheetColumn, SheetMarkInput } from "./columns.js";
-import type { SheetBridge, SheetColumnMeta, SheetRuleCellMeta } from "./bridge.js";
+import type { SheetBridge } from "./bridge.js";
+import type { SheetColumnMeta, SheetRuleCellMeta } from "./column-meta.js";
 import type { SheetRegisterValue } from "./registers.js";
 
 // ============================================================================

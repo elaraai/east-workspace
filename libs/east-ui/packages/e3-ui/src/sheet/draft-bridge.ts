@@ -6,7 +6,7 @@
 /** Typed draft decoding without domain defaults. @packageDocumentation */
 import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType } from "@elaraai/east";
 import { SheetActionCellType, SheetCellType, SheetRowType } from "./types.js";
-import { SheetCellsType, type SheetColumnMeta } from "./bridge.js";
+import { SheetCellsType, type SheetColumnMeta } from "./column-meta.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { printLink, printLinkWith, SheetRegisterMembersType } from "./link.js";

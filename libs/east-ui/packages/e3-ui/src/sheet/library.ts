@@ -43,7 +43,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { SheetCellType, SheetPatchTypeFor } from "./types.js";
-import { SheetCellsType, buildPatchCells, type SheetBridge } from "./bridge.js";
+import { buildPatchCells, type SheetBridge } from "./bridge.js";
+import { SheetCellsType } from "./column-meta.js";
 import { tabSource } from "../utils/record-sources.js";
 
 // ============================================================================

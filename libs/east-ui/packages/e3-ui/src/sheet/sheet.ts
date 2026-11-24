@@ -67,7 +67,8 @@ import {
     type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
-import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetIndexedOptions, type SheetStringField } from "./root.js";
+import { createSheetBuild, type SheetBindHandle, type SheetBuild } from "./root.js";
+import type { SheetEntriesOptions, SheetGroupedOptions, SheetOptions, SheetIndexedOptions, SheetStringField } from "./options.js";
 import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
