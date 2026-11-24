@@ -574,7 +574,7 @@ describe("the strip", () => {
         // No ring: leaving the grid, the strip says what a click on a cell does (SP1) — the Record has no title to lead with.
         fireEvent.mouseLeave(grid(container));
         await settle();
-        expect(stripSays(container)).toEqual(["", "Click a cell to step it", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["", "Click a cell to step it", ""]);
         // The ring on C. Patel's: the pointer elsewhere previews it, and leaving returns the strip to the ring's.
         await press(cellAt(container, 2, "forklift"));
         expect(chips()).toEqual(["C. Patel"]);
@@ -593,7 +593,7 @@ describe("the strip", () => {
 
     test("over nothing, the title and what a click does; over a cycle its state, the row, where a click and a ⇧-click take it and what the record holds once a draft changed it; a toggle's two states; a title its key (SP1, SP2, SP3)", async () => {
         const { container } = await h.mount(ex.recordBasic, { storageKey: "record-strip-words" });
-        expect(stripSays(container)).toEqual(["Crew", "Click a cell to step it", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Crew", "Click a cell to step it", ""]);
         await hover(cellAt(container, 0, "forklift"));
         expect(stripSays(container)).toEqual(["Forklift · 2", "A. Morgan · Competent · click → 0 · ⇧-click → 1", "space next · 0–2 set · ⌫ 0"]);
         await press(cellAt(container, 0, "forklift"));
@@ -604,7 +604,7 @@ describe("the strip", () => {
         expect(stripSays(container)).toEqual(["Inducted · yes", "B. Ellis · was no · click → no", "space flips"]);
         // No inspector: a title names its row, nowhere else to look, and edits where it is.
         await hover(cellAt(container, 2, "name"));
-        expect(stripSays(container)).toEqual(["crew member · C-003", "C. Patel", "⏎ edit · ↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["crew member · C-003", "C. Patel", ""]);
     });
 
     test("with an inspector: a title a word of its row and where its details are; a boolean; a cycle its member's name; an age with no moment; an audit when, its verb and who, pending once a draft changes its row; any other kind its column and value (SP1, SP3–SP5, SP7)", async () => {
@@ -613,21 +613,21 @@ describe("the strip", () => {
             await hover(cellAt(container, r, k));
             return stripSays(container);
         };
-        expect(stripSays(container)).toEqual(["Operators", "Click a cell to step it · select a row to open it in the inspector", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Operators", "Click a cell to step it · select a row to open it in the inspector", ""]);
         // A word of the row's: the first column after the title that reads as words and holds some — B. Ellis has no notes.
-        expect(await says(0, "name")).toEqual(["operator · P-0401", "A. Morgan · Prefers day shifts through March · details in the inspector", "↑ ↓ ← → move"]);
-        expect(await says(1, "name")).toEqual(["operator · P-0408", "B. Ellis · On leave · details in the inspector", "↑ ↓ ← → move"]);
+        expect(await says(0, "name")).toEqual(["operator · P-0401", "A. Morgan · Prefers day shifts through March · details in the inspector", ""]);
+        expect(await says(1, "name")).toEqual(["operator · P-0408", "B. Ellis · On leave · details in the inspector", ""]);
         expect(await says(0, "inducted")).toEqual(["Inducted · yes", "A. Morgan · click → no", "space flips"]);
         // No member's label is one key long: no key sets one at once.
         expect(await says(0, "preference")).toEqual(["Overtime · prefer", "A. Morgan · Prefers · click → can't · ⇧-click → can", "space next · ⌫ can"]);
-        expect(await says(1, "days_since")).toEqual(["Days since · not confirmed", "Days since the last change · stale from 90", "↑ ↓ ← → move"]);
-        expect(await says(0, "updated")).toEqual(["Last updated", "2026-09-18 09:12 · confirmed · M. Hale", "↑ ↓ ← → move"]);
-        expect(await says(1, "updated")).toEqual(["Last updated", "—", "↑ ↓ ← → move"]);
-        expect(await says(0, "notes")).toEqual(["Notes", "Prefers day shifts through March", "⏎ edit · ↑ ↓ ← → move"]);
+        expect(await says(1, "days_since")).toEqual(["Days since · not confirmed", "Days since the last change · stale from 90", ""]);
+        expect(await says(0, "updated")).toEqual(["Last updated", "2026-09-18 09:12 · confirmed · M. Hale", ""]);
+        expect(await says(1, "updated")).toEqual(["Last updated", "—", ""]);
+        expect(await says(0, "notes")).toEqual(["Notes", "Prefers day shifts through March", ""]);
         // The Gatehouse's badge: no person edits it.
-        expect(await says(0, "badge")).toEqual(["Badge", "EXT-88213", "↑ ↓ ← → move"]);
+        expect(await says(0, "badge")).toEqual(["Badge", "EXT-88213", ""]);
         await press(cellAt(container, 0, "night"));
-        expect(await says(0, "updated")).toEqual(["Last updated", "1 pending · applies with the history bar", "↑ ↓ ← → move"]);
+        expect(await says(0, "updated")).toEqual(["Last updated", "1 pending · applies with the history bar", ""]);
     });
 
     test("an age: its count to the Record's clock and its threshold, or for how long its row is stale (SP4)", async () => {
@@ -637,9 +637,9 @@ describe("the strip", () => {
         try {
             const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-strip-age" });
             await hover(cellAt(container, 0, "days_since"));
-            expect(stripSays(container)).toEqual(["Days since · 89", "Days since the last change · stale from 90", "↑ ↓ ← → move"]);
+            expect(stripSays(container)).toEqual(["Days since · 89", "Days since the last change · stale from 90", ""]);
             await hover(cellAt(container, 2, "days_since"));
-            expect(stripSays(container)).toEqual(["Days since · 250", "Stale · no change for 250 days · threshold 90", "↑ ↓ ← → move"]);
+            expect(stripSays(container)).toEqual(["Days since · 250", "Stale · no change for 250 days · threshold 90", ""]);
         } finally {
             vi.useRealTimers();
         }
@@ -656,9 +656,9 @@ describe("the strip", () => {
 
     test("a Record read only says where it is and no more: a row opens in the inspector, and a cycle steps nowhere (SP1, SP2)", async () => {
         const { container } = await withRows(await h.mount(ex.recordSkillsReadOnly, { storageKey: "record-strip-read-only" }));
-        expect(stripSays(container)).toEqual(["Skills matrix", "Select a row to open it in the inspector", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Skills matrix", "Select a row to open it in the inspector", ""]);
         await hover(cellAt(container, 0, "intake"));
-        expect(stripSays(container)).toEqual(["Intake · 2", "A. Morgan · Competent", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Intake · 2", "A. Morgan · Competent", ""]);
     });
 });
 
@@ -1225,7 +1225,7 @@ describe("the states", () => {
         fireEvent.keyDown(title, { key: "Escape" });
         await settle();
         await hover(cellOf(added, "supervisor"));
-        expect(stripSays(container)).toEqual(["Supervisor", "—", "⏎ edit · ↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Supervisor", "—", ""]);
     });
 
     test("a new row's field that columns from data write starts empty: only its name is washed, and Apply writes it with no hours (ST8)", async () => {
@@ -2100,11 +2100,11 @@ describe("marks and locks", () => {
             .toEqual([[true, true, "true"], [true, true, "true"], [true, true, "true"]]);
         expect([at(0, "hours:P-100").hasAttribute("data-locked"), at(0, "hours:P-100").hasAttribute("data-still"), at(0, "hours:P-100").getAttribute("aria-readonly")])
             .toEqual([false, false, null]);
-        // The strip says the mark after the cell's value, and offers a locked cell no edit.
+        // The strip says the mark after the cell's value.
         await hover(at(1, "hours:P-900"));
-        expect(stripSays(container)).toEqual(["Training", "6 · locked: Booked centrally", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Training", "6 · locked: Booked centrally", ""]);
         await hover(at(0, "hours:P-200"));
-        expect(stripSays(container)).toEqual(["Shop front", "4 · Estimate", "⏎ edit · ↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["Shop front", "4 · Estimate", ""]);
     });
 
     test("a lock refuses every gesture — a step, typing, a clear, a paste and a fill — and lifts as the draft it reads changes", async () => {

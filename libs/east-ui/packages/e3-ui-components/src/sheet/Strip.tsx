@@ -21,6 +21,11 @@
  * with nothing to suggest and the ring resting on a cell that says more than
  * its value, the strip shows the cell's DETAIL (`detail.ts`, #844) — the
  * wanted date behind one that has happened, a column's `detail` text.
+ *
+ * Its keys name only what nobody would guess (east-workspace#1743), and give
+ * way first: they show only where every chip fits on one page beside them,
+ * whole, never cut — and a coarse pointer, which has no keys to press, shows
+ * none.
  */
 
 import { memo, useLayoutEffect, useRef, useState } from "react";
@@ -28,7 +33,7 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, useCoarsePointer } from "@elaraai/east-ui-components";
 import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
 import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
 import type { LinkCandidate } from "./link/predict.js";
@@ -165,7 +170,7 @@ export function buildStrip(input: StripInput): StripModel {
             if (input.candidates === undefined) return OFF;
             const list = candidateList(meta, edit.val, input.candidates);
             if (list.length === 0) {
-                return empty ? OFF : { on: true, label: header, chips: flat(m.stripNoMatch()), meta: "", keys: m.stripKeysTyped() };
+                return empty ? OFF : { on: true, label: header, chips: flat(m.stripNoMatch()), meta: "", keys: "" };
             }
             const armed = candidateAt(meta, edit.val, edit.hi, input.candidates);
             const hi = armed === undefined ? -1 : Math.max(0, list.findIndex((c) => stringEqual(c.key, armed.key)));
@@ -199,27 +204,27 @@ export function buildStrip(input: StripInput): StripModel {
             const level = input.whenLevel;
             if (empty) {
                 const acc = level !== undefined ? whenAccepts(level, words) : { chip: m.stripDate(), meta: m.stripDateForm() };
-                return { on: true, label: m.stripAccepts({ header }), chips: flat(acc.chip), meta: acc.meta, keys: m.stripKeysDateEmpty() };
+                return { on: true, label: m.stripAccepts({ header }), chips: flat(acc.chip), meta: acc.meta, keys: "" };
             }
             const d = parseDate(edit.val, { today: input.today, base: input.baseDate });
             if (d === null || d === undefined) {
-                return { on: true, label: header, chips: flat(m.stripIncomplete()), meta: level !== undefined ? whenAccepts(level, words).meta : m.stripDateForm(), keys: m.stripKeysDate() };
+                return { on: true, label: header, chips: flat(m.stripIncomplete()), meta: level !== undefined ? whenAccepts(level, words).meta : m.stripDateForm(), keys: "" };
             }
             const days = input.baseDate !== undefined ? daysBetween(input.baseDate, d) : undefined;
             const span = days !== undefined ? m.stripDays({ n: days, count: words.number(days) }) : "";
             if (level !== undefined) {
                 const w = formatWhen(d, level, words);
                 const shown = `${w.text} · ${w.suffix}`;
-                return { on: true, label: header, chips: flat(shown), meta: span !== "" ? span : formatDateLong(d), keys: m.stripKeysCommit() };
+                return { on: true, label: header, chips: flat(shown), meta: span !== "" ? span : formatDateLong(d), keys: "" };
             }
-            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: m.stripKeysCommit() };
+            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "" };
         }
         case "quantity":
         case "integer": {
             // The number field: the quantity grammar, in the viewer's language (#852).
             const accepts = meta.kind === "quantity" ? `${words.bare(1200)} · ${words.bare(1200.5)}` : words.bare(1200);
             if (empty) {
-                return { on: true, label: m.stripAccepts({ header }), chips: flat(m.stripNumber({ unit: meta.kind === "quantity" })), meta: accepts, keys: m.stripKeysStep() };
+                return { on: true, label: m.stripAccepts({ header }), chips: flat(m.stripNumber({ unit: meta.kind === "quantity" })), meta: accepts, keys: "" };
             }
             const n = parseQuantity(edit.val, words.separators);
             // An integer column's fraction is unrecognised, as its commit has it — never offered with the keys that commit it.
@@ -229,10 +234,10 @@ export function buildStrip(input: StripInput): StripModel {
                 return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: m.stripNotNumber({ text: edit.val.trim(), whole: meta.kind === "integer" }), keys: "" };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: m.stripKeysStep() };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: "" };
         }
         case "custom": {
-            if (empty) return { on: true, label: m.stripAccepts({ header }), chips: flat(meta.accepts ?? m.stripValue()), meta: "", keys: m.stripKeysParse() };
+            if (empty) return { on: true, label: m.stripAccepts({ header }), chips: flat(meta.accepts ?? m.stripValue()), meta: "", keys: "" };
             const p = input.customPreview;
             if (p === undefined || p === null) return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: meta.accepts ?? "", keys: "" };
             return { on: true, label: header, chips: flat(cellText(p, meta, words)), meta: meta.accepts ?? "", keys: "" };
@@ -327,10 +332,18 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
     const { m } = words;
     const rowRef = useRef<HTMLDivElement | null>(null);
     const measureRef = useRef<HTMLDivElement | null>(null);
+    // The keys as drawn, and their unseen copy: the room they need, whether they show now or not.
+    const keysRef = useRef<HTMLDivElement | null>(null);
+    const keysMeasureRef = useRef<HTMLDivElement | null>(null);
     const [width, setWidth] = useState(0);
     /** The index the chips of each page start at. */
     const [starts, setStarts] = useState<number[]>([0]);
     const [page, setPage] = useState(0);
+    // A coarse pointer has no keys to press: its strip names none (east-workspace#1743).
+    const coarse = useCoarsePointer();
+    const keys = coarse ? "" : model.keys;
+    /** Whether the keys stand beside the chips: a strip not laid out yet shows them. */
+    const [keysShown, setKeysShown] = useState(true);
     const on = model.on;
     const signature = chipSignature(model.chips);
     // The row's width, live.
@@ -345,21 +358,35 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
         return () => ro.disconnect();
     }, [on]);
     // Cut the chips into pages by their measured widths: one page when they all fit, else the pager's width set aside on every page.
+    // The keys give way first (east-workspace#1743): they show only where every chip fits on one page beside them. Both are
+    // judged from the row's room without the keys — the row as laid out now, and the keys as drawn now — which is the same
+    // whether they show or not, so the choice holds still.
     useLayoutEffect(() => {
+        const row = rowRef.current;
         const measure = measureRef.current;
-        if (!on || measure === null || width <= 0) { setStarts([0]); return; }
-        const widths = Array.from(measure.children, (k) => (k as HTMLElement).offsetWidth);
+        const rowPx = row === null ? 0 : row.clientWidth;
+        if (!on || row === null || measure === null || rowPx <= 0) { setStarts([0]); setKeysShown(true); return; }
+        const widths = Array.from(measure.querySelectorAll<HTMLElement>(":scope > [data-measure-chip]"), (k) => k.offsetWidth);
         const total = widths.reduce((a, w) => a + w, 0) + GAP_PX * Math.max(0, widths.length - 1);
-        if (total <= width) { setStarts([0]); return; }
-        const avail = Math.max(40, width - PAGER_PX);
+        // A key's room is its width and the strip's gap before it.
+        const gap = Number.parseFloat(getComputedStyle(row.parentElement ?? row).columnGap) || 0;
+        const drawn = keysRef.current;
+        const bare = rowPx + (drawn === null ? 0 : drawn.offsetWidth + gap);
+        const copy = keysMeasureRef.current;
+        const need = keys === "" || copy === null ? 0 : copy.offsetWidth + gap;
+        const show = need > 0 && total + need <= bare;
+        setKeysShown(show);
+        const room = show ? bare - need : bare;
+        if (total <= room) { setStarts([0]); return; }
+        const avail = Math.max(40, room - PAGER_PX);
         const out = [0];
         let x = 0;
         widths.forEach((w, i) => {
-            const need = (x === 0 ? 0 : GAP_PX) + w;
-            if (x > 0 && x + need > avail) { out.push(i); x = w; } else x += need;
+            const step = (x === 0 ? 0 : GAP_PX) + w;
+            if (x > 0 && x + step > avail) { out.push(i); x = w; } else x += step;
         });
         setStarts(out);
-    }, [on, signature, width]);
+    }, [on, signature, width, keys, keysShown]);
     // The page follows the armed chip; a fresh set of chips opens on its first page.
     const armedAt = model.chips.findIndex((c) => c.on);
     useLayoutEffect(() => {
@@ -415,12 +442,13 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
                     </Box>
                 )}
             </Box>
-            {/* Every chip once more, unseen and unconstrained — the pages are cut by these widths. */}
+            {/* Every chip once more, unseen and unconstrained — the pages are cut by these widths — and the keys, which give way by theirs. */}
             <Box ref={measureRef} css={styles.stripMeasure} aria-hidden="true" data-slot="stripMeasure">
-                {model.chips.map((ch) => <Box key={ch.key} as="span" css={chipStyle(ch)}>{ch.label}</Box>)}
+                {model.chips.map((ch) => <Box key={ch.key} as="span" css={chipStyle(ch)} data-measure-chip="">{ch.label}</Box>)}
+                {keys !== "" && <Box ref={keysMeasureRef} as="span" css={styles.stripKeys}>{keys}</Box>}
             </Box>
             <Box as="span" css={styles.stripMeta} data-slot="stripMeta" title={model.meta}>{model.meta}</Box>
-            <Box as="span" css={styles.stripKeys}>{model.keys}</Box>
+            {keys !== "" && keysShown && <Box ref={keysRef} as="span" css={styles.stripKeys} data-slot="stripKeys">{keys}</Box>}
         </Box>
     );
 });

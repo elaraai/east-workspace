@@ -14,14 +14,18 @@
  *   ⇧-click take it; Space, the members' one-key labels and ⌫ in its keys —
  *   and a toggle and a boolean as two states a click flips;
  * - **a title** (SP3) — the Record's word for a row and its key; the title, a
- *   word of the row's, and where its details are — with no inspector, ⏎ where
- *   it edits, as any other kind's;
+ *   word of the row's, and where its details are;
  * - **an age** (SP4) — its column and count; what it counts and its
  *   threshold, or for how long the row is stale;
  * - **an audit** (SP5) — when, its verb and who, or how many drafts wait;
  * - **a new row's empty field** (SP6) — that Apply waits for it, and how it is
  *   set: a click on a cycle, a toggle or a boolean, else the inspector;
- * - **any other kind** (SP7) — its column and its value, and ⏎ where it edits.
+ * - **any other kind** (SP7) — its column and its value.
+ *
+ * Its keys name only what nobody would guess (east-workspace#1743) — a cycle's,
+ * a toggle's, and the Undo that takes a new row away — in the room its words
+ * leave, whole or not at all; the ring's moves and ⏎ go unsaid, and a coarse
+ * pointer, which has no keys to press, shows none.
  *
  * Where a cell steps nothing — an owned row, a Record read only, a cell a
  * mark locks — it says where it is and no more; a cell's mark's words follow
@@ -36,7 +40,7 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { IntegerType, StringType, equalFor } from "@elaraai/east";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, useCoarsePointer } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import type { SheetHostStripCell, SheetHostStripProps } from "../sheet/index.js";
 import { cellIsBlank, cellText, cellWritable, markOf, resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
@@ -99,7 +103,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
     const { at, columns, registers, writable, title, noun, inspector, words, now } = input;
     if (at === undefined) {
         const steps = writable && columns.list.some((meta) => meta.editable && stepsInPlace(meta));
-        return { label: title ?? "", text: m.stripRest({ steps, inspector }), keys: m.stripMove() };
+        return { label: title ?? "", text: m.stripRest({ steps, inspector }), keys: "" };
     }
     const { row, column: meta, changes } = at;
     const cell = row.cells.get(meta.key);
@@ -140,7 +144,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
                     name, meta: member === undefined ? "" : getSomeorUndefined(member.meta) ?? "",
                     was: held?.type === "String" ? labelOf(held.value) : undefined, next: towards(1), previous: towards(-1),
                 }),
-                keys: steps && members[0] !== undefined ? m.stripCycleKeys({ set, first: labelOf(members[0].key) }) : m.stripMove(),
+                keys: steps && members[0] !== undefined ? m.stripCycleKeys({ set, first: labelOf(members[0].key) }) : "",
             };
         }
         case "toggle":
@@ -150,7 +154,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
             return {
                 label: m.stripState({ header: meta.header, state: said(on) }),
                 text: m.stripFlip({ name, was: held?.type === "Boolean" ? said(held.value) : undefined, next: steps ? said(!on) : undefined }),
-                keys: steps ? m.stripFlipKeys() : m.stripMove(),
+                keys: steps ? m.stripFlipKeys() : "",
             };
         }
         case "title": {
@@ -163,11 +167,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
                 detail = valueText(other, value, registers, words);
                 break;
             }
-            // With no inspector it edits in its cell, as a text does, and says so.
-            return {
-                label: m.stripTitle({ noun: noun.singular, id: row.id }), text: m.stripTitleText({ title: name, detail, inspector }),
-                keys: inspector ? m.stripMove() : m.stripEdit({ editable: steps }),
-            };
+            return { label: m.stripTitle({ noun: noun.singular, id: row.id }), text: m.stripTitleText({ title: name, detail, inspector }), keys: "" };
         }
         case "age": {
             const age = changes?.added === true ? undefined : ageOf(meta, cell, now);
@@ -177,24 +177,24 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
                 return {
                     label: m.stripState({ header: meta.header, state: getSomeorUndefined(kind.value.absent) ?? m.absent() }),
                     text: m.stripAge({ unit: kind.value.unit.type, count: "", one: false, stale: false, threshold: threshold === undefined ? undefined : words.number(threshold) }),
-                    keys: m.stripMove(),
+                    keys: "",
                 };
             }
             const count = words.number(age.n);
             return {
                 label: m.stripState({ header: meta.header, state: count }),
                 text: m.stripAge({ unit: age.unit, count, one: integerEqual(age.n, 1n), stale: age.stale, threshold: age.threshold === undefined ? undefined : words.number(age.threshold) }),
-                keys: m.stripMove(),
+                keys: "",
             };
         }
         case "audit": {
-            if (changes !== undefined && !changes.added && changes.fields > 0) return { label: meta.header, text: m.stripPending({ count: words.number(changes.fields) }), keys: m.stripMove() };
-            if (changes?.added === true || cell?.type !== "DateTime") return { label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? m.absent(), keys: m.stripMove() };
+            if (changes !== undefined && !changes.added && changes.fields > 0) return { label: meta.header, text: m.stripPending({ count: words.number(changes.fields) }), keys: "" };
+            if (changes?.added === true || cell?.type !== "DateTime") return { label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? m.absent(), keys: "" };
             const verbCell = row.cells.get(kind.value.verb);
             const byCell = row.cells.get(kind.value.by);
             const verb = verbCell?.type === "String" ? verbCell.value : "";
             const by = byCell?.type === "String" ? byCell.value : "";
-            return { label: meta.header, text: m.auditTitle({ when: formatDatePattern("YYYY-MM-DD HH:mm", cell.value), verb, by }), keys: m.stripMove() };
+            return { label: meta.header, text: m.auditTitle({ when: formatDatePattern("YYYY-MM-DD HH:mm", cell.value), verb, by }), keys: "" };
         }
         default:
             return undefined;
@@ -206,14 +206,13 @@ export const RecordStrip = memo(function RecordStrip({ styles: sheetStyles, mode
     const { styles, title, noun, inspector } = useRecordGrid();
     const words = useSheetWords();
     const now = useRecordNow();
+    // A coarse pointer has no keys to press: its strip names none (east-workspace#1743).
+    const coarse = useCoarsePointer();
     // What is in hand, or the column's own detail of the cell: the Sheet's strip.
     if (own || model.on) return <SheetStrip styles={sheetStyles} model={model} onAction={onAction} />;
     const said = recordStripOf({ at, columns, registers, writable, title, noun, inspector, words, now });
     // Any other kind (SP7): its column and its value, so the band stays.
-    const line = said ?? (at === undefined ? undefined : {
-        label: at.column.header, text: valueText(at.column, at.row.cells.get(at.column.key), registers, words),
-        keys: m.stripEdit({ editable: writable && cellWritable(at.column, at.row.cells) && !at.row.owned }),
-    });
+    const line = said ?? (at === undefined ? undefined : { label: at.column.header, text: valueText(at.column, at.row.cells.get(at.column.key), registers, words), keys: "" });
     if (line === undefined) return null;
     // The cell's mark, after what the strip says of it (#1560).
     const mark = at === undefined ? undefined : markOf(at.column, at.row.cells);
@@ -222,7 +221,7 @@ export const RecordStrip = memo(function RecordStrip({ styles: sheetStyles, mode
         <Box css={styles.strip} data-slot="strip" data-record-strip="">
             <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{line.label}</Box>
             <Box as="span" css={styles.stripText} data-slot="stripText" title={text === "" ? undefined : text}>{text}</Box>
-            {line.keys !== "" && <Box as="span" css={styles.stripKeys} data-slot="stripKeys">{line.keys}</Box>}
+            {!coarse && line.keys !== "" && <Box as="span" css={styles.stripKeys} data-slot="stripKeys">{line.keys}</Box>}
         </Box>
     );
 });

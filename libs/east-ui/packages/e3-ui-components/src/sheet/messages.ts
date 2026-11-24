@@ -317,6 +317,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
     // The footer's loading line over a paged source (#1398, CL3), in what the rail counts the rows in: `lineLoading`,
     // `lineFiltering`, `lineFailed` and `lineShort` (`PagedLoadingMessages`).
+    // The key hints, the footer's and the strip's, name only the keys nobody would guess (east-workspace#1743): a key
+    // every sheet takes — ⏎ to edit or commit, esc, the arrows, a click — goes unsaid, and a coarse pointer shows none.
     /** The key hint — a selected suggestion. */
     hintProposal: () => string;
     /** The key hint — the ring on a band. */
@@ -371,22 +373,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     stripPending: (p: { header: string }) => string;
     /** Its title. */
     stripPendingTitle: (p: { header: string }) => string;
-    /** The keys — a text kept as typed. */
-    stripKeysTyped: () => string;
     /** The keys — a menu with nothing armed. */
     stripKeysFilter: () => string;
     /** The keys — the armed candidate. */
     stripKeysTake: (p: { many: boolean; index: string; total: string }) => string;
-    /** The keys — an empty date field. */
-    stripKeysDateEmpty: () => string;
-    /** The keys — an incomplete date. */
-    stripKeysDate: () => string;
-    /** The keys — a value to commit. */
-    stripKeysCommit: () => string;
-    /** The keys — a number field. */
-    stripKeysStep: () => string;
-    /** The keys — a custom column. */
-    stripKeysParse: () => string;
     /** The keys — predicted members. */
     stripKeysPredicted: () => string;
     /** The keys — a link's armed candidate. */
@@ -395,7 +385,7 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     stripKeysLinkAdd: (p: { single: boolean }) => string;
     /** The keys — the pending suggestions. */
     stripKeysSuggested: () => string;
-    /** The keys — a resting cell's detail. */
+    /** The keys — a resting cell's detail: ⏎ to the wanted date behind one that has happened, and none for any other. */
     stripKeysDetail: (p: { date: boolean }) => string;
     /** The pager's title. */
     stripPager: (p: { n: number; count: string; page: string; pages: string }) => string;
@@ -840,13 +830,13 @@ export const sheetMessages: SheetMessages = {
 
     summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
         `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
-    hintProposal:() => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
-    hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all · click its number to select its lines`,
-    hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun} · ⏎ edit`,
+    hintProposal: () => "⏎ adds the selected row · ⌫ rejects it",
+    hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all`,
+    hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun}`,
     hintRows: ({ n, count }) => `${count} ${plural(n, "row", "rows")} selected · ⌫ deletes them · ⌘C copies`,
-    hintFills: () => "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything · esc dismisses",
-    hintSuggestedRows: () => "⏎ adds the next suggested row · click a row to select it · esc dismisses",
-    hintDefault: () => "⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel",
+    hintFills: () => "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything",
+    hintSuggestedRows: () => "⏎ adds the next suggested row",
+    hintDefault: () => "⌘C / ⌘V round-trips with Excel",
 
     stripAccepts: ({ header }) => `${header} · accepts`,
     stripHalf: ({ header, half }) => (half === undefined ? header : `${header} · ${half}`),
@@ -867,20 +857,14 @@ export const sheetMessages: SheetMessages = {
     stripRowsHeader: () => "rows",
     stripPending: ({ header }) => `${header} ⋯`,
     stripPendingTitle: ({ header }) => `${header} — thinking`,
-    stripKeysTyped: () => "⏎ commit as typed",
-    stripKeysFilter: () => "type to filter · ⌥↓ to pick · click any",
+    stripKeysFilter: () => "⌥↓ to pick",
     stripKeysTake: ({ many, index, total }) => `${many ? `${index} of ${total} · ` : ""}⇥ take`,
-    stripKeysDateEmpty: () => "digits fill a segment · ↑↓ step it · ⇥ next",
-    stripKeysDate: () => "digits fill a segment · ⇥ next",
-    stripKeysCommit: () => "⏎ commit · esc cancel",
-    stripKeysStep: () => "↑↓ step · ⏎ commit",
-    stripKeysParse: () => "type to parse",
-    stripKeysPredicted: () => "⇥ one · ⌘→ all · or type",
+    stripKeysPredicted: () => "⇥ one · ⌘→ all",
     stripKeysLinkTake: ({ many, index, total, single }) =>
         `${many ? `${index} of ${total} · ` : ""}⇥ take · , next${single ? "" : " · > hops to the To half"} · ⌘→ rest`,
-    stripKeysLinkAdd: ({ single }) => `, adds${single ? "" : " · > hops to the To half"} · ⏎ done`,
-    stripKeysSuggested: () => "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc",
-    stripKeysDetail: ({ date }) => (date ? "⏎ edits the wanted date" : "⏎ edit"),
+    stripKeysLinkAdd: ({ single }) => `, adds${single ? "" : " · > hops to the To half"}`,
+    stripKeysSuggested: () => "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all",
+    stripKeysDetail: ({ date }) => (date ? "⏎ edits the wanted date" : ""),
     stripPager: ({ count, page, pages }) => `${count} options · page ${page} of ${pages}`,
     stripPage: ({ page, pages }) => `${page}/${pages}`,
     stripPrevious: () => "Previous options",
