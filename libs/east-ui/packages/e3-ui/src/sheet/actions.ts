@@ -79,7 +79,7 @@ import { SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
 import type { SheetColumn, SheetMarkInput } from "./columns.js";
 import type { SheetBridge } from "./bridge.js";
-import type { SheetColumnMeta, SheetRuleCellMeta } from "./column-meta.js";
+import { describeType as describeKeyType, type SheetColumnMeta, type SheetRuleCellMeta } from "./column-meta.js";
 import type { SheetRegisterValue } from "./registers.js";
 
 // ============================================================================
@@ -754,7 +754,7 @@ export function buildActionKind(input: SheetActionKindInput): ExprType<typeof Sh
             const register = registers[take!.of!];
             if (register === undefined) throw new Error(`${at}'s menu names register "${take!.of}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
             if (!isTypeEqual(register.keyType, StringType)) {
-                throw new Error(`${at}'s menu names register "${take!.of}", keyed by ${register.keyType.type} — Sheet.action.menu({ of }) chooses a member of a register keyed by String; ` +
+                throw new Error(`${at}'s menu names register "${take!.of}", keyed by ${describeKeyType(register.keyType)} — Sheet.action.menu({ of }) chooses a member of a register keyed by String; ` +
                     `ask a case holding another key with a form: Sheet.action.form({ fields: Sheet.field.reference({ of: "${take!.of}" }) })`);
             }
             wireTake = East.value(variant("register", take!.of!), SheetActionTakeType);

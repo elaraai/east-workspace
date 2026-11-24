@@ -16,8 +16,8 @@
  * taking each member's key as one; the inspector's field at the field's own type;
  * a Sheet's columns and band cells; and the refusals — a field of another type
  * than the register's keys, a `concat` of registers keyed by two types, a key of
- * no type a Dict is keyed by, and an action's menu over a register keyed by
- * another type than String.
+ * no type a Dict is keyed by, a key that is an Option, and an action's menu over
+ * a register keyed by another type than String, named by its whole type.
  */
 
 import { describe, test } from "node:test";
@@ -349,6 +349,19 @@ describe("a register keyed by any type refuses", () => {
             /^Error: Sheet\.register\.members: "crew"'s `key` returns \.Array .* — a member's key is of a type a Dict may be keyed by$/);
     });
 
+    test("a `key` returning an Option — an Option field is how a column holds no member — naming the type to key it by", () => {
+        const Bay = StructType({ code: OptionType(IntegerType), name: StringType });
+        const bays = East.value([{ code: some(1n), name: "North" }], ArrayType(Bay));
+        assert.throws(() => Record.register.members(bays, { kind: "bay", key: (b) => b.code, label: (b) => b.name }),
+            /^Error: Sheet\.register\.members: "bay"'s `key` returns an Option of \.Integer — a member's key is never an Option, as an Option field is how a column holds no member: return \.Integer, and sit the column on an Option of it$/);
+        // Over a Dict keyed by an Option, its own key is refused the same way.
+        const ByCode = DictType(OptionType(IntegerType), Bay);
+        const byCode = East.value(new SortedMap<ValueTypeOf<typeof ByCode.key>, ValueTypeOf<typeof Bay>>(
+            [[some(1n), { code: some(1n), name: "North" }]], compareFor(ByCode.key)), ByCode);
+        assert.throws(() => Record.register.members(byCode, { kind: "bay", key: (_b, code) => code, label: (b) => b.name }),
+            /^Error: Sheet\.register\.members: "bay"'s `key` returns an Option of \.Integer — a member's key is never an Option/);
+    });
+
     test("an action's menu over a register keyed by another type than String — a form's reference asks for one", () => {
         const Move = VariantType({ moved: StringType, kept: NullType });
         const Job = StructType({ id: StringType, move: OptionType(Move) });
@@ -357,5 +370,13 @@ describe("a register keyed by any type refuses", () => {
         });
         assert.throws(() => Sheet.Root(East.value([], ArrayType(Job)), { move: moves }, { id: "id", registers: { lines: STATION_OPTIONS.registers.lines } }),
             /case "moved"'s menu names register "lines", keyed by Integer — Sheet\.action\.menu\(\{ of \}\) chooses a member of a register keyed by String; ask a case holding another key with a form: Sheet\.action\.form\(\{ fields: Sheet\.field\.reference\(\{ of: "lines" \}\) \}\)$/);
+        // A register keyed by a struct is named by its whole type, never its tag alone.
+        const Slot = StructType({ aisle: StringType, bin: IntegerType });
+        const slots = Record.register.members(East.value([{ aisle: "A", bin: 1n }], ArrayType(Slot)), { kind: "slot", key: (s) => s, label: (s) => s.aisle });
+        const toSlot = Sheet.column.action(Job, Move, {
+            cases: { moved: { label: "Move", state: "Moved", take: Sheet.action.menu({ of: "slots" }) }, kept: { label: "Keep", state: "Kept" } },
+        });
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Job)), { move: toSlot }, { id: "id", registers: { slots } }),
+            /case "moved"'s menu names register "slots", keyed by \{ aisle: String, bin: Integer \} — Sheet\.action\.menu/);
     });
 });

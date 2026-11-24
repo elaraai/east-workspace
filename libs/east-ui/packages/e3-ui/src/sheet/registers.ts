@@ -10,9 +10,10 @@
  * a value another declaration needs is read off a TYPED row by an accessor.
  *
  * A register's members are keyed by any type a Dict may be keyed by
- * (east-workspace#1747): an Integer line number, a DateTime, a struct. The
- * register carries its key type, and a column over it holds one member's key in
- * a field of that type. On the wire a key is its text — a String key as itself,
+ * (east-workspace#1747): an Integer line number, a DateTime, a struct — never an
+ * Option, which a column's field holds as no member. The register carries its
+ * key type, and a column over it holds one member's key in a field of that
+ * type. On the wire a key is its text — a String key as itself,
  * any other as East prints it — as every builder's wire spells a key
  * (`schedule/window.ts`), and the bridge reads it back at the field's type.
  *
@@ -41,6 +42,7 @@ import { StatusValueType } from "@elaraai/east-ui";
 import { keyText, typeText } from "../schedule/window.js";
 import { SheetRegisterMemberType } from "./types.js";
 import { SheetRegisterMembersType } from "./link.js";
+import { optionPayload } from "./column-meta.js";
 
 /**
  * A built register — what `Sheet.register.*` returns and `registers={…}` takes:
@@ -76,8 +78,8 @@ export interface SheetMembersConfig<T extends EastType, K extends EastType = Str
     /** The member kind. */
     kind: string;
     /**
-     * The member's identity, of any type a Dict may be keyed by — every member of one register's of one type: what a
-     * cell holds, in a field of that type or its Option, and the grammar resolves.
+     * The member's identity, of any type a Dict may be keyed by but an Option — every member of one register's of one
+     * type: what a cell holds, in a field of that type or its Option, and the grammar resolves.
      */
     key: (value: ExprType<T>, key: ExprType<K>) => SubtypeExprOrValue<EastType>;
     /**
@@ -167,7 +169,7 @@ export const groupMembers = East.function([SheetRegisterMembersType, SheetRegist
  * @param data - The rows — a `Dict<K, T>` value or expression, or an `Array<T>` one
  * @param config - The accessors ({@link SheetMembersConfig})
  * @returns The register: its members, and their keys' type
- * @throws {Error} For data that is no Array or Dict, and a `key` returning a type no Dict is keyed by
+ * @throws {Error} For data that is no Array or Dict, and a `key` returning a type no Dict is keyed by, or an Option
  *
  * @example
  * ```tsx
@@ -284,7 +286,7 @@ export function createMembers<K extends EastType, T extends EastType>(
  * @param data - The rows — an `Array<T>` value or expression
  * @param config - The accessors ({@link SheetMembersConfig})
  * @returns The register: its members, and their keys' type
- * @throws {Error} For a `key` returning a type no Dict is keyed by
+ * @throws {Error} For a `key` returning a type no Dict is keyed by, or an Option
  */
 export function createMembers<T extends EastType>(
     data: SubtypeExprOrValue<ArrayType<T>>,
@@ -307,6 +309,12 @@ export function createMembers(data: unknown, config: unknown): SheetRegisterValu
     const keyType = (Expr.type(probe as never) as FunctionType).output as EastType;
     if (!isImmutableType(keyType)) {
         throw new Error(`Sheet.register.members: "${cfg.kind}"'s \`key\` returns ${typeText(keyType)} — a member's key is of a type a Dict may be keyed by`);
+    }
+    // An Option field is how a column holds no member: a member keyed by none could not be told from no member.
+    const payload = optionPayload(keyType);
+    if (payload !== undefined) {
+        throw new Error(`Sheet.register.members: "${cfg.kind}"'s \`key\` returns ${typeText(keyType)} — a member's key is never an Option, as an Option field is how a column holds no member: ` +
+            `return ${typeText(payload)}, and sit the column on an Option of it`);
     }
     // Each key as its text: a String as itself, any other as East prints it.
     const text = keyText(keyType);
