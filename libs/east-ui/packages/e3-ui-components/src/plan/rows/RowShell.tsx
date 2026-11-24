@@ -167,6 +167,13 @@ export interface RowShellProps {
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
     /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value slot. */
     lanes?: readonly PlanGutterLane[] | undefined;
+    /** The gutter's lines stack from the row's top, the name on the row's first line where any one-line row's is (#1750)
+     *  — a row taller than its lines, which would centre them in its height. A strip, and a row open on its render,
+     *  keep their own layout. */
+    gutterTop?: boolean | undefined;
+    /** A value axis the row's plot scales against, down the gutter's value slot (#1750): its tick labels, each on its
+     *  tick's y. The row's kind draws it; the shell gives it the cell. */
+    gutterAxis?: ReactNode;
     /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
      *  line says them, then its own sub — which tells two rows of one name apart. */
     path?: readonly string[] | undefined;
@@ -215,7 +222,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, noGrid,
-    controls, lanes: gutterLanes, path, axisMode, ctx, keep, drop, draft, children,
+    controls, lanes: gutterLanes, gutterTop, gutterAxis, path, axisMode, ctx, keep, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -703,6 +710,9 @@ export function RowShell({
                 css={styles.gutterCell}
                 role="rowheader"
                 data-expanded={expandedAttr}
+                // From the row's top (#1750): its name where a one-line row's stands, and with a sub line, both where a
+                // two-line row's do.
+                data-plan-gutter-top={gutterTop === true && ctx !== true && !expanded ? (sub !== undefined ? "sub" : "") : undefined}
                 style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
@@ -758,6 +768,7 @@ export function RowShell({
                 {expandGutter !== undefined && (
                     <Box css={styles.expandGutterBody} data-plan-expandgutter>{expandGutter}</Box>
                 )}
+                {gutterAxis}
             </Box>
             <Box
                 ref={plotRef}

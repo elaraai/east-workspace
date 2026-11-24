@@ -45,8 +45,9 @@ for (const theme of LAYOUT_THEMES) {
             expect(await entry.evaluate(cutText)).toEqual([]);
         }
         // The pinned output chart, where the canvas draws rows (a phone draws its cards): an expandable spark with no
-        // caret — a caret only folds — its name in the row's voice, its value axis inside its plot, clear of the
-        // gutter's value, and its expand control its toggle (#1680's review).
+        // caret — a caret only folds — its name in the row's voice, its expand control its toggle (#1680's review), and
+        // its scale a gridline a tick under its marks, each tick's label in the gutter's value slot, clear of the row's
+        // value (#1750).
         if (await entry.locator("[data-plan-body][data-plan-narrow]").count() === 0) {
             const chart = entry.locator('[data-plan-row][data-plan-kind="chart"]').first();
             await expect(chart).toHaveCount(1);
@@ -56,18 +57,22 @@ for (const theme of LAYOUT_THEMES) {
                     return [s.fontFamily, s.fontSize, s.fontWeight, s.letterSpacing, s.textTransform, s.color].join(" ");
                 };
                 const other = row.closest("[data-plan-body]")!.querySelector('[data-plan-row]:not([data-plan-kind="chart"]) [data-plan-gutter="name"]')!;
-                const plot = row.querySelector('[role="gridcell"]')!.getBoundingClientRect();
+                const slot = row.querySelector('[data-plan-gutter="slot"]')!.getBoundingClientRect();
+                const valueCell = row.querySelector('[data-plan-gutter="value"]')!;
+                const value = valueCell.getBoundingClientRect();
                 const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
+                const clear = (t: DOMRect) => (valueCell.textContent ?? "") === "" || t.bottom <= value.top + 0.5 || t.top >= value.bottom - 0.5;
                 return {
                     voice: voice(row.querySelector('[data-plan-gutter="name"]')!) === voice(other),
                     caret: row.querySelector('[role="rowheader"] svg[data-icon="caret-down"]') !== null,
-                    ticks: ticks.length > 0 && ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
+                    grid: row.querySelectorAll("[data-plan-gridline]").length > 0,
+                    ticks: ticks.every((t) => t.left >= slot.left - 0.5 && t.right <= slot.right + 0.5 && clear(t)),
                 };
             });
-            await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
+            await expect.poll(read).toEqual({ voice: true, caret: false, grid: true, ticks: true });
             await clickRowControl(chart, "expand");
             await expect(chart).toHaveAttribute("aria-expanded", "true");
-            await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
+            await expect.poll(read).toEqual({ voice: true, caret: false, grid: true, ticks: true });
             await clickRowControl(chart, "expand");
             await expect(chart).toHaveAttribute("aria-expanded", "false");
         }

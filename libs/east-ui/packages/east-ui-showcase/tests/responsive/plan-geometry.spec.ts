@@ -1348,7 +1348,7 @@ test.describe("Plan row controls (#1258, #1749)", { tag: "@desktop" }, () => {
         await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("flavours", "H1-P07")] });
     });
 
-    test("planTargetState: an expanded chart row keeps its control over its gutter's first line with the pointer and the focus gone, and the chart's ticks lie inside its plot, clear of the gutter", async ({ page }) => {
+    test("planTargetState: an expanded chart row keeps its control over its gutter's first line with the pointer and the focus gone, and the chart's scale reads down its gutter's value slot, clear of its value", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const chart = entry.locator(rowSel("ontime", "ontime"));
         await clickRowControl(chart, "expand");
@@ -1356,15 +1356,18 @@ test.describe("Plan row controls (#1258, #1749)", { tag: "@desktop" }, () => {
         await chart.locator('[data-plan-control="expand"]').evaluate((el) => (el as HTMLElement).blur());
         await page.mouse.move(0, 0);
         const read = () => chart.evaluate((row) => {
-            const plot = row.querySelector("[data-plan-plot]")!.getBoundingClientRect();
-            const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
+            const slot = row.querySelector("[data-plan-gutter='slot']")!.getBoundingClientRect();
+            const value = row.querySelector("[data-plan-gutter='value']")!.getBoundingClientRect();
+            const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => ({ says: t.textContent, box: t.getBoundingClientRect() }));
             return {
-                ticks: ticks.length,
-                // Each tick inside the plot's left edge, where the gutter's value never sits (#1680's review).
-                inPlot: ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
+                // Its ticks at 80 and 100, a gridline each; the label at 100 would stand on the row's first line, which
+                // its value, its status and its pressed control hold, so its gridline alone marks it (#1750).
+                ticks: ticks.map((t) => t.says),
+                gridlines: row.querySelectorAll("[data-plan-gridline]").length,
+                inSlot: ticks.every(({ box }) => box.left >= slot.left - 0.5 && box.right <= slot.right + 0.5 && box.top >= value.bottom - 0.5),
             };
         });
-        await expect.poll(read).toEqual({ ticks: 2, inPlot: true });
+        await expect.poll(read).toEqual({ ticks: ["80"], gridlines: 2, inSlot: true });
         // The focal row of the open focus: its box over its first line's slot, shown; every other row is a strip, with none.
         await expect.poll(() => entry.evaluate(rowControls)).toEqual({ faults: [], shown: [rowId("ontime", "ontime")] });
     });

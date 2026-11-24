@@ -400,14 +400,17 @@ describe("Plan chart rows (§4·K3)", () => {
         expect(spark.container.querySelector(`${rowSel("ontime")} svg [data-plan-mark="line"]`)).toBeTruthy();
         expect(screen.queryByText("TARGET 100")).toBeNull();   // too shallow for the label
         expect(screen.getByText("94.2%")).toBeTruthy();
-        // The left tick inside the plot's left edge, never in the gutter where the value is (#1680's review).
-        expect(screen.getByText("80").closest("[role='gridcell']")).toBeTruthy();
-        expect(screen.getByText("80").closest("[role='rowheader']")).toBeNull();
+        // A spark reads its scale by its gridlines alone (#1750): its 80 and 100 are lines across the plot, and no
+        // number stands in the row — never in the gutter where the value is (#1680's review), nor in the plot.
+        expect(spark.container.querySelectorAll(`${rowSel("ontime")} [data-plan-gridline]`)).toHaveLength(2);
+        expect(screen.queryByText("80")).toBeNull();
         cleanup();
         renderPlan(planRoot([
             planRow("ontime", chart(variant("expanded", null)), { gutter: gutter("ON-TIME", { id: true }) }),
         ]));
         expect(screen.getByText("TARGET 100")).toBeTruthy();
+        // Opened taller, with its first line free, its numbers read down the gutter's value slot.
+        expect([screen.getByText("80"), screen.getByText("100")].map((tick) => tick.closest("[role='rowheader']") !== null)).toEqual([true, true]);
     });
 });
 

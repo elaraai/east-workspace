@@ -157,6 +157,10 @@ async function violations(entry: Locator): Promise<string[]> {
         };
         const mono = (el: Element) => /mono/i.test(cs(el).fontFamily);
         const name = (el: Element) => (el.textContent ?? "").trim().slice(0, 24);
+        /** The least plot height, px, at which a chart prints its numbers — the renderer's `CHART_TALL_PX` (#1750). */
+        const TALL = 48;
+        /** A chart's plot height as it is drawn: its marks' viewBox, which the renderer draws in plot px. */
+        const plotHeight = (svg: Element) => Number(svg.getAttribute("viewBox")!.split(" ")[3]);
         const type = (el: Element, what: string, want: { size?: number; weight?: string; mono?: boolean; upper?: boolean; color?: string; tnum?: boolean; minSize?: number }) => {
             const s = cs(el);
             if (want.size !== undefined && Math.abs(px(s.fontSize) - want.size) > 0.05) bad.push(`${what} "${name(el)}": ${s.fontSize}, want ${want.size}px`);
@@ -265,13 +269,56 @@ async function violations(entry: Locator): Promise<string[]> {
                 if (!c.hasAttribute("data-planned") && fill !== T.series1) bad.push(`column (actual): ${fill}, want ${T.series1}`);
                 if (c.hasAttribute("data-planned") && fill === T.series1) bad.push("column (forecast): drawn as an actual");
             }
-            if (row.querySelectorAll("[data-plan-tickpx]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no scale`);
+            // A number to read the bars against — on a chart taller than a row's own lines, where its first line is
+            // free to hold it: its value, its status or a pressed control there leaves the scale its gridline alone,
+            // and a chart at a row's own height reads its scale by its gridlines alone (#1750).
+            const marks = row.querySelector("[data-plan-chart] svg");
+            const tall = marks !== null && plotHeight(marks) >= TALL;
+            const taken = (row.querySelector("[data-plan-gutter='value']")?.textContent ?? "") !== ""
+                || row.querySelector("[role='rowheader'] [role='img'][data-tone]") !== null
+                || row.querySelector("[data-plan-control][aria-pressed='true']") !== null;
+            if (tall && !taken && row.querySelectorAll("[data-plan-tickpx]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no scale`);
+            if (row.querySelectorAll("[data-plan-gridline]").length === 0) bad.push(`chart "${name(row.children[0]!)}": columns with no gridline`);
             const now = row.querySelector("[data-plan-now]");
             if (now !== null) {
                 const x = now.getBoundingClientRect().left;
                 for (const c of columns) {
                     if (!c.hasAttribute("data-planned") && c.getBoundingClientRect().left >= x - 0.5) bad.push("column at or after now drawn as actual");
                 }
+            }
+        }
+        // ── 14 · A chart row's axes (#1750): no tick label in its plot; each of the left axis's in the gutter's value
+        // slot, its end 12 from the gutter's rule, its middle on its gridline; every number inside its plot's band,
+        // clear of the row's top and of its rule, and none on a chart at a row's own height; and a chart taller than
+        // its gutter's lines stands its name where a one-line row's stands ──
+        const lineTop = (row: Element) => row.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect().top - row.getBoundingClientRect().top;
+        const oneLine = [...body.querySelectorAll("[data-plan-row][data-plan-h='32']:not([data-plan-kind='chart'], [data-plan-kind='buckets'], [data-ctx], [data-expanded])")]
+            .find((row) => row.querySelector("[data-plan-gutter='sub']") === null);
+        for (const row of body.querySelectorAll("[data-plan-row][data-plan-kind='chart']:not([data-ctx])")) {
+            const plot = row.querySelector("[data-plan-plot]")!;
+            if (plot.querySelector("[data-plan-tickpx]") !== null) bad.push(`chart "${name(row.children[0]!)}": a tick label in its plot`);
+            const head = row.querySelector("[role='rowheader']")!;
+            if (oneLine !== undefined && head.getAttribute("data-plan-gutter-top") === "" && Math.abs(lineTop(row) - lineTop(oneLine)) > 0.5) {
+                bad.push(`chart "${name(row.children[0]!)}": its name's line ${lineTop(row).toFixed(1)}px down its row, a one-line row's ${lineTop(oneLine).toFixed(1)}px`);
+            }
+            const svg = plot.querySelector("[data-plan-chart] svg");
+            if (svg === null) continue;
+            const s = svg.getBoundingClientRect();
+            const down = s.height / plotHeight(svg);
+            const lines = [...svg.querySelectorAll("[data-plan-gridline]")].map((g) => s.top + Number(g.getAttribute("y1")) * down);
+            const numbers = [...row.querySelectorAll("[data-plan-tickpx], [data-plan-tick-right]")];
+            if (plotHeight(svg) < TALL && numbers.length > 0) bad.push(`chart "${name(row.children[0]!)}": a number on a chart at a row's own height`);
+            for (const n of numbers) {
+                const b = n.getBoundingClientRect();
+                if (b.top - s.top < 2 || s.bottom - b.bottom < 2) {
+                    bad.push(`chart "${name(row.children[0]!)}": "${n.textContent}" ${(b.top - s.top).toFixed(1)}px under its plot's top and ${(s.bottom - b.bottom).toFixed(1)}px over its foot, want 2 or more`);
+                }
+            }
+            const edge = head.getBoundingClientRect().right - px(cs(head).borderRightWidth);
+            for (const tick of row.querySelectorAll("[data-plan-tickpx]")) {
+                const b = tick.getBoundingClientRect();
+                if (!lines.some((y) => Math.abs(y - (b.top + b.height / 2)) <= 0.5)) bad.push(`chart "${name(row.children[0]!)}": tick "${tick.textContent}" off its gridline`);
+                if (Math.abs(edge - b.right - 12) > 0.5) bad.push(`chart "${name(row.children[0]!)}": tick "${tick.textContent}" ends ${(edge - b.right).toFixed(1)}px from the gutter's rule, want 12`);
             }
         }
         // ── 16 · Group hierarchy ──
@@ -367,7 +414,8 @@ test.describe("Visual invariants — the Plan", () => {
                         spans: count("[data-run]"),
                         committed: count("[data-run][data-state='obs']"),
                         columns: count("[data-plan-row][data-plan-kind='chart'] [data-plan-mark='column'][data-series='0']"),
-                        scale: count("[data-plan-row][data-plan-kind='chart'] [data-plan-tickpx]"),
+                        // Its output chart shows its value on its first line, so its scale is its gridline (#1750).
+                        scale: count("[data-plan-row][data-plan-kind='chart'] [data-plan-gridline]"),
                         now: count("[data-plan-row] [data-plan-now]"),
                         nowChip: count("[data-plan-nowchip]"),
                         tableCells: count("[data-plan-kind='table'] [data-plan-bucket]"),

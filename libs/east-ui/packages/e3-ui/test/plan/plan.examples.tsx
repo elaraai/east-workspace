@@ -1719,7 +1719,9 @@ export const planMeasures = example({
                 // vocabulary — domain / tickValues. Output columns scale left,
                 // folded by their MEAN, a week's average, so the fixed 0–60
                 // scale holds at every resolution; the on-time line and its
-                // band scale right.
+                // band scale right. The right axis reads its own value at the
+                // left's ticks — one set of gridlines for both — so its 80–104
+                // reads 80, 90 and 100 beside the left's 0, 25 and 50.
                 Plan.series.section(Measure, { key: "quality", title: "Quality", meta: "1 row" }, [
                     Plan.series.chart(Measure, {
                         key: "dual", title: "Dual",
@@ -1727,7 +1729,7 @@ export const planMeasures = example({
                         label: r => r.label, id: true,
                         height: Plan.fixed("120px"),
                         left: { domain: [0, 60], tickValues: [0, 25, 50] },
-                        right: { domain: [80, 105], tickValues: [85, 95, 105] },
+                        right: { domain: [80, 104] },
                         swatches: [{ color: "ink.3", label: "out" }, { color: "brand.d", label: "on-time · rh" }],
                         layers: [
                             Plan.column(Plan.values("points", (v) => ({ y: v })), { fold: "mean" }),

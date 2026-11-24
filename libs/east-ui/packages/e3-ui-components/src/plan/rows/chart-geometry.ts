@@ -48,8 +48,28 @@ export type ChartSide = ValueTypeOf<typeof Plan.Types.AxisSide>["type"];
 /** A value axis's scale — data value → plot px. */
 export type ValueScale = ReturnType<typeof scaleLinear<number>>;
 
-/** Px of air above and below the marks. */
+/** Px of air above and below the marks of a chart at a row's own height — a spark. */
 export const PAD_Y = 4;
+
+/**
+ * The least plot height, in px, at which a chart reads its scale by its numbers as well as its gridlines (#1750), and
+ * labels its reference lines. A chart at a row's own height — a spark, of one line or two — is shorter: its numbers
+ * would stand against the row's edges, and alone on its first line read as the row's value.
+ */
+export const CHART_TALL_PX = 48;
+
+/**
+ * The air between a plot's edges and the values it scales (#1750), in px. A plot of {@link CHART_TALL_PX} or more
+ * keeps the spec's, its top and its bottom value each on the middle of the pixel the spec draws that gridline on — so
+ * a number at either end stands clear of the row's edges, its marks with it. A shorter one keeps {@link PAD_Y}, its
+ * marks all the rest of its few pixels.
+ *
+ * @param height - The plot's height (px)
+ * @returns The air above its top value and below its bottom one
+ */
+function chartAir(height: number): { top: number; bottom: number } {
+    return height >= CHART_TALL_PX ? { top: 12.5, bottom: 10.5 } : { top: PAD_Y, bottom: PAD_Y };
+}
 /** A column's inset within its bucket, as a share of the bucket's width. */
 const COLUMN_INSET = 0.18;
 
@@ -278,14 +298,15 @@ function domainOf(axis: ChartAxisValue | undefined, values: readonly number[], s
 
 /**
  * A value axis's scale over a plot `height` px tall — `min` at the bottom and
- * `max` at the top, inside {@link PAD_Y} of air.
+ * `max` at the top, inside the plot's air ({@link chartAir}).
  *
  * @param domain - The axis's domain
- * @param height - The plot's height (px)
+ * @param height - The plot's height (px), as it is drawn
  * @returns The scale
  */
 export function valueScale(domain: ValueDomain, height: number): ValueScale {
-    return scaleLinear<number>({ domain: [domain.min, domain.max], range: [height - PAD_Y, PAD_Y] });
+    const air = chartAir(height);
+    return scaleLinear<number>({ domain: [domain.min, domain.max], range: [height - air.bottom, air.top] });
 }
 
 /** A point of a continuous series, at its unclamped window fraction. */
@@ -360,6 +381,63 @@ export function axisFormatter(axis: ChartAxisValue | undefined, locale: string):
     if (fmt === undefined) return formatters(locale).tick;
     const f = tickFormatter(fmt, "linear", locale);
     return (v) => f(v);
+}
+
+/** One tick of a chart row — a gridline across its plot, and what each value axis reads there. */
+export interface ChartTick {
+    /** Where it stands down the plot, in the px the row's value scales map to. */
+    y: number;
+    /** What the left axis reads there; none where it labels nothing. */
+    left: string | undefined;
+    /** What the right axis reads there; none where it labels nothing. */
+    right: string | undefined;
+}
+
+/**
+ * A chart row's ticks — ONE set, which its gridlines and both its axes read.
+ *
+ * @remarks
+ * The left axis's declared tick positions place them, and a declared right
+ * axis reads its own value at each: the two share one set of gridlines, so a
+ * right axis whose domain is the left's scaled — 0–40 beside 0–16 — reads round
+ * numbers at the left's ticks, and the positions it declares place nothing.
+ * Where the left declares none, it still labels its top when the row draws
+ * columns on it (#949) — a bar's height reads against its scale's max, and
+ * without one it cannot be read at all — and the right axis keeps the ticks it
+ * declares.
+ *
+ * @param kind - The chart row
+ * @param scales - Its two value scales, at the plot's height ({@link valueScale})
+ * @param w - The canvas's words — the locale its numbers format in (#820)
+ * @returns The ticks, in the order their axis declares them
+ */
+export function chartTicks(kind: ChartKindValue, scales: { left: ValueScale; right: ValueScale }, w: PlanWords): ChartTick[] {
+    const left = kind.left.type === "some" ? kind.left.value : undefined;
+    const right = kind.right.type === "some" ? kind.right.value : undefined;
+    const leftText = axisFormatter(left, w.locale);
+    const rightText = axisFormatter(right, w.locale);
+    const declared = axisTicks(left);
+    if (declared.length > 0) {
+        return declared.map((v) => {
+            const y = scales.left(v);
+            // The right axis's own value at the left's tick, less the float noise two scales leave on a round number.
+            const there = right === undefined ? undefined : Number(scales.right.invert(y).toPrecision(12));
+            return { y, left: leftText(v), right: there === undefined ? undefined : rightText(there) };
+        });
+    }
+    const ticks: ChartTick[] = [];
+    if (kind.layers.some((l) => l.type === "column" && l.value.axis.type === "left")) {
+        const top = (scales.left.domain() as [number, number])[1];
+        ticks.push({ y: scales.left(top), left: left?.format.type === "some" ? leftText(top) : w.number(top), right: undefined });
+    }
+    for (const v of axisTicks(right)) {
+        const y = scales.right(v);
+        // One gridline where the two axes' ticks fall on the same pixel.
+        const shared = ticks.find((t) => Math.abs(t.y - y) < 0.5);
+        if (shared !== undefined) shared.right = rightText(v);
+        else ticks.push({ y, left: undefined, right: rightText(v) });
+    }
+    return ticks;
 }
 
 /** A layer the crosshair reads a value from. */

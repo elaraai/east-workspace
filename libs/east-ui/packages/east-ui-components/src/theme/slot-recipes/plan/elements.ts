@@ -25,10 +25,12 @@ import {
     PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
 } from "./status.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
+    "chartTickGutter", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -68,7 +70,7 @@ const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
  */
 const TICK_LINE = "14px";
 
-/** A chart row's axis tick, either side: mono 9.5 in the label ink, one line, its middle on its value's pixel. */
+/** A chart row's axis tick, wherever it stands: mono in the label ink, one line, its middle on its value's pixel. */
 const chartTick = {
     position: "absolute",
     fontFamily: "mono",
@@ -299,13 +301,21 @@ export const elementsBase = {
     // attributes — series 1 in `brand.solid` (--brand-d, the chart rule), a
     // forecast in a lighter mix of its own hue, a comparison series in the
     // chart accents in their fixed order (teal → purple → blue → orange), a
-    // breach in warn. The renderer draws geometry only.
+    // breach in warn. Under them all, a gridline a tick (#1750): the rule's
+    // ink mixed half into the paper, on one whole pixel. The renderer draws
+    // geometry only.
     chartMarks: {
         position: "absolute",
         inset: 0,
         zIndex: 3,
         display: "block",
         overflow: "visible",
+        "& [data-plan-gridline]": {
+            fill: "none",
+            stroke: "color-mix(in oklch, {colors.border.subtle} 50%, {colors.bg.surface})",
+            strokeWidth: "1px",
+            shapeRendering: "crispEdges",
+        },
         "& [data-plan-mark='column']": { fill: "brand.solid" },
         "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.bg.surface})" },
         "& [data-plan-mark='column'][data-series='1']": { fill: "accent.teal" },
@@ -347,13 +357,11 @@ export const elementsBase = {
         pointerEvents: "none",
         background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
     },
-    // A chart's left-axis ticks stand inside the plot's left edge, as its
-    // right-axis ticks stand inside its right edge (#1680's review) — never in
-    // the gutter, where the values are. This box is the plot's, on a canvas row
-    // and on a narrow card alike, and each tick starts 3px in from its left
-    // edge (`chartTickLeft`), mirroring a right tick's 3px from its right: a
-    // tick of any width lies inside the plot, where one set against a narrow
-    // box's end ran out of it into the gutter.
+    // A narrow card has no gutter, so its chart's left-axis ticks stand inside
+    // the plot's left edge, as a chart's right-axis ticks stand inside its
+    // right edge. This box is the card's plot, and each tick starts a little
+    // in from its left edge (`chartTickLeft`), mirroring a right tick's from
+    // its right: a tick of any width lies inside the plot.
     plotTicks: {
         position: "absolute",
         inset: 0,
@@ -362,6 +370,19 @@ export const elementsBase = {
     },
     chartTickLeft: { ...chartTick, left: "3px" },
     chartTickRight: { ...chartTick, right: "3px", zIndex: 4 },
+    // A canvas row's left-axis tick, in the gutter's value slot (#1750): at the
+    // slot's end, beside the plot it scales, in the slot's own tabular figures
+    // a weight up. One that stands where the row's controls show
+    // (`data-under-controls`) gives way while they do, on the rule that shows
+    // them.
+    chartTickGutter: {
+        ...chartTick,
+        right: 0,
+        fontSize: "10px",
+        fontWeight: "medium",
+        fontVariantNumeric: "tabular-nums",
+        [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
+    },
     refLabel: {
         position: "absolute",
         fontFamily: "mono",

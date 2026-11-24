@@ -18,9 +18,12 @@
  *   expanded density;
  * - refLines are dotted gridlines with a mono label; refBands paper washes;
  *   refDots ringed markers;
- * - left-axis ticks print inside the plot's left edge, as right-axis ticks
- *   print inside its right edge (#1680's review) — on the very scales the marks
- *   use, never in the gutter, where the values are;
+ * - each tick is a gridline across the plot, under the marks, on the very
+ *   scales the marks use (#1750): on a chart taller than a row's own lines the
+ *   left axis reads it in the gutter's value slot beside it — a narrow card's,
+ *   which has no gutter, inside its plot's left edge — and a right axis reads
+ *   its own value at the same line, inside the plot's right edge; a chart at a
+ *   row's own height reads its scale by its gridlines alone;
  * - hovering a bucket reads out each data layer's value there.
  *
  * The marks are `@visx/shape` paths over `@visx/scale` value scales (#743),
@@ -38,15 +41,15 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
-import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import { chartSummary } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
-    axisFormatter, axisTicks, breached, chartDomains, drawnPoints, layoutColumns, readoutLayers, readoutTable,
+    CHART_TALL_PX, breached, chartDomains, chartTicks, drawnPoints, layoutColumns, readoutLayers, readoutTable,
     splitAtNow, valueScale,
-    type ChartBandPointValue, type ChartKindValue, type ChartPointValue, type ChartSide, type ColumnLayout,
+    type ChartBandPointValue, type ChartKindValue, type ChartPointValue, type ChartSide, type ChartTick, type ColumnLayout,
     type Placed, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
 
@@ -94,6 +97,13 @@ function useChartScales(kind: ChartKindValue, height: number) {
     return { scale, columns: geometry.columns, left, right };
 }
 
+/** The row's ticks at a plot height — one set for its gridlines and both its axes, on the scales its marks use. */
+function useChartTicks(kind: ChartKindValue, height: number): readonly ChartTick[] {
+    const { left, right } = useChartScales(kind, height);
+    const words = usePlanWords();
+    return useMemo(() => chartTicks(kind, { left, right }, words), [kind, left, right, words]);
+}
+
 const x = (q: Placed<unknown>) => q.f * VW;
 const hasY = (q: Placed<ChartPointValue>) => Number.isFinite(q.f) && Number.isFinite(q.p.y);
 const hasBounds = (q: Placed<ChartBandPointValue>) => Number.isFinite(q.f) && Number.isFinite(q.p.lo) && Number.isFinite(q.p.hi);
@@ -101,7 +111,7 @@ const hasBounds = (q: Placed<ChartBandPointValue>) => Number.isFinite(q.f) && Nu
 export interface ChartRowPlotProps {
     kind: ChartKindValue;
     styles: Styles;
-    /** The rendered plot height (spark 32 / expanded 88 / fixed px). */
+    /** The plot's height as it is drawn, px — a canvas row's less its rule, a focused row's band, a card's body. */
     height: number;
     /** Expanded density (breach rectangles render only here). */
     expanded: boolean;
@@ -200,9 +210,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
 
     // The chart's words (#819) — a strip says its values block by block instead.
     const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale, words)), [ctx, kind, scale, words]);
-    // The right axis's ticks, by its format in the canvas's locale (#820).
-    const right = kind.right.type === "some" ? kind.right.value : undefined;
-    const rightFormat = useMemo(() => axisFormatter(right, words.locale), [right, words]);
+    // Its ticks (#1750): a gridline each, and what the right axis reads at it.
+    const ticks = useChartTicks(kind, height);
 
     // Branch HERE, after every hook: the hooks above must run on every
     // render, or React sees a different hook order for a focused canvas than
@@ -314,6 +323,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 recipe's, selected by the mark's own attributes (#949). */}
             <chakra.svg css={styles.chartMarks} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
                 <title>{summary}</title>
+                {/* A gridline a tick, under every mark — across the render bounds, so a pan reveals the rest. */}
+                {ticks.map((t, i) => (
+                    <line key={`grid-${i}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={t.y} y2={t.y}
+                        vectorEffect="non-scaling-stroke" data-plan-gridline="" />
+                ))}
                 {columns.drawn.map((c, i) => {
                     const s = ys(c.side);
                     const yTop = s(c.hi);
@@ -344,7 +358,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             {/* refLine / refDot mono labels (HTML, unstretched) — spark rows
                 are too shallow for them (the §1 mock shows bare ref rules);
                 taller charts clamp the label inside the plot box. */}
-            {height >= 48 && kind.layers.map((layer, li) => {
+            {height >= CHART_TALL_PX && kind.layers.map((layer, li) => {
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 11));
                     return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px"
@@ -359,10 +373,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 }
                 return null;
             })}
-            {/* right-axis ticks at the plot's right edge */}
-            {right !== undefined && axisTicks(right).map((v, i) => (
-                <Box key={`rt-${i}`} css={styles.chartTickRight} style={{ top: `${(rightScale(v) / height) * 100}%` }}>
-                    {rightFormat(v)}
+            {/* What the right axis reads at each gridline, at the plot's right edge — on a chart taller than a row's
+                own lines, as the left's numbers are: a shorter one reads its scale by its gridlines alone. */}
+            {height >= CHART_TALL_PX && ticks.map((t, i) => t.right === undefined ? null : (
+                <Box key={`rt-${i}`} css={styles.chartTickRight} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tick-right="">
+                    {t.right}
                 </Box>
             ))}
             {readLayers.length > 0 && (
@@ -376,40 +391,82 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     );
 }
 
-/** Half a tick's line (px): a tick's middle stands at least this far inside its plot, so the plot never clips it. */
+/** Half a tick label's line (px): what it stands above and below its gridline. */
 const TICK_HALF = 7;
 
-/** The left-axis ticks, inside the plot's left edge (#1680's review) — on a
- *  canvas row and on a narrow card alike, in the plot's own box (`plotTicks`),
- *  each starting just in from that edge, so a tick of any width lies inside it.
+/**
+ * The left axis's tick labels in the gutter's value slot (#1750), each with its
+ * middle on its gridline: the row's numbers read down the canvas's value
+ * column, beside the plot they scale and clear of its marks.
  *
- *  `height` is the PLOT's height — the band the marks scale against — and the
- *  ticks position in px against it. Not a percentage: a focus-expanded row is
- *  taller than its band (#591), and a percentage of it landed the ticks in the
- *  render. The scale is the plot's own (#743): columns, stacks and baselines
- *  included; each tick's middle is kept half its line inside the plot.
+ * `height` is the PLOT's height — the band the marks scale against — and a
+ * label stands at its share of it. The plot is the row less its rule, and the
+ * gutter's cell is as tall: a share of each puts a label and its gridline on
+ * the same pixel. A focus-expanded row is taller than its band (#591), so
+ * there the column is the band's own height (`banded`), never the grown cell's.
  *
- *  An axis that declares no ticks still labels its top when the row draws
- *  columns on it (#949): a bar's height reads against its scale's max, and
- *  without one it cannot be read at all. */
+ * A chart at a row's own height — shorter than {@link CHART_TALL_PX} — draws
+ * no label: its gridlines read its scale. The row's first line is the row's
+ * own: where it holds a value, a status or a pressed control (`taken`), a
+ * label whose line would reach into it is not drawn — its gridline still is.
+ * Where the row has controls, such a label is marked, and gives way while they
+ * show.
+ *
+ * @param props.kind - The chart the row draws
+ * @param props.styles - The Plan's slot styles
+ * @param props.height - The plot's height, px
+ * @param props.banded - The plot is a band at the top of a taller row
+ * @param props.taken - The row's first line holds its value, its status or a pressed control
+ * @param props.controls - The row has controls, which show over its first line's value slot
+ */
+export function ChartGutterTicks({ kind, styles, height, banded, taken, controls }: {
+    kind: ChartKindValue;
+    styles: Styles;
+    height: number;
+    banded: boolean;
+    taken: boolean;
+    controls: boolean;
+}) {
+    const ticks = useChartTicks(kind, height);
+    const geometry = usePlanGeometry();
+    const firstLine = geometry.row - geometry.rule;
+    const labels = ticks.filter((t) => t.left !== undefined && !(taken && t.y - TICK_HALF < firstLine));
+    if (height < CHART_TALL_PX || labels.length === 0) return null;
+    // The axis labels the plot's scale for the eye; the plot's own name says
+    // its values (#819), so a reader skips these.
+    return (
+        <Box css={styles.gutterAxis} style={banded ? { height: `${height}px` } : undefined} aria-hidden="true">
+            {labels.map((t, i) => (
+                <Box key={i} css={styles.chartTickGutter} style={{ top: `${(t.y / height) * 100}%` }} data-plan-tickpx={t.y}
+                    data-under-controls={controls && t.y - TICK_HALF < firstLine ? "" : undefined}>
+                    {t.left}
+                </Box>
+            ))}
+        </Box>
+    );
+}
+
+/**
+ * A narrow card's left-axis ticks, inside its plot's left edge — a card has no
+ * gutter to print them in — in the plot's own box (`plotTicks`), each starting
+ * just in from that edge, so a tick of any width lies inside it.
+ *
+ * `height` is the PLOT's height — the card's body, which the marks scale
+ * against — and the ticks position in px against it, each tick's middle kept
+ * half its line inside the plot. A card at a row's own height draws none, as a
+ * row's gutter does not ({@link CHART_TALL_PX}).
+ */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
-    const { left: s } = useChartScales(kind, height);
-    const words = usePlanWords();
-    const left = kind.left.type === "some" ? kind.left.value : undefined;
-    const fmt = useMemo(() => axisFormatter(left, words.locale), [left, words]);
-    const declared = axisTicks(left);
-    const columns = kind.layers.some((l) => l.type === "column" && l.value.axis.type === "left");
-    const ticks = declared.length > 0 ? declared : columns ? [(s.domain() as [number, number])[1]] : [];
-    if (ticks.length === 0) return null;
-    const automatic = declared.length === 0;
+    const ticks = useChartTicks(kind, height).filter((t) => t.left !== undefined);
+    if (height < CHART_TALL_PX || ticks.length === 0) return null;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these.
     return (
         <Box css={styles.plotTicks} aria-hidden="true">
-            {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} style={{ top: `${Math.max(TICK_HALF, Math.min(height - TICK_HALF, s(v)))}px` }}
-                    data-plan-tickpx={s(v)}>
-                    {automatic && left?.format.type !== "some" ? words.number(v) : fmt(v)}
+            {ticks.map((t, i) => (
+                <Box key={i} css={styles.chartTickLeft} style={{ top: `${Math.max(TICK_HALF, Math.min(height - TICK_HALF, t.y))}px` }}
+                    data-plan-tickpx={t.y}>
+                    {t.left}
                 </Box>
             ))}
         </Box>

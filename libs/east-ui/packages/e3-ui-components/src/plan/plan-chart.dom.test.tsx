@@ -9,7 +9,9 @@
  * fit the plot because the domain holds their baseline and stacks, stacks
  * kept per value axis, gutter ticks on the marks' own scale, gaps that break a
  * line or an area, and the crosshair readout — each layer's value at the
- * hovered bucket, written without a render.
+ * hovered bucket, written without a render. And its gutter and axes (#1750):
+ * a gridline a tick under the marks, the left axis in the gutter's value slot,
+ * the right reading the left's ticks, and the name on the row's first line.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -86,9 +88,12 @@ function subpaths(d: string): [number, number][][] {
         [...s.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])] as [number, number]));
 }
 
-/** Each column rect's `[y, height]`. */
+/** A number as the tests read it: to a thousandth, past the float noise a scale leaves. */
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Each column rect's `[y, height]`, to a thousandth. */
 const rects = (row: Element): [number, number][] => [...row.querySelectorAll('[data-plan-mark="column"]')].map((r) =>
-    [Number(r.getAttribute("y")), Number(r.getAttribute("height"))]);
+    [r3(Number(r.getAttribute("y"))), r3(Number(r.getAttribute("height")))]);
 
 describe("chart marks at their true positions (#743 item 3)", () => {
     test("a line's vertices beyond the window keep their x — the plot clips the segment, nothing piles on the edge", () => {
@@ -99,8 +104,9 @@ describe("chart marks at their true positions (#743 item 3)", () => {
         const d = container.querySelector(`${rowSel("c")} [data-plan-mark="line"]`)!.getAttribute("d")!;
         // In the 1000-unit viewBox: x = -1000 and 2000, not clamped to 0 and
         // 1000 — so the line meets each window edge at its true value (6.67),
-        // not at 0.
-        expect(subpaths(d)).toEqual([[[-1000, 84], [500, 4], [2000, 84]]]);
+        // not at 0. Down the 87px plot of an 88px row, its values stand
+        // between 12.5 and 76.5 (#1750).
+        expect(subpaths(d)).toEqual([[[-1000, 76.5], [500, 12.5], [2000, 76.5]]]);
     });
 
     test("an area and a band keep their off-window vertices too", () => {
@@ -152,11 +158,12 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ]))], 1), "chart-743-stack");
         const row = container.querySelector(rowSel("c"))!;
-        // Domain [0, 50] over an 88px plot (4px air): 20 → 32px, 30 → 48px.
-        expect(rects(row)).toEqual([[52, 32], [4, 48]]);
+        // Domain [0, 50] over the 64px between 12.5 and 76.5 of an 88px row's
+        // 87px plot: 20 → 25.6px, 30 → 38.4px.
+        expect(rects(row)).toEqual([[50.9, 25.6], [12.5, 38.4]]);
         for (const [y, h] of rects(row)) {
             expect(y).toBeGreaterThanOrEqual(0);
-            expect(y + h).toBeLessThanOrEqual(88);
+            expect(y + h).toBeLessThanOrEqual(87);
         }
     });
 
@@ -166,12 +173,12 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ], { left: valueAxis({ ticks: [0, 20] }) }))], 1), "chart-743-ticks");
         const row = container.querySelector(rowSel("c"))!;
-        const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => Number(t.getAttribute("data-plan-tickpx")));
+        const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => r3(Number(t.getAttribute("data-plan-tickpx"))));
         // The 0 tick sits on the stack's baseline and the 20 tick where the
         // first part ends — ticks that span only part of the stack still
         // read the scale the whole stack set.
         const [lower] = rects(row);
-        expect(ticks).toEqual([lower![0] + lower![1], lower![0]]);
+        expect(ticks).toEqual([r3(lower![0] + lower![1]), lower![0]]);
     });
 
     test("a dual-axis bucket stacks each column on its own axis — distinct units, distinct baselines", () => {
@@ -180,10 +187,10 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 300)], axis: right, series: some("s"), breach: none, fold: SUM }),
         ], { left: valueAxis({ min: 0, max: 100 }), right: valueAxis({ min: 0, max: 1000 }) }))], 1), "chart-743-dual");
         const row = container.querySelector(rowSel("c"))!;
-        // Left 20 of 100 → 16px from the baseline; right 300 of 1000 → 24px,
-        // ALSO from the baseline (84). Sharing one stack put it on top of the
-        // left column's 20 — in right-axis units.
-        expect(rects(row)).toEqual([[68, 16], [60, 24]]);
+        // Left 20 of 100 → 12.8px from the baseline; right 300 of 1000 →
+        // 19.2px, ALSO from the baseline (76.5). Sharing one stack put it on
+        // top of the left column's 20 — in right-axis units.
+        expect(rects(row)).toEqual([[63.7, 12.8], [57.3, 19.2]]);
     });
 
     test("a mixed-sign stack draws its negative part below the baseline", () => {
@@ -191,8 +198,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 30)], axis: left, series: some("a"), breach: none, fold: SUM }),
             variant("column", { points: [pt(0.5, -10)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ]))], 1), "chart-743-mixed");
-        // Domain [-10, 30] over 80px: 0 sits at 64; +30 climbs to 4, −10 descends to 84.
-        expect(rects(container.querySelector(rowSel("c"))!)).toEqual([[4, 60], [64, 20]]);
+        // Domain [-10, 30] over the 64px between 12.5 and 76.5: 0 sits at 60.5; +30 climbs to 12.5, −10 descends to 76.5.
+        expect(rects(container.querySelector(rowSel("c"))!)).toEqual([[12.5, 48], [60.5, 16]]);
     });
 });
 
@@ -276,5 +283,118 @@ describe("the crosshair readout (#743)", () => {
         expect(readout.hasAttribute("data-open")).toBe(false);
         // Not one commit: the readout is chrome, like the hairline (#609).
         expect(commits.length).toBe(before);
+    });
+});
+
+describe("the chart row's gutter and axes (#1750)", () => {
+    /** The row's gutter, with what its first line holds. */
+    const withGutter = (row: PlanWireRow, gutter: { value?: string; sub?: string }) => ({
+        ...row,
+        gutter: {
+            ...(row as unknown as { gutter: object }).gutter,
+            value: gutter.value !== undefined ? some(gutter.value) : none,
+            sub: gutter.sub !== undefined ? some(gutter.sub) : none,
+        },
+    }) as unknown as PlanWireRow;
+    const labels = (row: Element) => [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.textContent);
+    const gridlines = (row: Element) => [...row.querySelectorAll("[data-plan-gridline]")].map((g) => Number(g.getAttribute("y1")));
+
+    test("each tick draws a gridline under every mark, across the render bounds, and its label stands in the gutter's value slot, never in the plot", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("column", { points: [pt(0.5, 20)], axis: left, series: none, breach: none, fold: SUM }),
+        ], { left: valueAxis({ min: 0, max: 40, ticks: [0, 20, 40] }) }))], 1), "chart-1750-grid");
+        const row = container.querySelector(rowSel("c"))!;
+        // Down an 88px row's 87px plot, its values between 12.5 and 76.5 — the
+        // spec's air, its numbers clear of the row's edges: 0, 20 and 40 at
+        // 76.5, 44.5 and 12.5.
+        expect(gridlines(row)).toEqual([76.5, 44.5, 12.5]);
+        const grid = row.querySelector("[data-plan-gridline]")!;
+        expect([Number(grid.getAttribute("x1")), Number(grid.getAttribute("x2"))]).toEqual([-2000, 3000]);
+        // Under the marks: every gridline before the first one in the plot's drawing.
+        const drawn = [...grid.parentElement!.children];
+        expect(drawn.indexOf(row.querySelector('[data-plan-mark="column"]')!)).toBeGreaterThan(drawn.lastIndexOf(row.querySelectorAll("[data-plan-gridline]")[2]!));
+        expect(labels(row.querySelector("[role='rowheader']")!)).toEqual(["0", "20", "40"]);
+        expect(row.querySelector("[data-plan-plot] [data-plan-tickpx]")).toBeNull();
+    });
+
+    test("a right axis reads its own value at the left's ticks: one set of gridlines for both", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN }),
+            variant("line", { points: [pt(0.5, 20)], axis: right, breach: none, fold: MEAN }),
+        ], { left: valueAxis({ min: 0, max: 16, ticks: [0, 4, 8, 12, 16] }), right: valueAxis({ min: 0, max: 40, ticks: [5, 15] }) }))], 1), "chart-1750-shared");
+        const row = container.querySelector(rowSel("c"))!;
+        const rights = [...row.querySelectorAll<HTMLElement>("[data-plan-tick-right]")];
+        expect(rights.map((t) => t.textContent)).toEqual(["0", "10", "20", "30", "40"]);
+        expect(gridlines(row)).toHaveLength(5);
+        // Each right label on its left label's line.
+        expect(rights.map((t) => t.style.top)).toEqual([...row.querySelectorAll<HTMLElement>("[data-plan-tickpx]")].map((t) => t.style.top));
+    });
+
+    test("the row's first line is its own: where it shows a value, a label that would stand on it is not drawn — its gridline is", () => {
+        const kind = chartKind([
+            variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN }),
+        ], { left: valueAxis({ min: 80, max: 110, ticks: [80, 100] }) });
+        const { container } = renderPlan(planRoot([
+            withGutter(planRow("valued", kind), { value: "94%" }),
+            planRow("bare", kind),
+        ], 1), "chart-1750-first-line");
+        // 100 stands at 33.8, its line reaching into the first line's 31px; 80 at 76.5, clear of it.
+        const valued = container.querySelector(rowSel("valued"))!;
+        expect([labels(valued), gridlines(valued).length]).toEqual([["80"], 2]);
+        expect(labels(container.querySelector(rowSel("bare"))!)).toEqual(["80", "100"]);
+    });
+
+    test("a label on the first line of a row with controls gives way while they show; one the pressed control holds is not drawn", () => {
+        // An expandable chart's expand control: unpressed on a chart drawn at its own 88px, pressed on one declared expanded.
+        const chart = (height: unknown) => variant("chart", {
+            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })],
+            left: valueAxis({ min: 80, max: 110, ticks: [80, 100] }), right: none,
+            height, expandedHeight: none, expandable: true,
+        });
+        const { container } = renderPlan(planRoot([
+            planRow("fixed", chart(variant("fixed", "88px"))),
+            planRow("open", chart(variant("expanded", null))),
+        ], 1), "chart-1750-controls");
+        const marked = (key: string) => [...container.querySelectorAll(`${rowSel(key)} [data-plan-tickpx]`)]
+            .map((t) => [t.textContent, t.hasAttribute("data-under-controls")]);
+        expect(marked("fixed")).toEqual([["80", false], ["100", true]]);
+        expect(marked("open")).toEqual([["80", false]]);
+    });
+
+    test("a chart at a row's own height — a spark, of one line or two — reads its scale by its gridlines alone, on either axis", () => {
+        const spark = variant("chart", {
+            layers: [
+                variant("column", { points: [pt(0.5, 20)], axis: left, series: none, breach: none, fold: SUM }),
+                variant("line", { points: [pt(0.5, 50)], axis: right, breach: none, fold: MEAN }),
+            ],
+            left: valueAxis({ min: 0, max: 40, ticks: [0, 20, 40] }), right: valueAxis({ min: 0, max: 100 }),
+            height: variant("spark", null), expandedHeight: none, expandable: false,
+        });
+        const { container } = renderPlan(planRoot([
+            planRow("one", spark),
+            withGutter(planRow("two", spark), { sub: "sheets/h" }),
+        ], 1), "chart-1750-spark");
+        for (const key of ["one", "two"]) {
+            const row = container.querySelector(rowSel(key))!;
+            expect([row.getAttribute("data-plan-h"), gridlines(row).length, labels(row), row.querySelectorAll("[data-plan-tick-right]").length])
+                .toEqual([key === "one" ? "32" : "42", 3, [], 0]);
+        }
+        // Its marks keep all but a few pixels of its plot: 4 above its top value, 4 below its bottom.
+        expect(gridlines(container.querySelector(rowSel("one"))!)).toEqual([27, 15.5, 4]);
+    });
+
+    test("a chart taller than its gutter's lines stands its name on the row's first line; a spark keeps its lines as any row", () => {
+        const spark = variant("chart", {
+            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+        });
+        const tall = chartKind([variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })]);
+        const { container } = renderPlan(planRoot([
+            planRow("tall", tall),
+            withGutter(planRow("subbed", tall), { sub: "sheets/h" }),
+            planRow("spark", spark),
+        ], 1), "chart-1750-name-line");
+        const top = (key: string) => container.querySelector(`${rowSel(key)} [role='rowheader']`)!.getAttribute("data-plan-gutter-top");
+        expect([top("tall"), top("subbed"), top("spark")]).toEqual(["", "sub", null]);
     });
 });

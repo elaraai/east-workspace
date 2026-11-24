@@ -32,6 +32,17 @@ const STATUS_ICONS: Readonly<Record<Tone, IconDefinition | undefined>> = {
 };
 
 /**
+ * Whether a status draws its icon — so what else reads in the value slot knows
+ * the icon's place is taken, by the very table the icon is drawn from.
+ *
+ * @param tone - The status's tone; none for a row with no status
+ * @returns `false` for no status, and for a neutral one
+ */
+export function statusDraws(tone: Tone | undefined): boolean {
+    return tone !== undefined && STATUS_ICONS[tone] !== undefined;
+}
+
+/**
  * A status as its tone's icon, named for a reader by its status.
  *
  * @param props.tone - The status's tone; none for a row with no status

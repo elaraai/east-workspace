@@ -26,11 +26,14 @@ import { wholeOrNone } from "./whole-or-none.js";
 /** The slots this part styles. */
 export const rowsSlots = [
     "row", "gutterCell", "plot", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
-    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret",
+    "gutterSub", "gutterSlot", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterAxis", "gutterHandle", "caret",
     "statusIcon", "statusDot", "rowControls", "rowControl", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
     "stickyParent", "stickyPath",
 ] as const;
+
+/** The value slot's width: a status and a value, at one x down the canvas. */
+const GUTTER_SLOT_W = "56px";
 
 /**
  * The gutter's line, one grid (#1749): caret · name · value slot. A row that folds has its caret's cell; a leaf has
@@ -39,10 +42,16 @@ export const rowsSlots = [
  * are loaded. Only the name gives way. A level indents by the caret's cell and the gap after it, which the renderer
  * sets, so a member's words start where its parent's do.
  */
-const GUTTER_COLUMNS = "14px minmax(0, 1fr) 56px";
+const GUTTER_COLUMNS = `14px minmax(0, 1fr) ${GUTTER_SLOT_W}`;
 
 /** A leaf's line: no caret's cell. */
-const GUTTER_COLUMNS_LEAF = "minmax(0, 1fr) 56px";
+const GUTTER_COLUMNS_LEAF = `minmax(0, 1fr) ${GUTTER_SLOT_W}`;
+
+/**
+ * Where a row's controls show (#1749): on its hover, on a focus within it and on its selection — the one selector
+ * the controls and what gives way to them both read, so the two can never disagree.
+ */
+export const PLAN_ROW_CONTROLS_SHOWN = "[data-plan-row]:is(:hover, :focus-within, [data-selected]) &";
 
 /** The gutter's line as one grid: its columns, the gap between them, and its cells centred on the line. */
 const gutterGrid = {
@@ -206,6 +215,13 @@ export const rowsBase = {
             paddingTop: "11px",
             borderRightColor: "color-mix(in srgb, {colors.brand.solid} 30%, {colors.border.subtle})",
         },
+        // A chart taller than its gutter's lines (#1750) stands them from its
+        // top, never in the middle of the chart: its name on the row's first
+        // line, centred in the room a one-line row has, where that row's
+        // stands — and with a sub line, the two where a two-line row's do,
+        // from the cell's own padding.
+        "&[data-plan-gutter-top]": { justifyContent: "flex-start" },
+        "&[data-plan-gutter-top='']": { paddingTop: `calc((${ROW_ROOM} - ${GUTTER_LINE}) / 2)` },
     },
     plot: {
         position: "relative",
@@ -442,6 +458,17 @@ export const rowsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
     },
+    // A chart row's left axis, down its gutter's value slot (#1750): a column the slot's width, ending where the slot
+    // does, the cell's height — on a row open on its render, its band's, which the renderer sets — that its tick
+    // labels stand in, each at its tick's share of it. It takes no part in the gutter's lines, and no pointer.
+    gutterAxis: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        right: "12px",
+        width: GUTTER_SLOT_W,
+        pointerEvents: "none",
+    },
     // The gutter's right rule, as a handle (#1680's review): a drag moves it,
     // and the gutter with it — the arrow keys too. Over the rows and their
     // header, the whole canvas tall, inside the gutter's right edge
@@ -535,7 +562,7 @@ export const rowsBase = {
         // Over the links (z 5): a loopback turning in the gutter passes under them.
         zIndex: 6,
         visibility: "hidden",
-        "[data-plan-row]:is(:hover, :focus-within, [data-selected]) &": { visibility: "visible" },
+        [PLAN_ROW_CONTROLS_SHOWN]: { visibility: "visible" },
         "&[data-focal]": { visibility: "visible" },
         // On the focused row its ground comes in with the row's, never ahead of it.
         "[data-plan-row][data-expanded] &": TINT_IN,

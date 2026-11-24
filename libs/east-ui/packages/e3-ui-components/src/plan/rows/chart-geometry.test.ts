@@ -11,7 +11,8 @@
 /**
  * A chart row's geometry (#743): column stacks per value axis and sign, value
  * domains that contain what is drawn, continuous series at their true
- * positions, gaps, and the crosshair's per-bucket reading.
+ * positions, gaps, the crosshair's per-bucket reading, and the one set of
+ * ticks both axes read (#1750).
  */
 
 import { describe, test, expect } from "vitest";
@@ -19,7 +20,7 @@ import { none, some, variant } from "@elaraai/east";
 import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    axisFormatter, breached, chartDomains, drawnPoints, layoutColumns, readoutTable, splitAtNow, valueScale,
+    CHART_TALL_PX, axisFormatter, breached, chartDomains, chartTicks, drawnPoints, layoutColumns, readoutTable, splitAtNow, valueScale,
     type ChartKindValue, type ChartLayerValue,
 } from "./chart-geometry.js";
 import { planMessages } from "../messages.js";
@@ -236,5 +237,65 @@ describe("the crosshair's reading per bucket (#743)", () => {
         expect(pct(0.25)).toMatch(/^25\s%$/u);
         // A negative zero prints as zero, as the bare `String` default did.
         expect(axisFormatter(undefined, "en-US")(-0)).toBe("0");
+    });
+});
+
+describe("one set of ticks for both axes (#1750)", () => {
+    /** An axis over `[min, max]`, its ticks declared or not. */
+    const ticked = (min: number, max: number, ticks?: number[]) => some({
+        domain: some(variant("number", { min, max })),
+        tickValues: ticks !== undefined ? some(variant("number", ticks)) : none,
+        format: none,
+    });
+    const right = (points: { t: number; y: number }[]) =>
+        variant("line", { points: points.map((p) => pt(p.t, p.y)), axis: variant("right", null), breach: none }) as ChartLayerValue;
+    /** The row's ticks at a plot height, on the scales its marks use. */
+    const ticksOf = (kind: ChartKindValue, height: number) => {
+        const domains = chartDomains(kind, layoutColumns(kind.layers, axis(1)));
+        return chartTicks(kind, { left: valueScale(domains.left, height), right: valueScale(domains.right, height) }, PLAN_WORDS);
+    };
+
+    test("the left's declared ticks place them, and a declared right axis reads its own value at each — what it declares places nothing", () => {
+        // The spec's pair, 0–16 by 4 beside 0–40 by 10, in a row's 159px room.
+        const kind = chart([line([{ t: 0.5, y: 8 }]), right([{ t: 0.5, y: 20 }])],
+            { left: ticked(0, 16, [0, 4, 8, 12, 16]), right: ticked(0, 40, [5, 15]) });
+        const ticks = ticksOf(kind, 159);
+        expect(ticks.map((t) => [t.left, t.right])).toEqual([["0", "0"], ["4", "10"], ["8", "20"], ["12", "30"], ["16", "40"]]);
+        // Each where its left value falls — on the spec's own gridlines, the middles of the pixels 148, 114, 80, 46
+        // and 12 down its plot.
+        expect(ticks.map((t) => t.y)).toEqual([148.5, 114.5, 80.5, 46.5, 12.5]);
+    });
+
+    test("a plot taller than a row's own lines keeps the spec's air round its values; one at a row's own height keeps 4 either side", () => {
+        const domain = { min: 0, max: 10 };
+        expect(valueScale(domain, CHART_TALL_PX).range()).toEqual([CHART_TALL_PX - 10.5, 12.5]);
+        expect(valueScale(domain, CHART_TALL_PX - 1).range()).toEqual([CHART_TALL_PX - 5, 4]);
+        // A spark's plot, a 32px row less its rule.
+        expect(valueScale(domain, 31).range()).toEqual([27, 4]);
+    });
+
+    test("a right value read back at a left tick prints as the round number it is", () => {
+        // 0–60 by 20 beside 75–105: the scales' float noise made 85 read 85.0.
+        const kind = chart([line([{ t: 0.5, y: 30 }]), right([{ t: 0.5, y: 90 }])],
+            { left: ticked(0, 60, [0, 20, 40, 60]), right: ticked(75, 105) });
+        expect(ticksOf(kind, 88).map((t) => t.right)).toEqual(["75", "85", "95", "105"]);
+    });
+
+    test("where the left declares none, it labels its top over columns, and the right keeps its own ticks — one line where two fall together", () => {
+        const kind = chart([
+            column([{ t: 0.5, y: 20 }], { series: "a" }),
+            column([{ t: 0.5, y: 30 }], { series: "b" }),
+            right([{ t: 0.5, y: 60 }]),
+        ], { right: ticked(0, 100, [0, 50, 100]) });
+        // The stack's top, 50, at the top of the plot's scale; the right's 100 there too.
+        expect(ticksOf(kind, 88)).toEqual([
+            { y: 12.5, left: "50", right: "100" },
+            { y: 77.5, left: undefined, right: "0" },
+            { y: 45, left: undefined, right: "50" },
+        ]);
+    });
+
+    test("a chart that declares no ticks and draws no columns has none", () => {
+        expect(ticksOf(chart([line([{ t: 0.5, y: 3 }])], { right: ticked(0, 10) }), 88)).toEqual([]);
     });
 });
