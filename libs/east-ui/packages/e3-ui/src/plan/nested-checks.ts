@@ -288,7 +288,7 @@ function checkFunctions(facts: PlanSeriesNestFacts, level: Level, context: PlanN
         }
         throw new Error(`Plan: series "${facts.key}" reads "${found.field}" in a function (${via}), and its rows are paged — a row's collections are ` +
             `read a cell at a time: ${ITEM_FIELDS.has(element) ? `give ${via} as Plan.items("${found.field}", { from, to }, (item) => ({ … })), and ` : ""}` +
-            `declare index.nested({ collections: { ${found.field}: index.nested.items({ from, to }) }, tile, summary }) ` +
+            `declare index.nestedSeries({ collections: { ${found.field}: index.nestedSeries.items({ from, to }) }, tile, summary }) ` +
             "and list it in Data.bindPaged(record, { indexes })");
     }
 }
@@ -343,7 +343,7 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
     const declared = use.declared;
     if (declared === undefined) {
         throw new Error(`${series} reads "${place}", and the rows source's nested series index "${index.name}" does not declare it — declare it: ` +
-            `collections: { ${use.field}: index.nested.${builderFor(use)} }`);
+            `collections: { ${use.field}: index.nestedSeries.${builderFor(use)} }`);
     }
     if (use.kind === "items") {
         if (declared.kind !== "items") {
@@ -356,7 +356,7 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
         }
         if (use.rolledUp !== undefined && !declared.rollup) {
             throw new Error(`${series} rolls its children's runs up by ${use.rolledUp}, and "${index.name}" files "${place}" under no parent — declare it ` +
-                `index.nested.items(${timesCode(declared.times)}, { rollup: true })`);
+                `index.nestedSeries.items(${timesCode(declared.times)}, { rollup: true })`);
         }
         return;
     }
@@ -374,11 +374,11 @@ function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
         if (!kept) {
             if (declared.rollups.length === 0) {
                 throw new Error(`${series} subtotals "${place}" by ${rollupWords(subtotal)}, and "${index.name}" keeps no subtotals of it — declare it ` +
-                    `index.nested.values({ rollup: ${rollupCode(subtotal)} })`);
+                    `index.nestedSeries.values({ rollup: ${rollupCode(subtotal)} })`);
             }
             const words = declared.rollups.map(rollupWords);
             throw new Error(`${series} subtotals "${place}" by ${rollupWords(subtotal)}, and "${index.name}" keeps it by ${words.join(" and ")} — add the ` +
-                `rollup: index.nested.values({ rollup: [${[...declared.rollups.map(rollupCode), rollupCode(subtotal)].join(", ")}] }), or subtotal it by ${words[0]}`);
+                `rollup: index.nestedSeries.values({ rollup: [${[...declared.rollups.map(rollupCode), rollupCode(subtotal)].join(", ")}] }), or subtotal it by ${words[0]}`);
         }
         if (use.rowType !== undefined && !drawsAsStored(use.rowType, use.read!.read as PlanValuesReadSpec, `Plan: series "${use.series}"`)) {
             throw new Error(`${series} subtotals "${place}", and its cells draw another number than each value of it — e3 keeps the subtotals ` +
@@ -446,7 +446,7 @@ export function checkPlanNested(series: unknown, context: PlanNestedContext): re
     if (first === undefined) return uses;
     if (index === undefined) {
         throw new Error(`Plan: series "${first.series}" reads "${placeOf(first.place)}" a cell at a time, and the rows source lists no nested series ` +
-            `index — declare index.nested({ collections: { ${first.field}: index.nested.${builderFor(first)} }, ` +
+            `index — declare index.nestedSeries({ collections: { ${first.field}: index.nestedSeries.${builderFor(first)} }, ` +
             "tile, summary }) and list it in Data.bindPaged(record, { indexes })");
     }
     if (context.axisKind !== undefined && context.axisKind !== "time") {

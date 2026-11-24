@@ -79,7 +79,7 @@ const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(Strin
 export function scheduleCellIndexes(kind: ScheduleEventKind<EastType, EastType>): { readonly series: string; readonly summary: string } {
     const filed = `{ key: "${kind.resourceField}", from: "${kind.times.start}", to: "${kind.times.end}"`;
     return {
-        series: `index.series(${filed}, tile: "week" })`,
+        series: `index.flatSeries(${filed}, tile: "week" })`,
         summary: `index.summary(${filed}, tile: "month" })`,
     };
 }

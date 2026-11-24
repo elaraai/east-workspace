@@ -4,17 +4,17 @@
  */
 
 /**
- * A record's `index.series` and `index.summary` (#1039): the tiles an
- * event touches and its share of each, and the places a series index files it
- * — once, at the level its length fits, or once a year past a year (#1433) —
- * each against a direct oracle written with the host's calendar rather than
- * East's; the keys and contributions they generate; their declared types;
- * their refusals; what a series index carries where it is given a `value`
- * (#1710); a summary with no key, the record's totals a tile, and its reader
- * (#1732); and how a write keeps them — a series index equals its rebuild,
- * and a summary's changes, added to the totals it held, equal the totals a
- * rebuild sums. That every runtime files an event alike is e3-core's
- * series spec, which runs the programs on each.
+ * A record's `index.flatSeries`, `index.summary` (#1039) and `index.totals`
+ * (#1732): the tiles an event touches and its share of each, and the places a
+ * series index files it — once, at the level its length fits, or once a year
+ * past a year (#1433) — each against a direct oracle written with the host's
+ * calendar rather than East's; the keys and contributions they generate;
+ * their declared types; their refusals; what a series index carries where it
+ * is given a `value` (#1710); the record's totals a tile, a summary under no
+ * key, and their reader (#1732); and how a write keeps them — a series index
+ * equals its rebuild, and a summary's changes, added to the totals it held,
+ * equal the totals a rebuild sums. That every runtime files an event alike is
+ * e3-core's series spec, which runs the programs on each.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +29,7 @@ import {
 } from '@elaraai/e3-types';
 import { index as indexInput } from './index-input.js';
 import { record } from './record.js';
-import type { IndexKeyOf, IndexOn, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf } from './record-index.js';
+import type { IndexKeyOf, IndexOn, SeriesIndexSpec, SummaryIndexSpec, SummaryKeyOf, TotalsIndexSpec } from './record-index.js';
 import {
   MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, TILE_FNS, checkTile, type RecordTile,
 } from './record-tiles.js';
@@ -62,16 +62,19 @@ const ShiftsType = DictType(StringType, ShiftRow);
 
 /** The series index the jobs record declares under `name`, as `e3.record` builds it. */
 const jobSeries = <const S extends SeriesIndexSpec<typeof JobsType>>(name: string, spec: S) =>
-  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.series(spec) }) }).indexes[name]!;
+  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.flatSeries(spec) }) }).indexes[name]!;
 /** The series index the jobs record declares under `name`, carrying what `value` gives of each job, as `e3.record` builds it. */
 const jobTiles = <const S extends SeriesIndexSpec<typeof JobsType>>(name: string, spec: S, value: IndexFunction = tileOf) =>
-  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.series(spec, { value }) }) }).indexes[name]!;
+  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.flatSeries(spec, { value }) }) }).indexes[name]!;
 /** The summary index the jobs record declares under `name`, as `e3.record` builds it. */
 const jobSummary = <const S extends SummaryIndexSpec<typeof JobsType>>(name: string, spec: S) =>
   record('jobs', JobsType, { indexes: (index) => ({ [name]: index.summary(spec) }) }).indexes[name]!;
+/** The record's totals the jobs record declares under `name`, as `e3.record` builds them. */
+const jobTotals = <const S extends TotalsIndexSpec<typeof JobsType>>(name: string, spec: S) =>
+  record('jobs', JobsType, { indexes: (index) => ({ [name]: index.totals(spec) }) }).indexes[name]!;
 /** The series index the shifts record declares under `name`, as `e3.record` builds it. */
 const shiftSeries = <const S extends SeriesIndexSpec<typeof ShiftsType>>(name: string, spec: S) =>
-  record('shifts', ShiftsType, { indexes: (index) => ({ [name]: index.series(spec) }) }).indexes[name]!;
+  record('shifts', ShiftsType, { indexes: (index) => ({ [name]: index.flatSeries(spec) }) }).indexes[name]!;
 
 const DAY = 86_400_000n;
 const HOUR = 3_600_000n;
@@ -262,10 +265,10 @@ function summed(def: RecordIndexDef, pieces: readonly Jobs[]): SortedMap<unknown
 describe('the tiles an event touches', () => {
   it('takes the five tiles and refuses any other, naming them', () => {
     assert.deepEqual([...RECORD_TILES], ['day', 'week', 'month', 'quarter', 'year']);
-    for (const tile of RECORD_TILES) assert.equal(checkTile('index.series', 'by_tile', tile), tile);
+    for (const tile of RECORD_TILES) assert.equal(checkTile('index.flatSeries', 'by_tile', tile), tile);
     for (const bad of ['hour', 'Day', '', 7, undefined]) {
-      assert.throws(() => checkTile('index.series', 'by_tile', bad),
-        /index\.series 'by_tile' takes a tile: "day", "week", "month", "quarter", "year" — got /);
+      assert.throws(() => checkTile('index.flatSeries', 'by_tile', bad),
+        /index\.flatSeries 'by_tile' takes a tile: "day", "week", "month", "quarter", "year" — got /);
     }
   });
 
@@ -432,7 +435,7 @@ describe('the places a series index files an event', () => {
 
 // ── The series index ─────────────────────────────────────────────────────────
 
-describe('index.series — its keys', () => {
+describe('index.flatSeries — its keys', () => {
   const scheduled = (start: string | null, end: string | null): Job => decodeJob(encodeJob({
     press: 'P-1001', crews: new SortedSet(['north', 'south'], keyOrder), state: 'confirmed',
     start: start === null ? none : some(at(start)), end: end === null ? none : some(at(end)), title: 'Brochure run',
@@ -487,7 +490,7 @@ describe('index.series — its keys', () => {
   });
 });
 
-describe('index.series — its declaration', () => {
+describe('index.flatSeries — its declaration', () => {
   it('types its key, its fields and its projection from the spec, and carries its fields and tile', () => {
     const def = jobSeries('jobs_by_state_press_week', { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
     const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; key: typeof StringType; level: typeof RecordLevelType; tile: typeof DateTimeType }> = def.keyType;
@@ -620,7 +623,7 @@ describe('index.series — its declaration', () => {
   it('in time order, its reader gives a window\'s events on every press under its leading fields, each once (#1710)', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
-      indexes: (index) => ({ jobs_by_state_week: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }) }),
+      indexes: (index) => ({ jobs_by_state_week: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }) }),
     });
     const series = indexInput(rec.indexes.jobs_by_state_week);
     const events = East.compile(East.function([series.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, state, from, to) =>
@@ -675,9 +678,9 @@ describe('index.series — its declaration', () => {
     const machines = record('machines', MachinesType, {
       initial: new Map(),
       indexes: (index) => ({
-        machines_in_time: index.nested({ collections: { jobs: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'week' }),
-        machines_by_site: index.series({ key: 'site', from: 'start', to: 'end', tile: 'week' }),
-        stood_by_site: index.series({ key: 'site', from: 'start', to: 'end', tile: 'week' }, {
+        machines_in_time: index.nestedSeries({ collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'week' }),
+        machines_by_site: index.flatSeries({ key: 'site', from: 'start', to: 'end', tile: 'week' }),
+        stood_by_site: index.flatSeries({ key: 'site', from: 'start', to: 'end', tile: 'week' }, {
           value: East.function([StringType, Machine], Stood, (_$, _key, machine) => ({ site: machine.site, start: machine.start, end: machine.end })),
         }),
       }),
@@ -711,7 +714,7 @@ describe('index.series — its declaration', () => {
     it('an order that is neither by key nor by time, naming the two; and an order on a summary, which is filed by key', () => {
       // @ts-expect-error — an order is 'key' or 'time'
       assert.throws(() => jobSeries('by_row', { key: 'press', from: 'start', to: 'end', tile: 'week', order: 'row' }),
-        /e3\.record 'jobs': index\.series 'by_row' order is 'key' — a key's events together, .* — or 'time' — a tile's events together in their keys' order, .* — not "row"/);
+        /e3\.record 'jobs': index\.flatSeries 'by_row' order is 'key' — a key's events together, .* — or 'time' — a tile's events together in their keys' order, .* — not "row"/);
       // @ts-expect-error — a summary index is filed by key
       assert.throws(() => jobSummary('totals_in_time', { key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
         /e3\.record 'jobs': index\.summary 'totals_in_time' takes on, key, from, to, tile, not order — a summary index is filed by key, a key's tiles together: an order is a series index's/);
@@ -721,9 +724,9 @@ describe('index.series — its declaration', () => {
       // Led by its own start, a series' entries of one tile on a block of keys
       // are a range for each instant an event starts at, never one range.
       assert.throws(() => jobSeries('led_by_start', { on: ['start'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
-        /e3\.record 'jobs': index\.series 'led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
+        /e3\.record 'jobs': index\.flatSeries 'led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
       assert.throws(() => jobSeries('led_by_end', { on: ['state', 'end'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
-        /e3\.record 'jobs': index\.series 'led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
+        /e3\.record 'jobs': index\.flatSeries 'led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
       assert.throws(() => jobSummary('totals_led_by_start', { on: ['start'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
         /e3\.record 'jobs': index\.summary 'totals_led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
     });
@@ -732,22 +735,22 @@ describe('index.series — its declaration', () => {
       const spec = { key: 'press', from: 'start', to: 'end', tile: 'week' } as const;
       const holds = /a series index's value is a struct holding the event's 'start' and 'end', as the row does, which a reader tests a window by/;
       assert.throws(() => jobTiles('valued', spec, East.function([StringType, JobRow], StringType, (_$, k) => k)),
-        /e3\.record 'jobs': index\.series 'valued' value gives \.String: a series index's value is a struct holding the event's 'start' and 'end'/);
+        /e3\.record 'jobs': index\.flatSeries 'valued' value gives \.String: a series index's value is a struct holding the event's 'start' and 'end'/);
       const Ended = StructType({ title: StringType, start: OptionType(DateTimeType) });
       assert.throws(() => jobTiles('valued', spec, East.function([StringType, JobRow], Ended, (_$, _k, row) => ({ title: row.title, start: row.start }))),
-        /e3\.record 'jobs': index\.series 'valued' value gives .*, which holds no DateTime 'end': /);
+        /e3\.record 'jobs': index\.flatSeries 'valued' value gives .*, which holds no DateTime 'end': /);
       const Worded = StructType({ start: StringType, end: OptionType(DateTimeType) });
       const worded = () => jobTiles('valued', spec, East.function([StringType, JobRow], Worded, (_$, _k, row) => ({ start: row.title, end: row.end })));
       assert.throws(worded, /which holds no DateTime 'start': /);
       assert.throws(worded, holds);
       assert.throws(() => jobTiles('valued', spec, East.function([StringType], JobTile, (_$, k) => ({ press: k, title: k, start: none, end: none }))),
-        /e3\.record 'jobs': index\.series 'valued' 'value' projection must take the record's entry/);
+        /e3\.record 'jobs': index\.flatSeries 'valued' 'value' projection must take the record's entry/);
       // @ts-expect-error — a series index's value is an option beside its spec
-      assert.throws(() => jobSeries('valued', { ...spec, value: tileOf }), /a series index's value is an option beside these: index\.series\(\{ … \}, \{ value \}\)/);
+      assert.throws(() => jobSeries('valued', { ...spec, value: tileOf }), /a series index's value is an option beside these: index\.flatSeries\(\{ … \}, \{ value \}\)/);
       assert.throws(() => record('jobs', JobsType, {
         // @ts-expect-error — a series index takes a value and a runner
-        indexes: (index) => ({ valued: index.series(spec, { values: tileOf }) }),
-      }), /e3\.record 'jobs': index\.series 'valued' takes value and runner, not values/);
+        indexes: (index) => ({ valued: index.flatSeries(spec, { values: tileOf }) }),
+      }), /e3\.record 'jobs': index\.flatSeries 'valued' takes value and runner, not values/);
     });
 
     it('the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
@@ -756,21 +759,21 @@ describe('index.series — its declaration', () => {
       const named = record('named', DictType(StringType, Named), {
         initial: new Map(),
         indexes: (index) => ({
-          named_tile: index.series({ on: ['__tile', 'tile', 'key'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
+          named_tile: index.flatSeries({ on: ['__tile', 'tile', 'key'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
         }),
       });
       const byNamed = named.indexes.named_tile;
       assert.equal(printType(byNamed.keyType),
         printType(StructType({ on: StructType({ __tile: IntegerType, tile: StringType, key: StringType }), key: StringType, level: RecordLevelType, tile: DateTimeType })));
-      assert.throws(() => jobSeries('primary', { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.record 'jobs': index\.series cannot be named 'primary'/);
+      assert.throws(() => jobSeries('primary', { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.record 'jobs': index\.flatSeries cannot be named 'primary'/);
       assert.throws(() => jobSeries('by tile', { key: 'press', from: 'start', to: 'end', tile: 'day' }), /must be an identifier/);
     });
   });
 });
 
-// ── The summary index ────────────────────────────────────────────────────────
+// ── The summary index, and the record's totals ───────────────────────────────
 
-describe('index.summary — its contributions and declaration', () => {
+describe('index.summary and index.totals — their contributions and declarations', () => {
   const scheduled = (start: string | null, end: string | null): Job => decodeJob(encodeJob({
     press: 'P-1001', crews: new SortedSet(['north', 'south'], keyOrder), state: 'confirmed',
     start: start === null ? none : some(at(start)), end: end === null ? none : some(at(end)), title: 'Brochure run',
@@ -828,9 +831,9 @@ describe('index.summary — its contributions and declaration', () => {
     assert.throws(() => jobSummary('primary', { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.record 'jobs': index\.summary cannot be named 'primary'/);
   });
 
-  it('with no key, keeps the record\'s totals a tile: an event counted once under each tile it touches, under each combination of its leading values (#1732)', () => {
-    const def = jobSummary('jobs_week_totals', { from: 'start', to: 'end', tile: 'week' });
-    const byCrew = jobSummary('jobs_by_crew_week_totals', { on: ['crews'], from: 'start', to: 'end', tile: 'week' });
+  it('index.totals keeps the record\'s totals a tile: an event counted once under each tile it touches, under each combination of its leading values (#1732)', () => {
+    const def = jobTotals('jobs_week_totals', { from: 'start', to: 'end', tile: 'week' });
+    const byCrew = jobTotals('jobs_by_crew_week_totals', { on: ['crews'], from: 'start', to: 'end', tile: 'week' });
     const contribute = East.compile(functionAt(def.keyFn, [StringType, JobRow], DictType(def.keyType, RecordSummaryTotalsType)), []);
     const contributeByCrew = East.compile(functionAt(byCrew.keyFn, [StringType, JobRow], DictType(byCrew.keyType, RecordSummaryTotalsType)), []);
     const contributions = DictType(def.keyType, RecordSummaryTotalsType);
@@ -855,8 +858,8 @@ describe('index.summary — its contributions and declaration', () => {
     assertEast(contributions, contribute('W-0001', scheduled(null, null)), new SortedMap([], order), 'not yet scheduled');
   });
 
-  it('with no key, types its key { on, tile } and declares no key (#1732)', () => {
-    const def = jobSummary('jobs_by_state_month_totals', { on: ['state'], from: 'start', to: 'end', tile: 'month' });
+  it('index.totals types its key { on, tile } and declares no key (#1732)', () => {
+    const def = jobTotals('jobs_by_state_month_totals', { on: ['state'], from: 'start', to: 'end', tile: 'month' });
     const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType }> = def.keyType;
     assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType })),
       'its leading fields under on, then the tile');
@@ -866,7 +869,7 @@ describe('index.summary — its contributions and declaration', () => {
     assert.equal(key, undefined);
     assert.equal(printType(def.valueType), printType(RecordSummaryTotalsType), 'its value is its totals');
     assert.equal(def.multi, true, 'a row touches several tiles');
-    const unled = jobSummary('jobs_month_totals', { from: 'start', to: 'end', tile: 'month' });
+    const unled = jobTotals('jobs_month_totals', { from: 'start', to: 'end', tile: 'month' });
     assert.equal(printType(unled.keyType), printType(StructType({ on: StructType({}), tile: DateTimeType })), 'led by no field: its on the empty struct');
     // The declared types, as the constructor's spec types them.
     type Spec = { on: ['crews']; from: 'start'; to: 'end'; tile: 'day' };
@@ -875,24 +878,36 @@ describe('index.summary — its contributions and declaration', () => {
     assert.ok(totals.type === 'Struct' && on.length === 1);
   });
 
-  it('with no key, refuses an order and a value as one with a key does; and a series index takes a key (#1732)', () => {
-    // @ts-expect-error — a summary index keeps a total a tile, and takes no order
-    assert.throws(() => jobSummary('totals_in_time', { from: 'start', to: 'end', tile: 'week', order: 'time' }),
-      /e3\.record 'jobs': index\.summary 'totals_in_time' takes on, key, from, to, tile, not order — a summary index with no key keeps a total a tile: an order is a series index's/);
-    // @ts-expect-error — a summary index holds its totals, and takes no value
-    assert.throws(() => jobSummary('valued', { from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
-      /a summary index holds its totals, so it takes no value/);
-    assert.throws(() => jobSummary('totals_led_by_end', { on: ['end'], from: 'start', to: 'end', tile: 'week' }),
-      /e3\.record 'jobs': index\.summary 'totals_led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
-    // @ts-expect-error — a series index files each event by the key it is on
-    assert.throws(() => jobSeries('keyless', { from: 'start', to: 'end', tile: 'week' }),
-      /e3\.record 'jobs': index\.series 'keyless' takes a key — the field naming what an event is on, which a series index files each event by/);
+  it('index.totals refuses an order and a value as a summary index does, and what a series index refuses (#1732)', () => {
+    // @ts-expect-error — the record's totals are a total a tile, and take no order
+    assert.throws(() => jobTotals('totals_in_time', { from: 'start', to: 'end', tile: 'week', order: 'time' }),
+      /e3\.record 'jobs': index\.totals 'totals_in_time' takes on, from, to, tile, not order — the record's totals are a total a tile: an order is a series index's/);
+    // @ts-expect-error — the index holds the record's totals, and takes no value
+    assert.throws(() => jobTotals('valued', { from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
+      /e3\.record 'jobs': index\.totals 'valued' takes on, from, to, tile, not value — the index holds the record's totals, so it takes no value/);
+    assert.throws(() => jobTotals('totals_led_by_end', { on: ['end'], from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.totals 'totals_led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
+    // @ts-expect-error — a tile is one of the five
+    assert.throws(() => jobTotals('hourly', { from: 'start', to: 'end', tile: 'hour' }), /e3\.record 'jobs': index\.totals 'hourly' takes a tile/);
+    assert.throws(() => jobTotals('primary', { from: 'start', to: 'end', tile: 'day' }), /e3\.record 'jobs': index\.totals cannot be named 'primary'/);
   });
 
-  it('with no key, its reader gives each tile\'s totals over a window under its leading fields, and refuses a key (#1732)', () => {
+  it('a key tells the two apart: index.totals refuses one, naming index.summary; index.summary and index.flatSeries take one, naming index.totals (#1732)', () => {
+    // @ts-expect-error — the record's totals are kept under no key: a key's totals are a summary index's
+    assert.throws(() => jobTotals('totals_by_press', { key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.totals 'totals_by_press' takes on, from, to, tile, not key — the record's totals are kept a tile, whatever each event is on: a key's totals a tile are index\.summary\(\{ key, from, to, tile \}\)/);
+    // @ts-expect-error — a summary index keeps a total a tile under a key
+    assert.throws(() => jobSummary('keyless', { from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.summary 'keyless' takes a key — the field naming what an event is on, which a summary index keeps a total a tile under: key: '…'; the record's totals a tile, under no key, are index\.totals\(\{ from, to, tile \}\)/);
+    // @ts-expect-error — a series index files each event by the key it is on
+    assert.throws(() => jobSeries('keyless', { from: 'start', to: 'end', tile: 'week' }),
+      /e3\.record 'jobs': index\.flatSeries 'keyless' takes a key — the field naming what an event is on, which a series index files each event by: key: '…'; the record's totals a tile, under no key, are index\.totals\(\{ from, to, tile \}\)/);
+  });
+
+  it('index.totals\' reader gives each tile\'s totals over a window under its leading fields, and refuses a key (#1732)', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
-      indexes: (index) => ({ jobs_by_state_week_totals: index.summary({ on: ['state'], from: 'start', to: 'end', tile: 'week' }) }),
+      indexes: (index) => ({ jobs_by_state_week_totals: index.totals({ on: ['state'], from: 'start', to: 'end', tile: 'week' }) }),
     });
     const def = rec.indexes.jobs_by_state_week_totals;
     const totals = indexInput(def);
@@ -949,12 +964,12 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
       indexes: (index) => ({
-        jobs_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
-        jobs_by_state_press_week: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
-        jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
+        jobs_by_press_day: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
+        jobs_by_state_press_week: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_crew_press_month: index.flatSeries({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
         // In time order, the tile before the key (#1710): the same filings, so the same writes, at other places.
-        jobs_by_state_week_in_time: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
-        job_tiles_by_crew_day_in_time: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day', order: 'time' }, { value: tileOf }),
+        jobs_by_state_week_in_time: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+        job_tiles_by_crew_day_in_time: index.flatSeries({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day', order: 'time' }, { value: tileOf }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
@@ -966,9 +981,9 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
       indexes: (index) => ({
-        job_tiles_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, { value: tileOf }),
-        job_tiles_by_crew_press_day: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day' }, { value: tileOf }),
-        job_rows_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        job_tiles_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, { value: tileOf }),
+        job_tiles_by_crew_press_day: index.flatSeries({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'day' }, { value: tileOf }),
+        job_rows_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
@@ -993,9 +1008,9 @@ describe('series and summary indexes — through a write and a rebuild', () => {
         jobs_by_press_day_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
         jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         jobs_by_crew_press_month_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
-        // With no key, the record's totals a tile (#1732): kept as a keyed summary's are.
-        jobs_week_totals: index.summary({ from: 'start', to: 'end', tile: 'week' }),
-        jobs_by_crew_month_totals: index.summary({ on: ['crews'], from: 'start', to: 'end', tile: 'month' }),
+        // The record's totals a tile (#1732): kept as a summary index's are.
+        jobs_week_totals: index.totals({ from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_crew_month_totals: index.totals({ on: ['crews'], from: 'start', to: 'end', tile: 'month' }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
@@ -1039,7 +1054,7 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     const rec = record('jobs', JobsType, {
       initial: new Map(),
       indexes: (index) => ({
-        jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       }),
       mutations: (mutation) => ({ patch: mutation.patch() }),

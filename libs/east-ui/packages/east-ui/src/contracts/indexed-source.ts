@@ -75,7 +75,7 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * None where the binding lists neither.
  *
  * `copies` is, for each series index the binding lists whose entries are
- * copies of its events (e3's `index.series(spec, { value })`, #1725), the
+ * copies of its events (e3's `index.flatSeries(spec, { value })`, #1725), the
  * index's value function, `(K, R) → V`, by the index's name, opaque here as
  * `maintenance` is: what the index holds of a row as its copy, which a page
  * makes of a drafted row to draw it as it will be once saved. None where the

@@ -50,7 +50,7 @@ const plans = record('plans', Plans, {
       { value: East.function([StringType, Plan], StringType, ($, _k, v) => v.title) },
     ),
     by_time: index.interval({ on: ['status'], from: 'start', to: 'end' }),
-    by_status_week: index.series({ key: 'status', from: 'start', to: 'end', tile: 'week' }),
+    by_status_week: index.flatSeries({ key: 'status', from: 'start', to: 'end', tile: 'week' }),
     by_status_month: index.summary({ key: 'status', from: 'start', to: 'end', tile: 'month' }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -73,8 +73,8 @@ const machines = record('machines', Machines, {
   initial: new Map(),
   indexes: (index) => ({
     by_site: index.on(['site']),
-    in_time: index.nested({
-      collections: { jobs: index.nested.items({ from: 'start', to: 'end' }), load: index.nested.values() },
+    in_time: index.nestedSeries({
+      collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() },
       tile: 'week',
       summary: 'month',
     }),

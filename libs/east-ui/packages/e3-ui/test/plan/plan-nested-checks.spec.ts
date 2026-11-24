@@ -113,7 +113,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             decisions: Plan.items("notes", { at: "at" }, () => ({ applied: false })),
         })], machines,
         'Plan: series "presses" reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it: ' +
-            'collections: { notes: index.nested.items({ at: "at" }) }');
+            'collections: { notes: index.nestedSeries.items({ at: "at" }) }');
         refusedBoth([Plan.series.span(Machine, {
             key: "presses", title: "Presses", label: (m) => m.name,
             runs: Plan.items("jobs", { from: "planned_start", to: "planned_end" }, (job) => ({ label: job.product, state: "confirmed" })),
@@ -159,7 +159,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
     test("refuses a subtotal by a rollup the index does not keep, of values drawn as another number, and at a resolution finer than its tile", () => {
         refusedBoth(ledgerGroup("mean", "mean"), ledgers,
             'Plan: series "readings" subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: ' +
-            'index.nested.values({ rollup: ["sum", "mean"] }), or subtotal it by sum');
+            'index.nestedSeries.values({ rollup: ["sum", "mean"] }), or subtotal it by sum');
         refusedBoth(ledgerGroup("sum", "sum", true), ledgers,
             'Plan: series "readings" subtotals "measures.readings", and its cells draw another number than each value of it — e3 keeps the ' +
             "subtotals of the values as stored: draw value: some(v), and show it another way through format");
@@ -184,7 +184,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
         admittedBoth(ledgerTable("sum"), ledgers);
         refusedBoth(ledgerTable("mean"), ledgers,
             'Plan: series "readings" subtotals "measures.readings" by { fold: "sum", aggregate: "mean" }, and "ledgers_in_time" keeps it by sum — add ' +
-            'the rollup: index.nested.values({ rollup: ["sum", { fold: "sum", aggregate: "mean" }] }), or subtotal it by sum');
+            'the rollup: index.nestedSeries.values({ rollup: ["sum", { fold: "sum", aggregate: "mean" }] }), or subtotal it by sum');
     });
 
     test("admits a span rolling up runs the index files under each parent, and refuses one it files under none", () => {
@@ -201,8 +201,8 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             initial: new SortedMap(undefined, compareFor(StringType)),
             indexes: (index) => ({
                 checks_works_by_name: index.on(["name"]),
-                checks_works_in_time: index.nested({
-                    collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }), parts: index.nested.recursive() }) },
+                checks_works_in_time: index.nestedSeries({
+                    collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }), parts: index.nestedSeries.recursive() }) },
                     tile: "week", summary: "month",
                 }),
             }),
@@ -215,7 +215,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             })]),
         })], () => Data.bindPaged(works, { indexes: ["checks_works_by_name", "checks_works_in_time"] }),
         'Plan: series "parts" rolls its children\'s runs up by union, and "checks_works_in_time" files "parts.jobs" under no parent — declare it ' +
-            'index.nested.items({ from: "start", to: "end" }, { rollup: true })');
+            'index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true })');
     });
 
     /** The machines' jobs by their times. */
@@ -236,18 +236,18 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             runs: (m) => m.jobs.toArray((_$, job, id) => Plan.run({ key: id, start: job.start, end: job.end, label: job.product, state: variant("confirmed", null) })),
         })], () => Data.bindPaged(plain, { indexes: ["checks_plain_by_name"] }),
         'Plan: series "presses" reads "jobs" in a function (runs), and its rows are paged — a row\'s collections are read a cell at a time: give ' +
-            'runs as Plan.items("jobs", { from, to }, (item) => ({ … })), and declare index.nested({ collections: { jobs: ' +
-            "index.nested.items({ from, to }) }, tile, summary }) and list it in Data.bindPaged(record, { indexes })");
+            'runs as Plan.items("jobs", { from, to }, (item) => ({ … })), and declare index.nestedSeries({ collections: { jobs: ' +
+            "index.nestedSeries.items({ from, to }) }, tile, summary }) and list it in Data.bindPaged(record, { indexes })");
         refusedBoth(jobsSpan(), () => Data.bindPaged(plain, { indexes: ["checks_plain_by_name"] }),
             'Plan: series "presses" reads "jobs" a cell at a time, and the rows source lists no nested series index — declare ' +
-            'index.nested({ collections: { jobs: index.nested.items({ from: "start", to: "end" }) }, tile, summary }) ' +
+            'index.nestedSeries({ collections: { jobs: index.nestedSeries.items({ from: "start", to: "end" }) }, tile, summary }) ' +
             "and list it in Data.bindPaged(record, { indexes })");
         const untotalled = e3.record("checks_untotalled", ex.NestedMachines, {
             initial: new SortedMap(undefined, compareFor(StringType)),
             indexes: (index) => ({
                 checks_untotalled_by_name: index.on(["name"]),
-                checks_untotalled_in_time: index.nested({
-                    collections: { jobs: index.nested.items({ from: "start", to: "end" }) }, tile: "week",
+                checks_untotalled_in_time: index.nestedSeries({
+                    collections: { jobs: index.nestedSeries.items({ from: "start", to: "end" }) }, tile: "week",
                 }),
             }),
         });

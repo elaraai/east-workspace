@@ -112,7 +112,7 @@ export const planOperations = e3.record("plan_operations", Operations, {
         // The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it.
         plan_operations_by_time: index.interval({ from: "start", to: "end" }),
         // The operations by their work order and by time, each filed once at the level its length fits: a cell is fifty orders' operations over a level's run (#1433).
-        plan_operations_by_work_week: index.series({
+        plan_operations_by_work_week: index.flatSeries({
             key: "work", from: "start", to: "end", tile: "week",
         }),
         // How busy each work order is, a month at a time: what the canvas shades where the operations in view are too many to draw.
@@ -121,11 +121,11 @@ export const planOperations = e3.record("plan_operations", Operations, {
         }),
         // The operations' totals a day, a week, a month, a quarter and a year (#1732): how many of them touch each, under no work order —
         // what the horizon's bars read at the period that fits the strip, never counting operations.
-        plan_operations_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_operations_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_operations_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_operations_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_operations_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_operations_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_operations_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_operations_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_operations_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_operations_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The operations' patch door: a canvas's Save commits through it, by the operation's key.
@@ -156,7 +156,7 @@ export const planRecordIndexes = example({
     keywords: [
         "Plan", "Schedule", "Plan.series.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
         "rows source", "paged", "Data.bindPaged", "index.on", "interval index", "series index", "summary index",
-        "index.interval", "index.series", "index.summary", "cell", "window", "range", "large record",
+        "index.interval", "index.flatSeries", "index.summary", "cell", "window", "range", "large record",
         "million rows", "work orders", "operations", "Record.bind", "entries", "editing", "Save", "#1344", "#1039",
     ],
     description: "The Sheet's 50,000 work orders on a Plan — its rows, a Plan.series.resources over the rail's `rows` source, narrowed over their indexes: Status with a Due range, Job, Quantity, Urgent and Tag, the presets and the search, Due a field of the rail the viewer sets — and their operations a record of their own placed on them, read a cell at a time: the `operation` source lists their interval, series and summary indexes, its range the canvas's window, so the orders' rows stay as the dates move and only the cells around the rows in view are read; a moved operation is a draft of its kind's session, saved through the operations' patch door by its key",

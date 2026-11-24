@@ -112,7 +112,7 @@ describe("the paged seam the Calendar reads its presses through (#1424)", () => 
 
 describe("a source's series and summary indexes, refused as the Calendar is evaluated (#1424)", () => {
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
+    const series = String.raw`index\.flatSeries\(\{ key: "press", from: "start", to: "end", tile: "week" \}\)`;
     const summary = String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\)`;
     const paged = String.raw`, and the kind is placed on resources\.presses, paged — a paged kind's events are read a cell at a time`;
 

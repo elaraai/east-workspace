@@ -1336,7 +1336,7 @@ on the child row its event names.
   DateTime, which is a values collection: a variant, a number, a String. A
   resources series over it names the type (`keyType`), and a kind's `child`
   field holds a value of it. Beside a nested series index the record declares
-  the rows, `index.nested.rows({ … })` — `rows({})` for rows that nest nothing
+  the rows, `index.nestedSeries.rows({ … })` — `rows({})` for rows that nest nothing
   of their own — and e3 holds each key in its own type (e3's
   `reference/record-indexes.md`).
 - **Where a kind with `child` lands.** Only on the rows `child.of` names: its

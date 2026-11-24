@@ -57,9 +57,9 @@ const jobs = record('jobs', JobsType, {
       { value: East.function([StringType, JobRow], StringType, (_$, _key, job) => job.title) }),
     in_time: index.interval({ from: 'start', to: 'end' }),
     in_time_by_state: index.interval({ on: ['state'], from: 'start', to: 'end' }),
-    press_weeks: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
-    press_days_by_state: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
-    press_quarters: index.series({ key: 'press', from: 'start', to: 'end', tile: 'quarter' }),
+    press_weeks: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    press_days_by_state: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }),
+    press_quarters: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'quarter' }),
     press_load: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
     press_load_by_state: index.summary({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'month' }),
   }),
@@ -73,7 +73,7 @@ const shifts = record('shifts', ShiftsType, {
   initial: new Map(),
   indexes: (index) => ({
     shifts_in_time: index.interval({ from: 'start', to: 'end' }),
-    shifts_by_press: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
+    shifts_by_press: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'day' }),
   }),
 });
 
@@ -829,7 +829,7 @@ describe('an entries index\'s readers', () => {
     const Machine = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
     const machines = record('machines', DictType(StringType, Machine), {
       initial: new Map(),
-      indexes: (index) => ({ machines_in_time: index.nested({ collections: { load: index.nested.values() }, tile: 'week', summary: 'month' }) }),
+      indexes: (index) => ({ machines_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week', summary: 'month' }) }),
     });
     const fleet = new SortedMap<string, ValueTypeOf<typeof Machine>>(undefined, keyOrder);
     for (let n = 0; n < 6; n++) {
@@ -873,15 +873,15 @@ type Yard = ValueTypeOf<typeof YardRow>;
 const yards = record('yards', YardsType, {
   initial: new Map(),
   indexes: (index) => ({
-    yards_in_time: index.nested({
+    yards_in_time: index.nestedSeries({
       collections: {
-        visits: index.nested.items({ from: 'start', to: 'end' }),
-        notes: index.nested.values(),
-        teams: index.nested.rows({
-          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
-          checks: index.nested.items({ at: 'at' }),
-          hours: index.nested.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
-          teams: index.nested.recursive(),
+        visits: index.nestedSeries.items({ from: 'start', to: 'end' }),
+        notes: index.nestedSeries.values(),
+        teams: index.nestedSeries.rows({
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+          checks: index.nestedSeries.items({ at: 'at' }),
+          hours: index.nestedSeries.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
+          teams: index.nestedSeries.recursive(),
         }),
       },
       tile: 'week',
@@ -1373,12 +1373,12 @@ describe('a nested series index\'s readers', () => {
     assert.throws(over((readers) => readers.items({ collection: ['visits'], from, to } as never)), /items: `row` is left out — the key of the record's row the node is in/);
     assert.throws(over((readers) => readers.items({ collection: ['visits'], row: 'Y-1', from } as never)), /items: `to` is left out — a window is \[from, to\), each a DateTime/);
     assert.throws(over((readers) => readers.subtree({ collection: ['visits'], row: 'Y-1', from, to })),
-      /^Error: e3\.index 'yards\.yards_in_time' subtree: the collection at \['visits'\] is not rolled up, so no node holds the items beneath it — declare it index\.nested\.items\(times, \{ rollup: true \}\)$/);
+      /^Error: e3\.index 'yards\.yards_in_time' subtree: the collection at \['visits'\] is not rolled up, so no node holds the items beneath it — declare it index\.nestedSeries\.items\(times, \{ rollup: true \}\)$/);
     assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'hours'], row: 'Y-1', from, to })), /subtreeTotals: the collection at \['teams', 'hours'\] is not rolled up/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'mean', from, to })),
       /^Error: e3\.index 'yards\.yards_in_time' subtotals: the collection at \['teams', 'hours'\] keeps no subtotal by mean — it keeps sum, \{ fold: 'last', aggregate: 'max' \}$/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'jobs'], row: 'Y-1', rollup: 'sum', from, to })),
-      /subtotals: the collection at \['teams', 'jobs'\] keeps no subtotal by sum — it keeps none: declare index\.nested\.values\(\{ rollup \}\)/);
+      /subtotals: the collection at \['teams', 'jobs'\] keeps no subtotal by sum — it keeps none: declare index\.nestedSeries\.values\(\{ rollup \}\)/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'median' as never, from, to })),
       /subtotals: the collection at \['teams', 'hours'\] rolls up by "median", which is no rollup/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'sum', level: 'day', from, to })),
@@ -1393,13 +1393,13 @@ describe('a nested series index\'s readers', () => {
     const Shed = StructType({ name: StringType, visits: JobsType });
     const sheds = record('sheds', DictType(StringType, Shed), {
       initial: new Map(),
-      indexes: (index) => ({ sheds_in_time: index.nested({ collections: { visits: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'day' }) }),
+      indexes: (index) => ({ sheds_in_time: index.nestedSeries({ collections: { visits: index.nestedSeries.items({ from: 'start', to: 'end' }) }, tile: 'day' }) }),
     });
     const shedsInTime = index(sheds.indexes.sheds_in_time);
     assert.throws(() => East.function([shedsInTime.type], NullType, (_$, entries) => {
       shedsInTime.read(entries).totals({ collection: ['visits'], row: 'S-1', from, to });
       return null;
-    }), /^Error: e3\.index 'sheds\.sheds_in_time' totals: the index keeps no totals — declare the tile they are kept by, as index\.nested\(\{ …, summary: 'month' \}\)$/);
+    }), /^Error: e3\.index 'sheds\.sheds_in_time' totals: the index keeps no totals — declare the tile they are kept by, as index\.nestedSeries\(\{ …, summary: 'month' \}\)$/);
   });
 
   it('arrives on the body\'s parameter in a function with a spec', () => {

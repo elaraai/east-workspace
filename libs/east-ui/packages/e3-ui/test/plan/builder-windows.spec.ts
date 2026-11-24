@@ -195,7 +195,7 @@ describe("the windows' types and their refusals", () => {
         // The presses are the rows the jobs land on.
         const presses = [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })];
         const pages = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowPresses));
-        const declared = String.raw`index\.series\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
+        const declared = String.raw`index\.flatSeries\(\{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
             String.raw`index\.summary\(\{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
         const source = String.raw`a paged kind's events are read a cell at a time, through the kind's source of the slice: `;
         const named = String.raw`name a source after "job", Data\.bindPaged\(record, \{ indexes \}\), listing `;

@@ -152,8 +152,8 @@ export const scaleHalls = e3.record("scale_halls", Halls, {
         scale_halls_by_name: index.on(["name"]),
         // Declared only when asked: a record that declares one lists it beside every other index it pages by.
         ...(NESTED ? {
-            scale_halls_in_time: index.nested({
-                collections: { presses: index.nested.rows({ tasks: index.nested.rows({}) }) },
+            scale_halls_in_time: index.nestedSeries({
+                collections: { presses: index.nestedSeries.rows({ tasks: index.nestedSeries.rows({}) }) },
                 tile: "day",
                 summary: "month",
             }),
@@ -165,9 +165,9 @@ export const scaleJobs = e3.record("scale_jobs", Jobs, {
     initial: jobs(),
     indexes: (index) => ({
         scale_jobs_by_time: index.interval({ from: "start", to: "end" }),
-        scale_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        scale_jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
         // The same jobs a week at a time under their hall, in their presses' order (#1710).
-        scale_jobs_by_hall_week: index.series({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        scale_jobs_by_hall_week: index.flatSeries({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         scale_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),

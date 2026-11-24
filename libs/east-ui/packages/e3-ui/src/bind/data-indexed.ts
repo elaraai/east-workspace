@@ -183,7 +183,7 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * `keys` index must have one logical field so exact membership includes each
  * primary row once. Types come from the index the record declares under each
  * name. The indexes carry one projection, or each the whole row or nothing
- * (D29): an area index (`index.area`) and a series index (`index.series`,
+ * (D29): an area index (`index.area`) and a series index (`index.flatSeries`,
  * #1039) carry their rows, and are read without a join, beside indexes that
  * carry nothing, read with one; a series index declared with a `value`
  * carries a copy of each event, what the value gives of its row, in the row's
@@ -197,7 +197,7 @@ type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexe
  * that field emptied, read without a join, and one with a value of its own is
  * bound apart.
  * @property totals - The record's totals a tile a horizon's bars read (#1732):
- * the names of the record's summaries with no key, `index.summary({ from, to,
+ * the names of the record's summaries with no key, `index.totals({ from, to,
  * tile })`, listed apart from the indexes rows are read through, as a source
  * names what plays that part — never inferred from `indexes`. Each is read
  * over the source's range, under its narrowing: a summary with a key, one
@@ -385,7 +385,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         if (index.summary === undefined || index.summary.key !== undefined) {
             const is = index.summary === undefined ? "is no summary" : `is a summary by '${index.summary.key}'`;
             throw new Error(`Data.bindPaged: '${index.name}' is listed in totals, and ${is} — the record's totals a tile are a summary with no key: ` +
-                "index.summary({ from, to, tile })");
+                "index.totals({ from, to, tile })");
         }
     }
     // Beside a record's nested series index, its other indexes carry each row without its collections (#1434, #1435);

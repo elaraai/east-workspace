@@ -369,7 +369,7 @@ export type KeyWindow<IK> = TimeWindow & {
 };
 
 /**
- * A series index's readers (`index.series`).
+ * A series index's readers (`index.flatSeries`).
  *
  * @typeParam IK - The index's key type, `{ on, key, level, tile }`
  * @typeParam P - What the index carries: the row
@@ -392,7 +392,7 @@ export interface SeriesReaders<IK extends EastType = EastType, P extends EastTyp
 }
 
 /**
- * The readers of a series index filed in time order (`index.series`, `order:
+ * The readers of a series index filed in time order (`index.flatSeries`, `order:
  * 'time'`, #1710).
  *
  * @typeParam IK - The index's key type, `{ on, level, tile, key, past }`
@@ -943,13 +943,13 @@ export type NestedUnderType = StructType<{ path: ReturnType<typeof NestedPathTyp
  */
 export function NestedUnderType(index: Pick<RecordIndexDef, 'name' | 'nested' | 'keyType'>): NestedUnderType {
   if (index.nested === undefined) {
-    throw new Error(`NestedUnderType: '${index.name}' is no nested series index — a subtree's items are an index.nested's, of a collection rolled up`);
+    throw new Error(`NestedUnderType: '${index.name}' is no nested series index — a subtree's items are an index.nestedSeries's, of a collection rolled up`);
   }
   return (index.keyType as StructType<{ item: VariantType<{ under: NestedUnderType }> }>).fields.item.cases.under;
 }
 
 /**
- * A nested series index's readers (`index.nested`): one for each run the
+ * A nested series index's readers (`index.nestedSeries`): one for each run the
  * index files of a node.
  *
  * @typeParam K - The record's key type
@@ -1034,7 +1034,7 @@ function nestedDeclared(def: RecordIndexDef): NestedDeclaration {
   let decl = NESTED_DECLARED.get(def);
   if (decl === undefined) {
     const rowType = (def.record.type as EastType & { readonly value: EastType }).value;
-    decl = checkNested('index.nested', def.name, rowType, def.nested!.collections);
+    decl = checkNested('index.nestedSeries', def.name, rowType, def.nested!.collections);
     NESTED_DECLARED.set(def, decl);
   }
   return decl;
@@ -1166,7 +1166,7 @@ function nestedReaders(entries: Entries): NestedReaders {
 
   const summary = (reader: string): RecordTile => {
     if (nested.summary === undefined) {
-      throw new Error(`${entries.name} ${reader}: the index keeps no totals — declare the tile they are kept by, as index.nested({ …, summary: 'month' })`);
+      throw new Error(`${entries.name} ${reader}: the index keeps no totals — declare the tile they are kept by, as index.nestedSeries({ …, summary: 'month' })`);
     }
     return nested.summary;
   };
@@ -1174,7 +1174,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     if (collection.kind !== 'items' || !collection.rollup) {
       throw new Error(
         `${entries.name} ${reader}: the collection at ${placeWords(collection)} is not rolled up, so no node holds ` +
-        `the items beneath it — declare it index.nested.items(times, { rollup: true })`,
+        `the items beneath it — declare it index.nestedSeries.items(times, { rollup: true })`,
       );
     }
   };
@@ -1198,7 +1198,7 @@ function nestedReaders(entries: Entries): NestedReaders {
       const rollup = rollupOf(`${entries.name} subtotals: the collection at ${placeWords(collection)}`, given.rollup);
       if (!kept.some((declared) => sameRollup(declared, rollup))) {
         const names = kept.length === 0
-          ? 'it keeps none: declare index.nested.values({ rollup }) under rows(…) or beside recursive()'
+          ? 'it keeps none: declare index.nestedSeries.values({ rollup }) under rows(…) or beside recursive()'
           : `it keeps ${kept.map((declared) => rollupWords(declared)).join(', ')}`;
         throw new Error(`${entries.name} subtotals: the collection at ${placeWords(collection)} keeps no subtotal by ${rollupWords(rollup)} — ${names}`);
       }

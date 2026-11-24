@@ -10,11 +10,11 @@
  * The record holds print jobs, each on a press that stands in a hall. Two
  * series indexes file the same jobs:
  *
- * - **by press** (`index.series({ key: 'press' })`): a press's jobs over any
+ * - **by press** (`index.flatSeries({ key: 'press' })`): a press's jobs over any
  *   span are one range a level, so a view of a hundred presses is a hundred
  *   ranges a level, each in the part of the index that press's whole history
  *   lies in;
- * - **by hall** (`index.series({ key: 'hall' })`): a hall's jobs over a span
+ * - **by hall** (`index.flatSeries({ key: 'hall' })`): a hall's jobs over a span
  *   are one range a level, across every press in it, so the same view is one
  *   range a level for each hall in view, and the jobs of a window lie together.
  *
@@ -23,7 +23,7 @@
  * carrying its job whole. The spec holds the two orders to each other — the
  * jobs of the presses in view are the same jobs either way — and counts what
  * each asks. A third series index, by press again, carries of each job what a
- * tile draws and no more (`index.series(spec, { value })`, #1710): the same
+ * tile draws and no more (`index.flatSeries(spec, { value })`, #1710): the same
  * entries, each a part of its job. A fourth index files those tiles in another
  * order — by hall, then the four weeks a job starts in, then press
  * (`index.key`) — so the jobs that start in a window on a run of neighbouring
@@ -33,7 +33,7 @@
  * it touches, read whole. The blocks are filed at four lengths — a day, a week,
  * four weeks and thirteen — and a screen at a resolution, a fortnight of days
  * or twelve weeks, is read through each. The series index itself takes that
- * order — `index.series({ on: ['hall'], …, order: 'time' })`, a tile's jobs
+ * order — `index.flatSeries({ on: ['hall'], …, order: 'time' })`, a tile's jobs
  * together in their presses' order — and the first view is read through it, a
  * range a hall a level a tile: the entries the index by press gives. Three summary indexes are read beside them, as a zoomed-out view
  * reads them: by press, a range a press; by press and task — a press's child
@@ -407,14 +407,14 @@ describe('a window of a record\'s events, by press and by hall', { concurrency: 
     // The record, with no first state of its own: it is seeded from a file, as a large record is.
     const record = e3.record('jobs', JobsType, {
       indexes: (index) => ({
-        [BY_PRESS]: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
-        [TILES_BY_PRESS]: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+        [BY_PRESS]: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        [TILES_BY_PRESS]: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
           value: East.function([StringType, JobType], JobTileType, (_$, _key, job) => ({
             hall: job.hall, press: job.press, task: job.task, title: job.title, start: job.start, end: job.end,
           })),
         }),
-        [BY_HALL]: index.series({ key: 'hall', from: 'start', to: 'end', tile: 'week' }),
-        [TILES_IN_TIME]: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, {
+        [BY_HALL]: index.flatSeries({ key: 'hall', from: 'start', to: 'end', tile: 'week' }),
+        [TILES_IN_TIME]: index.flatSeries({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }, {
           value: East.function([StringType, JobType], JobTileType, (_$, _key, job) => ({
             hall: job.hall, press: job.press, task: job.task, title: job.title, start: job.start, end: job.end,
           })),

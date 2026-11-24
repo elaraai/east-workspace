@@ -47,7 +47,7 @@ const jobs = record('jobs', JobsType, {
   indexes: (index) => ({
     jobs_by_press: index.on(['press']),
     jobs_titles: index.on(['press'], { value: East.function([StringType, JobType], StringType, (_$, _key, job) => job.title) }),
-    jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
     press_weeks: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -111,7 +111,7 @@ describe('e3.index', () => {
     const Machine = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
     const machines = record('machines', DictType(StringType, Machine), {
       initial: new Map(),
-      indexes: (index) => ({ machines_in_time: index.nested({ collections: { load: index.nested.values() }, tile: 'week', summary: 'month' }) }),
+      indexes: (index) => ({ machines_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week', summary: 'month' }) }),
     });
     const span = machines.indexes.machines_in_time.nested.span;
     assertType(index(span).type, DictType(StructType({ ik: span.keyType, k: NullType }), RecordSummaryTotalsType), 'a nested series index\'s span, summed as a summary is');

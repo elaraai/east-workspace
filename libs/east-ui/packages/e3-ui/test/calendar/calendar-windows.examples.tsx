@@ -23,10 +23,10 @@ import { planSeriesPresses, planWindowJobs, planWindowPresses } from "../plan/pl
 
 export const calendarWindows = example({
     inputs: [],
-    description: "A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.series`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole",
+    description: "A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`index.flatSeries`, the jobs by press and week) and a summary index (`index.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole",
     keywords: [
         "Calendar", "Schedule", "Calendar.resources", "Calendar.events", "Slice", "Slice.bindRecords", "source", "range", "window",
-        "interval", "interval index", "series", "series index", "summary", "summary index", "index.on", "index.series",
+        "interval", "interval index", "series", "series index", "summary", "summary index", "index.on", "index.flatSeries",
         "index.summary", "tile", "cell", "paged", "page", "Data.bindPaged", "backlog", "large record", "key search",
         "timeline", "scroll", "shading", "presses", "jobs", "Record.bind", "entries", "by key", "Save", "#1424",
     ],

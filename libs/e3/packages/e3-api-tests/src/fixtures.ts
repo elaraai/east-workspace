@@ -823,9 +823,9 @@ export async function createSeriesRecordPackageZip(
   const jobs = e3.record('jobs', JobsType, {
     initial: new Map(),
     indexes: (index) => ({
-      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
-      jobs_week_totals: index.summary({ from: 'start', to: 'end', tile: 'week' }),
+      jobs_week_totals: index.totals({ from: 'start', to: 'end', tile: 'week' }),
     }),
     mutations: (mutation) => ({
       seed: mutation.reduce(East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
@@ -898,8 +898,8 @@ export async function createNestedSeriesPackageZip(
   const machines = e3.record('machines', MachinesType, {
     initial: new Map(),
     indexes: (index) => ({
-      machines_in_time: index.nested({
-        collections: { jobs: index.nested.items({ from: 'start', to: 'end' }), load: index.nested.values() }, tile: 'week', summary: 'month',
+      machines_in_time: index.nestedSeries({
+        collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() }, tile: 'week', summary: 'month',
       }),
       machines_by_site: index.on(['site']),
     }),
@@ -910,8 +910,8 @@ export async function createNestedSeriesPackageZip(
   const halls = e3.record('halls', HallsType, {
     initial: new Map(),
     indexes: (index) => ({
-      halls_in_time: index.nested({
-        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      halls_in_time: index.nestedSeries({
+        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
       }),
     }),
     mutations: (mutation) => ({
@@ -921,8 +921,8 @@ export async function createNestedSeriesPackageZip(
   const assemblies = e3.record('assemblies', AssembliesType, {
     initial: new Map(),
     indexes: (index) => ({
-      assemblies_in_time: index.nested({
-        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
+      assemblies_in_time: index.nestedSeries({
+        collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
         tile: 'week',
         summary: 'month',
       }),

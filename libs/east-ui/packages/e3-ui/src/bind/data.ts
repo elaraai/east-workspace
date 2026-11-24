@@ -603,7 +603,7 @@ export const DataPagedPrimitives = {
  * A record bound with its indexes, by the names it declares them under —
  * `Data.bindPaged(record, { indexes: ["by_status", "by_due"] })` — pages its
  * rows in each index's order (#1378, #1432). Beside a record's nested series
- * index (`index.nested({ collections, tile, summary })` among its indexes,
+ * index (`index.nestedSeries({ collections, tile, summary })` among its indexes,
  * #1434), e3 builds each of its other indexes to carry the
  * row without the collections the nested index declares, and a binding lists
  * the nested index with them (#1435): it pages those lean rows, never joining
@@ -613,7 +613,7 @@ export const DataPagedPrimitives = {
  * — in its type, for a Plan's series to be held to. The nested index's own
  * entries are items, totals and subtotals, read a cell at a time, never paged.
  *
- * The record's totals a tile — summaries with no key, `index.summary({ from,
+ * The record's totals a tile — summaries with no key, `index.totals({ from,
  * to, tile })` — are listed apart, in `totals` (#1732): a horizon's bars read
  * them over the source's range, under its narrowing, while nothing reads rows
  * through them. They are named, never inferred from `indexes`, so a source

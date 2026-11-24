@@ -20,11 +20,11 @@ import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './typ
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
   AreaIndexOf, AreaIndexSpec, EntriesOf, IndexKeyOf, IndexOn, IntervalIndexSpec, NestedKeyOf, NestedSeriesIndexSpec, NestedValueOf,
-  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, SummaryOf,
+  ProjectionOf, SeriesIndexSpec, SeriesOf, SummaryIndexSpec, SummaryKeyOf, SummaryOf, TotalsIndexSpec,
 } from './record-index.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
-import { seriesDefinition, summaryDefinition } from './record-series.js';
+import { seriesDefinition, summaryDefinition, totalsDefinition } from './record-series.js';
 import { nestedDefinition } from './record-nested-programs.js';
 import { items, recursive, rows, values, type DictField, type DictKeyOf, type DictValueOf, type NestedOf } from './record-nested.js';
 import { editDefinition, patchDefinition, reduceDefinition } from './mutation.js';
@@ -105,7 +105,7 @@ export interface MigrationDraft {
 }
 
 /**
- * The nested series index's builder, `index.nested`, and the builders of the
+ * The nested series index's builder, `index.nestedSeries`, and the builders of the
  * collections it files.
  *
  * @typeParam T - The record's state type
@@ -136,10 +136,10 @@ export interface NestedBuilder<T extends EastType> {
    *   initial: new Map(),
    *   indexes: (index) => ({
    *     // Every collection a machine nests, filed from a week up and totalled a month at a time:
-   *     machines_in_time: index.nested({
+   *     machines_in_time: index.nestedSeries({
    *       collections: {
-   *         jobs: index.nested.items({ from: 'start', to: 'end' }),
-   *         load: index.nested.values(),
+   *         jobs: index.nestedSeries.items({ from: 'start', to: 'end' }),
+   *         load: index.nestedSeries.values(),
    *       },
    *       tile: 'week',
    *       summary: 'month',
@@ -175,11 +175,14 @@ export interface NestedBuilder<T extends EastType> {
  * on every commit and in every build, and a maintained index must equal a
  * rebuilt one to the byte. Its name is an identifier, never `primary`.
  *
- * The indexes that answer more than an order — `interval`, `area`, `series`,
- * `summary` and `nested` — have keys the SDK generates: the row's leading
- * fields under `on` (#1432), e3's own parts beside them, so no row field's
- * name is reserved. An `entries` index files a row's Dict field entry by
- * entry, each under its own key (#1521).
+ * The indexes that answer more than an order — `interval`, `area`,
+ * `flatSeries`, `summary`, `totals` and `nestedSeries` — have keys the SDK
+ * generates: the row's leading fields under `on` (#1432), e3's own parts
+ * beside them, so no row field's name is reserved. The two series indexes are
+ * named by the shape of what they file: `flatSeries` the record's rows, each
+ * row one dated thing; `nestedSeries` the dated things a row holds in its
+ * collections. An `entries` index files a row's Dict field entry by entry,
+ * each under its own key (#1521).
  *
  * @typeParam T - The record's state type, a Dict of Struct rows
  *
@@ -324,21 +327,21 @@ export interface IndexBuilder<T extends EastType> {
    *   initial: new Map(),
    *   indexes: (index) => ({
    *     // Each press's jobs in time, each entry carrying what a tile draws and no more:
-   *     jobs_by_press: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+   *     jobs_by_press: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
    *       value: East.function([StringType, JobType], JobTile, ($, id, job) => ({
    *         press: job.press, title: job.title, start: job.start, end: job.end,
    *       })),
    *     }),
    *     // A hall's jobs a week at a time, in their presses' order: a screen of presses is a range a week.
-   *     jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+   *     jobs_by_hall_week: index.flatSeries({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
    *   }),
    * });
    * ```
    */
-  series<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
+  flatSeries<const S extends SeriesIndexSpec<T>, const O extends PlainIndexOptions = Record<never, never>>(spec: S, options?: O):
     IndexDraft<IndexKeyOf<S, T>, PlainLeanOf<O, T>, IndexOn<S>, { readonly series: SeriesOf<S, O> }>;
   /** The nested series index, and the builders of the collections it files. */
-  readonly nested: NestedBuilder<T>;
+  readonly nestedSeries: NestedBuilder<T>;
   /**
    * A summary index (#1039): under each key and tile of a series index, how many
    * rows touch the tile and the milliseconds of it they cover — what a
@@ -350,19 +353,12 @@ export interface IndexBuilder<T extends EastType> {
    * of it the event overlaps; an instant counts in the tile holding it and
    * covers none of it; a row with no start counts in no tile.
    *
-   * Declared with no `key` (#1732), it keeps the record's totals a tile, `{ ik:
-   * { on: { …on }, tile }, k: Null }`: each event counted once in each tile it
-   * touches, whatever it is on — one entry a tile however many resources, so a
-   * view of the whole record's density reads a range of a few entries. Lead it
-   * by the fields a view narrows by exactly (`on`), and its totals are a
-   * combination's of them.
-   *
-   * @param spec - `from`, `to` and `tile`, as {@link series} takes them; the optional `key`, the field naming what an
-   *   event is on, which files a total a key a tile; and the optional exact leading `on` fields
+   * @param spec - `key`, the field naming what an event is on, which files a total a key a tile; `from`, `to` and
+   *   `tile`, as {@link flatSeries} takes them; and the optional exact leading `on` fields
    * @param options - Its runner
    * @returns The index, its value the totals
-   * @throws {Error} As {@link series} does, but for a key left out, and for an event touching more than 4,096 tiles
-   *   where it is written
+   * @throws {Error} As {@link flatSeries} does; for a key left out, naming {@link totals}; and for an event touching
+   *   more than 4,096 tiles where it is written
    *
    * @example
    * ```ts
@@ -371,14 +367,41 @@ export interface IndexBuilder<T extends EastType> {
    *   indexes: (index) => ({
    *     // Each press's totals a month: what a board shades a press's row by, zoomed out.
    *     jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
-   *     // The record's totals a month, and each hall's: a horizon's bars, one entry a month.
-   *     jobs_month: index.summary({ from: 'start', to: 'end', tile: 'month' }),
-   *     jobs_by_hall_month: index.summary({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
    *   }),
    * });
    * ```
    */
   summary<const S extends SummaryIndexSpec<T>>(spec: S, options?: PartRunner):
+    IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: SummaryOf<S> }>;
+  /**
+   * The record's totals a tile (#1732): how many rows touch each tile and the
+   * milliseconds of it they cover, whatever each event is on — a summary under
+   * no key, `{ ik: { on: { …on }, tile }, k: Null }` → `{ count, ms }`, each
+   * event counted once in each tile it touches. One entry a tile however many
+   * resources, so a view of the whole record's density — a horizon's bars —
+   * reads a range of a few entries. Lead it by the fields a view narrows by
+   * exactly (`on`), and its totals are a combination's of them. Kept as a
+   * summary index's are: a write changes them by what its rows took away and
+   * gave.
+   *
+   * @param spec - `from`, `to` and `tile`, as {@link flatSeries} takes them; and the optional exact leading `on` fields
+   * @param options - Its runner
+   * @returns The index, its value the totals
+   * @throws {Error} As {@link summary} does; and for a `key`, naming {@link summary}
+   *
+   * @example
+   * ```ts
+   * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+   *   initial: new Map(),
+   *   indexes: (index) => ({
+   *     // The record's totals a month, and each hall's: a horizon's bars, one entry a month.
+   *     jobs_month: index.totals({ from: 'start', to: 'end', tile: 'month' }),
+   *     jobs_by_hall_month: index.totals({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
+   *   }),
+   * });
+   * ```
+   */
+  totals<const S extends TotalsIndexSpec<T>>(spec: S, options?: PartRunner):
     IndexDraft<SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>, { readonly summary: SummaryOf<S> }>;
   /**
    * An entries index (#1521): a row's Dict field filed entry by entry — for
@@ -655,26 +678,28 @@ export const INDEX_BUILDER = {
     intervalDefinition(where, name, record, spec as Parameters<typeof intervalDefinition>[3], runnerOf(options))),
   area: (spec: unknown, options?: unknown) => indexDraft('index.area', options, (where, record, name) =>
     areaDefinition(where, name, record, spec as Parameters<typeof areaDefinition>[3], runnerOf(options))),
-  series: (spec: unknown, options?: unknown) => indexDraft('index.series', options, (where, record, name) => {
+  flatSeries: (spec: unknown, options?: unknown) => indexDraft('index.flatSeries', options, (where, record, name) => {
     if (typeof spec === 'object' && spec !== null && 'collections' in spec) {
-      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nested({ collections, tile, summary? })`);
+      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nestedSeries({ collections, tile, summary? })`);
     }
     const value = (options as PlainIndexOptions | undefined)?.value;
     return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], { ...runnerOf(options), ...(value !== undefined && { value }) });
   }),
-  nested: Object.assign(
-    (spec: unknown, options?: unknown) => indexDraft('index.nested', options, (where, record, name) =>
+  nestedSeries: Object.assign(
+    (spec: unknown, options?: unknown) => indexDraft('index.nestedSeries', options, (where, record, name) =>
       nestedDefinition(where, name, record, spec as object, runnerOf(options))),
     { items, values, rows, recursive },
   ),
   summary: (spec: unknown, options?: unknown) => indexDraft('index.summary', options, (where, record, name) =>
     summaryDefinition(where, name, record, spec as Parameters<typeof summaryDefinition>[3], runnerOf(options))),
+  totals: (spec: unknown, options?: unknown) => indexDraft('index.totals', options, (where, record, name) =>
+    totalsDefinition(where, name, record, spec as Parameters<typeof totalsDefinition>[3], runnerOf(options))),
   entries: (field: unknown, options?: unknown) => indexDraft('index.entries', options, (where, record, name) =>
     entriesDefinition(where, name, record, field, runnerOf(options))),
 };
 
 /** The builders whose index carries a `value` its options give: the plain indexes', and a series index's (#1710). */
-const VALUED_BUILDERS: readonly string[] = ['index.on', 'index.key', 'index.keys', 'index.series'];
+const VALUED_BUILDERS: readonly string[] = ['index.on', 'index.key', 'index.keys', 'index.flatSeries'];
 
 /** Why a builder refuses an option, where it says more than that the builder does not take it. */
 const REFUSED_OPTIONS: Readonly<Record<string, Readonly<Record<string, string>>>> = {

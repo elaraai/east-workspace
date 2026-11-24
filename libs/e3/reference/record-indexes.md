@@ -1,13 +1,13 @@
 # Record indexes
 
-Secondary, interval and area, series and summary, nested series, and entries indexes: what each files, how it is read, and what it costs. Part of the `e3` skill.
+Secondary, interval and area, series, summary and totals, nested series, and entries indexes: what each files, how it is read, and what it costs. Part of the `e3` skill.
 
 ## Contents
 
 - Secondary indexes — `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`
 - Interval and area indexes — `index.interval`, `index.area`
-- Series and summary indexes — `index.series`, `index.summary`
-- Nested series indexes — `index.nested`
+- Series, summary and totals indexes — `index.flatSeries`, `index.summary`, `index.totals`
+- Nested series indexes — `index.nestedSeries`
 - Entries indexes — `index.entries(field)`
 - Reading an index inside a task or a function — `e3.index(record.indexes.<name>)`, and a reader for each kind: `of`, `between`, `overlapping`, `events`, `totals`, `within`
 
@@ -47,8 +47,8 @@ const pkg = e3.package('planning', '1.0.0', plans);   // the record whole: its i
 
 ## Interval and area indexes — `index.interval`, `index.area`
 
-These indexes answer more than an order — as do the series and summary indexes
-below — each with a builder method of its own whose keys the SDK generates.
+These indexes answer more than an order — as do the series, summary and totals
+indexes below — each with a builder method of its own whose keys the SDK generates.
 Underneath each is an ordinary index — the same build,
 mutation, storage, paging and `e3 reindex` — and the record Slice reads a
 window through either (see **e3-ui**). Their generated keys are query
@@ -65,7 +65,8 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 | interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
 | area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
 | series | `{ on, key, level, tile }`; in time order, `{ on, level, tile, key, past }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
-| summary | `{ on, key, tile }`; with no `key`, `{ on, tile }` | the value of the field `key` names; the tile's start |
+| summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
+| totals | `{ on, tile }` | the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
 rest (`events.indexes.by_time.interval`, `racks.indexes.racks_by_area.area`,
@@ -141,25 +142,35 @@ searches per exact prefix, sent in one request, which together hold every row
 whose box meets it, each once — beside rows of the cells searched that it
 misses, which the reader draws or not.
 
-## Series and summary indexes — `index.series`, `index.summary`
+## Series, summary and totals indexes — `index.flatSeries`, `index.summary`, `index.totals`
 
-What a planning board reads: the events on a block of keys — a Plan's
-resources — over a span of time, and, zoomed out past what a screen can draw,
-how busy each key is. Both file a row's event by the key it is on and by time
-tiles — `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC,
-half-open — the key before the time, so a key's entries over any span are
-contiguous: a series index's `{ on, key, level, tile }`, a summary index's
-`{ on, key, tile }`.
+What a planning board reads of a record whose rows are each one dated thing — a
+job with its press, its start and its end:
+
+| Builder | Keeps | Read for |
+|---|---|---|
+| `index.flatSeries` | the events on each key — a Plan's resource — by time | the events on a block of keys over a span of time |
+| `index.summary` | each key's totals a tile | how busy each key is, zoomed out past what a screen can draw |
+| `index.totals` | the record's totals a tile, whatever each event is on | how busy the whole record is: a horizon's bars |
+
+A series index and a summary index file a row's event by the key it is on and
+by time tiles — `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`,
+in UTC, half-open — the key before the time, so a key's entries over any span
+are contiguous: a series index's `{ on, key, level, tile }`, a summary index's
+`{ on, key, tile }`. The record's totals are kept under no key, `{ on, tile }`.
+A row that holds its dated things in collections — a machine's jobs and its
+load — is a nested series index's (`index.nestedSeries`, below).
 
 ```typescript
 // JobsType: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
 const jobs = e3.record('jobs', JobsType, {
   initial: new Map(),
   indexes: (index) => ({
-    jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
     jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+    jobs_month: index.totals({ from: 'start', to: 'end', tile: 'month' }),
     // The same events, each entry carrying what a tile draws of its job and no more:
-    job_tiles_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
+    job_tiles_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, {
       value: East.function([StringType, JobType], JobTileType, ($, _id, job) => ({ press: job.press, title: job.title, start: job.start, end: job.end })),
     }),
   }),
@@ -168,9 +179,9 @@ const jobs = e3.record('jobs', JobsType, {
 
 | Option | |
 |---|---|
-| `key` | the field naming what an event is on: any field but a Set |
+| `key` | the field naming what an event is on: any field but a Set. A series index and a summary index take one; `index.totals` takes none |
 | `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is filed nowhere; no end, or one at or before the start, is an instant |
-| `tile` | a series index's finest level, and a summary index's tile: `day`, `week`, `month`, `quarter` or `year` |
+| `tile` | a series index's finest level, and a summary index's or the totals' tile: `day`, `week`, `month`, `quarter` or `year` |
 | `on` | exact leading fields, before the key; a Set field fans out |
 | `order` | a series index's alone: `'key'` (the default), a key's events together; `'time'`, a tile's events together in their keys' order |
 
@@ -184,7 +195,7 @@ its start, so a reader reads a block of keys over any span from the index alone
 as one range a key a level — that level's tiles from two before the span to one
 after it — in one request, whatever the span's width.
 
-Declared with a `value` beside its spec — `index.series({ … }, { value })`, as a
+Declared with a `value` beside its spec — `index.flatSeries({ … }, { value })`, as a
 plain index takes one — each entry carries **what that gives of its row** in
 the row's place: a struct holding the event's start and end under the row's
 own names for them, which a reader tests a window by, beside whatever a view
@@ -208,7 +219,7 @@ in their keys' order**.
 
 ```typescript
 // A hall's jobs a week at a time, in their presses' order:
-jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+jobs_by_hall_week: index.flatSeries({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
 ```
 
 **Reading it.** In a task or a function, `events({ on, from, to })` gives
@@ -257,40 +268,46 @@ count below zero, or time with no row — fails the write, naming the total and
 `e3 reindex`, which rebuilds it; a total past the largest Integer fails the
 write or the build, naming a finer tile.
 
-### The record's totals — a summary with no key
+### The record's totals — `index.totals`
 
-Declared with no `key`, a summary index keeps **the record's totals a tile**:
+`index.totals({ on?, from, to, tile })` keeps **the record's totals a tile**:
 under each tile, and each combination of its leading fields, `{ count, ms }` —
 how many of the record's events touch the tile and the milliseconds of it they
-cover, whatever each is on. Its key is `{ on, tile }`. An event over two months
-is in each month's count, and once in their quarter's, so a reader never sums
-finer tiles to make a coarser one: it declares the tile it reads.
+cover, whatever each is on. It is a summary under no key: its key is
+`{ on, tile }`, and it is built, kept by a write and rebuilt as a summary index
+is. An event over two months is in each month's count, and once in their
+quarter's, so a reader never sums finer tiles to make a coarser one: it
+declares the tile it reads.
 
 ```typescript
-jobs_month: index.summary({ from: 'start', to: 'end', tile: 'month' }),
-jobs_by_hall_month: index.summary({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
+jobs_month: index.totals({ from: 'start', to: 'end', tile: 'month' }),
+jobs_by_hall_month: index.totals({ on: ['hall'], from: 'start', to: 'end', tile: 'month' }),
 ```
 
 In a task or a function, `totals({ on?, from, to })` reads each tile that
-overlaps `[from, to)`. It takes no `key`, and refuses one, naming a summary by
-key. A page lists such summaries apart from its indexes —
+overlaps `[from, to)`. It takes no `key`, and refuses one, naming
+`index.summary`. A page lists the record's totals apart from its indexes —
 `Data.bindPaged(record, { indexes, totals })`, e3-ui — for a horizon's bars,
 which read them a range of whole tiles at a time and count nothing
-themselves. `order` is refused, as on a summary by key, and a series index
-still takes a key, refusing none and naming this summary.
+themselves.
+
+A key tells the builders apart. `index.totals` refuses a `key`, naming
+`index.summary({ key, … })`; a summary index and a series index each take one,
+refusing a declaration with none and naming `index.totals`. `order` and `value`
+are refused, as on a summary index.
 
 A series index files an event past a year under each year it touches, as many
 as 4,096: one touching more is refused where it is written, naming it and its
-span. A summary splits an event over its tiles, as many as 4,096 — eleven years
-of days — and one touching more is refused the same way, naming the tile:
-declare a coarser tile. Each option takes only the row's fields of its type, as
-the area index's do, and the definition checks them again; a summary index's
-`value` is refused, as is a series index's written among its spec's fields
-rather than beside them, and so is an `on` field that is the key, the start or
-the end: the key follows the leading fields, and the tiles are cut by the start
-and the end.
+span. A summary index, and the record's totals, split an event over their
+tiles, as many as 4,096 — eleven years of days — and one touching more is
+refused the same way, naming the tile: declare a coarser tile. Each option
+takes only the row's fields of its type, as the area index's do, and the
+definition checks them again; a summary index's `value` is refused, as is a
+series index's written among its spec's fields rather than beside them, and so
+is an `on` field that is the key, the start or the end: the key follows the
+leading fields, and the tiles are cut by the start and the end.
 
-## Nested series indexes — `index.nested`
+## Nested series indexes — `index.nestedSeries`
 
 What a planning board reads when a record's rows nest what it draws: a
 machine's jobs and its load a day at a time, a hall's members, an assembly's
@@ -307,10 +324,10 @@ no row.
 const machines = e3.record('machines', MachinesType, {
   initial: new Map(),
   indexes: (index) => ({
-    machines_in_time: index.nested({
+    machines_in_time: index.nestedSeries({
       collections: {
-        jobs: index.nested.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
-        load: index.nested.values(),                              // a value per instant: keyed by the instant
+        jobs: index.nestedSeries.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
+        load: index.nestedSeries.values(),                              // a value per instant: keyed by the instant
       },
       tile: 'week',
       summary: 'month',
@@ -321,8 +338,8 @@ const machines = e3.record('machines', MachinesType, {
 // Each member's load, and each hall's mean of its members', at every level from the day up.
 const halls = e3.record('halls', HallsType, {
   indexes: (index) => ({
-    halls_in_time: index.nested({
-      collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) },
+    halls_in_time: index.nestedSeries({
+      collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) },
       tile: 'day',
       summary: 'month',
     }),
@@ -331,11 +348,11 @@ const halls = e3.record('halls', HallsType, {
 // Parts to any depth, each part's jobs filed under every part above it too.
 const assemblies = e3.record('assemblies', AssembliesType, {
   indexes: (index) => ({
-    assemblies_in_time: index.nested({
+    assemblies_in_time: index.nestedSeries({
       collections: {
-        parts: index.nested.rows({
-          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
-          parts: index.nested.recursive(),
+        parts: index.nestedSeries.rows({
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+          parts: index.nestedSeries.recursive(),
         }),
       },
       tile: 'week',
@@ -345,7 +362,7 @@ const assemblies = e3.record('assemblies', AssembliesType, {
 });
 ```
 
-| Builder (`index.nested.…`) | A field holding |
+| Builder (`index.nestedSeries.…`) | A field holding |
 |---|---|
 | `items({ from, to })`, `items({ at })` | `Dict<K, Struct>`: things people drag, by id, of any key type but a DateTime; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
 | `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
@@ -522,10 +539,10 @@ parameter by it:
 | `index.on(['press', 'due'])` | `{ press, due }` | the row's key | nothing, or its `value` |
 | `index.key(fn)`, `index.keys(fn)` | what `fn` returns, or an element of its Set | the row's key | nothing, or its `value` |
 | `index.entries('byService')` | the field's key | the row's key | that key's value |
-| `index.interval`, `index.area`, `index.series` | the generated key above | the row's key | nothing for an interval; the row for an area or a series, or a series index's `value` |
+| `index.interval`, `index.area`, `index.flatSeries` | the generated key above | the row's key | nothing for an interval; the row for an area or a series, or a series index's `value` |
 | `index.summary` | `{ on, key, tile }` | Null: an entry stands for every row of its key | `{ count, ms }` |
-| `index.summary` with no `key` | `{ on, tile }` | Null: an entry stands for every row under its leading fields | `{ count, ms }` |
-| `index.nested` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
+| `index.totals` | `{ on, tile }` | Null: an entry stands for every row under its leading fields | `{ count, ms }` |
+| `index.nestedSeries` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
 
 It takes the indexes e3 keeps beside one as well: a nested series index's span
 (`machines.indexes.machines_in_time.nested.span`, keyed `{ collection, tile }`,
@@ -579,13 +596,13 @@ in the index's own order.
 |---|---|---|---|
 | `index.on`, `index.key`, `index.keys` | `of(key)`: the rows under an index key, or under its first fields (`{ owner }` of `['owner', 'due']`). `between({ from?, to? })`: the rows from one index key up to another | what the index carries, and the row's key | one |
 | `index.interval` | `overlapping({ on?, from, to })`: the rows that overlap `[from, to)`. `unset({ on? })`: the rows with no start | what the index carries, and the row's key | at most 55, in the index's order: the starts in the window, then one a tree node above its first instant |
-| `index.series` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
-| `index.series`, `order: 'time'` | `events({ on?, from, to })`: the events on every key under `on` that overlap `[from, to)`; it takes no `key` | what the index carries, and the row's key | one a level, a tile's events together in their keys' order |
+| `index.flatSeries` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
+| `index.flatSeries`, `order: 'time'` | `events({ on?, from, to })`: the events on every key under `on` that overlap `[from, to)`; it takes no `key` | what the index carries, and the row's key | one a level, a tile's events together in their keys' order |
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
-| `index.summary` with no `key` | `totals({ on?, from, to })`: each of the record's tiles under `on` that overlaps `[from, to)`; it takes no `key` | `{ count, ms }`, and the tile's start in place of a row's key | one |
+| `index.totals` | `totals({ on?, from, to })`: each of the record's tiles under `on` that overlaps `[from, to)`; it takes no `key` | `{ count, ms }`, and the tile's start in place of a row's key | one |
 | `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport, in the index's order: a cell before the cells inside it |
 | `index.entries` | `of(key)`: that key's entry on every row that holds one | the entry's value, and the row's key | one |
-| `index.nested` | of one node of a row's tree, below | below | one, or one a level |
+| `index.nestedSeries` | of one node of a row's tree, below | below | one, or one a level |
 
 A nested series index's span and an entries index's lean rows are read as
 plain indexes are, with `of` and `between`. A span's entry stands for every

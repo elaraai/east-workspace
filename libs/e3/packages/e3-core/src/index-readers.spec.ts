@@ -96,10 +96,10 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
       indexes: (index) => ({
         by_press: index.on(['press']),
         in_time: index.interval({ from: 'start', to: 'end' }),
-        press_weeks: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        press_weeks: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         press_load: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
         // With no key, the record's totals a week under each state (#1732).
-        state_load: index.summary({ on: ['state'], from: 'start', to: 'end', tile: 'week' }),
+        state_load: index.totals({ on: ['state'], from: 'start', to: 'end', tile: 'week' }),
         by_area: index.area({ x: 'x', y: 'y', cell: 0.25 }),
         by_part: index.entries('parts'),
       }),
@@ -133,11 +133,11 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     const lines = e3.record('lines', LinesType, {
       initial: new Map(),
       indexes: (index) => ({
-        lines_in_time: index.nested({
+        lines_in_time: index.nestedSeries({
           collections: {
-            units: index.nested.rows({
-              jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
-              sheets: index.nested.values({ rollup: 'sum' }),
+            units: index.nestedSeries.rows({
+              jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),
+              sheets: index.nestedSeries.values({ rollup: 'sum' }),
             }),
           },
           tile: 'week',

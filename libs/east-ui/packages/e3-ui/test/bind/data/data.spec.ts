@@ -515,12 +515,12 @@ describe("Data.bindPaged over a series and a summary index", () => {
         indexes: (index) => ({
             by_time: index.interval({ from: "start", to: "end" }),
             by_state: index.on(["state"]),
-            by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
-            tiles_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }, {
+            by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
+            tiles_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }, {
                 value: East.function([StringType, Job], Tile, (_$, _key, job) => ({ press: job.press, start: job.start, end: job.end })),
             }),
-            by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
-            by_state_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+            by_state_press_week: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+            by_state_week: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
             by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         }),
     });
@@ -606,7 +606,7 @@ describe("Data.bindPaged over a series and a summary index", () => {
         const named = e3.record("named_jobs", DictType(StringType, Named), {
             initial: new Map(),
             indexes: (index) => ({
-                by_named_week: index.series({ on: ["tile", "__tile"], key: "press", from: "start", to: "end", tile: "week" }),
+                by_named_week: index.flatSeries({ on: ["tile", "__tile"], key: "press", from: "start", to: "end", tile: "week" }),
                 by_tile: index.on(["tile", "__tile"]),
             }),
         });

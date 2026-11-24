@@ -34,12 +34,12 @@ const jobs = e3.record("data_totals_jobs", DictType(StringType, Job), {
         jobs_by_hall: index.on(["hall"]),
         jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         // The record's totals a month and a quarter, the hall's a month, and some that do not fit a horizon over the start.
-        jobs_month: index.summary({ from: "start", to: "end", tile: "month" }),
-        jobs_quarter: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        jobs_by_hall_month: index.summary({ on: ["hall"], from: "start", to: "end", tile: "month" }),
-        jobs_month_too: index.summary({ from: "start", to: "end", tile: "month" }),
-        jobs_ending_month: index.summary({ from: "end", to: "end", tile: "month" }),
-        jobs_by_title_month: index.summary({ on: ["title"], from: "start", to: "end", tile: "month" }),
+        jobs_month: index.totals({ from: "start", to: "end", tile: "month" }),
+        jobs_quarter: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        jobs_by_hall_month: index.totals({ on: ["hall"], from: "start", to: "end", tile: "month" }),
+        jobs_month_too: index.totals({ from: "start", to: "end", tile: "month" }),
+        jobs_ending_month: index.totals({ from: "end", to: "end", tile: "month" }),
+        jobs_by_title_month: index.totals({ on: ["title"], from: "start", to: "end", tile: "month" }),
     }),
 });
 
@@ -103,11 +103,11 @@ describe("Data.bindPaged's totals", () => {
         // A name in totals is one of the record's summaries with no key, so these do not compile; the build refuses them too.
         assert.throws(() => Data.bindPaged(jobs, { indexes: ["jobs_by_time"], totals: ["jobs_by_press_month"] as never }), {
             message: "Data.bindPaged: 'jobs_by_press_month' is listed in totals, and is a summary by 'press' — the record's totals a tile are a summary " +
-                "with no key: index.summary({ from, to, tile })",
+                "with no key: index.totals({ from, to, tile })",
         });
         assert.throws(() => Data.bindPaged(jobs, { indexes: ["jobs_by_time"], totals: ["jobs_by_hall"] as never }), {
             message: "Data.bindPaged: 'jobs_by_hall' is listed in totals, and is no summary — the record's totals a tile are a summary with no key: " +
-                "index.summary({ from, to, tile })",
+                "index.totals({ from, to, tile })",
         });
         assert.throws(() => Data.bindPaged(jobs, { indexes: ["jobs_by_time", "jobs_month"] }), {
             message: "Data.bindPaged: 'jobs_month' keeps the record's totals a month, which nothing reads rows through — list it in totals",
@@ -138,7 +138,7 @@ describe("Data.bindPaged's totals", () => {
         });
         assert.throws(() => configOf(listing(["jobs_ending_month"]), { range: "start" }), {
             message: "Slice.bindRecord: 'jobs_ending_month', the record's totals a month, counts the events from 'end', and the source's range is 'start' — " +
-                "a horizon counts what its window shows: declare them from it, index.summary({ from: \"start\", to: \"end\", tile: \"month\" })",
+                "a horizon counts what its window shows: declare them from it, index.totals({ from: \"start\", to: \"end\", tile: \"month\" })",
         });
         assert.throws(() => configOf(listing(["jobs_by_title_month"]), { range: "start" }), {
             message: "Slice.bindRecord: 'jobs_by_title_month', the record's totals a month, is led by 'title', which no read of the source chooses — the rail " +
@@ -146,7 +146,7 @@ describe("Data.bindPaged's totals", () => {
         });
         assert.throws(() => configOf(listing(["jobs_month"]), { range: "start", scope: { hall: ["H-1"] } }), {
             message: "Slice.bindRecord: 'jobs_month', the record's totals a month, is not led by the scope's 'hall', which every read of the source holds — " +
-                "lead them by the scope's fields, index.summary({ on: [\"hall\"], from: \"start\", to: \"end\", tile: \"month\" })",
+                "lead them by the scope's fields, index.totals({ on: [\"hall\"], from: \"start\", to: \"end\", tile: \"month\" })",
         });
         const scoped = configOf(listing(["jobs_by_hall_month"]), { range: "start", scope: { hall: ["H-1"] } });
         assert.ok(scoped.indexes.some((index) => index.name === "jobs_by_hall_month"), "led by the scope's fields: read under it");

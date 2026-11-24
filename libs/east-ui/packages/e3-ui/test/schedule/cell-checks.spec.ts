@@ -29,12 +29,12 @@ const jobs = e3.record("cell_checks_jobs", DictType(StringType, Job), {
     mutations: (mutation) => ({ patch: mutation.patch() }),
     indexes: (index) => ({
         jobs_by_time: index.interval({ from: "start", to: "end" }),
-        jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
         jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         jobs_by_title_month: index.summary({ key: "title", from: "start", to: "end", tile: "month" }),
         // The record's totals a month over the jobs' own times, and over the start to when each is due.
-        jobs_month: index.summary({ from: "start", to: "end", tile: "month" }),
-        jobs_due_month: index.summary({ from: "start", to: "due", tile: "month" }),
+        jobs_month: index.totals({ from: "start", to: "end", tile: "month" }),
+        jobs_due_month: index.totals({ from: "start", to: "due", tile: "month" }),
     }),
 });
 
@@ -90,7 +90,7 @@ describe("checkedScheduleTilings", () => {
         });
         assert.throws(() => check(pagedPresses, [], ["jobs_month"]), {
             message: "Plan: events.job's source lists no series index and no summary index, and the kind is placed on the rows, paged — a paged " +
-                "kind's events are read a cell at a time, and shaded past what the Plan draws: declare index.series({ key: \"press\", from: \"start\", " +
+                "kind's events are read a cell at a time, and shaded past what the Plan draws: declare index.flatSeries({ key: \"press\", from: \"start\", " +
                 "to: \"end\", tile: \"week\" }) and index.summary({ key: \"press\", from: \"start\", to: \"end\", tile: \"month\" }) over the same " +
                 "record and list them beside its interval index",
         });

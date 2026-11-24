@@ -67,7 +67,7 @@
  * exactly; what else it chooses is the reader's to ask of the events it draws
  * (`within`).
  *
- * The tiles are e3's, to the millisecond (`index.series`): a day and
+ * The tiles are e3's, to the millisecond (`index.flatSeries`): a day and
  * an ISO week counted in whole milliseconds from the epoch and from the Monday
  * before it, so an instant before 1970 is tiled as one after it; a month, a
  * quarter and a year by the UTC calendar.
@@ -724,8 +724,8 @@ export function totalsCellQueries(index: Index, where: ReadonlyMap<string, Choic
     const totals = totalsOf(index);
     if (totals === undefined) {
         throw new Error(keyedTiling(index) !== undefined
-            ? `'${index.name}' keeps a resource's totals, filed by key: the record's totals are a summary with no key, index.summary({ from, to, tile })`
-            : `'${index.name}' keeps no totals: the record's totals are a summary with no key, index.summary({ from, to, tile })`);
+            ? `'${index.name}' keeps a resource's totals, filed by key: the record's totals are a summary with no key, index.totals({ from, to, tile })`
+            : `'${index.name}' keeps no totals: the record's totals are a summary with no key, index.totals({ from, to, tile })`);
     }
     checkRun(index, totals.tile.type, run);
     const from = printTile(run.from);

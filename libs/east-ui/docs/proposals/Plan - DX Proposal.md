@@ -41,7 +41,7 @@ Where the code written in the proposal met the build, the build's answer stands,
 
 | Where | As first written | As built | Why |
 |---|---|---|---|
-| e3, child rows (§3.7) | `kinds: index.nested.rows({})`, which e3 refused | e3 takes `rows({})`: child rows that nest nothing in time, named among the index's ids, nothing filed of them | the Plan asks for the rows declared, and these hold no collection of their own |
+| e3, child rows (§3.7) | `kinds: index.nestedSeries.rows({})`, which e3 refused | e3 takes `rows({})`: child rows that nest nothing in time, named among the index's ids, nothing filed of them | the Plan asks for the rows declared, and these hold no collection of their own |
 | e3, a nested index's keys (E1) | a child row's key in its own type | so, as the index's ids: one variant, a case for each collection of child rows and of items, named by its place. A reader's `path` is `[variant('units', key)]` | every nested series index's stored form changes: a package is re-exported and its nested indexes are built again at deploy |
 | The works' nested index (§3.1) | `tile: "week"` | `tile: "day"` | a crew's hours are subtotalled at the day the axis zooms to, and the build refuses a coarser tile |
 | The works' index of resources (§3.1) | `index.keys` of a set of Strings | of `{ code }` structs | the rail offers a field only where the index names one |
@@ -98,9 +98,9 @@ This costs four things:
 
 - **Rows: one record.** A Plan draws one record's rows: the resources and
   the groups they are in, with what belongs to them:
-  - readings are a row's value collections (`index.nested.values`);
+  - readings are a row's value collections (`index.nestedSeries.values`);
   - a resource's parts, or a crew's roles, are child rows
-    (`index.nested.rows`), and parts of parts a tree (`recursive`);
+    (`index.nestedSeries.rows`), and parts of parts a tree (`recursive`);
   - a row's kind is a variant field.
 
   Several outside systems can feed that one record as a composite record
@@ -211,11 +211,11 @@ export const works = e3.record("works", DictType(StringType, GroupRowType), {
         return codes;
       })),
     // What belongs to the resources, a day at a time, its totals by the month: the finest the Plan's axis zooms to.
-    works_in_time: index.nested({
+    works_in_time: index.nestedSeries({
       collections: {
-        resources: index.nested.rows({
-          utilisation: index.nested.values(),
-          hours: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
+        resources: index.nestedSeries.rows({
+          utilisation: index.nestedSeries.values(),
+          hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }),
         }),
       },
       tile: "day",
@@ -247,7 +247,7 @@ export const jobs = e3.record("jobs", JobsType, {
     jobs_by_time: index.interval({ from: "start", to: "end" }),
     // The jobs by the press each is on and by time: a press's jobs over any span are one contiguous range, so the
     // presses in view are read a cell at a time.
-    jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+    jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
     // How busy each press is, a month at a time: what the Plan shades where the jobs in view are too many to draw.
     jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
   }),
@@ -301,7 +301,7 @@ export const stops = e3.record("stops", DictType(StringType, StopType), {
   indexes: (index) => ({
     // A stop is an instant: its end is its start.
     stops_by_time: index.interval({ from: "at", to: "at" }),
-    stops_by_press_week: index.series({ key: "press", from: "at", to: "at", tile: "week" }),
+    stops_by_press_week: index.flatSeries({ key: "press", from: "at", to: "at", tile: "week" }),
     stops_by_press_month: index.summary({ key: "press", from: "at", to: "at", tile: "month" }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -310,7 +310,7 @@ export const bindings = e3.record("bindings", DictType(StringType, BindingType),
   initial: new Map(),
   indexes: (index) => ({
     bindings_by_time: index.interval({ from: "start", to: "end" }),
-    bindings_by_line_week: index.series({ key: "line", from: "start", to: "end", tile: "week" }),
+    bindings_by_line_week: index.flatSeries({ key: "line", from: "start", to: "end", tile: "week" }),
     bindings_by_line_month: index.summary({ key: "line", from: "start", to: "end", tile: "month" }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -319,7 +319,7 @@ export const shifts = e3.record("shifts", DictType(StringType, ShiftType), {
   initial: new Map(),
   indexes: (index) => ({
     shifts_by_time: index.interval({ from: "start", to: "end" }),
-    shifts_by_crew_week: index.series({ key: "crew", from: "start", to: "end", tile: "week" }),
+    shifts_by_crew_week: index.flatSeries({ key: "crew", from: "start", to: "end", tile: "week" }),
     shifts_by_crew_month: index.summary({ key: "crew", from: "start", to: "end", tile: "month" }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -329,7 +329,7 @@ export const deliveries = e3.record("deliveries", DictType(StringType, DeliveryT
   indexes: (index) => ({
     deliveries_by_time: index.interval({ from: "at", to: "at" }),
     // Filed by the bay or the van itself: the key field is the variant, so a row's cells are asked by its key in its case.
-    deliveries_by_location_week: index.series({ key: "location", from: "at", to: "at", tile: "week" }),
+    deliveries_by_location_week: index.flatSeries({ key: "location", from: "at", to: "at", tile: "week" }),
     deliveries_by_location_month: index.summary({ key: "location", from: "at", to: "at", tile: "month" }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -865,11 +865,11 @@ export const machines = e3.record("machines", DictType(StringType, MachineRowTyp
     machines_by_code: index.key(East.function([StringType, MachineRowType], StructType({ code: StringType }),
       (_$, code) => ({ code }))),
     machines_by_name: index.on(["name"]),             // the rail's order and its search
-    machines_in_time: index.nested({
+    machines_in_time: index.nestedSeries({
       collections: {
-        temperature: index.nested.values(),
-        utilisation: index.nested.values(),
-        kinds: index.nested.rows({}),                 // child rows keyed by a variant: E1 (#1540)
+        temperature: index.nestedSeries.values(),
+        utilisation: index.nestedSeries.values(),
+        kinds: index.nestedSeries.rows({}),                 // child rows keyed by a variant: E1 (#1540)
       },
       tile: "day",
       summary: "month",
@@ -898,7 +898,7 @@ export const pressTasks = e3.record("press_tasks", DictType(StringType, PressTas
     press_tasks_by_press_day: index.on(["press", "day"]),
     press_tasks_by_press_time: index.interval({ on: ["press"], from: "day", to: "day" }),
     // A paged kind's series and summary indexes, as the jobs' (§3.1); each task is an instant (its end is its start).
-    press_tasks_by_press_week: index.series({ key: "press", from: "day", to: "day", tile: "week" }),
+    press_tasks_by_press_week: index.flatSeries({ key: "press", from: "day", to: "day", tile: "week" }),
     press_tasks_by_press_month: index.summary({ key: "press", from: "day", to: "day", tile: "month" }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -1072,11 +1072,11 @@ export const works = e3.recordComposite("works", GroupRowType, {
     works_by_resource: index.keys(East.function([key, GroupRowType], SetType(StringType),
       ($, _key, group) => group.resources.keys())),
     // What belongs to the resources, a week at a time, its totals by the month.
-    works_in_time: index.nested({
+    works_in_time: index.nestedSeries({
       collections: {
-        resources: index.nested.rows({
-          utilisation: index.nested.values(),
-          hours: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
+        resources: index.nestedSeries.rows({
+          utilisation: index.nestedSeries.values(),
+          hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }),
         }),
       },
       tile: "day",
@@ -1108,7 +1108,7 @@ export const jobs = e3.recordComposite("jobs", JobType, {
     jobs_by_time: index.interval({ from: "start", to: "end" }),
     // The jobs by the press each is on and by time: a press's jobs over any span are one contiguous range, so the
     // presses in view are read a cell at a time.
-    jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+    jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
     // How busy each press is, a month at a time: what the Plan shades where the jobs in view are too many to draw.
     jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
   }),
@@ -1512,12 +1512,12 @@ data bindings), which draw no Plan.
   declares no `edit`), e3 keeps no rollup of them, so a parent's `aggregate`
   doesn't count them, and `fn` reads the row and what the page binds whole.
   Child rows that are many, or that change over time, belong in the record
-  as `index.nested.rows`.
+  as `index.nestedSeries.rows`.
 
 ### What it needs upstream: e3 (E1)
 
 
-`index.nested({ collections })` takes a row's child rows (`index.nested.rows`) and items (`index.nested.items`) only from a `Dict<String, Struct>` field. A record's own rows take any key type. The nested series index's entry key already carries the row's key whatever its type (`NestedEntryKeyType(rowKey)`, `e3-types/src/record.ts`). Child rows should take any key type too.
+`index.nestedSeries({ collections })` takes a row's child rows (`index.nestedSeries.rows`) and items (`index.nestedSeries.items`) only from a `Dict<String, Struct>` field. A record's own rows take any key type. The nested series index's entry key already carries the row's key whatever its type (`NestedEntryKeyType(rowKey)`, `e3-types/src/record.ts`). Child rows should take any key type too.
 
 #### Motivation
 
@@ -1535,7 +1535,7 @@ A closed set of child rows keyed by a variant, such as a crew's planned hours by
 
 #### Proposed
 
-`index.nested.rows(...)` and `index.nested.items(...)` take a `Dict<K, Struct>` field for any key type `K` a Dict takes. The child's key is carried as its type, as the row's key is. A Dict keyed by DateTime stays a values collection, whatever it holds; `rows` and `items` take any other key type.
+`index.nestedSeries.rows(...)` and `index.nestedSeries.items(...)` take a `Dict<K, Struct>` field for any key type `K` a Dict takes. The child's key is carried as its type, as the row's key is. A Dict keyed by DateTime stays a values collection, whatever it holds; `rows` and `items` take any other key type.
 
 ```ts
 import { DateTimeType, DictType, FloatType, NullType, StringType, StructType, VariantType } from "@elaraai/east";
@@ -1552,8 +1552,8 @@ const crews = e3.record("crews", DictType(StringType, CrewType), {
   initial: new Map(),
   indexes: (index) => ({
     // Each crew's hours by role, a week at a time, the roles summed per crew.
-    crews_in_time: index.nested({
-      collections: { hours: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }) },
+    crews_in_time: index.nestedSeries({
+      collections: { hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }) },
       tile: "week",
       summary: "month",
     }),
@@ -1811,7 +1811,7 @@ Each ticks its tasks here with its commit, and carries the same list in its own 
 - U1: a tab's `create: { kind, duration | at, values }`, beside a tab's `drop`. **Done when** §3.4's Orders card makes a job where it lands.
 
 **4. Child rows and the press pages (E1; U1's `child` and lanes; U2's `row: false`; U12).** It needs the rail's `scope` (#1621).
-- #1540, E1: `index.nested.rows` and `index.nested.items` over a `Dict<K, Struct>` field for any key type. **Done when** #1540's acceptance holds, on east-node, east-c and east-py.
+- #1540, E1: `index.nestedSeries.rows` and `index.nestedSeries.items` over a `Dict<K, Struct>` field for any key type. **Done when** #1540's acceptance holds, on east-node, east-c and east-py.
 - U1: `child: { field, of }`; a variant `lane`, every case drawn in the series' `lanes` order; a drop writing the resource's field, the child's and the lane's.
 - U2: a case's `children`, and `row: false`. **Done when** a kind landing on a `row: false` case with no `child` is refused.
 - U12: `Plan.children.of(fn, [series])`, read only. **Done when** its rows draw beneath each row and a series under it with `edit` is refused.

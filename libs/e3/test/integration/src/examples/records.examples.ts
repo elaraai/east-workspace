@@ -186,7 +186,7 @@ export const recordReadIntervalIndex = example({
 });
 
 export const recordReadSeriesIndex = example({
-  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'events', 'index.series', 'window', 'resource', 'key', 'time', 'function', 'optimiser'],
+  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'events', 'index.flatSeries', 'window', 'resource', 'key', 'time', 'function', 'optimiser'],
   description: 'Read a series index inside a function: `events({ on?, key, from, to })` gives the events on a key — a Plan\'s resource — that overlap a window `[from, to)`, each with its row, whatever their lengths: an hour or a year',
   fn: () => {
     const JobType = StructType({ title: StringType, press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
@@ -196,7 +196,7 @@ export const recordReadSeriesIndex = example({
         ['j2', { title: 'Posters', press: 'P1', start: some(new Date('2026-10-12T09:00:00Z')), end: some(new Date('2026-10-12T15:00:00Z')), sheets: 900 }],
         ['j3', { title: 'Catalogue', press: 'P2', start: some(new Date('2026-09-01T00:00:00Z')), end: some(new Date('2026-12-01T00:00:00Z')), sheets: 120000 }],
       ]),
-      indexes: (index) => ({ jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }) }),
+      indexes: (index) => ({ jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }) }),
     });
     // The hours a press is booked for in a window, from its series index alone: the index carries each row.
     const hoursOnPress = e3.function('hours_on_press', {
@@ -216,7 +216,7 @@ export const recordReadSeriesIndex = example({
 });
 
 export const recordReadSeriesIndexInTime = example({
-  keywords: ['e3', 'record', 'index', 'e3.index', 'index.series', 'order', 'time', 'tile', 'group', 'board', 'plan', 'grouped rows', 'screen', 'window', 'events', 'function'],
+  keywords: ['e3', 'record', 'index', 'e3.index', 'index.flatSeries', 'order', 'time', 'tile', 'group', 'board', 'plan', 'grouped rows', 'screen', 'window', 'events', 'function'],
   description: 'File a record\'s events a tile at a time, in their keys\' order (`order: \'time\'`), led by the group the keys stand in: a screen of many keys over a window is then a few runs, whatever each key\'s history holds — what a Plan of grouped rows lists for an event kind. Its reader, `events({ on, from, to })`, gives every key\'s events under the group that overlap `[from, to)` and takes no `key`: an index in key order beside it reads one key, and the events on none',
   fn: () => {
     const JobType = StructType({ title: StringType, hall: StringType, press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
@@ -229,9 +229,9 @@ export const recordReadSeriesIndexInTime = example({
       indexes: (index) => ({
         // A hall's jobs a week at a time, in their presses' order: a tile's events together. Its last leading field is the
         // group the presses stand in, which a Plan of halls fills from the rows it draws.
-        jobs_by_hall_week: index.series({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
+        jobs_by_hall_week: index.flatSeries({ on: ['hall'], key: 'press', from: 'start', to: 'end', tile: 'week', order: 'time' }),
         // One press's jobs over any span, a key's events together: what reads one key.
-        jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
       }),
     });
     // A hall's sheets in a window, on every press it holds: its tiles' runs, each job once though it is filed past a year.
@@ -326,7 +326,7 @@ export const recordReadEntriesIndex = example({
 });
 
 export const recordReadNestedIndex = example({
-  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'items', 'totals', 'subtotals', 'subtree', 'subtreeTotals', 'index.nested', 'nested', 'tree', 'rollup', 'window', 'function'],
+  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'items', 'totals', 'subtotals', 'subtree', 'subtreeTotals', 'index.nestedSeries', 'nested', 'tree', 'rollup', 'window', 'function'],
   description: 'Read a nested series index inside a function, one node of a row\'s tree at a time: `items` gives a node\'s own items or values that overlap a window, `subtree` the items of every node beneath it, `totals` and `subtreeTotals` their totals a summary tile, and `subtotals` a parent\'s subtotal of its children\'s values by a rollup',
   fn: () => {
     const JobType = StructType({ title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
@@ -349,11 +349,11 @@ export const recordReadNestedIndex = example({
         ]),
       }]]),
       indexes: (index) => ({
-        lines_in_time: index.nested({
+        lines_in_time: index.nestedSeries({
           collections: {
-            units: index.nested.rows({
-              jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),   // filed under the line too
-              load: index.nested.values({ rollup: 'mean' }),                               // the line keeps its units' mean
+            units: index.nestedSeries.rows({
+              jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }),   // filed under the line too
+              load: index.nestedSeries.values({ rollup: 'mean' }),                               // the line keeps its units' mean
             }),
           },
           tile: 'day',
@@ -404,7 +404,7 @@ export const recordReadIndexInTask = example({
     const JobType = StructType({ press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
     const jobs = e3.record('jobs', DictType(StringType, JobType), {
       initial: new Map([['j1', { press: 'P1', start: some(new Date('2026-10-05T08:00:00Z')), end: some(new Date('2026-10-07T17:00:00Z')) }]]),
-      indexes: (index) => ({ jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }) }),
+      indexes: (index) => ({ jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }) }),
     });
     const WindowType = StructType({ press: StringType, from: DateTimeType, to: DateTimeType });
     const watched = e3.input('watched', WindowType, variant('value', { press: 'P1', from: new Date('2026-10-05T00:00:00Z'), to: new Date('2026-10-12T00:00:00Z') }));

@@ -90,14 +90,14 @@ function declared(runner?: RunnerConfig) {
   return e3.record('jobs', JobsType, {
     initial: new Map(),
     indexes: (index) => ({
-      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      jobs_by_state_press_day: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
-      jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_press_week: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_state_press_day: index.flatSeries({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
+      jobs_by_crew_press_month: index.flatSeries({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
       jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
       jobs_by_crew_press_quarter_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
       jobs_by_press_year_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
-      jobs_month_totals: index.summary({ from: 'start', to: 'end', tile: 'month' }, runner),
-      jobs_by_crew_week_totals: index.summary({ on: ['crews'], from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_month_totals: index.totals({ from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_crew_week_totals: index.totals({ on: ['crews'], from: 'start', to: 'end', tile: 'week' }, runner),
     }),
     mutations: (mutation) => ({ patch: mutation.patch(runner) }),
   });
@@ -385,7 +385,7 @@ describe('the series and summary indexes on the real runners', () => {
     for (const { ws, runner } of runtimes) {
       const jobs = e3.record('ages', JobsType, {
         initial: new Map(),
-        indexes: (index) => ({ ages_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
+        indexes: (index) => ({ ages_by_press_day: index.flatSeries({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
         mutations: (mutation) => ({ patch: mutation.patch(runner) }),
       });
       const zip = join(tempDir, `ages-${ws}.zip`);

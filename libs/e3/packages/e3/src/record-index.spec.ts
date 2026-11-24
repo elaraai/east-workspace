@@ -271,7 +271,7 @@ describe('a generated index key reserves no field name (#1432)', () => {
         named_by_area: index.area({ on, x: 'x', y: 'y', cell: 1 }),
         by_area: index.area({ x: 'x', y: 'y', cell: 1 }),
         // A series index, and a summary's totals: the press, then the week the instant falls in — the series' at its level (#1433).
-        named_by_week: index.series({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        named_by_week: index.flatSeries({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
         named_by_week_totals: index.summary({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
       }),
     });

@@ -102,10 +102,10 @@ function declared(runner?: RunnerConfig) {
   const machines = e3.record('machines', Machines, {
     initial: new Map(),
     indexes: (index) => ({
-      machines_in_time: index.nested({
+      machines_in_time: index.nestedSeries({
         collections: {
-          jobs: index.nested.items({ from: 'start', to: 'end' }), stops: index.nested.items({ from: 'start', to: 'end' }),
-          alarms: index.nested.items({ at: 'at' }), load: index.nested.values(), output: index.nested.values(),
+          jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), stops: index.nestedSeries.items({ from: 'start', to: 'end' }),
+          alarms: index.nestedSeries.items({ at: 'at' }), load: index.nestedSeries.values(), output: index.nestedSeries.values(),
         },
         tile: 'week',
         summary: 'month',
@@ -127,8 +127,8 @@ function declared(runner?: RunnerConfig) {
   const halls = e3.record('halls', Halls, {
     initial: new Map(),
     indexes: (index) => ({
-      halls_in_time: index.nested({
-        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      halls_in_time: index.nestedSeries({
+        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
       }, runner),
       halls_by_site: index.on(['site'], runner),
     }),
@@ -137,8 +137,8 @@ function declared(runner?: RunnerConfig) {
   const assemblies = e3.record('assemblies', Assemblies, {
     initial: new Map(),
     indexes: (index) => ({
-      assemblies_in_time: index.nested({
-        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
+      assemblies_in_time: index.nestedSeries({
+        collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
         tile: 'week',
         summary: 'month',
       }, runner),
@@ -149,12 +149,12 @@ function declared(runner?: RunnerConfig) {
   const ledgers = e3.record('ledgers', Ledgers, {
     initial: new Map(),
     indexes: (index) => ({
-      ledgers_in_time: index.nested({
+      ledgers_in_time: index.nestedSeries({
         collections: {
-          measures: index.nested.rows({
-            readings: index.nested.values({ rollup: ['sum', 'mean', 'count'] }),
-            stock: index.nested.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
-            children: index.nested.recursive(),
+          measures: index.nestedSeries.rows({
+            readings: index.nestedSeries.values({ rollup: ['sum', 'mean', 'count'] }),
+            stock: index.nestedSeries.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
+            children: index.nestedSeries.recursive(),
           }),
         },
         tile: 'day',
@@ -167,10 +167,10 @@ function declared(runner?: RunnerConfig) {
   const crews = e3.record('crews', Crews, {
     initial: new Map(),
     indexes: (index) => ({
-      crews_in_time: index.nested({
+      crews_in_time: index.nestedSeries({
         collections: {
-          hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }),
-          kit: index.nested.rows({}),
+          hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: 'sum' }), shifts: index.nestedSeries.items({ at: 'at' }) }),
+          kit: index.nestedSeries.rows({}),
         },
         tile: 'week',
         summary: 'month',
@@ -182,7 +182,7 @@ function declared(runner?: RunnerConfig) {
   const gauges = e3.record('gauges', Gauges, {
     initial: new Map(),
     indexes: (index) => ({
-      gauges_in_time: index.nested({ collections: { level: index.nested.values() }, tile: 'day', summary: 'month' }, runner),
+      gauges_in_time: index.nestedSeries({ collections: { level: index.nestedSeries.values() }, tile: 'day', summary: 'month' }, runner),
       gauges_by_site: index.on(['site'], runner),
     }),
     mutations: (mutation) => ({ patch: mutation.patch(runner) }),

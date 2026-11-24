@@ -5,7 +5,7 @@
 
 /**
  * The nested series index's declaration (#1434): one a record,
- * `index.nested({ collections, tile, summary })` among its indexes, whose
+ * `index.nestedSeries({ collections, tile, summary })` among its indexes, whose
  * `collections` declares every collection the record's rows nest, each
  * field with a builder saying what it holds — things people drag (`items`), a
  * value per instant (`values`), child rows (`rows`), or more rows of the row's
@@ -132,7 +132,7 @@ export function values<const O extends SeriesValuesOptions = { readonly rollup?:
  * nothing of them.
  *
  * @typeParam C - The child rows' collections, as written
- * @param collections - Each collection field of the child row, declared with a builder of `index.nested`; `{}` for
+ * @param collections - Each collection field of the child row, declared with a builder of `index.nestedSeries`; `{}` for
  *   child rows that hold none
  * @returns The declaration, for its field in `collections`
  */
@@ -477,7 +477,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
       if (fieldType === undefined) throw new Error(`${prefix} ${where} names unknown row field '${field}'`);
       const builder = builderOf(given);
       if (builder === undefined) {
-        throw new Error(`${prefix} ${at} is no declaration — declare it with index.nested.items(times), values(), rows(collections) or recursive()`);
+        throw new Error(`${prefix} ${at} is no declaration — declare it with index.nestedSeries.items(times), values(), rows(collections) or recursive()`);
       }
       if (fieldType.type !== 'Dict') {
         throw new Error(`${prefix} ${at} is '${field}', of type ${printType(fieldType)} — a collection is a Dict: Dict<K, Item> keyed by an id, ` +

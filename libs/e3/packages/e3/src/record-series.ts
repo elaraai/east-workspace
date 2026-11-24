@@ -24,9 +24,10 @@
  *   tile and the milliseconds of it they cover, `{ on: { …on }, key, tile }`.
  *   Its keys come from a row's contributions, `(K, V) → Dict<IK, Totals>`: the
  *   count 1 and the row's share of each tile it touches, under each
- *   (`tileShares`). Declared with no key (#1732), it keeps the record's
- *   totals a tile, `{ on: { …on }, tile }`: a horizon's bars, one entry a
- *   tile however many resources the events are on.
+ *   (`tileShares`).
+ * - **The record's totals** (`index.totals`, #1732) are a summary under no
+ *   key, `{ on: { …on }, tile }`: a horizon's bars, one entry a tile however
+ *   many resources the events are on.
  *
  * A series index declared `order: 'time'` (#1710) files the same entries the
  * other way about, `{ on: { …on }, level, tile, key, past }`: a tile's events
@@ -57,12 +58,12 @@ import {
 import { TILE_FNS, TileFilingType, TileShareType, checkTile, type RecordTile } from './record-tiles.js';
 import { lazyBuilds } from './lazy-build.js';
 
-/** What a series or a summary index's declaration names (`index.series`, `index.summary`). */
+/** What a series index's, a summary index's or the record's totals' declaration names (`index.flatSeries`, `index.summary`, `index.totals`). */
 export interface TimeTileSpec {
   /** The exact leading fields, before the key. */
   readonly on?: readonly string[];
-  /** The field naming the key the events are filed under: a Plan's resource. A summary's may be left out: it then keeps
-   *  the record's totals a tile (#1732); a series index takes one. */
+  /** The field naming the key the events are filed under: a Plan's resource. A series index and a summary index take
+   *  one; the record's totals a tile name none (#1732). */
   readonly key?: string;
   /** The field an event starts at: a DateTime, or an Option of one. */
   readonly from: string;
@@ -77,7 +78,7 @@ export type SeriesOrder = 'key' | 'time';
 
 const SERIES_ORDERS: readonly SeriesOrder[] = ['key', 'time'];
 
-/** What a series index's declaration names (`index.series`): a summary's fields, and its order. */
+/** What a series index's declaration names (`index.flatSeries`): a summary's fields, and its order. */
 export interface SeriesSpec extends TimeTileSpec {
   /** `'key'`, a key's events together (the default); `'time'`, a tile's events together, in their keys' order. */
   readonly order?: SeriesOrder;
@@ -101,11 +102,11 @@ function checkOrder(constructor: IndexConstructor, name: string, order: unknown)
   );
 }
 
-/** A series or summary declaration's fields, once they pass. */
+/** A series or summary declaration's fields, or the record's totals', once they pass. */
 interface TimeTileFields {
   readonly rowType: RowType;
   readonly leading: Leading;
-  /** The key's field and its type; `undefined` for a summary with no key, the record's totals a tile (#1732). */
+  /** The key's field and its type; `undefined` for the record's totals a tile, which name none (#1732). */
   readonly key: { readonly field: string; readonly type: EastType } | undefined;
   readonly start: OptionField<DateTimeType>;
   readonly end: OptionField<DateTimeType>;
@@ -187,7 +188,7 @@ function seriesValue(
 }
 
 /**
- * A series index's definition (`index.series`): its key function,
+ * A series index's definition (`index.flatSeries`): its key function,
  * `(K, V) → Set<IK>`, an entry per place a row's event is filed
  * (`eventFilings`: once, or once a year past a year), `{ on: { …on }, key,
  * level, tile }` — or, declared `order: 'time'`, `{ on: { …on }, level, tile,
@@ -221,11 +222,11 @@ export function seriesDefinition(
   const fields = checkTimeTile(constructor, name, valueType, spec);
   const order = checkOrder(constructor, name, spec.order);
   const { rowType, leading } = fields;
-  // A series index files each event by the key it is on: only a summary keeps the record's totals under none (#1732).
+  // A series index files each event by the key it is on: only the record's totals are kept under none (#1732).
   const filedBy = fields.key;
   if (filedBy === undefined) {
     throw new Error(`${constructor} '${name}' takes a key — the field naming what an event is on, which a series index files each event by: ` +
-      `key: '…'; the record's totals a tile are a summary with no key, index.summary({ from, to, tile })`);
+      `key: '…'; the record's totals a tile, under no key, are index.totals({ from, to, tile })`);
   }
   // East orders a struct by its fields as they are declared: the order of the key's parts is the order of the index.
   const indexType = order === 'time'
@@ -308,28 +309,75 @@ export function summaryMerge(name: string, indexType: EastType) {
  * touches, `{ on: { …on }, key, tile }`, once per combination of its leading
  * values, the count 1 and the milliseconds of the tile it covers — and its
  * merge, `({ik, k}, Totals, Totals) → Totals`: a build's pieces hold the same
- * keys, and a key's totals across them are their sum. Declared with no key
- * (#1732), its contributions are under `{ on: { …on }, tile }`: the record's
- * totals a tile, whatever each event is on — one entry a tile, however many
- * resources.
+ * keys, and a key's totals across them are their sum.
  *
  * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
+ * @param spec - The key, the start and the end, the tile, and the optional leading `on`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} As {@link seriesDefinition} does; and for a key left out, naming the record's totals' builder
+ */
+export function summaryDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
+  const entry = indexedEntry(constructor, name, rec);
+  onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
+    'value' in spec ? 'a summary index holds its totals, so it takes no value'
+      : 'order' in spec ? 'a summary index is filed by key, a key\'s tiles together: an order is a series index\'s' : undefined);
+  if (spec.key === undefined) {
+    throw new Error(`${constructor} '${name}' takes a key — the field naming what an event is on, which a summary index keeps a total a tile under: ` +
+      `key: '…'; the record's totals a tile, under no key, are index.totals({ from, to, tile })`);
+  }
+  return tiledTotals(constructor, name, rec, entry, spec, config);
+}
+
+/**
+ * The record's totals' definition (`index.totals`, #1732): a summary under
+ * no key — a row's contributions under `{ on: { …on }, tile }`, each tile its
+ * event touches, once per combination of its leading values, whatever the
+ * event is on: one entry a tile, however many resources.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param rec - Its record
+ * @param spec - The start and the end, the tile, and the optional leading `on`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} As {@link summaryDefinition} does; and for a key, naming a summary index's builder
+ */
+export function totalsDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
+  const entry = indexedEntry(constructor, name, rec);
+  onlyOptions(constructor, name, spec, ['on', 'from', 'to', 'tile'],
+    'key' in spec ? 'the record\'s totals are kept a tile, whatever each event is on: a key\'s totals a tile are index.summary({ key, from, to, tile })'
+      : 'value' in spec ? 'the index holds the record\'s totals, so it takes no value'
+        : 'order' in spec ? 'the record\'s totals are a total a tile: an order is a series index\'s' : undefined);
+  return tiledTotals(constructor, name, rec, entry, spec, config);
+}
+
+/**
+ * The definition of totals kept a tile: a summary index's, under each key
+ * ({@link summaryDefinition}), or the record's, under none
+ * ({@link totalsDefinition}) — the declaration's name, record and options
+ * checked by each.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param rec - Its record
+ * @param entry - The record's entry, its key and row types
  * @param spec - The optional key, the start and the end, the tile, and the optional leading `on`
  * @param config - Its runner selection
  * @returns The definition
  * @throws {Error} As {@link seriesDefinition} does, but for a key left out
  */
-export function summaryDefinition(
-  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+function tiledTotals(
+  constructor: IndexConstructor, name: string, rec: RecordDef, entry: { keyType: EastType; valueType: EastType }, spec: TimeTileSpec,
+  config: { runner?: RecordIndexDef['runner'] } | undefined,
 ): RecordIndexDef {
-  const { keyType, valueType } = indexedEntry(constructor, name, rec);
-  onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a summary index holds its totals, so it takes no value'
-      : !('order' in spec) ? undefined
-        : spec.key === undefined ? 'a summary index with no key keeps a total a tile: an order is a series index\'s'
-          : 'a summary index is filed by key, a key\'s tiles together: an order is a series index\'s');
+  const { keyType, valueType } = entry;
   const fields = checkTimeTile(constructor, name, valueType, spec);
   const { rowType, leading } = fields;
   const level = variant(fields.tile, null);

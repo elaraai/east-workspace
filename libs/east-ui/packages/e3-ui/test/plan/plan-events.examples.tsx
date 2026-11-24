@@ -156,16 +156,16 @@ export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, P
         plan_print_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
         // The jobs' totals a day, a week, a month, a quarter and a year (#1732), on their own and by their stock: what the horizon's bars
         // read at the period that fits the strip — by the stock the rail chooses, where it chooses one — never counting jobs.
-        plan_print_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_print_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_print_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_print_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_print_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
-        plan_print_jobs_by_stock_day_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "day" }),
-        plan_print_jobs_by_stock_week_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "week" }),
-        plan_print_jobs_by_stock_month_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "month" }),
-        plan_print_jobs_by_stock_quarter_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "quarter" }),
-        plan_print_jobs_by_stock_year_totals: index.summary({ on: ["stock"], from: "start", to: "end", tile: "year" }),
+        plan_print_jobs_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_print_jobs_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_print_jobs_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_print_jobs_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_print_jobs_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
+        plan_print_jobs_by_stock_day_totals: index.totals({ on: ["stock"], from: "start", to: "end", tile: "day" }),
+        plan_print_jobs_by_stock_week_totals: index.totals({ on: ["stock"], from: "start", to: "end", tile: "week" }),
+        plan_print_jobs_by_stock_month_totals: index.totals({ on: ["stock"], from: "start", to: "end", tile: "month" }),
+        plan_print_jobs_by_stock_quarter_totals: index.totals({ on: ["stock"], from: "start", to: "end", tile: "quarter" }),
+        plan_print_jobs_by_stock_year_totals: index.totals({ on: ["stock"], from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The jobs' patch door: every Save commits through it.
@@ -222,11 +222,11 @@ export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringTyp
     indexes: (index) => ({
         plan_print_shifts_by_time: index.interval({ from: "start", to: "end" }),
         // The shifts' totals a day, a week, a month, a quarter and a year (#1732): what the horizon's bars read.
-        plan_print_shifts_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_print_shifts_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_print_shifts_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_print_shifts_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_print_shifts_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_print_shifts_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_print_shifts_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_print_shifts_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_print_shifts_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_print_shifts_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The shifts' patch door.
@@ -1586,11 +1586,11 @@ export const planPressMachines = e3.record("plan_press_machines", DictType(Strin
         // The machines by name: the rail's order and its search.
         plan_press_machines_by_name: index.on(["name"]),
         // Each machine's readings a day at a time, and a press's kinds of task: child rows keyed by the kind, a variant.
-        plan_press_machines_in_time: index.nested({
+        plan_press_machines_in_time: index.nestedSeries({
             collections: {
-                temperature: index.nested.values(),
-                utilisation: index.nested.values(),
-                kinds: index.nested.rows({}),
+                temperature: index.nestedSeries.values(),
+                utilisation: index.nestedSeries.values(),
+                kinds: index.nestedSeries.rows({}),
             },
             tile: "day",
             summary: "month",
@@ -1638,20 +1638,20 @@ export const planPressTaskRows = e3.record("plan_press_tasks", DictType(StringTy
         plan_press_tasks_by_press_day: index.on(["press", "day"]),
         plan_press_tasks_by_press_time: index.interval({ on: ["press"], from: "day", to: "day" }),
         // The tasks a press at a time, a cell at a time, and their totals: each task an instant, its end its start.
-        plan_press_tasks_by_press_week: index.series({ key: "press", from: "day", to: "day", tile: "week" }),
+        plan_press_tasks_by_press_week: index.flatSeries({ key: "press", from: "day", to: "day", tile: "week" }),
         plan_press_tasks_by_press_month: index.summary({ key: "press", from: "day", to: "day", tile: "month" }),
         // The tasks' totals a day, a week, a month, a quarter and a year (#1732): the works' horizon's bars, and a press's page's, led by
         // the press its scope holds — each task an instant.
-        plan_press_tasks_day_totals: index.summary({ from: "day", to: "day", tile: "day" }),
-        plan_press_tasks_week_totals: index.summary({ from: "day", to: "day", tile: "week" }),
-        plan_press_tasks_month_totals: index.summary({ from: "day", to: "day", tile: "month" }),
-        plan_press_tasks_quarter_totals: index.summary({ from: "day", to: "day", tile: "quarter" }),
-        plan_press_tasks_year_totals: index.summary({ from: "day", to: "day", tile: "year" }),
-        plan_press_tasks_by_press_day_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "day" }),
-        plan_press_tasks_by_press_week_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "week" }),
-        plan_press_tasks_by_press_month_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "month" }),
-        plan_press_tasks_by_press_quarter_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "quarter" }),
-        plan_press_tasks_by_press_year_totals: index.summary({ on: ["press"], from: "day", to: "day", tile: "year" }),
+        plan_press_tasks_day_totals: index.totals({ from: "day", to: "day", tile: "day" }),
+        plan_press_tasks_week_totals: index.totals({ from: "day", to: "day", tile: "week" }),
+        plan_press_tasks_month_totals: index.totals({ from: "day", to: "day", tile: "month" }),
+        plan_press_tasks_quarter_totals: index.totals({ from: "day", to: "day", tile: "quarter" }),
+        plan_press_tasks_year_totals: index.totals({ from: "day", to: "day", tile: "year" }),
+        plan_press_tasks_by_press_day_totals: index.totals({ on: ["press"], from: "day", to: "day", tile: "day" }),
+        plan_press_tasks_by_press_week_totals: index.totals({ on: ["press"], from: "day", to: "day", tile: "week" }),
+        plan_press_tasks_by_press_month_totals: index.totals({ on: ["press"], from: "day", to: "day", tile: "month" }),
+        plan_press_tasks_by_press_quarter_totals: index.totals({ on: ["press"], from: "day", to: "day", tile: "quarter" }),
+        plan_press_tasks_by_press_year_totals: index.totals({ on: ["press"], from: "day", to: "day", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The tasks' patch door — every Save commits through it.
@@ -1675,7 +1675,7 @@ export const planPressTasks = example({
     keywords: [
         "Plan", "Schedule.events", "child", "child rows", "rows beneath a resource", "lane", "lanes", "variant lane", "AM", "PM",
         "Plan.series.kinds", "Plan.series.resources", "Plan.children", "keyType", "variant key", "Plan.lane", "buckets",
-        "Slice.bindRecords", "Data.bindPaged", "index.nested", "index.nested.rows", "index.series", "index.summary", "Record.bind", "#1541",
+        "Slice.bindRecords", "Data.bindPaged", "index.nestedSeries", "index.nestedSeries.rows", "index.flatSeries", "index.summary", "Record.bind", "#1541",
     ],
     description: "Every machine of a works with its rows beneath it — a press its ink temperature and a row for each kind of task it takes (its own child rows, keyed by a variant: Plan.children under a Plan.series.kinds case), a folder its utilisation — and one event kind landing a step beneath its resource: each task on its press's row, then its kind's row (child: { field, of }), in its half's lane (a variant lane, both lanes always drawn); a drop on another kind's row, press or lane writes the field that places it",
     fn: East.function([], UIComponentType, (_$) => (
@@ -1759,7 +1759,7 @@ export const planPressTasks = example({
 export const planOnePress = example({
     keywords: [
         "Plan", "row: false", "a press's page", "scope", "page parameter", "Slice.bindRecords", "Plan.series.kinds", "Plan.children",
-        "Plan.series.resources", "child", "lane", "variant lane", "pinned", "Schedule.events", "index.key", "index.on", "index.nested",
+        "Plan.series.resources", "child", "lane", "variant lane", "pinned", "Schedule.events", "index.key", "index.on", "index.nestedSeries",
         "Data.bindPaged", "Record.bind", "State", "Select", "#1541", "#1621",
     ],
     description: "One press's own page — the works' page scoped on the rail to the press the page is for (scope: { code: [press] } over an index.key of the row's key, and the tasks' scope: { press: [press] }), the press's own row not drawn (row: false on its Plan.series.kinds case, the folders' case switched off) so its pinned ink temperature and a row for each kind of task it takes stand at the root; each task on its kind's row in its half's lane",
@@ -1901,7 +1901,7 @@ export const planPressSections = example({
     keywords: [
         "Plan", "Plan.series.section", "section", "header", "section header", "rows under a header", "fold", "child rows", "keyType",
         "variant key", "Plan.children", "Plan.series.resources", "Plan.series.kinds", "child", "Schedule.events", "lane", "buckets",
-        "Slice.bindRecords", "Data.bindPaged", "index.nested", "index.series", "index.summary", "Record.bind",
+        "Slice.bindRecords", "Data.bindPaged", "index.nestedSeries", "index.flatSeries", "index.summary", "Record.bind",
     ],
     description: "A header over a resource's child rows — Plan.series.section around the rows Plan.children steps down to, keyed as they are (by a variant here: a section takes its key type from its members, and declares none): each press's kinds of task beneath a Tasks header that folds them, each row's sub line read off its key, and the tasks' event kind landing on its kind's row beneath the header (child: { field, of })",
     fn: East.function([], UIComponentType, (_$) => (
@@ -2320,11 +2320,11 @@ export const planWorksRows = e3.record("plan_works_rows", DictType(StringType, W
         })),
         // What belongs to the resources, a day at a time, its totals by the month: a press's utilisation, and a crew's
         // hours by role, the crew keeping its roles' sum from the day up — the finest the Plan's axis zooms to.
-        plan_works_rows_in_time: index.nested({
+        plan_works_rows_in_time: index.nestedSeries({
             collections: {
-                resources: index.nested.rows({
-                    utilisation: index.nested.values(),
-                    hours: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
+                resources: index.nestedSeries.rows({
+                    utilisation: index.nestedSeries.values(),
+                    hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }),
                 }),
             },
             tile: "day",
@@ -2366,15 +2366,15 @@ export const planWorksJobs = e3.record("plan_works_jobs", WorksJobs, {
         // The rail's window: each job overlapping it, read once.
         plan_works_jobs_by_time: index.interval({ from: "start", to: "end" }),
         // The jobs by the press each is on and by time: the presses in view are read a cell at a time.
-        plan_works_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        plan_works_jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
         // How busy each press is, a month at a time: what the Plan shades where the jobs in view are too many to draw.
         plan_works_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         // The jobs' totals a day, a week, a month, a quarter and a year (#1732): what the horizon's bars read, with every other kind's.
-        plan_works_jobs_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_works_jobs_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_works_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_works_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_works_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_works_jobs_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_works_jobs_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_works_jobs_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_works_jobs_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_works_jobs_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The Plan's save door for the jobs.
@@ -2391,13 +2391,13 @@ export const planWorksStops = e3.record("plan_works_stops", DictType(StringType,
     ]),
     indexes: (index) => ({
         plan_works_stops_by_time: index.interval({ from: "at", to: "at" }),
-        plan_works_stops_by_press_week: index.series({ key: "press", from: "at", to: "at", tile: "week" }),
+        plan_works_stops_by_press_week: index.flatSeries({ key: "press", from: "at", to: "at", tile: "week" }),
         plan_works_stops_by_press_month: index.summary({ key: "press", from: "at", to: "at", tile: "month" }),
-        plan_works_stops_day_totals: index.summary({ from: "at", to: "at", tile: "day" }),
-        plan_works_stops_week_totals: index.summary({ from: "at", to: "at", tile: "week" }),
-        plan_works_stops_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
-        plan_works_stops_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
-        plan_works_stops_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
+        plan_works_stops_day_totals: index.totals({ from: "at", to: "at", tile: "day" }),
+        plan_works_stops_week_totals: index.totals({ from: "at", to: "at", tile: "week" }),
+        plan_works_stops_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
+        plan_works_stops_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
+        plan_works_stops_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -2411,13 +2411,13 @@ export const planWorksBindings = e3.record("plan_works_bindings", DictType(Strin
     ]),
     indexes: (index) => ({
         plan_works_bindings_by_time: index.interval({ from: "start", to: "end" }),
-        plan_works_bindings_by_line_week: index.series({ key: "line", from: "start", to: "end", tile: "week" }),
+        plan_works_bindings_by_line_week: index.flatSeries({ key: "line", from: "start", to: "end", tile: "week" }),
         plan_works_bindings_by_line_month: index.summary({ key: "line", from: "start", to: "end", tile: "month" }),
-        plan_works_bindings_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_works_bindings_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_works_bindings_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_works_bindings_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_works_bindings_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_works_bindings_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_works_bindings_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_works_bindings_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_works_bindings_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_works_bindings_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -2433,13 +2433,13 @@ export const planWorksShifts = e3.record("plan_works_shifts", DictType(StringTyp
     ]),
     indexes: (index) => ({
         plan_works_shifts_by_time: index.interval({ from: "start", to: "end" }),
-        plan_works_shifts_by_crew_week: index.series({ key: "crew", from: "start", to: "end", tile: "week" }),
+        plan_works_shifts_by_crew_week: index.flatSeries({ key: "crew", from: "start", to: "end", tile: "week" }),
         plan_works_shifts_by_crew_month: index.summary({ key: "crew", from: "start", to: "end", tile: "month" }),
-        plan_works_shifts_day_totals: index.summary({ from: "start", to: "end", tile: "day" }),
-        plan_works_shifts_week_totals: index.summary({ from: "start", to: "end", tile: "week" }),
-        plan_works_shifts_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_works_shifts_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_works_shifts_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_works_shifts_day_totals: index.totals({ from: "start", to: "end", tile: "day" }),
+        plan_works_shifts_week_totals: index.totals({ from: "start", to: "end", tile: "week" }),
+        plan_works_shifts_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_works_shifts_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_works_shifts_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -2454,13 +2454,13 @@ export const planWorksDeliveries = e3.record("plan_works_deliveries", DictType(S
     indexes: (index) => ({
         plan_works_deliveries_by_time: index.interval({ from: "at", to: "at" }),
         // The key field is the variant, so a row's cells are asked by its key in its case.
-        plan_works_deliveries_by_location_week: index.series({ key: "location", from: "at", to: "at", tile: "week" }),
+        plan_works_deliveries_by_location_week: index.flatSeries({ key: "location", from: "at", to: "at", tile: "week" }),
         plan_works_deliveries_by_location_month: index.summary({ key: "location", from: "at", to: "at", tile: "month" }),
-        plan_works_deliveries_day_totals: index.summary({ from: "at", to: "at", tile: "day" }),
-        plan_works_deliveries_week_totals: index.summary({ from: "at", to: "at", tile: "week" }),
-        plan_works_deliveries_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
-        plan_works_deliveries_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
-        plan_works_deliveries_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
+        plan_works_deliveries_day_totals: index.totals({ from: "at", to: "at", tile: "day" }),
+        plan_works_deliveries_week_totals: index.totals({ from: "at", to: "at", tile: "week" }),
+        plan_works_deliveries_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
+        plan_works_deliveries_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
+        plan_works_deliveries_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -2643,8 +2643,8 @@ export const placeWorksOrders = e3.function("plan_works_place_orders", {
 export const planPrintWorksRecords = example({
     keywords: [
         "Plan", "print works", "one record of rows", "Plan.series.group", "Plan.series.kinds", "Plan.children", "Plan.series.table", "Plan.series.heat",
-        "keyType", "variant key", "record", "Record.bind", "save door", "Slice.bindRecords", "rows", "Data.bindPaged", "index.nested", "index.keys",
-        "index.interval", "index.series", "index.summary", "Schedule.events", "resource", "of", "cell at a time", "locked", "status", "ready", "lane",
+        "keyType", "variant key", "record", "Record.bind", "save door", "Slice.bindRecords", "rows", "Data.bindPaged", "index.nestedSeries", "index.keys",
+        "index.interval", "index.flatSeries", "index.summary", "Schedule.events", "resource", "of", "cell at a time", "locked", "status", "ready", "lane",
         "overlaps", "Plan.links", "feeds", "link kind", "Connect", "Plan.library.tab", "create", "orders", "drop", "Schedule.patch", "customers",
         "Schedule.templates", "case", "one templates record", "Plan.library.events", "Plan.library.series", "hidden", "optimise", "Func.bind",
         "e3.function", "Plan.Types.OptimiseRequest", "Plan.Types.OptimiseResult", "inspector", "horizon", "totals", "#1541", "#1544", "#1732",

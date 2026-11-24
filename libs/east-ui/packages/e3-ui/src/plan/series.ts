@@ -458,7 +458,7 @@ export function createChildren<R extends EastType, F extends PlanChildField<R>, 
  * rollup of them and a parent's `aggregate` doesn't count them. They are read
  * only: a series over them declares no `edit`. An event kind's `child` lands
  * on a resources series among them as on a field's. Child rows that are many,
- * or that change over time, belong in the record, as `index.nested.rows`.
+ * or that change over time, belong in the record, as `index.nestedSeries.rows`.
  *
  * @typeParam R - The parent entry type (inferred from where the step-down is used)
  * @typeParam KT - The parent entries' key type

@@ -176,7 +176,7 @@ const notes = [span(Machine, {
     decisions: Plan.items("notes", { at: "at" }, () => ({ applied: false })),
 })];
 refusalsOf(notes, machines).are<
-    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
+    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nestedSeries.items({ at: "at" })'>();
 const alarmValues = [Plan.series.heat(Machine, {
     key: "alarms", title: "Alarms", label: (m) => m.name, cells: Plan.heatCells(Plan.values("alarms", () => ({ value: some(1.0) }))),
 })];
@@ -193,7 +193,7 @@ const subtotalled = <const F extends "sum" | "mean", const A extends "sum" | "me
 })];
 refusalsOf(subtotalled("sum", "sum"), ledgers).are<never>();
 refusalsOf(subtotalled("mean", "mean"), ledgers).are<
-    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: index.nested.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
+    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: index.nestedSeries.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
 
 /** A part of a work: its jobs, and more parts beneath it. */
 const WorkPart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, ex.NestedJob), parts: DictType(StringType, self) }));
@@ -204,8 +204,8 @@ const works = e3.record("types_works", DictType(StringType, Work), {
     indexes: (index) => ({
         works_by_name: index.on(["name"]),
         // Its parts' jobs, filed under no parent.
-        works_in_time: index.nested({
-            collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }), parts: index.nested.recursive() }) },
+        works_in_time: index.nestedSeries({
+            collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }), parts: index.nestedSeries.recursive() }) },
             tile: "week",
         }),
     }),
@@ -229,7 +229,7 @@ const workTree = [Plan.series.group(Work, {
 })];
 refusalsOf(assemblyTree, assemblies).are<never>();
 refusalsOf(workTree, worksBinding).are<
-    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it index.nested.items({ from: "start", to: "end" }, { rollup: true })'>();
+    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true })'>();
 
 /**
  * Each refusal fails to compile where the series list is written, given as
@@ -278,7 +278,7 @@ export function refusedThroughLet($: BlockBuilder<NullType>): void {
     const held = $.let(machines);
     const slice = $.let(Slice.bindRecords("machines", { rows: { source: held, fields: { site: { label: "Site" } } } }));
     refusalsOf(notes, held).are<
-        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
+        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nestedSeries.items({ at: "at" })'>();
     refusalsOf(filed, { slice }).are<never>();
     Plan({ axis, data: held, series: filed });
     // @ts-expect-error -- a collection the index does not declare, through $.let

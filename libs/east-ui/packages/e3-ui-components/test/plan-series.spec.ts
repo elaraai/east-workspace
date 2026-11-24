@@ -267,7 +267,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
 describe("a source's series and summary indexes, refused as the payload builds (#1039)", () => {
     const refused = (pattern: string, slot = "job") => new RegExp(`^.*Plan: events\\.${slot}'s source lists the ${pattern}`);
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
-    const series = `index\\.series\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
+    const series = `index\\.flatSeries\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
     const summary = `index\\.summary\\(\\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
     const paged = `, and the kind is placed on the rows of presses, paged — a paged kind's events are read a cell at a time`;
 

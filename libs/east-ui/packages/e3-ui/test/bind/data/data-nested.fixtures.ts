@@ -102,13 +102,13 @@ export const nestedMachines = e3.record("nested_machines", NestedMachines, {
         // The machines by name, carrying a value of their own: their state.
         machines_by_name: index.on(["name"], { value: East.function([StringType, NestedMachine], StringType, (_$, _key, machine) => machine.status) }),
         // What the machines file in time: their jobs and stops a span each, their alarms an instant each, and their load and output a day each.
-        machines_in_time: index.nested({
+        machines_in_time: index.nestedSeries({
             collections: {
-                jobs: index.nested.items({ from: "start", to: "end" }),
-                stops: index.nested.items({ from: "start", to: "end" }),
-                alarms: index.nested.items({ at: "at" }),
-                load: index.nested.values(),
-                output: index.nested.values(),
+                jobs: index.nestedSeries.items({ from: "start", to: "end" }),
+                stops: index.nestedSeries.items({ from: "start", to: "end" }),
+                alarms: index.nestedSeries.items({ at: "at" }),
+                load: index.nestedSeries.values(),
+                output: index.nestedSeries.values(),
             },
             tile: "week",
             summary: "month",
@@ -142,8 +142,8 @@ export const nestedLedgers = e3.record("nested_ledgers", DictType(StringType, Ne
         // The ledgers by name.
         ledgers_by_name: index.on(["name"]),
         // What the ledgers file in time: each measure's readings, a ledger keeping their sums from the week up.
-        ledgers_in_time: index.nested({
-            collections: { measures: index.nested.rows({ readings: index.nested.values({ rollup: "sum" }) }) },
+        ledgers_in_time: index.nestedSeries({
+            collections: { measures: index.nestedSeries.rows({ readings: index.nestedSeries.values({ rollup: "sum" }) }) },
             tile: "week",
             summary: "month",
         }),
@@ -185,8 +185,8 @@ export const nestedAssemblies = e3.record("nested_assemblies", DictType(StringTy
         // The assemblies by name.
         assemblies_by_name: index.on(["name"]),
         // What the assemblies file in time: each part's jobs, under it and under every part above it.
-        assemblies_in_time: index.nested({
-            collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nested.recursive() }) },
+        assemblies_in_time: index.nestedSeries({
+            collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
             tile: "week",
             summary: "month",
         }),

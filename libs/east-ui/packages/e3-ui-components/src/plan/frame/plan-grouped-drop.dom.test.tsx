@@ -51,7 +51,7 @@ export const dropJobs = e3.record("plan_drop_jobs", Jobs, {
     indexes: (index) => ({
         plan_drop_jobs_by_time: index.interval({ from: "start", to: "end" }),
         // A week's jobs together under their hall, in their presses' order.
-        plan_drop_jobs_by_hall_week: index.series({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        plan_drop_jobs_by_hall_week: index.flatSeries({ on: ["hall"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         plan_drop_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
@@ -81,7 +81,7 @@ export const dropLineJobs = e3.record("plan_drop_line_jobs", DictType(StringType
     indexes: (index) => ({
         plan_drop_line_jobs_by_time: index.interval({ from: "start", to: "end" }),
         // A week's jobs together under their hall and line, in their presses' order.
-        plan_drop_line_jobs_by_line_week: index.series({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        plan_drop_line_jobs_by_line_week: index.flatSeries({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         plan_drop_line_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),

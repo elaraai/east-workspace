@@ -54,7 +54,7 @@
  * # In time order
  *
  * A kind's source may list a series index in time order (#1710,
- * `index.series({ …, order: "time" })`), which files a tile's events together
+ * `index.flatSeries({ …, order: "time" })`), which files a tile's events together
  * in their keys' order: a cell of it is one range a tile, from the first of
  * the block's keys through the last (`inTimeCellQueries`), so what a screen of
  * rows reads follows what the window holds, never each row's history. Its last

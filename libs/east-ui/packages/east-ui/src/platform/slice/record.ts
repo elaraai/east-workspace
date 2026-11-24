@@ -272,7 +272,7 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  * it through an area index whose leading fields the narrowing fills exactly
  * (#1385). An interval index offers its leading fields and its start.
  *
- * A series or a summary index (`index.series`, `index.summary`) offers no
+ * A series or a summary index (`index.flatSeries`, `index.summary`) offers no
  * field at all: it is listed for a reader of its cells (#1039), and its
  * metadata says how it files the record's events, and whether a series
  * index's entries carry a copy of each event in its row's place (#1725). The
@@ -552,7 +552,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         }
         if (totals.from !== range) {
             throw new Error(`${named} counts the events from '${totals.from}', and the source's range is '${range}' — a horizon counts what its window ` +
-                `shows: declare them from it, index.summary({ ${index.fields.length > 0 ? `on: [${index.fields.map(f => JSON.stringify(f)).join(", ")}], ` : ""}` +
+                `shows: declare them from it, index.totals({ ${index.fields.length > 0 ? `on: [${index.fields.map(f => JSON.stringify(f)).join(", ")}], ` : ""}` +
                 `from: "${range}", to: "${totals.to}", tile: "${tile}" })`);
         }
         const unchosen = index.fields.find(field => !scope.has(field) && !offered.includes(field));
@@ -563,7 +563,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         const unled = scoped.filter(field => !index.fields.includes(field));
         if (unled.length > 0) {
             throw new Error(`${named} is not led by the scope's ${unled.map(f => `'${f}'`).join(", ")}, which every read of the source holds — lead them by ` +
-                `the scope's fields, index.summary({ on: [${scoped.map(f => JSON.stringify(f)).join(", ")}], from: "${totals.from}", to: "${totals.to}", tile: "${tile}" })`);
+                `the scope's fields, index.totals({ on: [${scoped.map(f => JSON.stringify(f)).join(", ")}], from: "${totals.from}", to: "${totals.to}", tile: "${tile}" })`);
         }
     }
     const search = options.search === undefined ? fields.filter(field => field.kind === "string" && !weighing.has(field.fieldId)).map(field => field.fieldId)

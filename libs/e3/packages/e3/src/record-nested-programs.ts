@@ -1969,7 +1969,7 @@ function nestedSpanDefinition(
 ): RecordIndexDef {
   const spanName = nestedSpanName(name);
   const keyFn = nestedSpan(decl, keyType, rowType, tile);
-  checkPure(`index.nested '${name}' span`, keyFn, INDEX_PURITY);
+  checkPure(`index.nestedSeries '${name}' span`, keyFn, INDEX_PURITY);
   return {
     kind: 'recordIndex',
     name: spanName,
@@ -2269,7 +2269,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
 // ── The definition ────────────────────────────────────────────────────────────
 
 /**
- * The nested series index's definition (`index.nested`, #1434): its key function a row's entries, `(K, V) →
+ * The nested series index's definition (`index.nestedSeries`, #1434): its key function a row's entries, `(K, V) →
  * Dict<IK, P>` — every declared collection's items filed by #1433's levels,
  * each node's totals where a summary is declared, each item rolled up filed
  * under every ancestor too, and every parent's subtotals of each collection of
@@ -2291,7 +2291,7 @@ export function nestedDefinition(
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   if ('key' in spec || 'from' in spec || 'to' in spec) {
-    throw new Error(`${constructor} '${name}' takes collections, tile and summary — key, from and to file the record's own events: index.series({ key, from, to, tile })`);
+    throw new Error(`${constructor} '${name}' takes collections, tile and summary — key, from and to file the record's own events: index.flatSeries({ key, from, to, tile })`);
   }
   if ('on' in spec) {
     throw new Error(`${constructor} '${name}' takes no on with collections — a nested collection is read by its row's key, which the rail's indexes page`);

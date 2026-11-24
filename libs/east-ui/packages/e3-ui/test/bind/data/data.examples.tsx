@@ -937,11 +937,11 @@ export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, Indexe
         // a press in a month.
         jobs_by_time: index.interval({ from: "start", to: "end" }),
         jobs_by_state_time: index.interval({ on: ["state"], from: "start", to: "end" }),
-        jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
-        jobs_by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+        jobs_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
+        jobs_by_state_press_week: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
         jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         // Their tiles, some presses in a week: each entry a copy of its job, what its tile draws, in the row's place (#1725).
-        job_tiles_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }, {
+        job_tiles_by_press_week: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }, {
             value: East.function([StringType, IndexedJob], IndexedJobTile, (_$, _id, job) => ({ press: job.press, start: job.start, end: job.end })),
         }),
     }),

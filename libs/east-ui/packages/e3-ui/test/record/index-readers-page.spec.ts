@@ -65,14 +65,14 @@ const jobs = e3.record("jobs", JobsType, {
     indexes: (index) => ({
         in_time: index.interval({ from: "start", to: "end" }),
         in_time_by_state: index.interval({ on: ["state"], from: "start", to: "end" }),
-        press_weeks: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
-        press_weeks_by_state: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
-        weeks: index.series({ key: "press", from: "start", to: "end", tile: "week", order: "time" }),
-        weeks_by_state: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        press_weeks: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week" }),
+        press_weeks_by_state: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+        weeks: index.flatSeries({ key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        weeks_by_state: index.flatSeries({ on: ["state"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         press_months: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         // The record's totals a month, and a state's (#1732).
-        months: index.summary({ from: "start", to: "end", tile: "month" }),
-        months_by_state: index.summary({ on: ["state"], from: "start", to: "end", tile: "month" }),
+        months: index.totals({ from: "start", to: "end", tile: "month" }),
+        months_by_state: index.totals({ on: ["state"], from: "start", to: "end", tile: "month" }),
     }),
 });
 
@@ -95,11 +95,11 @@ const LinesType = DictType(StringType, LineRow);
 const lines = e3.record("lines", LinesType, {
     initial: new Map(),
     indexes: (index) => ({
-        lines_in_time: index.nested({
+        lines_in_time: index.nestedSeries({
             collections: {
-                units: index.nested.rows({
-                    jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }),
-                    load: index.nested.values({ rollup: "sum" }),
+                units: index.nestedSeries.rows({
+                    jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }),
+                    load: index.nestedSeries.values({ rollup: "sum" }),
                 }),
             },
             tile: "week",

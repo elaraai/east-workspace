@@ -325,7 +325,7 @@ export const planSeriesInspections = e3.record("plan_series_inspections", DictTy
         // The inspections over their interval index: the window the rail reads and its exact count.
         plan_series_inspections_by_time: index.interval({ from: "start", to: "end" }),
         // A hall's inspections together, a week at a time: the halls are rows under no other, so in their keys' order.
-        plan_series_inspections_by_hall_week: index.series({ key: "hall", from: "start", to: "end", tile: "week" }),
+        plan_series_inspections_by_hall_week: index.flatSeries({ key: "hall", from: "start", to: "end", tile: "week" }),
         // How busy each hall is, a day, a month, a quarter and a year at a time: what the Plan shades from, zoomed out past
         // what it draws, at the tile that fits the zoom.
         plan_series_inspections_by_hall_day: index.summary({ key: "hall", from: "start", to: "end", tile: "day" }),
@@ -334,9 +334,9 @@ export const planSeriesInspections = e3.record("plan_series_inspections", DictTy
         plan_series_inspections_by_hall_year: index.summary({ key: "hall", from: "start", to: "end", tile: "year" }),
         // The record's totals a month, a quarter and a year (#1732): how many of its events touch each, under no key — what
         // the horizon's bars read at the tile that fits the strip, never counting events.
-        plan_series_inspections_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_series_inspections_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_series_inspections_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_series_inspections_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_series_inspections_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_inspections_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({
         // The inspections' patch door: every Save commits through it.
@@ -350,14 +350,14 @@ export const planSeriesFolding = e3.record("plan_series_folding", DictType(Strin
     indexes: (index) => ({
         plan_series_folding_by_time: index.interval({ from: "start", to: "end" }),
         // A week's runs together under their hall, in their folders' order (#1710): a hall's folders in view are one range a tile.
-        plan_series_folding_by_hall_week: index.series({ on: ["hall"], key: "folder", from: "start", to: "end", tile: "week", order: "time" }),
+        plan_series_folding_by_hall_week: index.flatSeries({ on: ["hall"], key: "folder", from: "start", to: "end", tile: "week", order: "time" }),
         plan_series_folding_by_folder_day: index.summary({ key: "folder", from: "start", to: "end", tile: "day" }),
         plan_series_folding_by_folder_month: index.summary({ key: "folder", from: "start", to: "end", tile: "month" }),
         plan_series_folding_by_folder_quarter: index.summary({ key: "folder", from: "start", to: "end", tile: "quarter" }),
         plan_series_folding_by_folder_year: index.summary({ key: "folder", from: "start", to: "end", tile: "year" }),
-        plan_series_folding_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_series_folding_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_series_folding_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_series_folding_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_series_folding_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_folding_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -367,14 +367,14 @@ export const planSeriesDeliveries = e3.record("plan_series_deliveries", DictType
     initial: () => East.compile(generateSeriesDeliveries, [])(SERIES_HALLS, SERIES_WEEKS),
     indexes: (index) => ({
         plan_series_deliveries_by_time: index.interval({ from: "at", to: "at" }),
-        plan_series_deliveries_by_hall_week: index.series({ on: ["hall"], key: "bay", from: "at", to: "at", tile: "week", order: "time" }),
+        plan_series_deliveries_by_hall_week: index.flatSeries({ on: ["hall"], key: "bay", from: "at", to: "at", tile: "week", order: "time" }),
         plan_series_deliveries_by_bay_day: index.summary({ key: "bay", from: "at", to: "at", tile: "day" }),
         plan_series_deliveries_by_bay_month: index.summary({ key: "bay", from: "at", to: "at", tile: "month" }),
         plan_series_deliveries_by_bay_quarter: index.summary({ key: "bay", from: "at", to: "at", tile: "quarter" }),
         plan_series_deliveries_by_bay_year: index.summary({ key: "bay", from: "at", to: "at", tile: "year" }),
-        plan_series_deliveries_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
-        plan_series_deliveries_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
-        plan_series_deliveries_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
+        plan_series_deliveries_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
+        plan_series_deliveries_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
+        plan_series_deliveries_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -386,14 +386,14 @@ export const planSeriesJobs = e3.record("plan_series_jobs", DictType(StringType,
         plan_series_jobs_by_time: index.interval({ from: "start", to: "end" }),
         // A week's jobs together under their hall and line, in their presses' order (#1710): a block of a line's presses
         // in view is one range a tile, from its first press through its last, whatever the presses' histories.
-        plan_series_jobs_by_line_week: index.series({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
+        plan_series_jobs_by_line_week: index.flatSeries({ on: ["hall", "line"], key: "press", from: "start", to: "end", tile: "week", order: "time" }),
         plan_series_jobs_by_press_day: index.summary({ key: "press", from: "start", to: "end", tile: "day" }),
         plan_series_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
         plan_series_jobs_by_press_quarter: index.summary({ key: "press", from: "start", to: "end", tile: "quarter" }),
         plan_series_jobs_by_press_year: index.summary({ key: "press", from: "start", to: "end", tile: "year" }),
-        plan_series_jobs_month_totals: index.summary({ from: "start", to: "end", tile: "month" }),
-        plan_series_jobs_quarter_totals: index.summary({ from: "start", to: "end", tile: "quarter" }),
-        plan_series_jobs_year_totals: index.summary({ from: "start", to: "end", tile: "year" }),
+        plan_series_jobs_month_totals: index.totals({ from: "start", to: "end", tile: "month" }),
+        plan_series_jobs_quarter_totals: index.totals({ from: "start", to: "end", tile: "quarter" }),
+        plan_series_jobs_year_totals: index.totals({ from: "start", to: "end", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -403,14 +403,14 @@ export const planSeriesTrims = e3.record("plan_series_trims", DictType(StringTyp
     initial: () => East.compile(generateSeriesTrims, [])(SERIES_HALLS, SERIES_WEEKS),
     indexes: (index) => ({
         plan_series_trims_by_time: index.interval({ from: "at", to: "at" }),
-        plan_series_trims_by_line_week: index.series({ on: ["hall", "line"], key: "guillotine", from: "at", to: "at", tile: "week", order: "time" }),
+        plan_series_trims_by_line_week: index.flatSeries({ on: ["hall", "line"], key: "guillotine", from: "at", to: "at", tile: "week", order: "time" }),
         plan_series_trims_by_guillotine_day: index.summary({ key: "guillotine", from: "at", to: "at", tile: "day" }),
         plan_series_trims_by_guillotine_month: index.summary({ key: "guillotine", from: "at", to: "at", tile: "month" }),
         plan_series_trims_by_guillotine_quarter: index.summary({ key: "guillotine", from: "at", to: "at", tile: "quarter" }),
         plan_series_trims_by_guillotine_year: index.summary({ key: "guillotine", from: "at", to: "at", tile: "year" }),
-        plan_series_trims_month_totals: index.summary({ from: "at", to: "at", tile: "month" }),
-        plan_series_trims_quarter_totals: index.summary({ from: "at", to: "at", tile: "quarter" }),
-        plan_series_trims_year_totals: index.summary({ from: "at", to: "at", tile: "year" }),
+        plan_series_trims_month_totals: index.totals({ from: "at", to: "at", tile: "month" }),
+        plan_series_trims_quarter_totals: index.totals({ from: "at", to: "at", tile: "quarter" }),
+        plan_series_trims_year_totals: index.totals({ from: "at", to: "at", tile: "year" }),
     }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
@@ -447,12 +447,12 @@ export const planSeriesAll = example({
         "Plan", "Plan.series.group", "Plan.series.resources", "Plan.children", "step-downs", "several step-downs", "mixed nesting",
         "rows beside groups", "nested groups", "Schedule.events", "child", "resource", "draw", "span", "bars", "cards", "chips", "buckets",
         "tiles", "marks", "instant", "at", "groups", "halls", "lines", "presses", "tasks", "folders", "bays", "guillotines", "grouped rows",
-        "paging", "entries", "Slice", "Slice.bindRecords", "rows source", "Data.bindPaged", "paged", "index.series", "series index", "order",
+        "paging", "entries", "Slice", "Slice.bindRecords", "rows source", "Data.bindPaged", "paged", "index.flatSeries", "series index", "order",
         "time order", "order: 'time'", "on", "leading fields", "key order", "index.interval", "index.summary", "summary tiles",
         "level of detail", "zoom", "cell", "range a tile", "large record", "scale", "sparse", "three years", "shading", "Plan.library.series",
         "Series tab", "Record.bind", "entries", "Save", "horizon", "totals", "summary with no key", "#1710", "#1732",
     ],
-    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.series({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
+    description: "A Plan of grouped rows at scale with rows beside groups at every level — at the top, eight halls as rows beside the halls as groups (Plan.series.group); in each hall its folders and bays beside its lines, and in each line its guillotine beside its presses, each press its three task rows (children: [Plan.children(…), …], several step-downs in order) — 200 presses read a hall at a time (paging={{ entries: 1 }}), and three years of sparse events, one kind of a record of its own at each level read a cell at a time through its own series index: the halls' inspections as chips (draw: \"cards\", an index in the halls' order), the folders' runs as bars and the bays' paper deliveries as tiles (draw: \"buckets\", at instants) through indexes in time order led by the hall, the presses' print jobs as bars on their task rows by `child` and the guillotines' trims as marks through indexes led by the hall and the line (index.flatSeries({ on: [\"hall\", \"line\"], …, order: \"time\" })); the Plan fills those fields from the rows in view, a drop under other rows writing them, and zoomed out each kind shades from the summary whose tile fits the zoom — a day's, a month's, a quarter's or a year's — each series and kind switched on and off from the Series tab, one event by its key through its record's own entries, and Save through each patch door; the horizon's bars are each kind's totals a month, a quarter or a year — summaries with no key, listed apart in each binding's totals — never events counted",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const inspections = $.let(Record.bind(planSeriesInspections));
