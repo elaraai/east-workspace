@@ -277,6 +277,55 @@ describe("a click on a row (east-workspace#1727)", () => {
         m.expectHeard([clickOf("P0", "task", 2n), clickOf("P1", "$title"), clickOf("P1", undefined)]);
     });
 
+    test("on a grouped sheet, a press that commits an editor open on a group's blank line clicks the line it pressed, and leaves the ring on it — the new line above moving both down", async () => {
+        const m = mount(groupedSheet());
+        // "x" typed into P0's blank line; P1's line 0 pressed and released: the commit adds P0's new line above it.
+        await m.click(m.card.querySelector('[data-slot="row"][data-group-id="P0"][data-blank] [data-slot="cell"][data-key="task"]')!);
+        fireEvent.keyDown(m.card, { key: "x" });
+        await m.flush();
+        await m.click(m.line("P1", 0).querySelector('[data-slot="cell"][data-key="task"]')!);
+        expect(m.line("P0", 3).querySelector('[data-slot="cell"][data-key="task"]')?.textContent).toBe("x");
+        m.expectHeard([clickOf("P1", "task", 0n)]);
+        // The ring on the line pressed — where the band stands now, it would edit the band.
+        const ringed = document.getElementById(m.card.getAttribute("aria-activedescendant") ?? "");
+        expect(ringed !== null && m.line("P1", 0).contains(ringed)).toBe(true);
+    });
+
+    test("a press whose commit moves no row leaves the ring to the sheet's next write: ⏎ in a row typed at the end takes it onto the blank row under the new one", async () => {
+        const m = mount(jobsSheet());
+        const editor = () => m.card.querySelector<HTMLElement>('[data-slot="editorInput"]');
+        // j0's task typed over with what it holds, and committed by a press on j1's: the write changes no cell, nor any row.
+        await m.click(m.cell("j0", "task"));
+        fireEvent.keyDown(m.card, { key: "C" });
+        await m.flush();
+        fireEvent.input(editor()!, { target: { value: "Cut" } });
+        await m.flush();
+        await m.click(m.cell("j1", "task"));
+        expect([editor(), m.cell("j0", "task").textContent]).toEqual([null, "Cut"]);
+        // "x" typed into the first blank row, and ⏎: the sheet's fourth row, the ring down onto the blank row under it.
+        await m.click(m.card.querySelector('[data-slot="row"][data-blank] [data-slot="cell"][data-key="task"]')!);
+        fireEvent.keyDown(m.card, { key: "x" });
+        await m.flush();
+        fireEvent.keyDown(editor()!, { key: "Enter" });
+        await m.flush();
+        const ringed = document.getElementById(m.card.getAttribute("aria-activedescendant") ?? "");
+        const blank = m.card.querySelector('[data-slot="row"][data-blank]')!;
+        expect([
+            m.card.querySelectorAll('[data-slot="row"]:not([data-blank])').length,
+            ringed !== null && blank.contains(ringed),
+            ringed?.closest("[data-key]")?.getAttribute("data-key"),
+        ]).toEqual([4, true, "task"]);
+    });
+
+    test("on a grouped sheet, a press on a band that commits an editor open on an earlier group's blank line clicks the band", async () => {
+        const m = mount(groupedSheet());
+        await m.click(m.card.querySelector('[data-slot="row"][data-group-id="P0"][data-blank] [data-slot="cell"][data-key="task"]')!);
+        fireEvent.keyDown(m.card, { key: "y" });
+        await m.flush();
+        await m.click(m.cell("P1", "$title"));
+        m.expectHeard([clickOf("P1", "$title")]);
+    });
+
     test("a band's fold and a line's sub rows' chevron take their own press, and report nothing (RC10)", async () => {
         const m = mount(groupedSheet());
         await m.click(m.line("P0", 1).querySelector('[data-slot="subRowChevron"]')!);

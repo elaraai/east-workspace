@@ -50,9 +50,11 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
         chrome, columns, copilotOn, declaredNoun, declaredViews, group, hostGrid, onRowClickFn, onSelectFn, onViewsChangeFn,
         setViewsState, triggers, viewsRef, words,
     } = sheetDecode;
-    const { canEdit, dispatchStore, paging, recordGesture, store } = sheetSession;
+    const { canEdit, dispatchStore, editingState, paging, recordGesture, store } = sheetSession;
+    // The key a row stands under now: the one a gesture moved it to (`rowKey`) where it moved.
+    const { under } = editingState;
     const { blankLineRowOf, cellAt, colCount, idAt, lensEnds, metaAt, parseCtxFor, rowAt, rowOf, rowSpace, writableAt } = sheetBody;
-    const { dispatch, drainedFx, expectedNarrowing, jumpToElement, lensJumpTo } = sheetMachine;
+    const { dispatch, drainedFx, expectedNarrowing, followRing, jumpToElement, lensJumpTo } = sheetMachine;
     const { deleteRows, failed, gestureEvents, insertLooseProposals, insertProposal, writeCells } = sheetWrites;
     const { requestReady, requestRun } = sheetCopilot;
     // ── Effects ───────────────────────────────────────────────────────────
@@ -96,20 +98,27 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
     }, []);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
         gestureEvents.current = [];
+        // No press's commit in hand as a batch starts: the ring follows the rows a press's commit moves in its batch alone.
+        followRing(false);
         /** The writes so far as one gesture: one step of the history. */
         const recordSoFar = () => {
             try { recordGesture(gestureEvents.current); }
             catch (error) { failed(error); }
             finally { gestureEvents.current = []; }
         };
-        /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
-        const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
+        /**
+         * After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs.
+         * A press's commit (`follow`) leaves the ring where the press put it, on its row, which the machine follows by
+         * identity as the write's rows land (east-workspace#1727's review).
+         */
+        const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean, follow = false) => {
             const anchorBefore = idAt(r);
+            if (follow) followRing(true);
             if (res.firstInserted !== undefined) {
                 // The blank row became real at the end of the sheet: the ring
                 // follows it, keeping whatever move the commit made.
                 const delta = store.ui.sel.r - r;
-                dispatchStore({ t: "patch", patch: { sel: { r: res.firstInserted + delta, c: store.ui.sel.c }, selEnd: null } });
+                if (!follow) dispatchStore({ t: "patch", patch: { sel: { r: res.firstInserted + delta, c: store.ui.sel.c }, selEnd: null } });
                 if (anchorBefore !== undefined && isBlankRowId(anchorBefore) && res.ids[0] !== undefined) {
                     dispatch({ t: "suggest.rekey", from: anchorBefore, to: res.ids[0] });
                 }
@@ -139,7 +148,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         break;
                     }
                     const res = writeCells([{ r: eff.r, c: eff.c, cell }], "typed");
-                    afterWrite(eff.r, res, triggers.size === 0 || triggers.has(meta.key));
+                    afterWrite(eff.r, res, triggers.size === 0 || triggers.has(meta.key), eff.follow === true);
                     break;
                 }
                 case "write.many": {
@@ -352,7 +361,9 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     const meta = eff.c === null ? undefined : metaAt(eff.r, eff.c);
                     const lg = it.kind === "real" ? it.group : undefined;
                     const click: SheetRowClickValue = {
-                        rowId: lg !== undefined ? lg.row.id : it.row.id,
+                        // The key the row stands under now (east-workspace#1727's review): a press and its release in one
+                        // task are run before the commit the press made renders, a row it moved still under the key it left.
+                        rowId: under(lg !== undefined ? lg.row.id : it.row.id),
                         index: lg !== undefined ? some(BigInt(lg.index)) : none,
                         column: meta !== undefined ? some(meta.key) : none,
                     };
@@ -454,7 +465,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onRowClickFn, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onRowClickFn, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, followRing, under, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
     // Each effectful event's batch, once and in order, each one gesture: every batch since the last drain — a press and
     // its release dispatched in one task among them — never the last alone.
     useLayoutEffect(() => {

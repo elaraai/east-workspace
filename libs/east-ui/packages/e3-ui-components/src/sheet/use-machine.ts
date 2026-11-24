@@ -246,11 +246,20 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     // have it — but for a gesture that put rows under other keys, where the
     // app builds a row's key from the row (`rowKey`): the rows stand in key
     // order, so it moved them, and a place on a row follows it to the key it
-    // stands under now. A padding row's place stays the gesture's to set.
+    // stands under now. A padding row's place stays the gesture's to set. A
+    // press in hand, and the ring a press placed as it committed the open
+    // editor, follow their rows by identity whoever moved them, the sheet's
+    // own writes too (east-workspace#1727's review).
     const rowSpaceSlots = useMemo(() => rowSpace.bodyIndexOf.map((bi) => slotOf(body[bi]!)), [rowSpace, body]);
     const seenRows = useRef({ source: sourceRows, slots: rowSpaceSlots });
     const keyMoves = editingState.moved;
     const seenKeyMoves = useRef(keyMoves);
+    // A press that commits the open editor (east-workspace#1727's review) puts the ring on the row it pressed, which the
+    // commit's rows move — a new line above it, a row moved in key order: the effect runner's write says so
+    // (`followRing`), and the ring follows its row by identity from the layout it was pressed in, the rows as this effect
+    // last saw them. Each batch of effects starts with it off, so a commit that moved no row leaves it to none after.
+    const ringFollowsFrom = useRef<readonly (RowSlot | undefined)[] | undefined>(undefined);
+    const followRing = useCallback((on: boolean) => { ringFollowsFrom.current = on ? seenRows.current.slots : undefined; }, []);
     useEffect(() => {
         const seen = seenRows.current;
         seenRows.current = { source: sourceRows, slots: rowSpaceSlots };
@@ -259,7 +268,12 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
         const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots)
             : rekeyed ? followRows(rekeyedSlots(seen.slots, keyMoves), rowSpaceSlots)
             : undefined;
-        dispatch({ t: "rows.changed", moved });
+        // Each row by its identity alone, whoever moved it — the sheet's own writes too: what a press in hand follows,
+        // and the ring a press placed, from the layout it was placed in.
+        const followed = moved ?? followRows(seen.slots, rowSpaceSlots);
+        const ring = ringFollowsFrom.current !== undefined && ringFollowsFrom.current === seen.slots;
+        if (seen.slots !== rowSpaceSlots) ringFollowsFrom.current = undefined;
+        dispatch({ t: "rows.changed", moved, followed, ring });
     }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch, keyMoves]);
 
     // The slice's narrowing changed underneath the sheet (a keystroke in the
@@ -302,7 +316,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     }, [ui.folds, ui.tabs.active, persist, persistedRef]);
     const named: SheetMachineValues = { emptyNarrowing, expectedNarrowing, seenRows };
     return {
-        clearJump, ctx, ctxRef, dirty, dispatch, drainedFx, jumpTo, jumpToElement, keyIsText, lensJumpTo, rowSpaceSlots, uiRef,
+        clearJump, ctx, ctxRef, dirty, dispatch, drainedFx, followRing, jumpTo, jumpToElement, keyIsText, lensJumpTo, rowSpaceSlots, uiRef,
         viewportRef, ...named,
     };
 }
