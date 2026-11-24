@@ -12,7 +12,8 @@
  * worded in the kind it resolves to (`CNC router · 4 machines`) — dashed chips for text / placeholder / a proposal, the faint
  * FROM / TO labels on an empty live half, a lock tag on a locked one — warn
  * when it holds content — and a flagged member's warn treatment with its
- * message as the title.
+ * message as the title. Each half's chips stand on one line, `+n` for those
+ * past its room (`ChipLine`, east-workspace#1741).
  */
 
 import { memo } from "react";
@@ -25,6 +26,7 @@ import { halfWarns, type LinkHalves } from "../link/sides.js";
 import type { LinkFlags } from "../link/checks.js";
 import type { SheetLinkValue, SheetMemberValue } from "../values.js";
 import { useSheetWords, type SheetWords } from "../words.js";
+import { ChipLine } from "./ChipLine.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -73,7 +75,7 @@ export const LinkChip = memo(function LinkChip({ styles, member, meta, ghost, fl
             title={flagged ? flags.join(" · ") : undefined}
             style={flagged ? { color: "var(--chakra-colors-status-warn)", background: "var(--chakra-colors-bg-warning-subtle)", borderColor: "var(--chakra-colors-status-warn)" } : undefined}
         >
-            {memberChipLabel(member)}
+            <Box as="span" css={styles.chipText} data-slot="chipText">{memberChipLabel(member)}</Box>
             {count !== undefined
                 ? <Box as="span" css={styles.chipMeta} data-slot="chipCount">{count}</Box>
                 : meta !== "" && <Box as="span" css={styles.chipMeta}>{meta}</Box>}
@@ -102,23 +104,23 @@ export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, 
     const title = !state.live
         ? m.halfNone({ driver: driverName ?? m.thisRow(), half, lock: state.lock !== "" ? state.lock : undefined })
         : m.halfTitle({ half });
+    const chips = members.map((member, i) => {
+        const label = memberChipLabel(member);
+        const meta = members.length === 1 && vocab !== undefined ? memberMeta(member, vocab, words) : "";
+        const count = countText(member, vocab, words);
+        return {
+            key: `${label}\u0001${meta}\u0001${count ?? ""}`,
+            words: label,
+            node: <LinkChip styles={styles} member={member} meta={meta} ghost={ghost} flags={flags[i] ?? []} count={count} />,
+        };
+    });
     return (
         <Box css={styles.half} data-half={half} data-locked={!state.live ? "" : undefined} title={title}>
             {!state.live && state.lock !== "" && (
                 <Box as="span" css={warn ? styles.lockWarn : styles.lockTag} data-slot={warn ? "lockWarn" : "lockTag"}>{state.lock}</Box>
             )}
             {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{m.halfLabel({ half })}</Box>}
-            {members.map((member, i) => (
-                <LinkChip
-                    key={i}
-                    styles={styles}
-                    member={member}
-                    meta={members.length === 1 && vocab !== undefined ? memberMeta(member, vocab, words) : ""}
-                    ghost={ghost}
-                    flags={flags[i] ?? []}
-                    count={countText(member, vocab, words)}
-                />
-            ))}
+            {chips.length > 0 && <ChipLine styles={styles} chips={chips} end={half === "from"} />}
         </Box>
     );
 });

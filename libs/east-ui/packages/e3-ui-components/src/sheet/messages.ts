@@ -172,6 +172,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     tabClose: () => string;
     /** The folded tabs' menu button — `+2`. */
     tabMore: (p: { n: number; count: string }) => string;
+    /** The members past a cell's one line (east-workspace#1741) — `+2`. */
+    chipsMore: (p: { n: number; count: string }) => string;
+    /** A chip's × in a link editor (east-workspace#1741): what it removes, as its accessible name. */
+    chipRemove: (p: { member: string }) => string;
     /** The same button's accessible name. */
     tabMoreName: (p: { n: number; count: string }) => string;
     /** The same button's title. */
@@ -766,6 +770,8 @@ export const sheetMessages: SheetMessages = {
     tabDirty: () => "Unsaved query — ⏎ updates this tab · esc reverts",
     tabClose: () => "Close tab",
     tabMore: ({ count }) => `+${count}`,
+    chipsMore: ({ count }) => `+${count}`,
+    chipRemove: ({ member }) => `Remove ${member}`,
     tabMoreName: ({ n, count }) => `${count} more ${plural(n, "view", "views")}`,
     tabMoreTitle: () => "More views",
     tabAdd: () => "tab",

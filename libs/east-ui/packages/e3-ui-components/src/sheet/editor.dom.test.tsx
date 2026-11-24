@@ -26,7 +26,7 @@ function press(kind: "quantity" | "integer", locale: string, text: string, key: 
     const ui = render(<ChakraProvider value={system}><I18nProvider locale={locale}>
         <SheetEditor styles={{}} kind={kind} value={text} date={undefined}
             seed={undefined} ghost="" resolve="" badge="" error={false} focus={{ seq: 0, selectAll: false }}
-            ariaLabel="Hours" link={undefined} onChange={change} onKey={() => false} onBlur={() => {}} onHalfDown={() => {}} />
+            ariaLabel="Hours" link={undefined} onChange={change} onKey={() => false} onBlur={() => {}} onHalfDown={() => {}} onChipRemove={() => {}} />
     </I18nProvider></ChakraProvider>);
     const box = ui.getByRole("spinbutton") as HTMLInputElement;
     box.focus();
@@ -71,7 +71,7 @@ test.each(["comfortable", "compact", "condensed"] as const)("%s date editor lets
         <div onKeyDown={outsideKey}>
             <SheetEditor styles={{}} kind="date" value="14/9/26" date={new Date("2026-09-14T00:00:00Z")}
                 seed={undefined} ghost="" resolve="" badge="" error={false} focus={{ seq: 0, selectAll: false }}
-                ariaLabel="Start" link={undefined} onChange={change} onKey={key} onBlur={() => {}} onHalfDown={() => {}} />
+                ariaLabel="Start" link={undefined} onChange={change} onKey={key} onBlur={() => {}} onHalfDown={() => {}} onChipRemove={() => {}} />
         </div>
     </DensityProvider></ChakraProvider>);
     const day = ui.getAllByRole("spinbutton")[0]!;

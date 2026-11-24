@@ -22,7 +22,7 @@ import type { SheetCellRefusalWord, SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetSavedView } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetRegisterMemberValue, SheetSavedView } from "./values.js";
 
 /** What a row-space index holds: a row, a blank padding row, or a group summary. */
 export type SheetRowKind = "row" | "blank" | "group";
@@ -271,6 +271,8 @@ export type SheetEvent =
     | { t: "editor.pick"; label: string; key: string }
     /** A click in a link editor's half moves the caret there (the buffer resolves first). */
     | { t: "half.down"; side: 0 | 1 }
+    /** A chip's × in a link editor's half (east-workspace#1741): its member out of the cell — by its place in the flat list, From then To. */
+    | { t: "chip.remove"; i: number }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
     /** A key's move the component finishes (#860): the ring lands where a `seek.step` or `seek.edge` was headed once its window arrives — reported and scrolled to, as a key's move is. */
@@ -525,6 +527,8 @@ export interface LinkEditCtx {
     candidates: (text: string, groups: LinkGroups) => LinkCandidate[];
     /** The armed candidate. */
     candidateAt: (text: string, hi: number, groups: LinkGroups) => LinkCandidate | undefined;
+    /** The register's members the row is offered that the halves don't hold, in the vocabulary's order — what a phone's tags editor suggests (east-workspace#1741). */
+    offered: (groups: LinkGroups) => readonly SheetRegisterMemberValue[];
     /** What a buffer resolves to — the armed candidate when it completes the text, else the grammar. */
     resolve: (text: string, cand: LinkCandidate | undefined) => SheetMemberValue[];
     /** The predicted members for a half — the column's pending fill minus what the cell holds. */
