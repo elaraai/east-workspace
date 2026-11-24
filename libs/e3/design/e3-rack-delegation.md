@@ -134,7 +134,15 @@ fingerprint, which enrollment prints, not by a name or an authority: the rack
 reaches the hub at a relay's or tunnel's address, never the hub's own, so TLS
 runs end to end through whatever carries it. The advertised origin
 (`--advertise-url`), when set, is the origin of every rack and data URL the hub
-hands out; without it, the origin each rack request named. Plain HTTP is served
+hands out; without it, the origin each rack request named. Its data origins
+(`--data-origin`), each another origin of the same listener over a connection
+of its own, take a share of the data URLs: of a rack whose report names
+`data-origins`, each new URL is built on the next of them and the advertised
+origin in turn, so a tunnel whose one connection's window bounds every
+transfer in it carries a lease's transfers over several. The hub's hello names
+`data-origins` and lists them, and a rack fetches from each through the pin of
+the source's own origin. A rack that does not name the feature is given every
+URL on the advertised origin. Plain HTTP is served
 only on the loopback or a private address, to the addresses `--allow` names, as
 for a TLS terminator in front of the hub: a listener that breaks these rules is
 refused when saved, and a saved one is kept down with the reason.

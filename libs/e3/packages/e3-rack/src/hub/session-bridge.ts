@@ -62,6 +62,8 @@ interface Capability extends LeaseContext {
   id: string;
   hash: string;
   executionId: string | undefined;
+  /** The rack that held the lease when it was minted: the one its URLs are for. */
+  rackId: string | undefined;
   expires: number;
   revoked: boolean;
   abort: AbortController;
@@ -97,6 +99,15 @@ export interface SessionBridgeOptions {
    * origin the rack's own request named.
    */
   advertiseOrigin: () => string | undefined;
+  /**
+   * The origins beside that one which a rack may be given data URLs on: each
+   * reaches the same listener, as its own connection (`dataOrigins`, of a rack
+   * whose report names `data-origins`). Each new data URL for such a rack is
+   * built on the next of them in turn, that one among them; a rack given none,
+   * as one that does not name the feature is, has every URL on that one.
+   * Absent, none.
+   */
+  dataOrigins?: (rackId: string) => readonly string[];
   /**
    * The keys of the manifests of a lease's environment a rack may be served,
    * of those the lease's sessions keep, by what the rack last reported, the
@@ -142,6 +153,11 @@ const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
  * whole, through its data URL once its answer finished, or inline: what that
  * rack holds.
  *
+ * A data URL is built on the origin racks reach the hub at, or, for a rack
+ * given data origins ({@link SessionBridgeOptions.dataOrigins}), on each of
+ * them and that one in turn: so a link whose one connection's window bounds
+ * every transfer inside it carries a lease's transfers over several.
+ *
  * The layers of a lease's environment are served the same way, from where
  * its session keeps them: a lease reads the manifest of its own environment,
  * built for the platform of the rack that asks, over the tier that rack
@@ -167,6 +183,8 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   private readonly envKeys = new Map<string, string>();
   private readonly transfersAtOnce: number;
   private readonly now: () => number;
+  /** How many data URLs have been built on several origins: the next one's turn. */
+  private turn = 0;
 
   /** @param options - Stores, session selection, ownership and URL origin */
   constructor(private readonly options: SessionBridgeOptions) {
@@ -263,7 +281,7 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
       }
     }
     if (this.capabilities.size >= 65536) throw new RackHubError('capacity', 'Rack data capability limit reached');
-    const cap: Capability = { ...context, id: randomUUID(), hash, executionId: lease.attempt?.executionId,
+    const cap: Capability = { ...context, id: randomUUID(), hash, executionId: lease.attempt?.executionId, rackId: lease.claimedBy,
       expires: this.now() + 15 * 60_000, revoked: false, abort: new AbortController(), ...(upload === undefined ? {} : { upload }),
       ...(layer === undefined ? {} : { layer }) };
     this.capabilities.set(cap.id, cap);
@@ -275,7 +293,12 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     // own side of it, which the rack cannot reach (or reaches in clear).
     const origin = this.options.advertiseOrigin() ?? this.origin.getStore();
     if (origin === undefined) throw new Error('Rack listener has no reachable origin');
-    return `${origin}/api/rack/data/${cap.id}`;
+    // Spread over the rack's data origins, that one among them, each its own
+    // connection: a URL each, in turn
+    const extra = cap.rackId === undefined ? [] : this.options.dataOrigins?.(cap.rackId) ?? [];
+    const origins = [origin, ...extra.filter((other) => new URL(other).origin !== new URL(origin).origin)];
+    const chosen = origins.length === 1 ? origin : origins[this.turn++ % origins.length]!;
+    return `${chosen}/api/rack/data/${cap.id}`;
   }
 
   /**

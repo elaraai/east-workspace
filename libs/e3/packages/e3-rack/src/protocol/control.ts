@@ -12,11 +12,14 @@ export const EmptyType = StructType({});
  * Configures the user-wide listener and idle lifetime, inside rack state format 1.
  * `tls` serves the listener over HTTPS with the hub's own certificate, which a
  * rack pins by its SHA-256; without it the listener is plain HTTP, for a TLS
- * terminator in front of the hub.
+ * terminator in front of the hub. `dataOrigins` are further origins that reach
+ * the same listener (each its own connection through a tunnel, say), over
+ * which the hub spreads the data URLs it gives a rack that takes them, beside
+ * the advertised origin: none, and every data URL is on that one.
  */
 export const HubConfigType = StructType({
   listen: OptionType(StructType({ host: StringType, port: IntegerType })), allow: ArrayType(StringType),
-  idleExitMinutes: IntegerType, advertiseUrl: OptionType(StringType), tls: BooleanType,
+  idleExitMinutes: IntegerType, advertiseUrl: OptionType(StringType), tls: BooleanType, dataOrigins: ArrayType(StringType),
 });
 /** The user-wide hub configuration, derived from the control wire. */
 export type HubConfig = ValueTypeOf<typeof HubConfigType>;

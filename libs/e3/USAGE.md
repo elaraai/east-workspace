@@ -1000,7 +1000,11 @@ API server's calls stay local.
 
 Plain HTTP (`e3 rack config --no-tls`) is for a TLS terminator in front of the
 hub, and is served only on the loopback or a private address, to the addresses
-`--allow` names. Use `e3 rack list`, `e3 rack remove <id-or-label>` and
+`--allow` names. A tunnel of one SSH connection carries every transfer in one
+TCP window: `e3 rack config --data-origin <origin>`, repeated, names further
+origins of the same listener (more `ssh -R` connections to more relay ports),
+over which the hub spreads the data URLs of a rack that takes them, beside the
+advertised origin. Use `e3 rack list`, `e3 rack remove <id-or-label>` and
 `e3 rack stop` to manage the shared hub. See the
 [rack setup guide](packages/e3-rack/README.md) for tunnels and certificates,
 worker prerequisites, encrypted connection configuration, which sources may

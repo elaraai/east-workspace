@@ -19,6 +19,8 @@ export const E3_RACK_VERSION: string = E3_RELEASE;
  * release, answers what a session's work would fetch (`fetch-costs`): each
  * rack's link rate, as the hub measures it, and which of given objects each
  * rack holds; and ends a split scope a session's leases named, so the racks
- * that keep what its leases wrote are told to let it go (`scopes/end`).
+ * that keep what its leases wrote are told to let it go (`scopes/end`). 7
+ * configures the origins beside the advertised one over which a hub spreads
+ * its data URLs (`HubConfigType`'s `dataOrigins`).
  */
-export const HUB_PROTOCOL = 6;
+export const HUB_PROTOCOL = 7;
