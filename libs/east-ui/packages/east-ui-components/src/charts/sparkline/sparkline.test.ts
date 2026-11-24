@@ -11,7 +11,8 @@
  * vertical scale — the same value at the same height, a value past either end
  * at that end, a single value at its place; with none, or one that can't be
  * drawn — its max not past its min, or a bound no finite number — each line
- * over its own min and max, a single value at the middle, as before.
+ * over its own min and max, a single value at the middle, as before — and so
+ * a series of one value throughout, which has no range to run over.
  */
 
 import { describe, expect, test } from "vitest";
@@ -52,6 +53,12 @@ describe("a Sparkline's paths (east-workspace#1729)", () => {
     test("a single value draws flat across the box: at the middle with none, at its place on a domain", () => {
         expect(ys([42])).toEqual([50, 50]);
         expect(ys([12.5], { min: 0, max: 50 })).toEqual([74, 74]);
+    });
+
+    test("a series of one value throughout draws across the middle with no domain, as a single value does — never along the box's foot; on a domain, at its place", () => {
+        expect(ys([20, 20, 20, 20])).toEqual([50, 50, 50, 50]);
+        expect(ys([20, 20], { min: 0, max: 40 })).toEqual([50, 50]);
+        expect(ys([10, 10, 10], { min: 0, max: 50 })).toEqual([78.8, 78.8, 78.8]);
     });
 
     test("an area closes under its line at the box's bottom", () => {

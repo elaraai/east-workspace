@@ -42,6 +42,7 @@ export {
  * @param data - Array of numeric values to plot
  * @param style - Optional styling configuration
  * @returns An East expression representing the sparkline component
+ * @throws {Error} When `domain`'s bounds are written as numbers and draw no scale: one is no finite number, or the max is not past the min
  *
  * @remarks
  * Sparkline is a compact inline chart for showing trends in data.
@@ -97,7 +98,7 @@ function createSparkline(
     return East.value(variant("Sparkline", {
         data: data,
         type: typeValue ? some(typeValue) : none,
-        domain: numberDomainOf(style?.domain),
+        domain: numberDomainOf(style?.domain, "Sparkline", "one vertical scale"),
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

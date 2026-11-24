@@ -311,3 +311,33 @@ export const recordMeter = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// The floor the renderer's meter tests read
+// ============================================================================
+
+/** A bay of the floor: its kind, this week's hours booked, the hours it can run, and the hours it ran. */
+export const NoShareBay = StructType({ name: StringType, kind: StringType, booked: FloatType, capacity: FloatType, used: FloatType });
+
+/**
+ * The floor the renderer's tests read where a Record's meters draw no share (east-workspace#1730): two bays with a
+ * share to draw, three whose figures make none, and two of a kind the app's limits don't hold. No example reads it:
+ * e3-ui-components declares no e3 SDK, and its tests mount this module for it.
+ */
+export const recordDisplayNoShareBays = e3.record("record_display_no_share_bays", DictType(StringType, NoShareBay), {
+    initial: new Map([
+        ["B-1", { name: "Bay 1", kind: "small", booked: 30, capacity: 40, used: 20 }],
+        // A capacity no reading gave a number: NaN.
+        ["B-2", { name: "Bay 2", kind: "small", booked: 30, capacity: NaN, used: 20 }],
+        // Hours booked no reading gave a number.
+        ["B-3", { name: "Bay 3", kind: "small", booked: NaN, capacity: 40, used: 20 }],
+        // A capacity without end.
+        ["B-4", { name: "Bay 4", kind: "small", booked: 30, capacity: Infinity, used: 20 }],
+        ["B-5", { name: "Bay 5", kind: "large", booked: 30, capacity: 40, used: 20 }],
+        ["B-6", { name: "Bay 6", kind: "large", booked: 10, capacity: 40, used: 5 }],
+    ]),
+    mutations: (mutation) => ({
+        // The floor's patch door: a Save commits through it.
+        patch: mutation.patch(),
+    }),
+});

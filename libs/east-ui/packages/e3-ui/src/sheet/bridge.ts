@@ -105,6 +105,7 @@ import {
     RecordMarkType,
     sheetLinesOf,
     sheetRuleCell,
+    SHEET_UNREAD_CELL,
     type SheetColumnKindLiteral,
 } from "./types.js";
 import { StatusValueType } from "@elaraai/east-ui";
@@ -462,7 +463,10 @@ function rowMark(key: string, fn: unknown, rowType: StructType): NonNullable<She
     return mark.fn as unknown as NonNullable<SheetColumnMeta["mark"]>;
 }
 
-/** A custom column's payload — what its `parse` gives some of — and the cell arm it lands in. */
+/**
+ * A custom column's payload — what its `parse` gives some of — and the cell arm it lands in: never a series, which only
+ * the Record's display columns hold (east-workspace#1734's review), whose cell no custom print nor Details reads.
+ */
 function customPayload(key: string, cfg: SheetAnyColumnConfig): { payload: EastType; tag: SheetColumnMeta["cellTag"] } {
     const parseType = typeOf(East.value(cfg.parse as never) as ExprType<EastType>) as FunctionType;
     const payload = optionPayload(parseType.output as EastType);
@@ -470,8 +474,8 @@ function customPayload(key: string, cfg: SheetAnyColumnConfig): { payload: EastT
         throw new Error(`Sheet: custom column "${key}" has a \`parse\` whose output is not an Option — it must return Option<payload>, \`none\` meaning unrecognised`);
     }
     const tag = cellTagOf(payload);
-    if (tag === undefined) {
-        throw new Error(`Sheet: custom column "${key}" has payload ${(payload as { type: string }).type}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
+    if (tag === undefined || tag === "Series") {
+        throw new Error(`Sheet: custom column "${key}" has payload ${describeType(payload)}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
     }
     return { payload, tag };
 }
@@ -1578,7 +1582,10 @@ function writtenValue(meta: SheetColumnMeta, own: EastType, clears: boolean, cel
  * one holding text no column could read; a mark, a max and a tone over the
  * row read it once its draft is whole. Each meter is read apart: one whose
  * max or tone throws over the row holds the error's message under its max, a
- * String, and the row's marks and its other meters are read all the same.
+ * String, and the row's marks and its other meters are read all the same. A
+ * mark, or a column from data, that throws over the row leaves the error's
+ * message under {@link SHEET_UNREAD_CELL}, and the row's meters are read all
+ * the same (east-workspace#1734's review).
  *
  * @param rowType - The row type
  * @param metas - The declared columns, for their marks and meters
@@ -1599,13 +1606,22 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
             entry: (_$2, bytes) => toDraft(bytes.decodeBeast(rowType, "v2")),
             draft: (_$2, bytes) => bytes.decodeBeast(draftType, "v2"),
         }), draftType);
+        // A mark or a column from data that throws over the row says why under the row's unread cell, which locks every
+        // marked cell, and the meters are read all the same: a throw that left the function lost them too.
+        const unread = (message: ExprType<StringType>) => cells.insertOrUpdate(SHEET_UNREAD_CELL, cellOfPayload("String", message as ExprType<EastType>));
         if (complete !== undefined) {
             const whole = $.const(complete);
             $.match(whole(draft), {
                 some: ($2, row) => {
-                    for (const m of marked) {
-                        const mark = $2.const(m.mark!);
-                        insertMark($2 as unknown as SheetAnyBlock, cells, East.value(m.key, StringType), mark(row, day));
+                    if (marked.length > 0) {
+                        $2.try(($3) => {
+                            for (const m of marked) {
+                                const mark = $3.const(m.mark!);
+                                insertMark($3 as unknown as SheetAnyBlock, cells, East.value(m.key, StringType), mark(row, day));
+                            }
+                        }).catch(($3, message) => {
+                            $3(unread(message));
+                        });
                     }
                     // A meter's max and its tone's name, beside its value's cell — each meter read apart: one whose max or
                     // tone throws over the row holds the error's message under its max instead.
@@ -1628,35 +1644,42 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
             });
         }
         const drafted = draft as unknown as Record<string, ExprType<SheetDraftField>>;
-        for (const m of dataMetas) {
-            const data = m.data!;
-            $.match(drafted[m.field]!, {
-                value: ($2, value) => {
-                    if (data.from === "register") {
-                        const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], EastType>>);
-                        const mark = data.mark !== undefined
-                            ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], OptionType<typeof RecordMarkType>>>)
-                            : undefined;
-                        $2.for(members.get(data.register)!, ($3, member) => {
-                            const key = $3.const(East.str`${m.key}:${member.key}`);
-                            insertMember($3 as unknown as SheetAnyBlock, cells, m, data.valueType, key, read(value, member.key, day));
-                            if (mark !== undefined) insertMark($3 as unknown as SheetAnyBlock, cells, key, mark(value, member.key, day));
-                        });
-                        return;
-                    }
-                    const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, DateTimeType], StructType>>);
-                    const struct = $2.const(read(value, day), data.structType) as unknown as Record<string, ExprType<EastType>>;
-                    const marker = data.mark !== undefined
-                        ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, DateTimeType], OptionType<typeof RecordMarkType>>>)
-                        : undefined;
-                    // One mark over the whole field, on each of its columns.
-                    const mark = marker !== undefined ? $2.const(marker(value, day)) : undefined;
-                    for (const member of data.members) {
-                        const key = $2.const(`${m.key}:${member.name}`, StringType);
-                        insertMember($2 as unknown as SheetAnyBlock, cells, m, member.valueType, key, struct[member.name]!);
-                        if (mark !== undefined) insertMark($2 as unknown as SheetAnyBlock, cells, key, mark);
-                    }
-                },
+        // Each column from data read over the row; one whose `read` or `mark` throws says why under the unread cell.
+        if (dataMetas.length > 0) {
+            $.try(($read) => {
+                for (const m of dataMetas) {
+                    const data = m.data!;
+                    $read.match(drafted[m.field]!, {
+                        value: ($2, value) => {
+                            if (data.from === "register") {
+                                const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], EastType>>);
+                                const mark = data.mark !== undefined
+                                    ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, StringType, DateTimeType], OptionType<typeof RecordMarkType>>>)
+                                    : undefined;
+                                $2.for(members.get(data.register)!, ($3, member) => {
+                                    const key = $3.const(East.str`${m.key}:${member.key}`);
+                                    insertMember($3 as unknown as SheetAnyBlock, cells, m, data.valueType, key, read(value, member.key, day));
+                                    if (mark !== undefined) insertMark($3 as unknown as SheetAnyBlock, cells, key, mark(value, member.key, day));
+                                });
+                                return;
+                            }
+                            const read = $2.const(data.read as unknown as ExprType<FunctionType<[EastType, DateTimeType], StructType>>);
+                            const struct = $2.const(read(value, day), data.structType) as unknown as Record<string, ExprType<EastType>>;
+                            const marker = data.mark !== undefined
+                                ? $2.const(data.mark as unknown as ExprType<FunctionType<[EastType, DateTimeType], OptionType<typeof RecordMarkType>>>)
+                                : undefined;
+                            // One mark over the whole field, on each of its columns.
+                            const mark = marker !== undefined ? $2.const(marker(value, day)) : undefined;
+                            for (const member of data.members) {
+                                const key = $2.const(`${m.key}:${member.name}`, StringType);
+                                insertMember($2 as unknown as SheetAnyBlock, cells, m, member.valueType, key, struct[member.name]!);
+                                if (mark !== undefined) insertMark($2 as unknown as SheetAnyBlock, cells, key, mark);
+                            }
+                        },
+                    });
+                }
+            }).catch(($read, message) => {
+                $read(unread(message));
             });
         }
         return cells;

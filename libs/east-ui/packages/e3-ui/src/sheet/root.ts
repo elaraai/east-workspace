@@ -46,7 +46,6 @@ import { DensityType, Sparkline, StatusValueType, Trace, type DensityLiteral, ty
 import {
     CarriedEntryType,
     NumberDomainType,
-    drawsDomain,
     numberDomainOf,
     type NumberDomainInput,
     RecordSlicesChromeType,
@@ -671,11 +670,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  * @throws {Error} When both bounds are written and draw no scale: one is no finite number, or the min is not below the max
  */
 function domainOf(key: string, domain: NumberDomainInput | undefined): ExprType<OptionType<typeof NumberDomainType>> {
-    const [min, max] = domain ?? [];
-    if (typeof min === "number" && typeof max === "number" && !drawsDomain(min, max)) {
-        throw new Error(`Sheet: column "${key}" has the domain [${min}, ${max}] — one scale for every row runs from its min to a max past it, both finite numbers`);
-    }
-    return numberDomainOf(domain);
+    return numberDomainOf(domain, `Sheet: column "${key}"`, "one scale for every row");
 }
 
 /**

@@ -77,6 +77,9 @@ describe("copy", () => {
         expect(exportMatrix(at, series.list, rect, en)).toBe("12, 14.5, 1234, 13\t420, 440\t");
         // Never the decimal separator between the numbers: what a spreadsheet in German reads back.
         expect(exportMatrix(at, series.list, rect, de)).toBe("12; 14,5; 1234; 13\t420; 440\t");
+        // A value that is no finite number copies as a Float cell's does: nothing, between its separators.
+        const odd = [cell("Series", [12, Number.NaN, 13]), cell("Series", [420, Number.POSITIVE_INFINITY]), cell("Series", [Number.NaN])];
+        expect(exportMatrix((_r, c) => odd[c], series.list, rect, en)).toBe("12, , 13\t420, \t");
     });
 });
 

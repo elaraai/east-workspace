@@ -248,6 +248,13 @@ describe("refusals, each naming the column", () => {
         assert.match(refusal({ load: Record.column.trace(Unit, { domain: [0, Infinity] }) }), /has the domain \[0, Infinity\]/);
     });
 
+    test("a custom column whose `parse` gives a series, which only a display column's cell holds", () => {
+        const parse = East.function([StringType, Sheet.Types.Context(Unit)], OptionType(ArrayType(FloatType)), () => none);
+        const print = East.function([ArrayType(FloatType)], StringType, () => "");
+        assert.match(refusal({ load: Sheet.column.custom(Unit, { header: "Load", accepts: "hours, week by week", parse, print }) }),
+            /^Sheet: custom column "load" has payload Array<Float>, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet\.Types\.Link$/);
+    });
+
     test("a field that holds no series, and a `value` that derives none", () => {
         assert.match(refusal({ name: Record.column.trace(Unit) as never }),
             /^Sheet: trace column "name" must sit on an Array<Float> or Option<Array<Float>> field, or read one through `value` — got String$/);
@@ -496,6 +503,34 @@ describe("a meter column on the wire (east-workspace#1730)", () => {
             ["$mark:name", variant("String", "checked")], ["$lock:name", variant("Boolean", false)],
             ["$max:booked", variant("Float", 40)], ["$tone:booked", variant("String", "neutral")],
             ["$max:used", variant("Float", 40)], ["$max:good", variant("Float", 1)], ["$tone:good", variant("String", "info")],
+        ])), printFor(Cells)(first));
+    });
+
+    test("a mark that throws over a row says why under the row's unread cell, and the row's meters are read all the same (east-workspace#1734's review)", () => {
+        // Each bay's mark, by its id: Bay 3 has none, and its mark's read of it throws.
+        const MarkOption = OptionType(Record.Types.Mark);
+        const Notes = DictType(StringType, MarkOption);
+        const NOTES = new Map<string, ValueTypeOf<typeof MarkOption>>([["B-1", some(variant("note", "checked"))], ["B-2", none]]);
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(BAYS, ArrayType(Bay));
+            return createSheetRootWith(rows, {
+                name: Record.column.text(Bay, {
+                    header: "Bay", mark: East.function([Bay, DateTimeType], OptionType(Record.Types.Mark), (_$2, b) => East.value(NOTES, Notes).get(b.id)),
+                }),
+                booked: METERS.booked,
+            }, { id: "id" }, { recordKinds: true });
+        }), [])();
+        const read = (bay: BayValue) => root.cellsAt.type === "some" ? root.cellsAt.value(variant("entry", encodeBeast2For(Bay)(bay)), DAY) : assert.fail("no cellsAt");
+        const third = read(BAYS[2]!);
+        assert.ok(equalFor(Cells)(third, new Map<string, Cell>([
+            ["$max:booked", variant("Float", 0)], ["$tone:booked", variant("String", "danger")],
+            ["$unread", variant("String", 'Dict does not contain key "B-3"')],
+        ])), printFor(Cells)(third));
+        // Bay 1's mark reads: no unread cell.
+        const first = read(BAYS[0]!);
+        assert.ok(equalFor(Cells)(first, new Map<string, Cell>([
+            ["$mark:name", variant("String", "checked")], ["$lock:name", variant("Boolean", false)],
+            ["$max:booked", variant("Float", 40)], ["$tone:booked", variant("String", "neutral")],
         ])), printFor(Cells)(first));
     });
 

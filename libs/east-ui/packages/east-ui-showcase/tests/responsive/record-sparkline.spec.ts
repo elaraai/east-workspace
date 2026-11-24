@@ -46,6 +46,8 @@ interface LineBox {
     /** Its row's top edge, and the top of the row's rule. */
     rowTop: number;
     rule: number;
+    /** Its svg's overflow: `visible`, so a line along the box's top or foot draws its whole stroke in the cell's inset. */
+    overflow: string;
 }
 
 /**
@@ -73,6 +75,7 @@ function measure(entry: Locator): Promise<LineBox[]> {
                         top: c.top + parseFloat(s.paddingTop), bottom: c.bottom - parseFloat(s.paddingBottom),
                     },
                     rowTop: r.top, rule,
+                    overflow: getComputedStyle(svg).overflow,
                 });
             }
         }
@@ -137,7 +140,10 @@ for (const theme of ["light", "dark"] as const) {
             await expect(entry.getByRole("radio", { name: density.name, exact: true })).toBeChecked();
             await expect(entry.locator('[data-record] [data-slot="row"]').first()).toHaveCSS("height", `${density.row}px`);
             await settled(page);
-            fills(await measure(entry), density.line, `${density.name.toLowerCase()}, ${theme}`);
+            const lines = await measure(entry);
+            fills(lines, density.line, `${density.name.toLowerCase()}, ${theme}`);
+            // A line along its box's top or foot — a value at or past either end of its domain — draws its whole stroke.
+            expect(lines.filter((line) => line.overflow !== "visible").map((line) => line.at), `${density.name.toLowerCase()}, ${theme}`).toEqual([]);
         }
 
         // S8: a draft on Lathe 2 — its name typed over in Details — then the ring on Mill 1, Lathe 1 at rest.

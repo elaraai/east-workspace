@@ -47,6 +47,7 @@ import { reloadPage, width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { boundFrame, frameScrolls, offsetOf, overlaidFrame, touchFrame } from "../sheet/frame.test-utils.js";
 import { offering } from "../shared/schedule/keys.test-utils.js";
+import { stripSays } from "./strip.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -88,13 +89,6 @@ const ticked = (container: HTMLElement) => rows(container).filter((row) => row.h
 const drafted = (container: HTMLElement) => rows(container).find((row) => row.querySelector("[data-required]") !== null)!;
 /** A row's cell under a column, the row given. */
 const cellOf = (row: HTMLElement, key: string) => row.querySelector<HTMLElement>(`[data-slot="cell"][data-key="${key}"]`)!;
-
-/** The Record's strip as it reads — its label, its words and its keys — or `undefined` where it draws the Sheet's, or none. */
-function stripSays(container: HTMLElement): string[] | undefined {
-    const strip = container.querySelector<HTMLElement>("[data-record] [data-record-strip]");
-    if (strip === null) return undefined;
-    return ["stripLabel", "stripText", "stripKeys"].map((name) => strip.querySelector(`[data-slot="${name}"]`)?.textContent ?? "");
-}
 
 /** A press on an element, the primary button, and what it leads to settled. */
 async function press(el: Element, init: { shiftKey?: boolean } = {}) {

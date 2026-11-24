@@ -5,53 +5,39 @@
  * @vitest-environment jsdom
  *
  * A Record's meters where they draw no share (east-workspace#1730), over a
- * floor deployed to e3 itself, each test a workspace of its own: a max that is
+ * floor deployed to e3 itself — e3-ui's display examples' bays
+ * (`recordDisplayNoShareBays`) — each test a workspace of its own: a max that is
  * no finite number — NaN, an infinity — and a value that is none, each an
  * empty bar at 0%, never `NaN%`, its hover saying why; and a max that throws
  * over a row, that meter alone drawing no share and saying it could not be
  * read, the console saying why once however many rows it throws over — the
- * row's mark and its other meter read all the same. The percent Meter draws is
- * its fill's share, one number giving both (`display/meter`): `0%` is an
- * empty bar.
+ * row's mark and its other meter read all the same; and a mark that throws
+ * over a row, which locks the row's marked cells as a read that fails does,
+ * its meters drawing their shares all the same (east-workspace#1734's review).
+ * The percent Meter draws is its fill's share, one number giving both
+ * (`display/meter`): `0%` is an empty bar.
  */
 
 import { describe, expect, test, vi } from "vitest";
-import { DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { DateTimeType, DictType, East, FloatType, OptionType, StringType, none, some, variant } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record } from "@elaraai/e3-ui/internal";
-import e3 from "@elaraai/e3";
+import * as ex from "@elaraai/e3-ui/examples/record/record-display";
 import { sheetHarness } from "../sheet/frame/harness.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
 /** A bay of the floor: its kind, this week's hours booked, the hours it can run, and the hours it ran. */
-const Bay = StructType({ name: StringType, kind: StringType, booked: FloatType, capacity: FloatType, used: FloatType });
-/** The floor: two bays with a share to draw, three whose figures make none, and two of a kind the limits don't hold. */
-const bays = e3.record("meter_no_share_bays", DictType(StringType, Bay), {
-    initial: new Map([
-        ["B-1", { name: "Bay 1", kind: "small", booked: 30, capacity: 40, used: 20 }],
-        // A capacity no reading gave a number: NaN.
-        ["B-2", { name: "Bay 2", kind: "small", booked: 30, capacity: NaN, used: 20 }],
-        // Hours booked no reading gave a number.
-        ["B-3", { name: "Bay 3", kind: "small", booked: NaN, capacity: 40, used: 20 }],
-        // A capacity without end.
-        ["B-4", { name: "Bay 4", kind: "small", booked: 30, capacity: Infinity, used: 20 }],
-        ["B-5", { name: "Bay 5", kind: "large", booked: 30, capacity: 40, used: 20 }],
-        ["B-6", { name: "Bay 6", kind: "large", booked: 10, capacity: 40, used: 5 }],
-    ]),
-    mutations: (mutation) => ({
-        patch: mutation.patch(),
-    }),
-});
+const Bay = ex.NoShareBay;
 
-const h = sheetHarness({ modules: { "record/meter-no-share": { bays } }, frame: 2000 });
+const h = sheetHarness({ modules: { "record/record-display": ex }, frame: 2000 });
 
 /** Each kind's limit on the hours used: the large kind has none, and reading it throws. */
 const LIMITS = new Map([["small", 40]]);
 
 /** The floor's Record: booked against each bay's capacity, used against its kind's limit, and the large kind's bays marked. */
 const floor = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const rows = $.let(Record.bind(bays));
+    const rows = $.let(Record.bind(ex.recordDisplayNoShareBays));
     return Record({
         record: rows,
         title: "Floor",
@@ -72,6 +58,29 @@ const floor = East.function([], UIComponentType, (_$) => Reactive.Root(East.func
     });
 })));
 
+/** Each kind's mark: the large kind has none, and reading it throws over each of its bays. */
+const Notes = DictType(StringType, OptionType(Record.Types.Mark));
+const NOTES = new Map([["small", some(variant("note", "standard"))]]);
+
+/** The floor's Record again, its kind's mark read from each kind's: over a large bay it throws. */
+const floorNoted = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const rows = $.let(Record.bind(ex.recordDisplayNoShareBays));
+    return Record({
+        record: rows,
+        title: "Floor",
+        edits: { insertRows: false },
+        columns: {
+            name: Record.column.title(Bay, { header: "Bay" }),
+            kind: Record.column.text(Bay, {
+                header: "Kind",
+                mark: East.function([Bay, DateTimeType], OptionType(Record.Types.Mark), (_$2, bay) => East.value(NOTES, Notes).get(bay.kind)),
+            }),
+            booked: Record.column.meter(Bay, { header: "Booked", max: (b) => b.capacity }),
+        },
+        name: "floorNoted",
+    });
+})));
+
 /** A bay's cell, by its key and the column's. */
 const cell = (c: HTMLElement, id: string, key: string) =>
     c.querySelector<HTMLElement>(`[data-record] [data-slot="row"][data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`)!;
@@ -82,6 +91,8 @@ const reads = (c: HTMLElement, id: string, key: string) => [percent(cell(c, id, 
 
 /** What the console says of a meter whose max or tone threw. */
 const SAID = '[Sheet] the meter "used" could not read its max or tone:';
+/** What the console says of a row whose mark or column from data threw. */
+const SAID_UNREAD = "[Sheet] a column from data or a mark could not be read:";
 
 describe("a Record's meters where they draw no share (east-workspace#1730)", () => {
     test("a max or a value that is no finite number draws an empty bar at 0%, never NaN%, its hover saying why", async () => {
@@ -108,7 +119,21 @@ describe("a Record's meters where they draw no share (east-workspace#1730)", () 
             expect(reads(container, "B-1", "used")).toEqual(["50%", "20 of 40 · 50%"]);
             // Said once, for the first row it threw over; and nothing said of the marks, which read.
             expect(logged.mock.calls.filter((call) => call[0] === SAID)).toEqual([[SAID, 'Dict does not contain key "large"']]);
-            expect(logged).not.toHaveBeenCalledWith("[Sheet] a column from data or a mark could not be read:", expect.anything());
+            expect(logged).not.toHaveBeenCalledWith(SAID_UNREAD, expect.anything());
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a mark that throws over a row locks the row's marked cells, saying they could not be read, the console why once — and the row's meters draw their shares all the same", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { container } = await h.mount({ fn: floorNoted }, { storageKey: "meter-no-share-mark-throws" });
+            expect([reads(container, "B-5", "booked"), reads(container, "B-6", "booked")]).toEqual([["75%", "30 of 40 · 75%"], ["25%", "10 of 40 · 25%"]]);
+            expect(["B-5", "B-6", "B-1"].map((id) => [cell(container, id, "kind").textContent, cell(container, id, "kind").hasAttribute("data-locked")])).toEqual([
+                ["largeCouldn't be read", true], ["largeCouldn't be read", true], ["smallstandard", false],
+            ]);
+            expect(logged.mock.calls.filter((call) => call[0] === SAID_UNREAD)).toEqual([[SAID_UNREAD, 'Dict does not contain key "large"']]);
         } finally {
             logged.mockRestore();
         }

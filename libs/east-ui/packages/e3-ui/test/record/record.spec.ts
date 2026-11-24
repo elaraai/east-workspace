@@ -875,6 +875,31 @@ describe("columns from data at the day", () => {
     });
 });
 
+describe("a column from data that throws over a row (east-workspace#1734's review)", () => {
+    test("says why under the row's unread cell, and the row's meters are read all the same", () => {
+        const Crew = StructType({ id: StringType, name: StringType, hours: DictType(StringType, FloatType), booked: FloatType });
+        const MORGAN_CREW: ValueTypeOf<typeof Crew> = { id: "H-1", name: "A. Morgan", hours: new Map([["P-100", 12.5]]), booked: 30 };
+        // Each project's mark: P-900 has none, and the mark's read of it throws over every row.
+        const Notes = DictType(StringType, Mark);
+        const NOTES: ValueTypeOf<typeof Notes> = new Map([["P-100", none], ["P-101", none], ["P-200", none]]);
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const([MORGAN_CREW], ArrayType(Crew));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Crew, { header: "Name" }),
+                hours: Record.column.quantity(Crew, {
+                    each: "projects",
+                    mark: East.function([Crew.fields.hours, StringType, DateTimeType], Mark, (_$2, _hours, project) => East.value(NOTES, Notes).get(project)),
+                }),
+                booked: Record.column.meter(Crew, { header: "Booked", max: 40 }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const cells = cellsAtOf(root)(variant("entry", encodeBeast2For(Crew)(MORGAN_CREW)), MONDAY);
+        const Cell = Sheet.Types.Cell;
+        assert.ok(equalFor(Cell)(cells.get("$unread") ?? variant("Null", null), variant("String", 'Dict does not contain key "P-900"')), printFor(Cells)(cells));
+        assert.ok(equalFor(Cell)(cells.get("$max:booked") ?? variant("Null", null), variant("Float", 40)), printFor(Cells)(cells));
+    });
+});
+
 describe("a column from data refuses", () => {
     const rows = East.value(STAFF, ArrayType(Staff));
     const read = East.function([Hours, StringType, DateTimeType], OptionType(FloatType), (_$, hours, project) => hours.tryGet(project));

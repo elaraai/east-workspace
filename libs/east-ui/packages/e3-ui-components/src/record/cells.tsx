@@ -172,6 +172,21 @@ function meterOf(read: RecordMeterRead, density: DensityLiteral): MeterValue {
  * @param words - The viewer's words
  * @returns The hover
  */
+/**
+ * What a sparkline's cell says on hover (east-workspace#1729): its last value and its range, over the values that are
+ * finite numbers — a last value that is none the Record's dash (east-workspace#1734's review).
+ *
+ * @param values - The series
+ * @param words - The viewer's words
+ * @returns The hover; `undefined` for a series with no finite value, which says the column's words
+ */
+export function sparklineSays(values: readonly number[], words: SheetWords): string | undefined {
+    const finite = values.filter((v) => Number.isFinite(v));
+    if (finite.length === 0) return undefined;
+    const last = values[values.length - 1]!;
+    return m.sparklineTitle({ last: Number.isFinite(last) ? words.number(last) : m.absent(), min: words.number(Math.min(...finite)), max: words.number(Math.max(...finite)) });
+}
+
 function meterSays(read: RecordMeterRead, words: SheetWords): string {
     const value = words.number(read.value);
     if (shares(read)) return m.meterTitle({ value, max: words.number(read.max), percent: words.percent(read.value / read.max) });
@@ -541,7 +556,7 @@ export function recordCell(input: RecordCellInput): RecordCellView | undefined {
             const values = cell?.type === "Series" ? cell.value : [];
             const said = values.length === 0 ? getSomeorUndefined(kind.value.absent)
                 : kind.type === "trace" ? undefined
-                    : m.sparklineTitle({ last: words.number(values[values.length - 1]!), min: words.number(Math.min(...values)), max: words.number(Math.max(...values)) });
+                    : sparklineSays(values, words) ?? getSomeorUndefined(kind.value.absent);
             return { content, title: said };
         }
         default:

@@ -21,7 +21,11 @@
  * marked cell locked, its words saying it couldn't be read, the console why.
  * Each meter is read apart: one whose max or tone throws over a row holds why
  * under its max, drawing no share, the console saying so once — and the row's
- * marks and its other meters read all the same.
+ * marks and its other meters read all the same. A mark, or a column from data,
+ * that throws over a row fails the row's read so — its marks locked, the
+ * console why once — but for its meters, each read apart, which stand all the
+ * same (east-workspace#1734's review): the read says why under its unread
+ * cell (`SHEET_UNREAD_CELL`) where a throw that left it lost them too.
  *
  * @packageDocumentation
  */
@@ -29,7 +33,7 @@
 import { useMemo } from "react";
 import { encodeBeast2For, fromEastTypeValue, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import type { SheetReadFromType } from "@elaraai/e3-ui/internal";
+import { SHEET_UNREAD_CELL, type SheetReadFromType } from "@elaraai/e3-ui/internal";
 import { normalizeDraft } from "./draft-values.js";
 import type { EntryVersion } from "./transactions.js";
 import type { LocalLayer } from "./use-editing.js";
@@ -116,6 +120,21 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
                 console.error(`[Sheet] the meter "${meter.column}" could not read its max or tone:`, held.value);
                 saidMeter = true;
                 break;
+            }
+            // A mark or a column from data that threw over the row, why under its unread cell: the row keeps its own cells,
+            // every marked one locked, as a read that fails whole leaves it — and its meters, each read apart, stand over
+            // them as a read's do: what this one wrote, or over a draft not yet whole, which reads none, the last read's.
+            const failed = cells.get(SHEET_UNREAD_CELL);
+            if (failed?.type === "String") {
+                if (!said) console.error("[Sheet] a column from data or a mark could not be read:", failed.value);
+                said = true;
+                const out = new Map(locked(row).cells);
+                for (const key of meters) {
+                    const cell = cells.get(key);
+                    if (cell !== undefined) out.set(key, cell);
+                    else if (marked) out.delete(key);
+                }
+                return { ...row, cells: out };
             }
             // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes; but over a
             // draft not yet whole, whose marks and meters it can't read, the last read's stay.

@@ -19,6 +19,9 @@
  * - **an age** (SP4) — its column and count; what it counts and its
  *   threshold, or for how long the row is stale;
  * - **an audit** (SP5) — when, its verb and who, or how many drafts wait;
+ * - **a trace, a sparkline or a meter with no value** — its column and the
+ *   column's own words for none, as the cell and its hover say them
+ *   (east-workspace#1734's review); with one, as any other kind's;
  * - **a new row's empty field** (SP6) — that Apply waits for it, and how it is
  *   set: a click on a cycle, a toggle or a boolean, else the inspector;
  * - **any other kind** (SP7) — its column and its value, and ⏎ where it edits.
@@ -196,6 +199,12 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
             const by = byCell?.type === "String" ? byCell.value : "";
             return { label: meta.header, text: m.auditTitle({ when: formatDatePattern("YYYY-MM-DD HH:mm", cell.value), verb, by }), keys: m.stripMove() };
         }
+        // A display cell with no value — none, or an empty series: the column's own words, as the cell says them
+        // (east-workspace#1734's review); one with a value, any other kind's line (SP7).
+        case "trace":
+        case "sparkline":
+        case "meter":
+            return cellIsBlank(cell) ? { label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? m.absent(), keys: m.stripEdit({ editable: steps }) } : undefined;
         default:
             return undefined;
     }

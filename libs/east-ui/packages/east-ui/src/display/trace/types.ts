@@ -92,7 +92,7 @@ export type TraceStyleType = typeof TraceStyleType;
  * @property density - Step + font sizing (shared cascade with `ChipRail`)
  * @property scale - Heat-fill colour encoding
  * @property future - How predicted steps are distinguished
- * @property domain - One scale for every track (east-workspace#1728): each step's level is its value's place in `[min, max]`, a value past either end taking that end's, and the diverging scale's midpoint the domain's middle; `none`, each track runs over its own min and max. A domain whose bounds are no finite numbers, or whose `max` is not past its `min`, places nothing on it: each track runs over its own
+ * @property domain - One scale for every track (east-workspace#1728): each step's level is its value's place in `[min, max]`, a value past either end taking that end's, and the diverging scale's midpoint the domain's middle; `none`, each track runs over its own min and max. A domain an expression gives whose bounds are no finite numbers, or whose `max` is not past its `min`, places nothing on it: each track runs over its own
  * @property style - Optional visual escape hatches
  */
 export const TraceType = StructType({
@@ -143,7 +143,11 @@ export interface TraceOptions {
     future?: SubtypeExprOrValue<TraceFutureType> | TraceFutureLiteral;
     /** Optional per-step labels (ruler at `comfortable`, step tooltips always). */
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** One scale for every track, `[min, max]`, as a Chart axis's `domain` is written; omit for each track's own min and max. */
+    /**
+     * One scale for every track, `[min, max]`, as a Chart axis's `domain` is written; omit for each track's own min and
+     * max. Bounds written as numbers must draw a scale — both finite, the max past the min — or the Trace is refused as
+     * it is built; bounds an expression gives that draw none place nothing, each track over its own.
+     */
     domain?: NumberDomainInput;
     /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
