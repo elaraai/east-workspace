@@ -17,8 +17,11 @@
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
  * the row (#1235). An overlay pane opened by a press on its rail's tile,
  * which is no control and takes no focus of its own, takes the focus, so Esc
- * closes it (#1584). Every measurement is polled until it holds, on a page at
- * rest.
+ * closes it (#1584). Each pane's control stands still as it collapses and
+ * expands — the library's at the start of its open row, over its rail's, the
+ * inspector's at the end — and a press on its row's room collapses it, as a
+ * press on its rail or its rail's bar expands it. Every measurement is polled
+ * until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test builder-panes --project desktop`.
@@ -28,6 +31,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
+import { dockControlOf, pressDock } from "./dock-control";
 
 /**
  * A builder the showcase holds: its example, what shows once it is at rest,
@@ -76,9 +80,9 @@ async function openFrame(page: Page, builder: BuilderPage, theme: "light" | "dar
 
 /**
  * Each open pane's tab row, as the page draws it: the pane, by its collapse
- * control's name, the tabs on the row, and what runs past the row — a tab or
- * the `+n` menu starting before the row or ending under the collapse control,
- * or a tab list wider than its box.
+ * control's name, the tabs on the row, and what runs past the row's room for
+ * them — a tab or the `+n` menu starting before it or ending past it, under
+ * the collapse control or off the row — or a tab list wider than its box.
  */
 function tabRowsOf(frame: Locator) {
     return frame.evaluate((root) => [...root.querySelectorAll("[data-frame-slot=start], [data-frame-slot=end]")].flatMap((slot) => {
@@ -87,16 +91,19 @@ function tabRowsOf(frame: Locator) {
         const row = pane.firstElementChild!;
         const toggle = row.querySelector(":scope > button[aria-expanded]");
         const r = row.getBoundingClientRect();
-        // The row ends where its collapse control begins.
-        const end = toggle === null ? r.right : toggle.getBoundingClientRect().left;
+        // The tabs' room: the row, less its collapse control — at its start on a pane pinned to the start, else at its end.
+        const leads = toggle !== null && row.firstElementChild === toggle;
+        const t = toggle?.getBoundingClientRect();
+        const start = leads ? t!.right : r.left;
+        const end = t === undefined || leads ? r.right : t.left;
         const tabs = [...row.querySelectorAll('[role="tab"]')];
         const more = row.querySelector("[data-dock-more]");
         const past: string[] = [];
         for (const el of more === null ? tabs : [...tabs, more]) {
             const b = el.getBoundingClientRect();
             const what = el === more ? "the +n menu" : `"${el.textContent}"`;
-            if (b.left < r.left - 0.5) past.push(`${what} starts ${Math.round(r.left - b.left)}px before the row`);
-            if (b.right > end + 0.5) past.push(`${what} runs ${Math.round(b.right - end)}px under the collapse control`);
+            if (b.left < start - 0.5) past.push(`${what} starts ${Math.round(start - b.left)}px ${leads ? "under the collapse control" : "before the row"}`);
+            if (b.right > end + 0.5) past.push(`${what} runs ${Math.round(b.right - end)}px ${leads || t === undefined ? "past the row" : "under the collapse control"}`);
         }
         const list = row.querySelector('[role="tablist"]');
         if (list !== null && list.scrollWidth > list.clientWidth + 0.5) past.push(`the tab list is ${list.scrollWidth - list.clientWidth}px wider than its box`);
@@ -116,6 +123,22 @@ test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@des
                 });
             });
         }
+    }
+});
+
+test.describe("every builder pane's control stands still as it collapses and expands, and its row and its rail each toggle it", { tag: "@desktop" }, () => {
+    for (const builder of BUILDERS) {
+        test(`${builder.name}: ${builder.panes.join(" and ")}`, async ({ page }) => {
+            const frame = await openFrame(page, builder, "light");
+            for (const name of builder.panes) await test.step(name, async () => {
+                const slot = frame.locator("[data-frame-slot=start], [data-frame-slot=end]", { has: page.getByRole("button", { name: `Collapse ${name}`, exact: true }) });
+                const side = await slot.getAttribute("data-frame-slot");
+                const pane = frame.locator(`[data-frame-slot=${side}] [data-orientation][data-side][data-surface]`).first();
+                const rest = await dockControlOf(pane);
+                // Collapsed by its control, opened from its rail's bar, collapsed by its row, opened from its rail.
+                for (const press of ["control", "bar", "row", "rail"] as const) await pressDock(page, pane, rest, press);
+            });
+        });
     }
 });
 

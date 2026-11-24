@@ -7,8 +7,13 @@
  * Dock slot recipe — the design system's docked pane, as the Studio spec
  * draws its palette and inspector. Expanded, the pane has one row: its tab
  * row, the mono caps labels — each with any count after it, in the quiet ink
- * — with the open tab underlined in ink, and the collapse control at the
- * row's end. A row its tabs don't fit folds them (#1210): its counts leave
+ * — with the open tab underlined in ink, and the collapse control where the
+ * rail's stands (`data-dock-control` on the pane), so it never moves as the pane
+ * collapses or expands: at the row's start on a sidebar pinned to the start,
+ * else at its end, 8px in from the pane's outer edge — on its own panel, 7
+ * inside its border — open or on the rail. A press on the row's own room
+ * collapses the pane, as a press anywhere on the rail expands it, so both show
+ * they take one. A row its tabs don't fit folds them (#1210): its counts leave
  * the row (`data-fold` on the tab list), then its trailing tabs go into the
  * `+n` menu's trigger (`tabMore`), drawn as a tab is; a lone open tab that
  * still doesn't fit (`data-squeezed`) shrinks, its name cut short with an
@@ -60,17 +65,23 @@ export const dockSlotRecipe = defineSlotRecipe({
             /* A collapsed tray lays its rail along the row. */
             "&[data-collapsed][data-orientation=vertical]": { flexDirection: "row" },
         },
-        /* The pane's one row: its tabs, and the collapse control at the end. */
+        /* The pane's one row: its tabs, and the collapse control at the end — or, on a sidebar pinned to the start, at its
+         * start. As tall as the rail's bar, with tabs or none: the control stands at one height open or collapsed. */
         header: {
             display: "flex",
             alignItems: "stretch",
             gap: "20px",
+            minHeight: "44px",
             paddingLeft: "{spacing.4}",
             paddingRight: "{spacing.2}",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             flexShrink: 0,
-            "& > button:last-child": { marginLeft: "auto" },
+            "&[data-toggles]": { cursor: "pointer" },
+            "[data-dock-control=start] > &": { paddingLeft: "{spacing.2}", paddingRight: "{spacing.4}" },
+            /* On its own panel, 8px in from the panel's outer edge, as on the rail: 7 inside its border. */
+            "[data-surface=card][data-dock-control=start] > &": { paddingLeft: "7px" },
+            "[data-surface=card][data-orientation=horizontal][data-dock-control=end] > &": { paddingRight: "7px" },
             /* A phone's drawer's head: padded 0 4 0 20, the designer's. */
             "[data-frame-drawer] &": { paddingLeft: "20px", paddingRight: "{spacing.1}" },
         },
@@ -109,8 +120,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             "&[data-selected]": { color: "fg", borderBottomColor: "fg" },
             /* The open tab alone beside the menu, and still too wide: it shrinks. */
             "&[data-squeezed]": { flexShrink: 1, minWidth: 0 },
-            /* The label as the pane's only tab is a name, not a control. */
-            "span&": { cursor: "default" },
+            /* The label as the pane's only tab is a name, not a control: pressed, it is the row's. */
+            "span&": { cursor: "inherit" },
         },
         tabLabel: {
             minWidth: 0,
@@ -178,6 +189,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             transitionTimingFunction: "{easings.out}",
             _hover: { background: "bg.subtle", color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "focus" },
+            /* Ending its open row, it stands at the row's end whatever the row holds before it. */
+            "[data-dock-control=end] > [data-toggles] > &": { marginLeft: "auto" },
             /* Touch hit target (#350). */
             ...coarseHitArea({ position: true }),
             /* A phone's drawer (`BuilderFrame`): its collapse a 44px square, as the strip's tabs are. */
@@ -192,21 +205,31 @@ export const dockSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             "&[hidden]": { display: "none" },
         },
-        /* The rail's head: the expand control, alone on its bar. */
+        /* The rail's head: the expand control, alone on its bar, where the open row's collapse control stands — atop a
+         * sidebar's rail, 8px in from its pinned edge (7 inside a panel's border); at the end of a tray's collapsed row,
+         * 8px from it, on a bar the open row's height whose rule stands before it. */
         railBar: {
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",
             height: "44px",
+            paddingLeft: "{spacing.2}",
             flexShrink: 0,
+            cursor: "pointer",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "[data-surface=card][data-orientation=horizontal] > &": { paddingLeft: "7px" },
+            "[data-orientation=horizontal][data-side=end] > &": { justifyContent: "flex-end", paddingLeft: "0", paddingRight: "{spacing.2}" },
+            "[data-surface=card][data-orientation=horizontal][data-side=end] > &": { paddingLeft: "0", paddingRight: "7px" },
             "[data-orientation=vertical] > &": {
-                height: "auto",
+                alignSelf: "flex-start",
                 width: "44px",
-                borderBottomWidth: "0",
-                borderRightWidth: "1px",
-                borderRightColor: "border.subtle",
+                justifyContent: "flex-end",
+                paddingLeft: "0",
+                paddingRight: "{spacing.2}",
+                borderBottomColor: "transparent",
+                borderLeftWidth: "1px",
+                borderLeftColor: "border.subtle",
             },
         },
         /* The rest of the rail — the whole of it expands the pane. */

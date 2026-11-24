@@ -131,10 +131,13 @@ function persistValue(v: NonNullable<DockStyle["persist"]>): SubtypeExprOrValue<
  * (trigger + content show/hide) and `Dialog` / `Drawer` (portalled overlays).
  *
  * Expanded, the pane has no header strip: its one row is a tab row — the
- * `tabs`, or the `label` as the only tab — with the collapse control at its
- * end. Collapsed, the rail holds the expand control, then the `icon` in its
- * tile, the `badge`, the `label` and the `detail` — the tile and the badge in
- * brand while the pane is `active`.
+ * `tabs`, or the `label` as the only tab — with the collapse control where the
+ * rail's expand control stands, so it never moves as the pane collapses or
+ * expands: at the row's start on a sidebar pinned to the `start`, else at its
+ * end. Collapsed, the rail holds the expand control, the `icon` in its tile,
+ * the `badge`, the `label` and the `detail` — the tile and the badge in brand
+ * while the pane is `active`. A press on the open row's own room — anywhere
+ * but a tab — collapses the pane, as a press anywhere on the rail expands it.
  *
  * @example
  * ```ts

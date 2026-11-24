@@ -23,8 +23,11 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  *
  * Expanded, it is `expandedSize` along the axis and has no header strip: its
  * one row is a tab row — its `tabs`, each with its own body, or the `label` as
- * the only tab over the children — with the collapse control at its end.
- * Collapsed, it shrinks to `railSize`: the expand control, then the `icon` in
+ * the only tab over the children — with the collapse control where the rail's
+ * expand control stands, so it never moves: at the row's start on a sidebar
+ * pinned to the `start`, else at its end. A press on the row's own room, off
+ * its tabs, collapses it, as a press anywhere on the rail expands it.
+ * Collapsed, it shrinks to `railSize`: the expand control, the `icon` in
  * its tile, any `badge`, the `label` and any `detail` — what the pane shows
  * now, such as an inspector's selected tile; while the pane is `active` the
  * tile and the badge are brand, else the detail reads muted. `surface="shell"` drops its own

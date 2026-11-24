@@ -113,13 +113,14 @@ export const dockNested = example({
 
 /**
  * A pane with tabs, inside a host's frame: two tabs, each with its own body,
- * and the collapse control at the end of the tab row. `surface="shell"` drops
- * the Dock's own panel for the rule beside the board it serves; collapsed, the
- * rail shows the icon tile, the count and the label.
+ * and the collapse control at the start of the tab row, where the rail's
+ * expand control stands. `surface="shell"` drops the Dock's own panel for the
+ * rule beside the board it serves; collapsed, the rail shows the icon tile,
+ * the count and the label.
  */
 export const dockTabs = example({
     keywords: ["Dock", "tabs", "tab row", "pane", "surface", "shell", "frame", "rail", "badge", "count", "headerless", "palette", "sidebar"],
-    description: "A pane with tabs inside a host frame — two tabs over their own bodies, the collapse control at the row's end, and a rail with the icon, the count and the label",
+    description: "A pane with tabs inside a host frame — two tabs over their own bodies, the collapse control at the row's start where the rail's stands, and a rail with the icon, the count and the label",
     fn: East.function([], UIComponentType, (_$) => (
         <Box height="320px" width="640px" borderWidth="1px" borderColor="border.strong" borderRadius="md" overflow="hidden">
             <HStack gap="0" width="100%" height="100%">
@@ -167,7 +168,7 @@ export const dockActive = example({
                     <Box flex="1" minWidth="0" height="100%" padding="4" background="bg.subtle">
                         <Text>The canvas beside the pane</Text>
                     </Box>
-                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="300px" surface="shell" defaultCollapsed
+                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="260px" surface="shell" defaultCollapsed
                           active badge="8/12" detail="Revenue trend">
                         <Box padding="4"><Text>Revenue trend</Text></Box>
                     </Dock>
@@ -178,7 +179,7 @@ export const dockActive = example({
                     <Box flex="1" minWidth="0" height="100%" padding="4" background="bg.subtle">
                         <Text>The canvas beside the pane</Text>
                     </Box>
-                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="300px" surface="shell" defaultCollapsed
+                    <Dock icon="sliders" label="Inspector" side="end" expandedSize="260px" surface="shell" defaultCollapsed
                           detail="Nothing selected">
                         <Box padding="4"><Text>Nothing selected</Text></Box>
                     </Dock>

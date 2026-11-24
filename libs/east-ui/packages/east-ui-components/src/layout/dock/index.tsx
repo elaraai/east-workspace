@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Box as ChakraBox, chakra, Menu as ChakraMenu, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -18,6 +18,7 @@ import { kept, keptFlag, keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
 import { FrameMenuLayer } from "../builder-frame/frame-layer.js";
+import { pressedOwnRoom } from "../../pointer/own-room.js";
 import { DockTab, type DockTabOpen } from "./tab-context.js";
 
 /** The open tab, as storage keeps it. */
@@ -153,17 +154,21 @@ export interface DockPaneProps {
  * the pane a host renderer holds its own React in.
  *
  * Expanded, the pane's one row is its tab row — its tabs, each with any count
- * after its label, or its label as the only tab — with the collapse control at
- * the row's end. A row narrower than its tabs folds them (#1210), as the
+ * after its label, or its label as the only tab — with the collapse control
+ * where the rail's expand control stands, so it never moves as the pane
+ * collapses or expands: at the row's start on a sidebar pinned to the start,
+ * else at its end. A row narrower than its tabs folds them (#1210), as the
  * Sheet's view tabs fold (#952): the counts leave the row first, kept in each
  * tab's name; then the trailing tabs fold into a `+n` menu after the last
  * that fits, the open tab always on the row, so no tab runs under the collapse
  * control. The row measures its tabs drawn whole, before it paints, again as
  * its room or its tabs change or fonts arrive ({@link fitTabs}); meanwhile the
  * `+n` menu keeps its fold, so a measure never closes it (#1235). Collapsed,
- * the rail holds the expand control, then the icon tile, the badge, any mark,
- * the label and the detail; while the pane is active the tile and the badge
- * are the brand's.
+ * the rail holds the expand control on its bar — atop a sidebar's rail, at the
+ * end of a tray's — and the icon tile, the badge, any mark, the label and the
+ * detail; while the pane is active the tile and the badge are the brand's. A
+ * press on the open row's own room — anywhere but a tab or the `+n` menu —
+ * collapses the pane, as a press anywhere on the rail expands it.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
@@ -238,6 +243,11 @@ export function DockPane(props: DockPaneProps) {
     }, [collapsedProp, choice, onCollapsedChangeFn]);
 
     const handleToggle = useCallback(() => { setCollapsedState(!collapsed); }, [collapsed, setCollapsedState]);
+    // A press on the open row or on the rail — anywhere but on what takes a press of its own: a tab, the `+n` menu, the
+    // control itself — collapses or expands the pane, as its control does.
+    const onRowPress = useCallback((event: MouseEvent<HTMLElement>) => {
+        if (pressedOwnRoom(event.currentTarget, event.target)) handleToggle();
+    }, [handleToggle]);
 
     // The open tab: driven by the host's `tab`, else kept by the structural
     // storage key; the first when none is.
@@ -368,6 +378,10 @@ export function DockPane(props: DockPaneProps) {
 
     const name = label ?? "panel";
     const ariaLabel = collapsed ? `Expand ${name}` : `Collapse ${name}`;
+    // The control stands where the rail's does, so it never moves as the pane collapses or expands: on a sidebar
+    // pinned to the start, at its open row's start, over the rail's bar; else at the row's end — a sidebar pinned to the
+    // end's rail is at its end, and a tray's bar ends its collapsed row.
+    const controlAt = horizontal && side === "start" ? "start" : "end";
 
     // Size along the collapse axis; the cross axis fills. flexShrink 0 so the
     // pane holds its size and the sibling (flex:1) reclaims the freed space.
@@ -381,6 +395,7 @@ export function DockPane(props: DockPaneProps) {
         "data-orientation": orientation,
         "data-side": side,
         "data-surface": surface,
+        "data-dock-control": controlAt,
         ...(collapsed ? { "data-collapsed": "" } : {}),
     };
 
@@ -388,6 +403,7 @@ export function DockPane(props: DockPaneProps) {
         <chakra.button
             type="button"
             css={styles.toggle}
+            data-dock-toggle=""
             aria-label={ariaLabel}
             aria-expanded={!collapsed}
             title={ariaLabel}
@@ -424,27 +440,34 @@ export function DockPane(props: DockPaneProps) {
         );
 
     if (collapsed) {
+        // The rail's bar holds the control: atop a sidebar's rail, at the end of a tray's.
+        const bar = <ChakraBox key="railBar" css={styles.railBar}>{toggle}</ChakraBox>;
+        const rail = (
+            <ChakraBox key="rail" css={styles.rail} title={label} data-active={active ? "" : undefined}>
+                {icon !== undefined && (
+                    <ChakraBox as="span" css={styles.iconTile}>
+                        <FontAwesomeIcon icon={icon as IconName} />
+                    </ChakraBox>
+                )}
+                {badge !== undefined && badge !== "" && <ChakraBox as="span" css={styles.badge} data-dock-badge="" title={badgeText}>
+                    {badgeCompact !== badgeText ? <>
+                        <chakra.span aria-hidden>{badgeCompact}</chakra.span>
+                        <VisuallyHidden>{badgeText}</VisuallyHidden>
+                    </> : badgeText}
+                </ChakraBox>}
+                {mark !== undefined && <ChakraBox as="span" css={styles.railMark} role="img" aria-label={mark.label} title={mark.label} data-tone={mark.tone} data-dock-mark="">
+                    <FontAwesomeIcon icon={mark.icon as IconName} />
+                </ChakraBox>}
+                {label !== undefined && <ChakraBox as="span" css={styles.railLabel}>{label}</ChakraBox>}
+                {detail !== undefined && <ChakraBox as="span" css={styles.railDetail} data-dock-detail="">{detail}</ChakraBox>}
+            </ChakraBox>
+        );
+        // The whole rail expands the pane: its bar around the control, and what it shows.
         return (
-            <ChakraBox css={styles.root} {...rootAttrs} {...sizeProps} {...transition}>
-                <ChakraBox key="railBar" css={styles.railBar}>{toggle}</ChakraBox>
-                <ChakraBox key="rail" css={styles.rail} onClick={handleToggle} title={label} data-active={active ? "" : undefined}>
-                    {icon !== undefined && (
-                        <ChakraBox as="span" css={styles.iconTile}>
-                            <FontAwesomeIcon icon={icon as IconName} />
-                        </ChakraBox>
-                    )}
-                    {badge !== undefined && badge !== "" && <ChakraBox as="span" css={styles.badge} data-dock-badge="" title={badgeText}>
-                        {badgeCompact !== badgeText ? <>
-                            <chakra.span aria-hidden>{badgeCompact}</chakra.span>
-                            <VisuallyHidden>{badgeText}</VisuallyHidden>
-                        </> : badgeText}
-                    </ChakraBox>}
-                    {mark !== undefined && <ChakraBox as="span" css={styles.railMark} role="img" aria-label={mark.label} title={mark.label} data-tone={mark.tone} data-dock-mark="">
-                        <FontAwesomeIcon icon={mark.icon as IconName} />
-                    </ChakraBox>}
-                    {label !== undefined && <ChakraBox as="span" css={styles.railLabel}>{label}</ChakraBox>}
-                    {detail !== undefined && <ChakraBox as="span" css={styles.railDetail} data-dock-detail="">{detail}</ChakraBox>}
-                </ChakraBox>
+            <ChakraBox css={styles.root} {...rootAttrs} {...sizeProps} {...transition} onClick={onRowPress}>
+                {horizontal && bar}
+                {rail}
+                {!horizontal && bar}
                 <Fragment key="panels">{panels}</Fragment>
             </ChakraBox>
         );
@@ -452,7 +475,8 @@ export function DockPane(props: DockPaneProps) {
 
     return (
         <ChakraBox css={styles.root} {...rootAttrs} {...sizeProps} {...transition}>
-            <ChakraBox key="header" css={styles.header}>
+            <ChakraBox key="header" css={styles.header} data-toggles={collapsible ? "" : undefined} onClick={collapsible ? onRowPress : undefined}>
+                {collapsible && controlAt === "start" && toggle}
                 {tabs.length > 0 ? (
                     <ChakraBox ref={rowRef} css={styles.tabs} data-dock-tabs="">
                         <ChakraBox css={styles.tabList} role="tablist" {...(label !== undefined ? { "aria-label": label } : {})}
@@ -515,7 +539,7 @@ export function DockPane(props: DockPaneProps) {
                 ) : label !== undefined ? (
                     <ChakraBox as="span" css={styles.tab} data-selected="">{label}</ChakraBox>
                 ) : null}
-                {collapsible && toggle}
+                {collapsible && controlAt === "end" && toggle}
             </ChakraBox>
             <Fragment key="panels">{panels}</Fragment>
         </ChakraBox>
