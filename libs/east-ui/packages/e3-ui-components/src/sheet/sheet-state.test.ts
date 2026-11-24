@@ -200,7 +200,8 @@ describe("editing", () => {
         const clicked = run(open, [{ t: "cell.down", r: 2, c: 1, shift: false }]);
         expect(clicked.state.edit).toBeNull();
         expect(clicked.state.sel).toEqual({ r: 2, c: 1 });
-        expect(clicked.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "x"), text: "x" });
+        // The commit's write follows the press (east-workspace#1727's review): the ring stands where the press put it, on its row.
+        expect(clicked.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "x"), text: "x", follow: true });
         const picked = run(open, [{ t: "strip.pick", label: "Routing", i: 0 }]);
         expect(picked.state.edit).toMatchObject({ val: "Routing", hi: 0 });
     });
@@ -1087,7 +1088,7 @@ describe("a grid a host draws", () => {
         // A press that commits an open editor, then steps the cell it lands on, is two undo steps.
         const editing = run(at, [{ t: "cell.down", r: 0, c: 2, shift: false }, key("x")], ctx).state;
         expect(run(editing, [{ t: "cell.down", r: 0, c: 1, shift: false }], ctx).effects.filter((e) => e.t === "write" || e.t === "gesture.end")).toEqual([
-            { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x" }, { t: "gesture.end" }, stepTo(0, 1, "B"),
+            { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x", follow: true }, { t: "gesture.end" }, stepTo(0, 1, "B"),
         ]);
     });
 

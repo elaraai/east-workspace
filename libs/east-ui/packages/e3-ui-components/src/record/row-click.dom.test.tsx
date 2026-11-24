@@ -221,6 +221,21 @@ describe("a click on a Record's row (east-workspace#1727)", () => {
         ]), printFor(NumberClicks)(got)).toBe(true);
     });
 
+    test("a press and its release in one task, as a script sends them, over a commit moving the row under another key: the click names the key it stands under now (`rowKey`)", async () => {
+        const { container: c } = await h.mount({ fn: racksHeard }, { storageKey: "record-row-click-one-task" });
+        await click(cellOf(c, "R-1", "code"));
+        await press(c, "R");
+        fireEvent.input(c.querySelector('[data-slot="editorInput"]')!, { target: { value: "R-9" } });
+        await settle();
+        await act(async () => {
+            fireEvent.mouseDown(cellOf(c, "R-1", "bay"), { button: 0, detail: 1 });
+            fireEvent.mouseUp(cellOf(c, "R-1", "bay"), { button: 0, detail: 1 });
+        });
+        await settle();
+        expect(ids(c)).toEqual(["R-2", "R-9"]);
+        expectClicks([heard("R-1", "code"), heard("R-9", "bay")]);
+    });
+
     test("a row an edit moved under another key clicks with the key it stands under now (`rowKey`, east-workspace#1709)", async () => {
         const { container: c } = await h.mount({ fn: racksHeard }, { storageKey: "record-row-click-racks" });
         // R-1's code typed over, as a paste types it: the rack moves under its new code.

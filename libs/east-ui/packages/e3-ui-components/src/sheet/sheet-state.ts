@@ -233,6 +233,17 @@ export function editUnchanged(edit: EditBuffer, ctx: SheetMachineCtx): boolean {
 }
 
 /** Commit the open editor in a direction. */
+/**
+ * A press's commit of the open editor (east-workspace#1727's review): its writes leave the ring where the press puts
+ * it, which follows its row by identity as the commit's rows land — a new line above it, a row moved in key order.
+ *
+ * @param effects - The commit's effects
+ * @returns The effects, each write marked to follow
+ */
+function pressCommit(effects: SheetEffect[]): SheetEffect[] {
+    return effects.map((fx) => (fx.t === "write" ? { ...fx, follow: true } : fx));
+}
+
 function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Transition {
     const edit = s.edit;
     if (edit === null) return { state: s, effects: [] };
@@ -582,9 +593,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
     // works on the groups, the records (#1349).
     switch (e.t) {
         case "cell.down": {
-            // A click commits an open editor in place first.
+            // A click commits an open editor in place first, the ring then following its row as the commit lands.
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
-            const effects = closed.effects;
+            const effects = pressCommit(closed.effects);
             // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range. With
             // no ring placed, a ⇧ press has no range to stretch, and places the ring as a press does. A cell no step
             // reaches — an owned row's, a read-only one, one its mark locks — is any other cell to a ⇧ press: had it
@@ -632,7 +643,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: s.hover === null ? s : { ...s, hover: null }, effects: [] };
         case "row.pick": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
-            const effects = closed.effects;
+            const effects = pressCommit(closed.effects);
             const last = Math.max(0, ctx.colCount - 1);
             if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null, press: null }, effects };
             // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
@@ -716,16 +727,24 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 const r = e.moved?.(ref.r);
                 return r === undefined || r === null || r === ref.r ? ref : { ...ref, r };
             };
+            // A ring a press placed as it committed the open editor follows its row by identity, as the press does
+            // (east-workspace#1727's review): the commit's rows moved it, which no write of the sheet's says.
+            const byRow = <T extends CellRef>(ref: T): T => {
+                const r = e.followed?.(ref.r);
+                return r === undefined || r === null || r === ref.r ? ref : { ...ref, r };
+            };
+            const placed = e.ring === true ? byRow : follow;
             const editLeft = s.edit !== null && e.moved?.(s.edit.r) === null;
-            const sel = clamp(follow(s.sel), ctx);
-            const selEnd = s.selEnd !== null ? clamp(follow(s.selEnd), ctx) : null;
+            const sel = clamp(placed(s.sel), ctx);
+            const selEnd = s.selEnd !== null ? clamp(placed(s.selEnd), ctx) : null;
             const moved = s.edit !== null && !editLeft ? follow(s.edit) : null;
             const edit = moved !== null && moved.r < ctx.rowCount && moved.c < ctx.colCount ? moved : null;
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
             const msg: SheetNotice | null = editLeft ? { id: "rowLeft" } : s.msg;
-            // A press in hand follows its row; its row gone, it is let go of, clicking nothing (east-workspace#1727).
-            const pressR = s.press === null ? undefined : e.moved?.(s.press.r);
+            // A press in hand follows its row, whoever moved it — the sheet's own writes too; its row gone, it is let go
+            // of, clicking nothing (east-workspace#1727).
+            const pressR = s.press === null ? undefined : (e.followed ?? e.moved)?.(s.press.r);
             const press = s.press === null || pressR === null ? null : pressR === undefined || pressR === s.press.r ? s.press : { ...s.press, r: pressR };
             const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg && press === s.press
                 ? s

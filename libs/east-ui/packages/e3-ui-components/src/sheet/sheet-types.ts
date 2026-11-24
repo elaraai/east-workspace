@@ -285,8 +285,18 @@ export type SheetEvent =
      * row space: an editor on it closes, since it would sit over another row
      * and its text would land there (#877); every other place keeps its
      * index, clamped. `undefined` where nothing is known of the row.
+     * `followed` says the same by each row's identity alone, whoever moved
+     * it — the sheet's own writes among them (east-workspace#1727's review):
+     * what a press in hand follows, and the ring with it where `ring` — a
+     * press placed it as it committed the open editor, from the layout this
+     * change leaves.
      */
-    | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
+    | {
+        t: "rows.changed";
+        moved?: ((r: number) => number | null | undefined) | undefined;
+        followed?: ((r: number) => number | null | undefined) | undefined;
+        ring?: boolean | undefined;
+    }
     /**
      * The columns the grid draws changed underneath: a phone's frame putting
      * the column it pins first, or back in its place; a column hidden or
@@ -355,8 +365,12 @@ export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
 
 /** Side effects, returned as data — never performed in the reducer. */
 export type SheetEffect =
-    /** Write one cell (`null` = blank) — the component turns it into a commit or an insert. */
-    | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string }
+    /**
+     * Write one cell (`null` = blank) — the component turns it into a commit or an insert. `follow`: a press's commit
+     * of the open editor (east-workspace#1727's review) — the ring stands where the press put it, and follows its row
+     * by identity as the write's rows land, never placed by the write.
+     */
+    | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string; follow?: true }
     /** Write several cells of one row — a fill taken (`fill`) or the whole row filled (`row`). */
     | { t: "write.many"; r: number; writes: readonly { c: number; cell: SheetCellValue }[]; source: EditSource }
     /** The writes before it are one gesture and the writes after it another (#1531): a press that commits an open editor, then steps the cell it lands on, is two undo steps. */
