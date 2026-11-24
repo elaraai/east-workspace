@@ -1,4 +1,4 @@
-# The pins the east-py packages of release 1.0.116 were tested with: their
+# The pins the east-py packages of release 1.0.117 were tested with: their
 # workspace's lock, exported by scripts/east-py-constraints.py. Not edited by hand.
 # Install under them with uv, beside east-py-overrides.txt:
 #   uv pip install --constraint east-py-constraints.txt --override east-py-overrides.txt ...
