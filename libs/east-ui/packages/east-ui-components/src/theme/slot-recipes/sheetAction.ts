@@ -477,12 +477,24 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "2px solid {colors.brand.solid}", outlineOffset: "2px" },
             _disabled: { color: "fg.faint", borderColor: "border.subtle", cursor: "default", _hover: { background: "bg.surface" } },
         },
-        /* Every other kind (R9): the inspector's form at touch size, its field's label the eyebrow's, its controls 44 tall. */
+        /* Every other kind (R9): the inspector's form at touch size, its field's label the eyebrow's, its controls 44 tall —
+         * but a set's tags (east-workspace#1741), which take the design system's touch chips here alone (the tag chip stays
+         * its 22px on any pointer everywhere else): each chip 34 tall, padded 12 at its start, 8 apart, its × a 34 square
+         * at its end, and the box a tag is typed into as tall, so a row of them is the 44 line inside the control's edge. */
         cellForm: {
             minWidth: 0,
             "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
             "& [data-field] label": { display: "none" },
-            "& [data-field-line] input, & [data-field-line] button, & [data-field-line] [data-part=trigger]": { minHeight: "44px" },
+            "& [data-field-line] :is(input, button):not([data-scope=tags-input]), & [data-field-line] [data-part=trigger]": { minHeight: "44px" },
+            "&[data-cell-tags]": {
+                "& [data-scope=tags-input][data-part=control]": { columnGap: "8px", rowGap: "8px", paddingBlock: "4px", paddingInline: "4px" },
+                "& [data-scope=tags-input][data-part=item-preview]": { ...oneLineBox(34), gap: "0", paddingInlineStart: "12px", paddingInlineEnd: "0" },
+                // The × at the chip's full height and its very end, over its 1px edge: the tags recipe's own margin pushed it out past it.
+                "& [data-scope=tags-input][data-part=item-delete-trigger]": {
+                    width: "34px", height: "34px", marginBlock: "-1px", marginInlineStart: "0", marginInlineEnd: "-1px", justifyContent: "center", fontSize: "12px",
+                },
+                "& [data-scope=tags-input][data-part=input]": { height: "34px", paddingInline: "8px" },
+            },
         },
     },
 });
