@@ -304,7 +304,7 @@ describe("one message table (#861)", () => {
             <ChakraProvider value={system}>
                 <I18nProvider locale="de-DE">
                     <SheetMessagesProvider messages={MARKED}>
-                        <SheetFooter styles={{}} items={[]} hint="" message="" noun="rows" onRetry={() => {}}
+                        <SheetFooter items={[]} hint="" message="" noun="rows" onRetry={() => {}}
                             loading={{ kind: "failed", from: 8_300, to: 8_499, reason: "fetch failed: 503" }} />
                     </SheetMessagesProvider>
                 </I18nProvider>

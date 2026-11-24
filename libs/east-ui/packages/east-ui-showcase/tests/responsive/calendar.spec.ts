@@ -238,14 +238,16 @@ for (const theme of LAYOUT_THEMES) {
             return { wraps: style.whiteSpace !== 'nowrap', lines: box.height / parseFloat(style.lineHeight) };
         })).toEqual({ wraps: false, lines: 1 });
         await page.keyboard.press('Escape');
-        const railStyle = async (rail: Locator) => rail.evaluate(el => {
-            const s = getComputedStyle(el); const item = getComputedStyle(el.firstElementChild!);
+        // Every builder's rail (east-workspace#1748): the rail itself, and an item of it in its kind's voice — a legend item
+        // the voice a status item takes on every rail.
+        const railStyle = async (rail: Locator, item: string) => rail.evaluate((el, selector) => {
+            const s = getComputedStyle(el); const first = getComputedStyle(el.querySelector(`:scope > ${selector}`)!);
             return { height: el.getBoundingClientRect().height, background: s.backgroundColor,
                 border: s.borderTop, padding: s.padding, gap: s.gap,
-                family: item.fontFamily, size: item.fontSize, weight: item.fontWeight,
-                tracking: item.letterSpacing, casing: item.textTransform, color: item.color };
-        });
-        const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'));
+                family: first.fontFamily, size: first.fontSize, weight: first.fontWeight,
+                tracking: first.letterSpacing, casing: first.textTransform, color: first.color };
+        }, item);
+        const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'), '[data-calendar-legend]');
         await expect(frame.locator('[data-calendar-footer] > [data-calendar-legend]')).toHaveCount(3);
         // Beside the legend only the "…" a cut legend ends with, and the one loading line, saying nothing at rest (#1398).
         await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
@@ -260,13 +262,14 @@ for (const theme of LAYOUT_THEMES) {
         expect(await footer.evaluate(el => [...el.querySelectorAll<HTMLElement>(':scope > [data-calendar-legend]:not([data-footer-cut])')]
             .filter(item => item.scrollWidth > item.clientWidth + 1 || item.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5)
             .map(item => item.textContent))).toEqual([]);
-        await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
-        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
+        // The Plan's rail, and a status item of its author's — `8 STEPS · NOW 5` — in the voice of the Calendar's legend items.
+        await page.evaluate(() => { location.hash = '#e3/plan/plan/planNumberAxis'; });
+        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan/planNumberAxis"]') });
         await planEntry.scrollIntoViewIfNeeded();
-        const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first();
+        const plan = planEntry.locator('[data-plan-frame] [data-frame-slot="footer"] [data-slot="footer"]').first();
         await expect(plan).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        await expect.poll(() => railStyle(plan)).toEqual(calendarFooter);
+        await expect.poll(() => railStyle(plan, ':not([data-plan-count]):not([data-footer-more]):not([data-footer-line])')).toEqual(calendarFooter);
     });
 
     test(`indexed events inspect by key and save without losing fields (${theme})`, async ({ page }, info) => {

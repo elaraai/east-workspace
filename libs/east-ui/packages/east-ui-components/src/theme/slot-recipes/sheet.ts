@@ -52,13 +52,13 @@
  *     mono 10.5 tabular; meta mono 10.5 (ellipsis past a third of the band);
  *     each run of words with its capitals at the middle of the band under its
  *     rule (east-workspace#1748).
- *   - Footer: the shared rail's 28 px, 12 px side padding, as every builder's
- *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
- *     moves it; counts mono 10.5; key hint mono 10, each of its hints whole — a
- *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
- *     right-aligned — in the danger ink while it says a gesture was refused —
- *     the shared loading line after it; each run of words with its capitals
- *     at the middle of the 27 under its rule (east-workspace#1748).
+ *   - Footer: every builder's rail (`builderFooter`, east-workspace#1748) —
+ *     its 28 px, 12 px side padding (ruled 23 Oct 2026, #1398), so the loading
+ *     line, coming and going, never moves it: the counts in its count voice,
+ *     the key hint in its hint voice, each of its hints whole — a rail too
+ *     narrow ends them at a whole hint, then "…" — and the message at its
+ *     end, in the danger ink while it says a gesture was refused, the shared
+ *     loading line after it.
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
@@ -179,9 +179,8 @@ import { capitalsBox, centredCapitals } from "../face-capitals.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
-import { refusedRow, refusedTone } from "../refused-mark.js";
+import { refusedRow } from "../refused-mark.js";
 import { toolbarControlBox } from "../toolbar-row.js";
-import { FOOTER_FIT, RAIL_LINE } from "./builder-footer.js";
 import { ACTION_LINE, ACTION_LINE_EVEN } from "./sheetAction.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -216,9 +215,6 @@ const CELL_LINES = {
  */
 const STRIP_ROOMS = [31, 35, 37, 41];
 
-/** The room the footer's words stand in: its 28px under its 1px rule. */
-const FOOTER_ROOM = 27;
-
 /**
  * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
  * padded 0 8, snapping as the others do and scrolling with them.
@@ -251,7 +247,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "stripPager", "stripPage", "stripPageCount", "stripMeasure",
-        "footer", "footerCounts", "footerHint", "footerHintSep", "footerMessage",
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
@@ -1882,58 +1877,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "4px",
             whiteSpace: "nowrap",
             width: "max-content",
-        },
-        // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
-        // line follows the message, which takes the rail's slack. It is the shared rail's 28 px, 12 px side padding
-        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it. Its
-        // words stand on one whole line of 15px, the shared rail's, centred in the 27px under its rule (#1638): its
-        // counts' 11px face and its message's 10.5px took 16.5px and 15.75px, each a fraction of a pixel under the rule.
-        footer: {
-            ...FOOTER_FIT,
-            display: "flex",
-            alignItems: "center",
-            gap: "18px",
-            minHeight: "28px",
-            lineHeight: RAIL_LINE,
-            paddingX: "12px",
-            paddingY: "0",
-            background: "bg.surface",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            minWidth: "0",
-            "& > [data-footer-line]": { marginInlineStart: "0" },
-        },
-        footerCounts: {
-            ...centredCapitals("mono", "label.md", FOOTER_ROOM),
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-            display: "inline-flex",
-            gap: "6px",
-            "& [data-tone=success]": { color: "status.pos" },
-            "& [data-tone=danger]": { color: "status.neg" },
-            "& [data-tone=warning]": { color: "status.warn" },
-            "& [data-tone=info]": { color: "status.info" },
-        },
-        // The key hint: its hints run on, each whole — the fit ends them at a whole hint rather than cut a word.
-        footerHint: {
-            flex: "none",
-            ...centredCapitals("mono", "label.sm", FOOTER_ROOM),
-            color: "fg.subtle",
-            letterSpacing: "0.04em",
-            whiteSpace: "nowrap",
-        },
-        // The ` · ` before a hint: its spaces kept wherever the hint is laid out, so a hint measures the same cut or shown.
-        footerHintSep: {
-            whiteSpace: "pre",
-        },
-        footerMessage: {
-            marginLeft: "auto",
-            ...centredCapitals("mono", "label.md", FOOTER_ROOM),
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            ...refusedTone,
         },
         diagnostic: {
             padding: "20px",

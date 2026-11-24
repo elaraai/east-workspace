@@ -16,10 +16,8 @@
  * and the View popover's; the library's tabs (#1389) — a tab's body, the
  * Index's search and its tree rows (the design system's tree row), and the
  * Layers tab's rows (its pick-panel row), each layer's swatch in the colour
- * chain, and its Show all; and the footer, on the shared `builder-footer`
- * rail, which never wraps: its live notices one item of it, wrapping within
- * itself and its items their words where it is narrow, beside the shared
- * loading line (#1398). The canvas holds no control of its own: what was its control column
+ * chain, and its Show all. Its footer is every builder's rail (`builderFooter`,
+ * east-workspace#1748). The canvas holds no control of its own: what was its control column
  * is the frame's toolbar, and its navigator and layer panel are the library's
  * Index and Layers tabs. While what the canvas draws stands in for a new
  * narrowing (`data-schematic-stale`, #1398), it is kept, as the loading design's
@@ -41,7 +39,6 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
-import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -205,7 +202,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "probe", "tools", "viewControls",
         "libraryPane", "indexSearch", "indexTree", "indexRows", "indexRow", "indexChevron", "indexName", "indexCount", "indexDot", "indexMetric", "indexEmpty",
         "layerList", "layerRow", "layerSwatch", "layerName", "layerCount", "layerToggles", "layerToggle", "layerFoot",
-        "footer", "footerNotices", "footerItem",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -771,24 +767,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.2}",
             borderTopWidth: "1px",
             borderColor: "border.subtle",
-        },
-        /* The footer, on the shared builder rail (§6.3), holding only what is live; why the last gesture was refused in the
-         * danger ink (#1388). The rail carries the shared loading line (#1398), so it never wraps: its notices are one item
-         * of it, taking what the line leaves, which wraps within itself where it is narrow — and there an item wider than
-         * it, a density's words on a phone (#1393), wraps its own words, as `useRailWrap` lets it. */
-        footer: builderFooter,
-        footerNotices: {
-            display: "flex",
-            alignItems: "center",
-            flex: "1 1 auto",
-            minWidth: "0",
-            gap: "var(--builder-footer-gap)",
-            "&[data-builder-narrow]": { flexWrap: "wrap", paddingY: "6px", rowGap: "2px", columnGap: "10px" },
-        },
-        footerItem: {
-            ...builderFooterItem,
-            "[data-builder-narrow] > &": { flexShrink: 1, minWidth: 0, whiteSpace: "normal" },
-            "&[data-schematic-refused]": { color: "fg.danger" },
         },
     },
 });

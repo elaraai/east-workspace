@@ -70,7 +70,7 @@ describe("the Sheet's counts (#850)", () => {
         const { container } = german(
             <>
                 {/* A failed read's line shows at once, its range in the locale (#1398). */}
-                <SheetFooter styles={styles} items={[]} hint="" message="" noun="rows" loading={{ kind: "failed", from: 600, to: 4999, reason: "timeout" }} />
+                <SheetFooter items={[]} hint="" message="" noun="rows" loading={{ kind: "failed", from: 600, to: 4999, reason: "timeout" }} />
                 {/* A flat sheet's unloaded run keeps its real row numbers (#1398, CL2): its first rows in view, 4401 on. */}
                 <SheetRunRow styles={styles} band={{ at: "tail", from: 4400, to: 4999, px: 600 * 36 }} loading={false} gridTemplate="80px"
                     columns={{ list: [], byKey: new Map(), totalWidth: 0 }} rowPx={36} dense={false} noun="rows" onRetry={() => {}} />

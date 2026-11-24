@@ -170,7 +170,7 @@ import { sliceFiltersViewSlotRecipe } from "./slot-recipes/sliceFiltersView.js";
 import { keySearchPhoneSlotRecipe } from "./slot-recipes/keySearchPhone.js";
 import { frameViewSlotRecipe } from "./slot-recipes/frameView.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
-import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { builderFooterLineSlotRecipe, builderFooterSlotRecipe } from "./slot-recipes/builder-footer.js";
 import { loadingSlotRecipe } from "./slot-recipes/loading.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
@@ -328,6 +328,7 @@ const config = defineConfig({
             keySearchPhone: keySearchPhoneSlotRecipe,
             frameView: frameViewSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
+            builderFooter:   builderFooterSlotRecipe,
             builderFooterLine: builderFooterLineSlotRecipe,
             loading:         loadingSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,

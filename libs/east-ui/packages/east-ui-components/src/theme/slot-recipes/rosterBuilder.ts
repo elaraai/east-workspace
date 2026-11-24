@@ -21,7 +21,7 @@ import { wholeOrNone } from "../../style/whole-or-none.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
-import { builderFooter, builderFooterItem } from "./builder-footer.js";
+import { TOOLBAR_TEXT } from "../toolbar-row.js";
 import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
@@ -91,7 +91,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "coverageLine", "coverageName", "coverageFigures", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", ...schedulePickerSlots, "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
+        "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", ...schedulePickerSlots, "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
         "readLine", "heldSlot", "widestSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
@@ -197,11 +197,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         card: { ...scheduleCard, "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         section: { ...INSPECTOR_SECTION, gap: "12px" },
         status: INSPECTOR_STATUS,
-        footer: builderFooter, footerItem: builderFooterItem,
-        legendItem: { display: "inline-flex", alignItems: "center", gap: "5px", flexShrink: 0 },
+        // A coverage mark in the footer's legend, before its words on every builder's rail (`builderFooter`).
         legendSwatch: { position: "relative", top: "auto", bottom: "auto", width: "12px", height: "8px", flexShrink: 0, "&[data-kind=needed]": { width: "2px", height: "12px" } },
         toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
-        rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" }, toolbarText: builderFooterItem,
+        rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" }, toolbarText: TOOLBAR_TEXT,
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { padding: "16px", textStyle: "body.sm", color: "fg.muted" },
         // A period's mark in the date picker, told apart by shape as well as colour (#1595): a published one filled, a draft's a
