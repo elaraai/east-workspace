@@ -29,6 +29,8 @@ export { debugFlag } from "./platform/debug-flag.js";
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter } from "./charts/spec/tick-format.js";
 export type { TickFormat } from "./charts/spec/context.js";
+// A chart curve's visx curve: the Plan's chart rows draw a layer's curve as a Chart does (#1753).
+export { curveFor } from "./charts/spec/marks.js";
 export { resolveColor, useDensityHeights } from "./collections/shared/helpers.js";
 // The review chrome's foot, its toolbar item, and the decision column's width.
 export {

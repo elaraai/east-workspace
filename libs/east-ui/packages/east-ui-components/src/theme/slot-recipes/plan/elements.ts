@@ -298,12 +298,15 @@ export const elementsBase = {
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
     // fill, stroke and dash is this slot's, selected by the mark's own
-    // attributes — series 1 in `brand.solid` (--brand-d, the chart rule), a
-    // forecast in a lighter mix of its own hue, a comparison series in the
-    // chart accents in their fixed order (teal → purple → blue → orange), a
-    // breach in warn. Under them all, a gridline a tick (#1750): the rule's
-    // ink mixed half into the paper, on one whole pixel. The renderer draws
-    // geometry only.
+    // attributes — a breach in warn, a forecast in a lighter mix of its own
+    // hue — in its layer's ink (#1753): a named series' by its place, the
+    // first `brand.solid` (--brand-d, the chart rule) and the later ones the
+    // chart accents in their fixed order (teal → purple → blue → orange); a
+    // colour its author chose, which the renderer sets in the same property;
+    // or, neither, its mark's own. Its layer's width, dash, strength and fill
+    // stand in custom properties of the recipe's own, which the renderer sets
+    // where the layer gives them. Under them all, a gridline a tick (#1750):
+    // the rule's ink mixed half into the paper, on one whole pixel.
     chartMarks: {
         position: "absolute",
         inset: 0,
@@ -316,26 +319,36 @@ export const elementsBase = {
             strokeWidth: "1px",
             shapeRendering: "crispEdges",
         },
-        "& [data-plan-mark='column']": { fill: "brand.solid" },
-        "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, {colors.brand.solid} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='1']": { fill: "accent.teal" },
-        "& [data-plan-mark='column'][data-series='1'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='2']": { fill: "accent.purple" },
-        "& [data-plan-mark='column'][data-series='2'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.purple} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='3']": { fill: "accent.blue" },
-        "& [data-plan-mark='column'][data-series='3'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.blue} 40%, {colors.bg.surface})" },
-        "& [data-plan-mark='column'][data-series='4']": { fill: "accent.orange" },
-        "& [data-plan-mark='column'][data-series='4'][data-planned]": { fill: "color-mix(in srgb, {colors.accent.orange} 40%, {colors.bg.surface})" },
+        "& [data-series='0']": { "--mark-ink": "{colors.brand.solid}" },
+        "& [data-series='1']": { "--mark-ink": "{colors.accent.teal}" },
+        "& [data-series='2']": { "--mark-ink": "{colors.accent.purple}" },
+        "& [data-series='3']": { "--mark-ink": "{colors.accent.blue}" },
+        "& [data-series='4']": { "--mark-ink": "{colors.accent.orange}" },
+        "& [data-plan-mark='column']": { fill: "var(--mark-ink, {colors.brand.solid})", fillOpacity: "var(--mark-fill, 1)" },
+        "& [data-plan-mark='column'][data-planned]": { fill: "color-mix(in srgb, var(--mark-ink, {colors.brand.solid}) 40%, {colors.bg.surface})" },
         "& [data-plan-mark='column'][data-warn]": { fill: "{colors.status.warn}" },
         "& [data-plan-mark='line'], & [data-plan-mark='line-planned'], & [data-plan-mark='area-line']": {
             fill: "none",
-            stroke: "brand.solid",
-            strokeWidth: "1.5px",
+            stroke: "var(--mark-ink, {colors.brand.solid})",
+            strokeWidth: "var(--mark-width, 1.5px)",
+            strokeOpacity: "var(--mark-opacity, 1)",
+            strokeDasharray: "var(--mark-dash, none)",
         },
-        "& [data-plan-mark='line-planned']": { strokeDasharray: "4 3" },
+        // A line's planned part (the now-split) is dashed — or, where the line
+        // has a dash of its own (`data-dash`), keeps it and draws fainter.
+        "& [data-plan-mark='line-planned']:not([data-dash])": { strokeDasharray: "4 3" },
+        "& [data-plan-mark='line-planned'][data-dash]": { strokeOpacity: "calc(var(--mark-opacity, 1) * 0.5)" },
         "& [data-plan-mark='band'], & [data-plan-mark='area']": {
-            fill: "color-mix(in srgb, {colors.brand.solid} 14%, transparent)",
+            fill: "var(--mark-ink, {colors.brand.solid})",
+            fillOpacity: "var(--mark-fill, 0.14)",
             stroke: "none",
+        },
+        // A line's or an area's dot: the paper, ringed in its layer's ink.
+        "& [data-plan-mark='dot']": {
+            fill: "{colors.bg.surface}",
+            stroke: "var(--mark-ink, {colors.brand.solid})",
+            strokeWidth: "1.5px",
+            opacity: "var(--mark-opacity, 1)",
         },
         "& [data-plan-mark='breach']": { fill: "{colors.status.warn}", stroke: "none" },
         "& [data-plan-mark='breach-rect']": {
@@ -345,7 +358,7 @@ export const elementsBase = {
             strokeDasharray: "3 2",
         },
         "& [data-plan-mark='refline']": { stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "2 3" },
-        "& [data-plan-mark='scatter']": { fill: "accent.purple", stroke: "none" },
+        "& [data-plan-mark='scatter']": { fill: "var(--mark-ink, {colors.accent.purple})", fillOpacity: "var(--mark-opacity, 1)", stroke: "none" },
         "& [data-plan-mark='refdot']": { fill: "bg.surface", stroke: "brand.solid", strokeWidth: "1.5px" },
     },
     // A reference band — the paper wash under every mark, across its span.

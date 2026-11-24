@@ -76,6 +76,7 @@ import {
     PlanBreachType,
     PlanChartAxisType,
     PlanChartLayerType,
+    PlanChartStyleType,
     PlanChartHeightType,
     PlanHeatCellType,
     PlanWeightCellType,
@@ -259,6 +260,7 @@ export {
     PlanChartBandPointType,
     PlanChartAxisType,
     PlanChartLayerType,
+    PlanChartStyleType,
     PlanChartHeightType,
     type PlanChartHeightLiteral,
     PlanHeatCellType,
@@ -645,7 +647,7 @@ export interface PlanNamespace extends PlanTagType {
     tableCells: typeof createTableCells;
     /** Builds one table-row value series (per-position style, raw cells). */
     tableSeries: typeof createTableSeries;
-    /** Wraps a Chart layer with the Plan-only channels (axis / breach / series). */
+    /** Wraps a Chart layer with the Plan's channels (axis / breach / fold) and styling of its own to draw it with (#1753). */
     layer: typeof createLayer;
     /** A chart row's line over a row's values (`Plan.values`) — a vertex at each value's instant (#1436). */
     line: typeof createLine;
@@ -717,6 +719,8 @@ export interface PlanNamespace extends PlanTagType {
         Animation: typeof PlanAnimationType;
         /** One data-only chart layer. */
         ChartLayer: typeof PlanChartLayerType;
+        /** How a chart layer draws — its name, colour, line, dots, strengths, stack and order (#1753). */
+        ChartStyle: typeof PlanChartStyleType;
         /** One `{t, y}` chart point. */
         ChartPoint: typeof PlanChartPointType;
         /** A chart y-axis declaration. */
@@ -917,6 +921,7 @@ const PLAN_MEMBERS = {
         Content: PlanContentType,
         Animation: PlanAnimationType,
         ChartLayer: PlanChartLayerType,
+        ChartStyle: PlanChartStyleType,
         ChartPoint: PlanChartPointType,
         ChartAxis: PlanChartAxisType,
         ChartHeight: PlanChartHeightType,

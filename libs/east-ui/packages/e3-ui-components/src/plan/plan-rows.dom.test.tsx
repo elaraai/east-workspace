@@ -381,6 +381,7 @@ describe("Plan chart rows (§4·K3)", () => {
                     axis: variant("left", null),
                     breach: none,
                     fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 }),
                 variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
             ],
@@ -698,8 +699,9 @@ describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", ()
     }));
     const weeklyColumns = planRow("out", variant("chart", {
         layers: [variant("column", {
-            points: WEEKS.map((at) => ({ t: t(at), y: 5 })), axis: variant("left", null), series: none, breach: none,
+            points: WEEKS.map((at) => ({ t: t(at), y: 5 })), axis: variant("left", null), breach: none,
             fold: variant("sum", null),
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         })],
         left: none, right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
     }));

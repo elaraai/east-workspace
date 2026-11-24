@@ -99,6 +99,7 @@ const span = (runs: unknown[] = [], decisions: unknown[] = [], ports: unknown[] 
 const chart = (points: [Date, number][], expandable = true) => variant("chart", {
     layers: [variant("line", {
         points: points.map(([d, y]) => ({ t: t(d), y })), axis: variant("left", null), breach: none, fold: variant("mean", null),
+        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
     })],
     left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable,
 });

@@ -843,9 +843,18 @@ describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
         const pts = (vals: readonly number[]) => [W28, W29, W30, W31].map((at, i) => ({ t: t(at), y: vals[i]! }));
         const chart = trow("c", undefined, variant("chart", {
             layers: [
-                variant("column", { points: pts([1, 2, 3, 4]), axis: variant("left", null), series: none, breach: none, fold: variant("sum", null) }),
-                variant("line", { points: pts([10, 20, 30, 40]), axis: variant("left", null), breach: none, fold: variant("mean", null) }),
-                variant("scatter", { points: pts([5, 6, 7, 8]), axis: variant("left", null) }),
+                variant("column", {
+                    points: pts([1, 2, 3, 4]), axis: variant("left", null), breach: none, fold: variant("sum", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
+                variant("line", {
+                    points: pts([10, 20, 30, 40]), axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
+                variant("scatter", {
+                    points: pts([5, 6, 7, 8]), axis: variant("left", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
+                }),
             ],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
         }));

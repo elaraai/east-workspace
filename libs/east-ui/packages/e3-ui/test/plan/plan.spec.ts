@@ -1043,7 +1043,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(refDot.y, 20.0));
     });
 
-    test("stacked columns carry their series keys; spark is the default height", $ => {
+    test("stacked columns carry their names and their stack; spark is the default height", $ => {
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const series = $.const([
             { week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }, { week: W29, pct: 30.0 },
@@ -1061,11 +1061,69 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chart.expandedHeight.hasTag("none"), true));
         // No toggle unless declared (#824 — a Boolean, `false` by default).
         $(Assert.equal(chart.expandable, false));
-        $(Assert.equal(chart.layers.get(0n).unwrap("column").series.unwrap("some"), "H1"));
-        $(Assert.equal(chart.layers.get(1n).unwrap("column").series.unwrap("some"), "H2"));
-        $(Assert.equal(chart.layers.get(2n).unwrap("column").series.hasTag("none"), true));
+        // A column keeps its layer's name and its stack (#1753): the columns sharing one pile up.
+        $(Assert.equal(chart.layers.get(0n).unwrap("column").style.label.unwrap("some"), "H1"));
+        $(Assert.equal(chart.layers.get(0n).unwrap("column").style.stack.unwrap("some"), "out"));
+        $(Assert.equal(chart.layers.get(1n).unwrap("column").style.label.unwrap("some"), "H2"));
+        $(Assert.equal(chart.layers.get(1n).unwrap("column").style.stack.unwrap("some"), "out"));
+        // One given no key is unnamed, and one given no stack piles on none.
+        $(Assert.equal(chart.layers.get(2n).unwrap("column").style.label.hasTag("none"), true));
+        $(Assert.equal(chart.layers.get(2n).unwrap("column").style.stack.hasTag("none"), true));
         // A column is an amount: a bucket folds its points by their sum.
         $(Assert.equal(chart.layers.get(0n).unwrap("column").fold.hasTag("sum"), true));
+    });
+
+    test("a chart layer keeps how it draws — its own styling, which a Plan.layer channel overrides; a split names each series and keeps the colours chosen for them (#1753)", $ => {
+        const PressWeek = StructType({ week: DateTimeType, press: StringType, out: FloatType, planned: FloatType });
+        const weeks = $.const([
+            { week: W27, press: "P1", out: 10.0, planned: 12.0 }, { week: W27, press: "P2", out: 20.0, planned: 18.0 },
+            { week: W28, press: "P1", out: 12.0, planned: 14.0 }, { week: W28, press: "P2", out: 18.0, planned: 16.0 },
+        ], ArrayType(PressWeek));
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            // Every part of a line's styling, as Chart.Root takes it.
+            Chart.Line(weeks, { x: r => r.week, y: r => r.out }, {
+                key: "Output", color: "teal.solid", curve: "monotoneX", width: 2, dash: "6 4", dots: true,
+                opacity: 0.6, legend: false, tooltip: false, order: 2,
+            }),
+            // A wrap's channels win over the layer's own; what it leaves unsaid, the layer keeps.
+            Plan.layer(Chart.Area(weeks, { x: r => r.week, y: r => r.out }, { key: "Area", color: "teal.solid", fillOpacity: 0.3, curve: "step" }),
+                { label: "Planned", color: "orange.solid", stack: "out", order: 1 }),
+            // A split names each series by its value, and keeps the colour chosen for one.
+            Chart.Line(weeks, { x: r => r.week, y: r => r.out, by: r => r.press, colors: { P2: "purple.solid" } }),
+            // A wide split names each series by its column.
+            Chart.Column(weeks, { x: r => r.week, columns: { Printed: r => r.out, Planned: r => r.planned } }, { stack: "sheets" }),
+            Chart.Scatter(weeks, { x: r => r.week, y: r => r.out }, { size: 4 }),
+            Chart.Band(weeks, { x: r => r.week, low: r => r.out, high: r => r.planned }, { key: "Range", fillOpacity: 0.15 }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("line").style, {
+            label: some("Output"), color: some("teal.solid"), curve: some(variant("monotoneX", null)), width: some(2.0),
+            dash: some("6 4"), dots: true, fillOpacity: none, opacity: some(0.6), size: none, stack: none,
+            legend: false, tooltip: false, order: some(2.0),
+        }));
+        $(Assert.equal(layers.get(1n).unwrap("area").style, {
+            label: some("Planned"), color: some("orange.solid"), curve: some(variant("step", null)), width: none,
+            dash: none, dots: false, fillOpacity: some(0.3), opacity: none, size: none, stack: some("out"),
+            legend: true, tooltip: true, order: some(1.0),
+        }));
+        // P1 has no colour of its own: the canvas gives it the next series colour.
+        $(Assert.equal(layers.get(2n).unwrap("line").style.label, some("P1")));
+        $(Assert.equal(layers.get(2n).unwrap("line").style.color, none));
+        $(Assert.equal(layers.get(3n).unwrap("line").style.label, some("P2")));
+        $(Assert.equal(layers.get(3n).unwrap("line").style.color, some("purple.solid")));
+        $(Assert.equal(layers.get(4n).unwrap("column").style.label, some("Printed")));
+        $(Assert.equal(layers.get(5n).unwrap("column").style.label, some("Planned")));
+        $(Assert.equal(layers.get(5n).unwrap("column").style.stack, some("sheets")));
+        // A scatter keeps its dots' radius; a layer given no key is unnamed, drawn in its mark's own ink.
+        $(Assert.equal(layers.get(6n).unwrap("scatter").style.size, some(4.0)));
+        $(Assert.equal(layers.get(6n).unwrap("scatter").style.label, none));
+        $(Assert.equal(layers.get(7n).unwrap("band").style.label, some("Range")));
+        $(Assert.equal(layers.get(7n).unwrap("band").style.fillOpacity, some(0.15)));
+        // A layer that says nothing of how it draws keeps nothing: its mark's own look.
+        $(Assert.equal(Plan.chart({ key: "p", label: "P", layers: Chart.Line(weeks, { x: r => r.week, y: r => r.out }) })
+            .get(0n).kind.unwrap("chart").layers.get(0n).unwrap("line").style, {
+            label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+            opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+        }));
     });
 
     test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {

@@ -9,10 +9,11 @@
  */
 
 /**
- * A chart row's geometry (#743): column stacks per value axis and sign, value
- * domains that contain what is drawn, continuous series at their true
- * positions, gaps, the crosshair's per-bucket reading, and the one set of
- * ticks both axes read (#1750).
+ * A chart row's geometry (#743): column stacks per value axis, stack and sign,
+ * value domains that contain what is drawn, continuous series at their true
+ * positions, gaps, the crosshair's per-bucket reading, the one set of ticks
+ * both axes read (#1750), and how each layer draws — its ink by its name, the
+ * order the layers draw in, and a point no stroke joins (#1753).
  */
 
 import { describe, test, expect } from "vitest";
@@ -20,7 +21,8 @@ import { none, some, variant } from "@elaraai/east";
 import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    CHART_TALL_PX, axisFormatter, breached, chartDomains, chartTicks, drawnPoints, layoutColumns, readoutTable, splitAtNow, valueScale,
+    CHART_TALL_PX, axisFormatter, breached, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutColumns, lonePoint,
+    readoutTable, splitAtNow, valueScale,
     type ChartKindValue, type ChartLayerValue,
 } from "./chart-geometry.js";
 import { planMessages } from "../messages.js";
@@ -30,15 +32,25 @@ import { PLAN_WORDS, planWords } from "../words.js";
 const axis = (n: number): PlanScale => planScale({ kind: "number", window: { min: 0, max: n }, step: 1 })!;
 
 const pt = (t: number, y: number) => ({ t: numberInstant(t), y });
-const column = (points: { t: number; y: number }[], opts: { series?: string; side?: "left" | "right" } = {}) =>
+const column = (points: { t: number; y: number }[], opts: { stack?: string; side?: "left" | "right" } = {}) =>
     variant("column", {
         points: points.map((p) => pt(p.t, p.y)),
         axis: variant(opts.side ?? "left", null),
-        series: opts.series !== undefined ? some(opts.series) : none,
         breach: none,
+        fold: variant("sum", null),
+        style: {
+            label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+            size: none, stack: opts.stack !== undefined ? some(opts.stack) : none, legend: true, tooltip: true, order: none,
+        },
     }) as ChartLayerValue;
 const line = (points: { t: number; y: number }[]) =>
-    variant("line", { points: points.map((p) => pt(p.t, p.y)), axis: variant("left", null), breach: none }) as ChartLayerValue;
+    variant("line", {
+        points: points.map((p) => pt(p.t, p.y)), axis: variant("left", null), breach: none, fold: variant("mean", null),
+        style: {
+            label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+            size: none, stack: none, legend: true, tooltip: true, order: none,
+        },
+    }) as ChartLayerValue;
 const valueAxis = (min: number | undefined, max: number | undefined) => some({
     domain: min !== undefined && max !== undefined ? some(variant("number", { min, max })) : none,
     tickValues: none,
@@ -64,7 +76,7 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
     test("stacked columns span their stack, and the derived domain holds the baseline and the stack's top — they fit the plot", () => {
         // The review's probe: two series at one bucket, no declared domain.
         const scale = axis(1);
-        const kind = chart([column([{ t: 0.5, y: 20 }], { series: "a" }), column([{ t: 0.5, y: 30 }], { series: "b" })]);
+        const kind = chart([column([{ t: 0.5, y: 20 }], { stack: "s" }), column([{ t: 0.5, y: 30 }], { stack: "s" })]);
         expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", 20, 50]]);
         const columns = layoutColumns(kind.layers, scale);
         const { left } = chartDomains(kind, columns);
@@ -92,13 +104,25 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
     test("a mixed-sign stack climbs with its positive parts and descends with its negative ones", () => {
         const scale = axis(1);
         const kind = chart([
-            column([{ t: 0.5, y: 20 }], { series: "a" }),
-            column([{ t: 0.5, y: -10 }], { series: "b" }),
-            column([{ t: 0.5, y: 5 }], { series: "c" }),
-            column([{ t: 0.5, y: -4 }], { series: "d" }),
+            column([{ t: 0.5, y: 20 }], { stack: "s" }),
+            column([{ t: 0.5, y: -10 }], { stack: "s" }),
+            column([{ t: 0.5, y: 5 }], { stack: "s" }),
+            column([{ t: 0.5, y: -4 }], { stack: "s" }),
         ]);
         expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", -10, 0], ["left", 20, 25], ["left", -14, -10]]);
         expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: -14, max: 25 });
+    });
+
+    test("only the columns sharing a stack pile up — two stacks at one bucket each start at the baseline (#1753)", () => {
+        const scale = axis(1);
+        const kind = chart([
+            column([{ t: 0.5, y: 20 }], { stack: "printed" }),
+            column([{ t: 0.5, y: 30 }], { stack: "planned" }),
+            column([{ t: 0.5, y: 5 }], { stack: "printed" }),
+        ]);
+        expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", 0, 30], ["left", 20, 25]]);
+        // Each column says whose layer it is, for its look.
+        expect(layoutColumns(kind.layers, scale).drawn.map((c) => c.layer)).toEqual([0, 1, 2]);
     });
 
     test("stacks never cross value axes — a right column never sits on a left one, in either layer order", () => {
@@ -106,19 +130,19 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
         // (0–1000). The single shared stack made the right column start at 20.
         const scale = axis(1);
         const leftFirst = chart([
-            column([{ t: 0.5, y: 20 }], { series: "s", side: "left" }),
-            column([{ t: 0.5, y: 300 }], { series: "s", side: "right" }),
+            column([{ t: 0.5, y: 20 }], { stack: "s", side: "left" }),
+            column([{ t: 0.5, y: 300 }], { stack: "s", side: "right" }),
         ], { left: valueAxis(0, 100), right: valueAxis(0, 1000) });
         expect(spans(leftFirst, scale)).toEqual([["left", 0, 20], ["right", 0, 300]]);
         const rightFirst = chart([
-            column([{ t: 0.5, y: 300 }], { series: "s", side: "right" }),
-            column([{ t: 0.5, y: 20 }], { series: "s", side: "left" }),
+            column([{ t: 0.5, y: 300 }], { stack: "s", side: "right" }),
+            column([{ t: 0.5, y: 20 }], { stack: "s", side: "left" }),
         ], { left: valueAxis(0, 100), right: valueAxis(0, 1000) });
         expect(spans(rightFirst, scale)).toEqual([["right", 0, 300], ["left", 0, 20]]);
         // Changing the left data moves no right baseline.
         const moved = chart([
-            column([{ t: 0.5, y: 90 }], { series: "s", side: "left" }),
-            column([{ t: 0.5, y: 300 }], { series: "s", side: "right" }),
+            column([{ t: 0.5, y: 90 }], { stack: "s", side: "left" }),
+            column([{ t: 0.5, y: 300 }], { stack: "s", side: "right" }),
         ]);
         expect(spans(moved, scale)[1]).toEqual(["right", 0, 300]);
     });
@@ -136,8 +160,8 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
     test("a column outside the render bounds is not drawn, but its stack still shapes the domain", () => {
         const scale = axis(1);          // render bounds [-2, 3)
         const kind = chart([
-            column([{ t: 0.5, y: 10 }, { t: 7.5, y: 30 }], { series: "a" }),
-            column([{ t: 7.5, y: 30 }], { series: "b" }),
+            column([{ t: 0.5, y: 10 }, { t: 7.5, y: 30 }], { stack: "s" }),
+            column([{ t: 7.5, y: 30 }], { stack: "s" }),
         ]);
         const columns = layoutColumns(kind.layers, scale);
         expect(columns.drawn).toHaveLength(1);
@@ -203,7 +227,13 @@ describe("the crosshair's reading per bucket (#743)", () => {
             line([{ t: 0.2, y: 3 }, { t: 0.7, y: 4 }, { t: 1.5, y: 5 }, { t: 2.2, y: 6 }, { t: 2.8, y: Number.NaN }]),
             column([{ t: 0.5, y: 12 }, { t: 2.5, y: -2 }]),
             variant("refLine", { y: 10, axis: variant("left", null), label: none }) as ChartLayerValue,
-            variant("band", { points: [{ t: numberInstant(1.5), lo: 1, hi: 2.5 }], axis: variant("left", null) }) as ChartLayerValue,
+            variant("band", {
+                points: [{ t: numberInstant(1.5), lo: 1, hi: 2.5 }], axis: variant("left", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
         ]);
         const table = readoutTable(kind, scale, PLAN_WORDS);
         // One text per DATA layer (the reference line reads nothing).
@@ -227,7 +257,13 @@ describe("the crosshair's reading per bucket (#743)", () => {
         const scale = axis(2);
         const kind = chart([
             line([{ t: 0.5, y: 2.5 }, { t: 1.5, y: 1234 }]),
-            variant("band", { points: [{ t: numberInstant(0.5), lo: 1.5, hi: 2.25 }], axis: variant("left", null) }) as ChartLayerValue,
+            variant("band", {
+                points: [{ t: numberInstant(0.5), lo: 1.5, hi: 2.25 }], axis: variant("left", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
         ]);
         const table = readoutTable(kind, scale, de);
         // One decimal, never grouped — `2,5`, `1234`; a band's range is the table's.
@@ -248,7 +284,13 @@ describe("one set of ticks for both axes (#1750)", () => {
         format: none,
     });
     const right = (points: { t: number; y: number }[]) =>
-        variant("line", { points: points.map((p) => pt(p.t, p.y)), axis: variant("right", null), breach: none }) as ChartLayerValue;
+        variant("line", {
+            points: points.map((p) => pt(p.t, p.y)), axis: variant("right", null), breach: none, fold: variant("mean", null),
+            style: {
+                label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                size: none, stack: none, legend: true, tooltip: true, order: none,
+            },
+        }) as ChartLayerValue;
     /** The row's ticks at a plot height, on the scales its marks use. */
     const ticksOf = (kind: ChartKindValue, height: number) => {
         const domains = chartDomains(kind, layoutColumns(kind.layers, axis(1)));
@@ -283,8 +325,8 @@ describe("one set of ticks for both axes (#1750)", () => {
 
     test("where the left declares none, it labels its top over columns, and the right keeps its own ticks — one line where two fall together", () => {
         const kind = chart([
-            column([{ t: 0.5, y: 20 }], { series: "a" }),
-            column([{ t: 0.5, y: 30 }], { series: "b" }),
+            column([{ t: 0.5, y: 20 }], { stack: "s" }),
+            column([{ t: 0.5, y: 30 }], { stack: "s" }),
             right([{ t: 0.5, y: 60 }]),
         ], { right: ticked(0, 100, [0, 50, 100]) });
         // The stack's top, 50, at the top of the plot's scale; the right's 100 there too.
@@ -297,5 +339,80 @@ describe("one set of ticks for both axes (#1750)", () => {
 
     test("a chart that declares no ticks and draws no columns has none", () => {
         expect(ticksOf(chart([line([{ t: 0.5, y: 3 }])], { right: ticked(0, 10) }), 88)).toEqual([]);
+    });
+});
+
+describe("how each layer draws (#1753)", () => {
+    test("a named layer takes the next series colour by the order its name first appears; one of a name already seen takes its ink", () => {
+        const kind = chart([
+            variant("band", {
+                points: [], axis: variant("left", null),
+                style: {
+                    label: some("Hall range"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: some(0.15),
+                    opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("line", {
+                points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("P1"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+                    opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            // Its author's colour, which a later layer of its name takes too.
+            variant("line", {
+                points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("Capacity"), color: some("red.solid"), curve: none, width: none, dash: none, dots: false,
+                    fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("refLine", { y: 10, axis: variant("left", null), label: none }) as ChartLayerValue,
+            variant("scatter", {
+                points: [], axis: variant("left", null),
+                style: {
+                    label: some("Capacity"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+                    opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("line", {
+                points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("P1"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+                    opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            line([{ t: 0.5, y: 3 }]),
+            variant("line", {
+                points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("P2"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none,
+                    opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+        ]);
+        expect(chartInks(kind)).toEqual([
+            { series: 0 }, { series: 1 }, { color: "red.solid" }, undefined, { color: "red.solid" }, { series: 1 }, {}, { series: 2 },
+        ]);
+    });
+
+    test("the layers draw by their order, lower first, and as declared where two tie — a reference layer's order is 0", () => {
+        const ordered = (order: number | undefined) => variant("line", {
+            points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+            style: {
+                label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                size: none, stack: none, legend: true, tooltip: true, order: order !== undefined ? some(order) : none,
+            },
+        }) as ChartLayerValue;
+        const kind = chart([
+            ordered(2), ordered(undefined), variant("refLine", { y: 1, axis: variant("left", null), label: none }) as ChartLayerValue,
+            ordered(-1), ordered(0),
+        ]);
+        expect(drawOrder(kind)).toEqual([3, 1, 2, 4, 0]);
+    });
+
+    test("a point with a value and none either side is one no stroke can draw", () => {
+        const points = [pt(0.5, 3), pt(1.5, Number.NaN), pt(2.5, 4), pt(3.5, Number.NaN), pt(4.5, 5), pt(5.5, 6)];
+        expect(points.map((_, i) => lonePoint(points, i))).toEqual([true, false, true, false, false, false]);
     });
 });

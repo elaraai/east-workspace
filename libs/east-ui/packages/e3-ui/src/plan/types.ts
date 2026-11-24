@@ -75,6 +75,7 @@ import {
     CarriedEntryType,
     CarriedRowSourceType,
     CarriedWindowType,
+    ChartCurveType,
     ChartDomainType,
     ChartTickValuesType,
     ColorSchemeType,
@@ -591,6 +592,54 @@ export const PlanChartBandPointType = StructType({ t: PlanInstantType, lo: Float
 export type PlanChartBandPointType = typeof PlanChartBandPointType;
 
 /**
+ * How a chart layer draws (#1753) — the styling its `Chart.*` builder carries
+ * (east-ui's `MarkStyle`), or a `Plan.layer` / `Plan.line` … channel gives it,
+ * kept for the canvas to draw. Each part left unset draws its mark's own look.
+ *
+ * @remarks
+ * A layer with a `label` is a named SERIES: the legend and the tooltip call it
+ * by it, and layers of one name are one series, which share a colour. A
+ * named series with no `color` takes the next of the chart rules' series
+ * colours — the brand, then teal, purple, blue and orange — in the order its
+ * name first appears in the row; an unnamed layer with none draws in its
+ * mark's own ink.
+ *
+ * A line draws solid up to now and dashed after it, its planned part. A line
+ * with a `dash` of its own keeps it on both sides of now, its planned part
+ * drawn fainter.
+ *
+ * @property label - Its name, which the legend and the tooltip call it by
+ * @property color - Its colour: a theme token (`"teal.solid"`) or a CSS colour
+ * @property curve - How a line, an area or a band joins its points (`none` ⇒ straight)
+ * @property width - A stroke's width, px
+ * @property dash - A stroke's dash pattern (`"6 4"`); `none` ⇒ solid
+ * @property dots - Whether every point draws a dot — a point with no neighbour to join draws one regardless
+ * @property fillOpacity - An area's or a band's fill strength, 0–1 (`none` ⇒ its mark's light wash)
+ * @property opacity - A stroke's or a dot's strength, 0–1
+ * @property size - A scatter's dot radius, px
+ * @property stack - The stack it piles on: the columns that share one accumulate
+ * @property legend - Whether the legend lists it
+ * @property tooltip - Whether the tooltip reads it
+ * @property order - Where it draws among the row's layers: higher draws later (`none` ⇒ 0, in the order declared)
+ */
+export const PlanChartStyleType = StructType({
+    label:       OptionType(StringType),
+    color:       OptionType(StringType),
+    curve:       OptionType(ChartCurveType),
+    width:       OptionType(FloatType),
+    dash:        OptionType(StringType),
+    dots:        BooleanType,
+    fillOpacity: OptionType(FloatType),
+    opacity:     OptionType(FloatType),
+    size:        OptionType(FloatType),
+    stack:       OptionType(StringType),
+    legend:      BooleanType,
+    tooltip:     BooleanType,
+    order:       OptionType(FloatType),
+});
+export type PlanChartStyleType = typeof PlanChartStyleType;
+
+/**
  * A chart row's y-axis declaration — the Chart axis vocabulary
  * ({@link ChartDomainType} / {@link ChartTickValuesType} /
  * {@link ValueFormatType}), restricted to a value axis: only the `number`
@@ -616,11 +665,12 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * @remarks
  * Renderer vocabulary (fixed by the spec, not the IR): lines draw solid ≤ now
  * and dashed after; columns observed `ink`, planned brand at half strength,
- * breach warn; stacked columns pair by `series`, each value axis stacking on
- * its own — positive parts up from the baseline, negative parts down;
- * refLines are dotted gridlines with a mono label. Every mark sits at its
- * true instant — a point beyond the window keeps its position and the plot
- * clips it. Hovering a bucket reads each data layer's value there.
+ * breach warn; columns that share a `stack` accumulate, each value axis
+ * stacking on its own — positive parts up from the baseline, negative parts
+ * down; refLines are dotted gridlines with a mono label. Each data layer
+ * draws as its `style` says ({@link PlanChartStyleType}, #1753). Every mark
+ * sits at its true instant — a point beyond the window keeps its position and
+ * the plot clips it. Hovering a bucket reads each data layer's value there.
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
  * horizontal bars flip the frame the shared axis owns.
  *
@@ -632,7 +682,7 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  *
  * @property line - A continuous line series (optional breach threshold; folds by `mean`)
  * @property area - A filled area series (folds by `mean`)
- * @property column - Per-bucket columns (optional stack `series` id + breach; folds by `sum`)
+ * @property column - Per-bucket columns (optional breach; folds by `sum`; its style's `stack` piles it)
  * @property scatter - Point markers
  * @property band - A filled range (lo/hi per instant)
  * @property refLine - A horizontal reference line at a y value (dotted, mono label)
@@ -641,12 +691,13 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  */
 export const PlanChartLayerType = VariantType({
     line:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          breach: OptionType(PlanBreachType), fold: PlanFoldType }),
-    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanFoldType }),
+                          breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
+    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanFoldType,
+                          style: PlanChartStyleType }),
     column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          series: OptionType(StringType), breach: OptionType(PlanBreachType), fold: PlanFoldType }),
-    scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
-    band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType }),
+                          breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
+    scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
+    band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
     refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
     refBand: StructType({ from: PlanInstantType, to: PlanInstantType, label: OptionType(StringType) }),
     refDot:  StructType({ t: PlanInstantType, y: FloatType, axis: PlanAxisSideType,

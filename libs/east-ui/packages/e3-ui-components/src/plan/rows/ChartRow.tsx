@@ -9,11 +9,17 @@
  * the factory); the canvas draws every mark itself against the shared scale —
  * no embedded Chart component, no gutter negotiation:
  *
- * - lines draw solid ≤ now and dashed after (the now-split), and break at a
- *   gap (a non-finite `y`) instead of bridging it;
- * - columns render observed ink, planned brand at half strength, breach warn;
- *   stacked columns pair by `series` (s1 brand / s2 ink, planned half), each
- *   value axis stacking on its own, positive parts up and negative parts down;
+ * - each data layer draws as its style says (#1753): a named series in the
+ *   next of the chart's series colours by the order its name first appears,
+ *   or in the colour its author chose; its curve, width, dash, dots and
+ *   strengths; the layers in the order their `order` puts them;
+ * - lines draw solid ≤ now and dashed after (the now-split) — a line with a
+ *   dash of its own keeps it on both sides, its planned part fainter — and
+ *   break at a gap (a non-finite `y`) instead of bridging it; a point with no
+ *   neighbour to join draws as a dot;
+ * - columns draw planned at a lighter mix of their colour, breach warn;
+ *   columns sharing a `stack` pile up, each value axis stacking on its own,
+ *   positive parts up and negative parts down;
  * - contiguous breach buckets derive the outlined warn rectangle at
  *   expanded density;
  * - refLines are dotted gridlines with a mono label; refBands paper washes;
@@ -29,7 +35,10 @@
  * The marks are `@visx/shape` paths over `@visx/scale` value scales (#743),
  * from the numbers `chart-geometry.ts` derives. They render in a
  * `0..1000 × 0..H` viewBox stretched to the plot (`preserveAspectRatio="none"`),
- * with `vector-effect: non-scaling-stroke` keeping stroke widths true. Every
+ * with `vector-effect: non-scaling-stroke` keeping stroke widths true. A dot —
+ * a scatter's, a line's, a reference dot — draws on an svg of its own over
+ * them, which nothing stretches, at its share of the plot's width: a circle in
+ * the stretched one is an ellipse wherever the plot is not 1000px wide. Every
  * mark sits at its TRUE position: a vertex beyond the window keeps its x and
  * the plot clips the segment — clamping it moved the data.
  *
@@ -37,36 +46,77 @@
  * each data layer's min, max and last value, and its breaches (#819).
  */
 
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Box, chakra } from "@chakra-ui/react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Box, chakra, useChakraContext, type SystemContext } from "@chakra-ui/react";
 import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
+import { curveFor, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import { chartSummary } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
-    CHART_TALL_PX, breached, chartDomains, chartTicks, drawnPoints, layoutColumns, readoutLayers, readoutTable,
-    splitAtNow, valueScale,
-    type ChartBandPointValue, type ChartKindValue, type ChartPointValue, type ChartSide, type ChartTick, type ColumnLayout,
-    type Placed, type ValueDomain, type ValueScale,
+    CHART_TALL_PX, breached, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutColumns, lonePoint, readoutLayers,
+    readoutTable, splitAtNow, styleOf, valueScale,
+    type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartPointValue, type ChartSide, type ChartStyleValue,
+    type ChartTick, type ColumnGeometry, type ColumnLayout, type Placed, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
 const VW = 1000;                       // viewBox width units
 
+/** A dot's radius, px: a scatter's unless it gives its own, a line's dots and a lone point's. */
+const DOT_R = 2.5;
+
 /**
- * A stacked series' place in the chart palette (#949): series 1 is the brand
- * (`--brand-d`), and every comparison series takes the chart accents in their
+ * A named series' place in the chart palette (#949, #1753): the first is the
+ * brand (`--brand-d`), and every later one takes the chart accents in their
  * fixed order — teal, purple, blue, orange — cycling past the fourth. The
- * `chartMarks` recipe slot paints each by this number; a mark carries no
- * colour of its own.
+ * `chartMarks` recipe slot paints each by this number.
  */
 function paletteOf(seriesIndex: number): number {
     return seriesIndex === 0 ? 0 : ((seriesIndex - 1) % 4) + 1;
 }
+
+/** A layer's look, as each of its marks carries it. */
+interface MarkLook {
+    "data-series"?: number;
+    "data-dash"?: "";
+    style?: CSSProperties;
+}
+
+/**
+ * A layer's look on its marks (#1753): the series colour its name takes,
+ * which the `chartMarks` recipe paints by `data-series`, or the colour its
+ * author chose, and its width, dash, strength and fill — each the author's own
+ * value, set on the mark as a custom property the recipe's rules read. A layer
+ * with a dash of its own says so (`data-dash`): its planned part keeps it.
+ *
+ * @param ink - Its ink ({@link chartInks})
+ * @param style - Its styling, when it is a data layer
+ * @param system - The theme, which a colour token resolves against
+ * @returns The attributes its marks carry
+ */
+function markLook(ink: ChartInk | undefined, style: ChartStyleValue | undefined, system: SystemContext): MarkLook {
+    // A strength is a CSS number the browser reads, never words a person does: it goes to the style as the number
+    // itself, which React sets on a custom property as it is.
+    const vars: Record<string, string | number> = {};
+    if (ink?.color !== undefined) vars["--mark-ink"] = resolveColor(system, ink.color);
+    if (style?.width.type === "some") vars["--mark-width"] = `${style.width.value}px`;
+    if (style?.dash.type === "some") vars["--mark-dash"] = style.dash.value;
+    if (style?.opacity.type === "some") vars["--mark-opacity"] = style.opacity.value;
+    if (style?.fillOpacity.type === "some") vars["--mark-fill"] = style.fillOpacity.value;
+    return {
+        ...(ink?.series !== undefined ? { "data-series": paletteOf(ink.series) } : {}),
+        ...(style?.dash.type === "some" ? { "data-dash": "" as const } : {}),
+        ...(Object.keys(vars).length > 0 ? { style: vars as CSSProperties } : {}),
+    };
+}
+
+/** A data layer's curve, as a Chart draws it — a straight line between points where it gives none. */
+const curveOf = (style: ChartStyleValue) => curveFor(style.curve.type === "some" ? style.curve.value : undefined, curveLinear);
 
 /** A chart's layout on one scale — its columns and its value domains. */
 interface ChartGeometry {
@@ -212,90 +262,153 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale, words)), [ctx, kind, scale, words]);
     // Its ticks (#1750): a gridline each, and what the right axis reads at it.
     const ticks = useChartTicks(kind, height);
+    // How each layer draws (#1753): its look, and where it draws among the others.
+    const system = useChakraContext();
+    const looks = useMemo(() => {
+        const inks = chartInks(kind);
+        return kind.layers.map((layer, li) => markLook(inks[li], styleOf(layer), system));
+    }, [kind, system]);
+    const order = useMemo(() => drawOrder(kind), [kind]);
+    const columnsOf = useMemo(() => {
+        const by = new Map<number, ColumnGeometry[]>();
+        for (const c of columns.drawn) {
+            const list = by.get(c.layer);
+            if (list === undefined) by.set(c.layer, [c]);
+            else list.push(c);
+        }
+        return by;
+    }, [columns]);
 
     // Branch HERE, after every hook: the hooks above must run on every
     // render, or React sees a different hook order for a focused canvas than
     // an unfocused one.
     if (stripData !== undefined) return <ToneStrip data={stripData} styles={styles} />;
 
-    const svgMarks: ReactNode[] = [];
-    kind.layers.forEach((layer, li) => {
+    // The marks, layer by layer in drawing order: the paths and bars on the
+    // stretched svg, the dots on the one over it, which nothing stretches —
+    // each at its share of the plot's width, so it stays round.
+    const pathMarks: ReactNode[] = [];
+    const dotMarks: ReactNode[] = [];
+    // A dot where a point lies in the render bounds (#619): out of the window it
+    // sits at its true instant in the overscan, clipped at rest — never piled on
+    // the window's edge.
+    const inBounds = (f: number) => f > scale.renderMin && f < scale.renderMax;
+    // A line's or an area's dots: every point's where its style asks for them,
+    // and a point no stroke can join regardless — a sparse series loses no reading.
+    const pointDots = (li: number, points: readonly ChartPointValue[], s: ValueScale, every: boolean) => {
+        points.forEach((p, pi) => {
+            const f = scale.fracOf(p.t);
+            if (!Number.isFinite(p.y) || !inBounds(f) || !(every || lonePoint(points, pi))) return;
+            dotMarks.push(<circle key={`dot-${li}-${pi}`} cx={`${f * 100}%`} cy={s(p.y)} r={DOT_R} data-plan-mark="dot" {...looks[li]} />);
+        });
+    };
+    for (const li of order) {
+        const layer = kind.layers[li]!;
+        const look = looks[li]!;
         switch (layer.type) {
+            case "column": {
+                const s = ys(layer.value.axis.type);
+                (columnsOf.get(li) ?? []).forEach((c, ci) => {
+                    const yTop = s(c.hi);
+                    const yBase = s(c.lo);
+                    pathMarks.push(<Bar key={`col-${li}-${ci}`} x={c.x0 * VW} y={Math.min(yTop, yBase)}
+                        width={Math.max(1, (c.x1 - c.x0) * VW)} height={Math.max(0.5, Math.abs(yBase - yTop))}
+                        rx={1} data-plan-mark="column" data-planned={c.planned ? "" : undefined}
+                        data-warn={c.warn ? "" : undefined} {...look} />);
+                });
+                break;
+            }
             case "band": {
                 const s = ys(layer.value.axis.type);
                 const placed = drawnPoints(layer.value.points, scale);
-                if (placed.length === 0) return;
-                svgMarks.push(
+                if (placed.length === 0) break;
+                pathMarks.push(
                     <Area<Placed<ChartBandPointValue>> key={`band-${li}`} data={placed} x={x}
-                        y0={(q) => s(q.p.lo)} y1={(q) => s(q.p.hi)} defined={hasBounds} curve={curveLinear}
-                        data-plan-mark="band" />,
+                        y0={(q) => s(q.p.lo)} y1={(q) => s(q.p.hi)} defined={hasBounds} curve={curveOf(layer.value.style)}
+                        data-plan-mark="band" {...look} />,
                 );
-                return;
+                break;
             }
             case "area": {
                 const s = ys(layer.value.axis.type);
                 const placed = drawnPoints(layer.value.points, scale);
-                if (placed.length === 0) return;
+                if (placed.length === 0) break;
                 // The fill runs to 0 — or to the domain's nearer edge when a
                 // declared domain leaves 0 outside it.
                 const [min, max] = s.domain() as [number, number];
                 const base = s(Math.min(Math.max(0, min), max));
                 const y = (q: Placed<ChartPointValue>) => s(q.p.y);
-                svgMarks.push(
+                const curve = curveOf(layer.value.style);
+                pathMarks.push(
                     <Area<Placed<ChartPointValue>> key={`area-${li}`} data={placed} x={x} y0={base} y1={y}
-                        defined={hasY} curve={curveLinear} data-plan-mark="area" />,
+                        defined={hasY} curve={curve} data-plan-mark="area" {...look} />,
                     <LinePath<Placed<ChartPointValue>> key={`arealine-${li}`} data={placed} x={x} y={y}
-                        defined={hasY} curve={curveLinear}
-                        vectorEffect="non-scaling-stroke" data-plan-mark="area-line" />,
+                        defined={hasY} curve={curve}
+                        vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
                 );
-                return;
+                pointDots(li, layer.value.points, s, layer.value.style.dots);
+                break;
             }
             case "line": {
                 const s = ys(layer.value.axis.type);
                 const placed = drawnPoints(layer.value.points, scale);
                 const { before, after } = splitAtNow(placed, scale.nowFrac);
                 const y = (q: Placed<ChartPointValue>) => s(q.p.y);
+                const curve = curveOf(layer.value.style);
                 if (before.length > 0) {
-                    svgMarks.push(
+                    pathMarks.push(
                         <LinePath<Placed<ChartPointValue>> key={`line-${li}-obs`} data={before} x={x} y={y}
-                            defined={hasY} curve={curveLinear}
-                            vectorEffect="non-scaling-stroke" data-plan-mark="line" />,
+                            defined={hasY} curve={curve}
+                            vectorEffect="non-scaling-stroke" data-plan-mark="line" {...look} />,
                     );
                 }
                 if (after.length > 0) {
-                    svgMarks.push(
+                    pathMarks.push(
                         <LinePath<Placed<ChartPointValue>> key={`line-${li}-plan`} data={after} x={x} y={y}
-                            defined={hasY} curve={curveLinear}
-                            vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" />,
+                            defined={hasY} curve={curve}
+                            vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" {...look} />,
                     );
                 }
+                pointDots(li, layer.value.points, s, layer.value.style.dots);
                 const breach = layer.value.breach.type === "some" ? layer.value.breach.value : undefined;
                 if (breach !== undefined) {
                     placed.forEach((q, pi) => {
-                        if (!breached(q.p.y, breach) || q.f <= scale.renderMin || q.f >= scale.renderMax) return;
-                        svgMarks.push(<circle key={`line-${li}-warn-${pi}`} cx={q.f * VW} cy={s(q.p.y)}
-                            r={2.5} data-plan-mark="breach" />);
+                        if (!breached(q.p.y, breach) || !inBounds(q.f)) return;
+                        dotMarks.push(<circle key={`line-${li}-warn-${pi}`} cx={`${q.f * 100}%`} cy={s(q.p.y)}
+                            r={DOT_R} data-plan-mark="breach" />);
                     });
                 }
-                return;
+                break;
             }
             case "scatter": {
                 const s = ys(layer.value.axis.type);
+                const size = layer.value.style.size;
+                const r = size.type === "some" ? size.value : DOT_R;
                 layer.value.points.forEach((p, pi) => {
-                    // Unclamped + render-bounds culled (#619): an out-of-window
-                    // dot sits at its true instant in the overscan, clipped at
-                    // rest — never piled on the window edge.
                     const f = scale.fracOf(p.t);
-                    if (!Number.isFinite(p.y) || f <= scale.renderMin || f >= scale.renderMax) return;
-                    svgMarks.push(<circle key={`sc-${li}-${pi}`} cx={f * VW} cy={s(p.y)}
-                        r={2.5} data-plan-mark="scatter" />);
+                    if (!Number.isFinite(p.y) || !inBounds(f)) return;
+                    dotMarks.push(<circle key={`sc-${li}-${pi}`} cx={`${f * 100}%`} cy={s(p.y)}
+                        r={r} data-plan-mark="scatter" {...look} />);
                 });
-                return;
+                break;
             }
-            case "column": case "refLine": case "refBand": case "refDot":
-                return;
+            case "refLine": {
+                const at = ys(layer.value.axis.type)(layer.value.y);
+                pathMarks.push(<line key={`ref-${li}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={at} y2={at}
+                    vectorEffect="non-scaling-stroke" data-plan-mark="refline" />);
+                break;
+            }
+            case "refDot": {
+                const f = scale.fracOf(layer.value.t);
+                if (!inBounds(f)) break;
+                dotMarks.push(<circle key={`refdot-${li}`} cx={`${f * 100}%`} cy={ys(layer.value.axis.type)(layer.value.y)}
+                    r={3} data-plan-mark="refdot" />);
+                break;
+            }
+            case "refBand":
+                break;
         }
-    });
+    }
 
     return (
         <Box position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
@@ -320,7 +433,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 );
             })}
             {/* Every mark's colour, stroke and dash is the `chartMarks`
-                recipe's, selected by the mark's own attributes (#949). */}
+                recipe's, selected by the mark's own attributes (#949) and
+                its layer's look (#1753). */}
             <chakra.svg css={styles.chartMarks} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
                 <title>{summary}</title>
                 {/* A gridline a tick, under every mark — across the render bounds, so a pan reveals the rest. */}
@@ -328,33 +442,17 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     <line key={`grid-${i}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={t.y} y2={t.y}
                         vectorEffect="non-scaling-stroke" data-plan-gridline="" />
                 ))}
-                {columns.drawn.map((c, i) => {
-                    const s = ys(c.side);
-                    const yTop = s(c.hi);
-                    const yBase = s(c.lo);
-                    return <Bar key={`col-${i}`} x={c.x0 * VW} y={Math.min(yTop, yBase)}
-                        width={Math.max(1, (c.x1 - c.x0) * VW)} height={Math.max(0.5, Math.abs(yBase - yTop))}
-                        rx={1} data-plan-mark="column" data-planned={c.planned ? "" : undefined}
-                        data-series={paletteOf(c.seriesIndex)} data-warn={c.warn ? "" : undefined} />;
-                })}
-                {kind.layers.map((layer, li) => layer.type === "refLine" ? (
-                    <line key={`ref-${li}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW}
-                        y1={ys(layer.value.axis.type)(layer.value.y)} y2={ys(layer.value.axis.type)(layer.value.y)}
-                        vectorEffect="non-scaling-stroke" data-plan-mark="refline" />
-                ) : null)}
-                {svgMarks}
-                {kind.layers.map((layer, li) => {
-                    if (layer.type !== "refDot") return null;
-                    const f = scale.fracOf(layer.value.t);
-                    if (!(f > scale.renderMin && f < scale.renderMax)) return null;
-                    return <circle key={`refdot-${li}`} cx={f * VW} cy={ys(layer.value.axis.type)(layer.value.y)}
-                        r={3} vectorEffect="non-scaling-stroke" data-plan-mark="refdot" />;
-                })}
+                {pathMarks}
                 {breachRects.map((r, i) => (
                     <rect key={`breach-${i}`} x={r.x0 * VW} y={1} width={(r.x1 - r.x0) * VW} height={height - 2}
                         vectorEffect="non-scaling-stroke" rx={2} data-plan-mark="breach-rect" />
                 ))}
             </chakra.svg>
+            {dotMarks.length > 0 && (
+                <chakra.svg css={styles.chartMarks} width="100%" height="100%" aria-hidden="true" data-plan-dots="">
+                    {dotMarks}
+                </chakra.svg>
+            )}
             {/* refLine / refDot mono labels (HTML, unstretched) — spark rows
                 are too shallow for them (the §1 mock shows bare ref rules);
                 taller charts clamp the label inside the plot box. */}

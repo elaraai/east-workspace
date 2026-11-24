@@ -1606,7 +1606,7 @@ export const planMeasureWeeks = e3.record("plan_measure_weeks", DictType(StringT
  * month with no reading is no data.
  *
  * - **Chart rows**: a line with its breach (July's mean falls under 92), an
- *   area, columns stacked by series id on a two-line gutter, a scatter that
+ *   area, two halls' columns on one stack on a two-line gutter, a scatter that
  *   draws every reading, every annotation (`refLine`, `refBand`, `refDot`) at
  *   expanded density, and a fixed-height dual-axis composition — columns
  *   left, a line and its band right, swatches, domains and ticks.
@@ -1682,16 +1682,17 @@ export const planMeasures = example({
                         label: r => r.label, id: true, value: r => r.value,
                         layers: [Plan.area(Plan.values("points", (v) => ({ y: v })), { fold: "last" })],
                     }),
-                    // Amounts — the two halls' columns stacked by one series id,
-                    // each month their weeks' SUM, on a two-line gutter (label
-                    // over sub).
+                    // Amounts — the two halls' columns piled on one stack, each
+                    // named for its hall and so drawn in a series colour of its
+                    // own, each month their weeks' SUM, on a two-line gutter
+                    // (label over sub).
                     Plan.series.chart(Measure, {
                         key: "stacked", title: "Stacked",
                         match: r => r.series.equal("stacked"),
                         label: r => r.label, id: true, stacked: true, sub: r => r.sub,
                         layers: [
-                            Plan.column(Plan.values("points", (v) => ({ y: v })), { series: "H1" }),
-                            Plan.column(Plan.values("paired", (v) => ({ y: v })), { series: "H2" }),
+                            Plan.column(Plan.values("points", (v) => ({ y: v })), { label: "Hall 1", stack: "halls" }),
+                            Plan.column(Plan.values("paired", (v) => ({ y: v })), { label: "Hall 2", stack: "halls" }),
                         ],
                     }),
                     // A scatter draws every reading, folded or not.

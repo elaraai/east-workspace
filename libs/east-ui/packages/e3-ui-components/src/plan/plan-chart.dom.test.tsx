@@ -12,6 +12,9 @@
  * hovered bucket, written without a render. And its gutter and axes (#1750):
  * a gridline a tick under the marks, the left axis in the gutter's value slot,
  * the right reading the left's ticks, and the name on the row's first line.
+ * And how each layer draws (#1753): its ink by its name or its author's
+ * colour, its width, dash, strengths and curve, its dots, round, and a lone
+ * point's, a dashed line's planned part, and the order the layers draw in.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -99,7 +102,8 @@ describe("chart marks at their true positions (#743 item 3)", () => {
     test("a line's vertices beyond the window keep their x — the plot clips the segment, nothing piles on the edge", () => {
         // The review's second probe: (-1, 0), (0.5, 10), (2, 0) over [0, 1).
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(-1, 0), pt(0.5, 10), pt(2, 0)], axis: left, breach: none, fold: MEAN }),
+            variant("line", { points: [pt(-1, 0), pt(0.5, 10), pt(2, 0)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ]))], 1), "chart-743-offwindow");
         const d = container.querySelector(`${rowSel("c")} [data-plan-mark="line"]`)!.getAttribute("d")!;
         // In the 1000-unit viewBox: x = -1000 and 2000, not clamped to 0 and
@@ -111,8 +115,10 @@ describe("chart marks at their true positions (#743 item 3)", () => {
 
     test("an area and a band keep their off-window vertices too", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("area", { points: [pt(-1, 2), pt(1.5, 4)], axis: left, fold: MEAN }),
-            variant("band", { points: [{ t: numberInstant(-1), lo: 1, hi: 3 }, { t: numberInstant(1.5), lo: 2, hi: 4 }], axis: left }),
+            variant("area", { points: [pt(-1, 2), pt(1.5, 4)], axis: left, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("band", { points: [{ t: numberInstant(-1), lo: 1, hi: 3 }, { t: numberInstant(1.5), lo: 2, hi: 4 }], axis: left,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ]))], 1), "chart-743-area");
         const xs = (sel: string) => subpaths(container.querySelector(`${rowSel("c")} ${sel}`)!.getAttribute("d")!)
             .flat().map(([x]) => x);
@@ -124,17 +130,19 @@ describe("chart marks at their true positions (#743 item 3)", () => {
 
     test("reference dots and breach markers sit at their instants; beyond the render bounds they are not drawn", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(0.5, 1), pt(1.5, 9)], axis: left, breach: some(variant("above", 5)), fold: MEAN }),
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 9)], axis: left, breach: some(variant("above", 5)), fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
             variant("refDot", { t: numberInstant(-0.5), y: 2, axis: left, label: none }),
             variant("refDot", { t: numberInstant(10), y: 2, axis: left, label: none }),
         ]))], 1), "chart-743-annotations");
         const row = container.querySelector(rowSel("c"))!;
-        // The breaching point is past the window's end: at x = 1500, in the
-        // overscan — not stacked on the edge at 1000.
-        expect([...row.querySelectorAll('[data-plan-mark="breach"]')].map((c) => Number(c.getAttribute("cx")))).toEqual([1500]);
+        // The breaching point is past the window's end: at 150% of the plot's
+        // width, in the overscan — not stacked on the edge at 100%. A dot draws
+        // on the svg nothing stretches, so it stays round (#1753).
+        expect([...row.querySelectorAll('[data-plan-dots] [data-plan-mark="breach"]')].map((c) => c.getAttribute("cx"))).toEqual(["150%"]);
         // The dot before the window is at its instant; the one ten steps on is
         // outside the render bounds and draws nothing.
-        expect([...row.querySelectorAll('[data-plan-mark="refdot"]')].map((c) => Number(c.getAttribute("cx")))).toEqual([-500]);
+        expect([...row.querySelectorAll('[data-plan-dots] [data-plan-mark="refdot"]')].map((c) => c.getAttribute("cx"))).toEqual(["-50%"]);
     });
 
     test("a reference line and band span the render bounds, so a pan reveals them", () => {
@@ -154,8 +162,10 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
     test("stacked columns fit inside the plot — the derived domain holds the baseline and the stack's top", () => {
         // The review's first probe: two series at one bucket, no declared domain.
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none, fold: SUM }),
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                style: { label: some("a"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, breach: none, fold: SUM,
+                style: { label: some("b"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
         ]))], 1), "chart-743-stack");
         const row = container.querySelector(rowSel("c"))!;
         // Domain [0, 50] over the 64px between 12.5 and 76.5 of an 88px row's
@@ -169,8 +179,10 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("the gutter ticks print on the scale the marks use", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none, fold: SUM }),
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                style: { label: some("a"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, breach: none, fold: SUM,
+                style: { label: some("b"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
         ], { left: valueAxis({ ticks: [0, 20] }) }))], 1), "chart-743-ticks");
         const row = container.querySelector(rowSel("c"))!;
         const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => r3(Number(t.getAttribute("data-plan-tickpx"))));
@@ -183,8 +195,10 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("a dual-axis bucket stacks each column on its own axis — distinct units, distinct baselines", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("s"), breach: none, fold: SUM }),
-            variant("column", { points: [pt(0.5, 300)], axis: right, series: some("s"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 300)], axis: right, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
         ], { left: valueAxis({ min: 0, max: 100 }), right: valueAxis({ min: 0, max: 1000 }) }))], 1), "chart-743-dual");
         const row = container.querySelector(rowSel("c"))!;
         // Left 20 of 100 → 12.8px from the baseline; right 300 of 1000 →
@@ -195,8 +209,10 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("a mixed-sign stack draws its negative part below the baseline", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("a"), breach: none, fold: SUM }),
-            variant("column", { points: [pt(0.5, -10)], axis: left, series: some("b"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, breach: none, fold: SUM,
+                style: { label: some("a"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, -10)], axis: left, breach: none, fold: SUM,
+                style: { label: some("b"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
         ]))], 1), "chart-743-mixed");
         // Domain [-10, 30] over the 64px between 12.5 and 76.5: 0 sits at 60.5; +30 climbs to 12.5, −10 descends to 76.5.
         expect(rects(container.querySelector(rowSel("c"))!)).toEqual([[12.5, 48], [60.5, 16]]);
@@ -206,14 +222,19 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 describe("gaps (#743)", () => {
     test("a missing point breaks a line and an area — nothing is interpolated across it", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, Number.NaN), pt(3.5, 3)], axis: left, breach: none, fold: MEAN }),
-            variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2), pt(3.5, 3)], axis: left, fold: MEAN }),
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, Number.NaN), pt(3.5, 3)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2), pt(3.5, 3)], axis: left, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ]))], 4), "chart-743-gaps");
         const row = container.querySelector(rowSel("c"))!;
         const line = subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!);
         expect(line.map((s) => s.map(([x]) => x))).toEqual([[125, 375], [875]]);
         // Two runs of fill, not one bridged across the gap.
         expect(subpaths(row.querySelector('[data-plan-mark="area"]')!.getAttribute("d")!)).toHaveLength(2);
+        // The line's last point, after its gap, and the area's first, before its gap, have no neighbour to join: a dot
+        // draws each, at its share of the plot, in the order the layers draw (#1753).
+        expect([...row.querySelectorAll('[data-plan-dots] [data-plan-mark="dot"]')].map((c) => c.getAttribute("cx"))).toEqual(["87.5%", "12.5%"]);
     });
 
     test("in a context strip a gap is no-data — the hatch, never a NaN depth", () => {
@@ -223,7 +244,8 @@ describe("gaps (#743)", () => {
         } as PlanWireRow;
         const value = {
             ...planRoot([focal, planRow("c", chartKind([
-                variant("line", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 3)], axis: left, breach: none, fold: MEAN }),
+                variant("line", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 3)], axis: left, breach: none, fold: MEAN,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
             ]))], 3),
             expandRender: some(() => variant("Text", { value: "R", style: none })),
         } as unknown as PlanRootValue;
@@ -248,8 +270,10 @@ describe("the crosshair readout (#743)", () => {
             <ChakraProvider value={system}>
                 <Profiler id="chart-743-readout" onRender={(_id, phase) => { commits.push(phase); }}>
                     <EastChakraPlan storageKey="chart-743-readout" value={planRoot([planRow("c", chartKind([
-                        variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN }),
-                        variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, series: none, breach: none, fold: SUM }),
+                        variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN,
+                            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                        variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, breach: none, fold: SUM,
+                            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
                         variant("refLine", { y: 10, axis: left, label: none }),
                     ]))], 4)} />
                 </Profiler>
@@ -301,7 +325,8 @@ describe("the chart row's gutter and axes (#1750)", () => {
 
     test("each tick draws a gridline under every mark, across the render bounds, and its label stands in the gutter's value slot, never in the plot", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: none, breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ], { left: valueAxis({ min: 0, max: 40, ticks: [0, 20, 40] }) }))], 1), "chart-1750-grid");
         const row = container.querySelector(rowSel("c"))!;
         // Down an 88px row's 87px plot, its values between 12.5 and 76.5 — the
@@ -319,8 +344,10 @@ describe("the chart row's gutter and axes (#1750)", () => {
 
     test("a right axis reads its own value at the left's ticks: one set of gridlines for both", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN }),
-            variant("line", { points: [pt(0.5, 20)], axis: right, breach: none, fold: MEAN }),
+            variant("line", { points: [pt(0.5, 8)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.5, 20)], axis: right, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ], { left: valueAxis({ min: 0, max: 16, ticks: [0, 4, 8, 12, 16] }), right: valueAxis({ min: 0, max: 40, ticks: [5, 15] }) }))], 1), "chart-1750-shared");
         const row = container.querySelector(rowSel("c"))!;
         const rights = [...row.querySelectorAll<HTMLElement>("[data-plan-tick-right]")];
@@ -332,7 +359,8 @@ describe("the chart row's gutter and axes (#1750)", () => {
 
     test("the row's first line is its own: where it shows a value, a label that would stand on it is not drawn — its gridline is", () => {
         const kind = chartKind([
-            variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN }),
+            variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
         ], { left: valueAxis({ min: 80, max: 110, ticks: [80, 100] }) });
         const { container } = renderPlan(planRoot([
             withGutter(planRow("valued", kind), { value: "94%" }),
@@ -347,7 +375,8 @@ describe("the chart row's gutter and axes (#1750)", () => {
     test("a label on the first line of a row with controls gives way while they show; one the pressed control holds is not drawn", () => {
         // An expandable chart's expand control: unpressed on a chart drawn at its own 88px, pressed on one declared expanded.
         const chart = (height: unknown) => variant("chart", {
-            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })],
+            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
             left: valueAxis({ min: 80, max: 110, ticks: [80, 100] }), right: none,
             height, expandedHeight: none, expandable: true,
         });
@@ -364,8 +393,10 @@ describe("the chart row's gutter and axes (#1750)", () => {
     test("a chart at a row's own height — a spark, of one line or two — reads its scale by its gridlines alone, on either axis", () => {
         const spark = variant("chart", {
             layers: [
-                variant("column", { points: [pt(0.5, 20)], axis: left, series: none, breach: none, fold: SUM }),
-                variant("line", { points: [pt(0.5, 50)], axis: right, breach: none, fold: MEAN }),
+                variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                variant("line", { points: [pt(0.5, 50)], axis: right, breach: none, fold: MEAN,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
             ],
             left: valueAxis({ min: 0, max: 40, ticks: [0, 20, 40] }), right: valueAxis({ min: 0, max: 100 }),
             height: variant("spark", null), expandedHeight: none, expandable: false,
@@ -385,10 +416,12 @@ describe("the chart row's gutter and axes (#1750)", () => {
 
     test("a chart taller than its gutter's lines stands its name on the row's first line; a spark keeps its lines as any row", () => {
         const spark = variant("chart", {
-            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })],
+            layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
         });
-        const tall = chartKind([variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN })]);
+        const tall = chartKind([variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
+            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })]);
         const { container } = renderPlan(planRoot([
             planRow("tall", tall),
             withGutter(planRow("subbed", tall), { sub: "sheets/h" }),
@@ -396,5 +429,80 @@ describe("the chart row's gutter and axes (#1750)", () => {
         ], 1), "chart-1750-name-line");
         const top = (key: string) => container.querySelector(`${rowSel(key)} [role='rowheader']`)!.getAttribute("data-plan-gutter-top");
         expect([top("tall"), top("subbed"), top("spark")]).toEqual(["", "sub", null]);
+    });
+});
+
+describe("how each layer draws (#1753)", () => {
+    /** A canvas on `[0, n)` at step 1, its now at `now`. */
+    const withNow = (rows: PlanWireRow[], n: number, now: number) => ({
+        ...planRoot(rows, n),
+        axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: some(now), format: none }),
+    }) as unknown as PlanRootValue;
+    const prop = (el: Element, name: string) => (el as HTMLElement).style.getPropertyValue(name);
+
+    test("a named layer draws in the next series colour by its name, one of a name already seen in its ink; an author's colour, width, strength and fill on its marks", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("area", { points: [pt(0.5, 2), pt(1.5, 3)], axis: left, fold: MEAN,
+                style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: some(0.5), opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.5, 4), pt(1.5, 5)], axis: left, breach: none, fold: MEAN,
+                style: { label: some("Capacity"), color: some("red.solid"), curve: none, width: some(2), dash: none, dots: false, fillOpacity: none, opacity: some(0.6), size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 1)], axis: left, breach: none, fold: SUM,
+                style: { label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.5, 3), pt(1.5, 4)], axis: left, breach: none, fold: MEAN,
+                style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+        ]))], 2), "chart-1753-inks");
+        const row = container.querySelector(rowSel("c"))!;
+        const mark = (m: string, i = 0) => row.querySelectorAll(`[data-plan-mark="${m}"]`)[i]!;
+        // Output first, the brand; Printed next, teal; the second Output line in Output's.
+        expect([mark("area").getAttribute("data-series"), mark("column").getAttribute("data-series"), mark("line", 1).getAttribute("data-series")])
+            .toEqual(["0", "1", "0"]);
+        expect(prop(mark("area"), "--mark-fill")).toBe("0.5");
+        // Capacity in its author's colour, the theme's variable for it, at its width and strength.
+        const capacity = mark("line", 0);
+        expect(capacity.hasAttribute("data-series")).toBe(false);
+        expect([prop(capacity, "--mark-ink"), prop(capacity, "--mark-width"), prop(capacity, "--mark-opacity")])
+            .toEqual(["var(--chakra-colors-red-solid)", "2px", "0.6"]);
+    });
+
+    test("a line draws dashed after now; one with a dash of its own keeps it on both sides of now, its planned part marked to draw fainter", () => {
+        const { container } = renderPlan(withNow([planRow("c", chartKind([
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, 3)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.5, 2), pt(1.5, 3), pt(2.5, 4)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: some("6 4"), dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+        ]))], 3, 1.5), "chart-1753-dash");
+        const row = container.querySelector(rowSel("c"))!;
+        const planned = [...row.querySelectorAll('[data-plan-mark="line-planned"]')];
+        expect(planned.map((p) => p.hasAttribute("data-dash"))).toEqual([false, true]);
+        expect(prop(planned[1]!, "--mark-dash")).toBe("6 4");
+        expect(prop(row.querySelectorAll('[data-plan-mark="line"]')[1]!, "--mark-dash")).toBe("6 4");
+    });
+
+    test("a layer's dots at every point, round on the svg nothing stretches; a scatter's own radius; a layer's curve", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, 1)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: some(variant("monotoneX", null)), width: none, dash: none, dots: true, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("scatter", { points: [pt(1.5, 3)], axis: left,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: some(6), stack: none, legend: true, tooltip: true, order: none } }),
+        ]))], 4), "chart-1753-dots");
+        const row = container.querySelector(rowSel("c"))!;
+        const dots = row.querySelector("[data-plan-dots]")!;
+        expect(dots.hasAttribute("viewBox")).toBe(false);
+        expect([...dots.querySelectorAll('[data-plan-mark="dot"]')].map((c) => c.getAttribute("cx"))).toEqual(["12.5%", "37.5%", "62.5%"]);
+        expect(dots.querySelector('[data-plan-mark="scatter"]')!.getAttribute("r")).toBe("6");
+        // A smooth curve joins its points with cubic segments; a layer that gives none, straight ones.
+        expect(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")).toMatch(/C/);
+    });
+
+    test("the layers draw by their order — a line given a lower one draws under columns declared before it", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("column", { points: [pt(0.5, 2)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("line", { points: [pt(0.25, 1), pt(0.75, 3)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: some(-1) } }),
+        ]))], 1), "chart-1753-order");
+        const row = container.querySelector(rowSel("c"))!;
+        const drawn = [...row.querySelector('[data-plan-mark="column"]')!.parentElement!.children];
+        expect(drawn.indexOf(row.querySelector('[data-plan-mark="line"]')!)).toBeLessThan(drawn.indexOf(row.querySelector('[data-plan-mark="column"]')!));
     });
 });

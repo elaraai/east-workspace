@@ -34,6 +34,8 @@ import type { PlanWords } from "../words.js";
 export type ChartKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "chart" }>["value"];
 /** A decoded chart layer. */
 export type ChartLayerValue = ValueTypeOf<typeof Plan.Types.ChartLayer>;
+/** A decoded data layer's styling — how it draws (#1753). */
+export type ChartStyleValue = ValueTypeOf<typeof Plan.Types.ChartStyle>;
 /** A decoded `{t, y}` chart point. */
 export type ChartPointValue = ValueTypeOf<typeof Plan.Types.ChartPoint>;
 /** A decoded `{t, lo, hi}` band point — the band arm's own point type. */
@@ -105,8 +107,8 @@ export interface ColumnGeometry {
     /** At or after the now instant — a column that starts at now is the
      *  period in progress, drawn to the right of the now line (#949). */
     planned: boolean;
-    /** Its stack series' first-appearance index (0 for an unstacked column). */
-    seriesIndex: number;
+    /** Its layer's index in the chart's layers — the layer whose look it draws in (#1753). */
+    layer: number;
 }
 
 /** A stack's running ends at one bucket: positive parts climb from 0, negative parts descend. */
@@ -133,8 +135,8 @@ export interface ColumnLayout {
  * Lay out a chart's columns.
  *
  * @remarks
- * A column with a `series` stacks on its SIDE's stack at its bucket; one
- * without starts at the baseline. Stacks are kept per value-axis side, so a
+ * Columns that share a `stack` pile up at their bucket (#1753); one with no
+ * stack starts at the baseline. Stacks are kept per value-axis side, so a
  * left-axis column never becomes the base of a right-axis one (#743 item 4),
  * and per sign, so positive parts climb from 0 and negative parts descend from
  * it. A column outside the render bounds is not drawn, but it still stacks —
@@ -146,22 +148,21 @@ export interface ColumnLayout {
  * @returns The drawn columns and every column's extent
  */
 export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanScale): ColumnLayout {
-    const stacks: Record<ChartSide, SideStacks> = {
-        left: { drawn: new Map(), undrawn: new Map() },
-        right: { drawn: new Map(), undrawn: new Map() },
-    };
+    // Each side's stacks, by the name the layers give them.
+    const stacks: Record<ChartSide, Map<string, SideStacks>> = { left: new Map(), right: new Map() };
     const drawn: ColumnGeometry[] = [];
     const extents: ColumnLayout["extents"] = { left: [], right: [] };
-    const seriesIds: string[] = [];
-    for (const layer of layers) {
-        if (layer.type !== "column") continue;
-        const { points, axis, series, breach } = layer.value;
+    layers.forEach((layer, li) => {
+        if (layer.type !== "column") return;
+        const { points, axis, style, breach } = layer.value;
         const side = axis.type;
-        const stackId = series.type === "some" ? series.value : undefined;
-        let seriesIndex = 0;
-        if (stackId !== undefined) {
-            const at = seriesIds.indexOf(stackId);
-            seriesIndex = at >= 0 ? at : seriesIds.push(stackId) - 1;
+        let pile: SideStacks | undefined;
+        if (style.stack.type === "some") {
+            pile = stacks[side].get(style.stack.value);
+            if (pile === undefined) {
+                pile = { drawn: new Map(), undrawn: new Map() };
+                stacks[side].set(style.stack.value, pile);
+            }
         }
         const threshold = breach.type === "some" ? breach.value : undefined;
         for (const p of points) {
@@ -172,10 +173,10 @@ export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanSca
             const bucket = scale.renderBucketOf(p.t);
             let lo = Math.min(0, v);
             let hi = Math.max(0, v);
-            if (stackId !== undefined) {
+            if (pile !== undefined) {
                 const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
                 if (!Number.isFinite(key)) continue;
-                const byKey = bucket !== undefined ? stacks[side].drawn : stacks[side].undrawn;
+                const byKey = bucket !== undefined ? pile.drawn : pile.undrawn;
                 let ends = byKey.get(key);
                 if (ends === undefined) {
                     ends = { up: 0, down: 0 };
@@ -200,11 +201,97 @@ export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanSca
                 lo, hi, value: v, side,
                 warn: breached(v, threshold),
                 planned: scale.nowFrac !== undefined && scale.fracOf(p.t) >= scale.nowFrac,
-                seriesIndex,
+                layer: li,
             });
         }
-    }
+    });
     return { drawn, extents };
+}
+
+/**
+ * A layer's styling — a data layer's; a reference layer has none.
+ *
+ * @param layer - The layer
+ * @returns Its style, when it is a data layer
+ */
+export function styleOf(layer: ChartLayerValue): ChartStyleValue | undefined {
+    switch (layer.type) {
+        case "line": case "area": case "column": case "scatter": case "band":
+            return layer.value.style;
+        case "refLine": case "refBand": case "refDot":
+            return undefined;
+    }
+}
+
+/**
+ * How a layer's marks are coloured (#1753): the colour its author chose, or
+ * the chart rules' series colour its name takes — or neither, its mark's own ink.
+ */
+export interface ChartInk {
+    /** Its place among the chart's series colours: the order its name first appears among the named layers given no colour. */
+    series?: number;
+    /** The colour its author chose — a theme token or a CSS colour, as given. */
+    color?: string;
+}
+
+/**
+ * Each layer's ink (#1753).
+ *
+ * @remarks
+ * A layer given a colour draws in it. A named one given none takes the next
+ * of the chart's series colours, in the order its name first appears; layers
+ * of one name are one series, so a later one takes the first's ink — its
+ * colour, where the first was given one. An unnamed one given none keeps its
+ * mark's own ink.
+ *
+ * @param kind - The chart row
+ * @returns One per layer, in layer order — none for a reference layer
+ */
+export function chartInks(kind: ChartKindValue): (ChartInk | undefined)[] {
+    const byName = new Map<string, ChartInk>();
+    let next = 0;
+    return kind.layers.map((layer) => {
+        const style = styleOf(layer);
+        if (style === undefined) return undefined;
+        const own: ChartInk | undefined = style.color.type === "some" ? { color: style.color.value } : undefined;
+        if (style.label.type === "none") return own ?? {};
+        const named = byName.get(style.label.value);
+        if (named !== undefined) return own ?? named;
+        const ink = own ?? { series: next++ };
+        byName.set(style.label.value, ink);
+        return ink;
+    });
+}
+
+/**
+ * The order a chart draws its layers in (#1753): by each one's `order`, the
+ * lower first, and as they are declared where two tie — a reference layer's
+ * is 0.
+ *
+ * @param kind - The chart row
+ * @returns The layers' indices, in drawing order
+ */
+export function drawOrder(kind: ChartKindValue): number[] {
+    const orderOf = (layer: ChartLayerValue) => {
+        const style = styleOf(layer);
+        return style !== undefined && style.order.type === "some" ? style.order.value : 0;
+    };
+    const orders = kind.layers.map(orderOf);
+    return kind.layers.map((_, i) => i).sort((a, b) => orders[a]! - orders[b]! || a - b);
+}
+
+/**
+ * Whether a point of a line or an area is one no stroke can draw (#1753): it
+ * has a value, and the points either side of it have none or are not there —
+ * so a dot draws it, and a sparse series loses no reading.
+ *
+ * @param points - The series' points, in draw order
+ * @param i - The point's index
+ * @returns `true` for a point with no neighbour to join
+ */
+export function lonePoint(points: readonly ChartPointValue[], i: number): boolean {
+    const valued = (p: ChartPointValue | undefined) => p !== undefined && Number.isFinite(p.y);
+    return valued(points[i]) && !valued(points[i - 1]) && !valued(points[i + 1]);
 }
 
 /** A value axis's extent. */

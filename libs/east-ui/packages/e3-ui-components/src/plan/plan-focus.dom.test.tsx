@@ -650,6 +650,7 @@ describe("Plan expand-in-place (R2)", () => {
                 layers: [variant("line", {
                     points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 })],
                 left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
                 right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
@@ -684,6 +685,7 @@ describe("Plan expand-in-place (R2)", () => {
             layers: [variant("line", {
                 points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                 axis: variant("left", null), breach: some(variant("above", 100)), fold: variant("mean", null),
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
             })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
         });
@@ -731,6 +733,7 @@ describe("Plan expand-in-place (R2)", () => {
                     variant("line", {
                         points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                         axis: variant("left", null), breach: none, fold: variant("mean", null),
+                        style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                     }),
                     variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
                 ],
@@ -779,6 +782,7 @@ describe("Plan expand-in-place (R2)", () => {
                 layers: [variant("line", {
                     points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 })],
                 left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
                 right: none,
