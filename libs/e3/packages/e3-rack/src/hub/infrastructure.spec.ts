@@ -17,7 +17,9 @@ import type { ExecutionOwner } from '@elaraai/e3-types';
 import { processOwner } from '@elaraai/e3-core';
 import { answer, decodeBody } from '../server/beast2.js';
 import { acquireHubLock, HubLockType, readHubLock } from './lock.js';
-import { defaultHubConfig, listenerProblem, loadHubConfig, saveHubConfig, validateHubConfig, wildcardHost } from './config.js';
+import { defaultHubConfig, listenerProblem, loadHubConfig, saveHubConfig, upgradeHubConfig, validateHubConfig, wildcardHost } from './config.js';
+import { writeStateFile } from '../state-file.js';
+import { E3_RACK_VERSION } from '../version.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge } from './session-bridge.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
@@ -44,6 +46,57 @@ it('persists hub configuration atomically and refuses invalid or corrupt state',
   assert.deepEqual(await loadHubConfig(path), config);
   await writeFile(join(path, HUB_CONFIG_FILE), new Uint8Array([1, 2, 3]));
   await assert.rejects(loadHubConfig(path));
+});
+
+/** The hub configuration release 1.0.115 stored, in its envelope: a TLS
+ *  listener on 127.0.0.1:7331, admitting 127.0.0.1, idle-exit 30 minutes,
+ *  advertised at https://relay.example:7401. */
+const HUB_CONFIG_1_0_115 = Buffer.from(
+  'iUVhc3QNCgUAHwMEAQIGCQMHcmVsZWFzZQAGZm9ybWF0AQV2YWx1ZQIBAAG5AaUBYzfUM9AzNDRlWsfY6ZpYXMLLxcqQzsHJ' +
+  'wMjEycSSkV9cwshSkF9UwsTBxJKXn5fKwFKcn5vKzMWIwmdk4WRly8ksLknNY2FNzMnJL2flz0zJSXWtyCzxzcwrLUktZuJJ' +
+  'TClLLSrJLE4NLcphYy7JKWZnZGCwsGDkNDQyB7oB6IpjRQxIPAYbRqmMkpKCYit9/aLUnMRKvdSKxNyCnFQrcxMDQ0YA',
+  'base64',
+);
+
+it('keeps the data origins a hub spreads its data URLs over, and refuses any that is not another origin of its listener', async () => {
+  const path = await home();
+  const config = { ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 7331n }), advertiseUrl: some('https://relay.example:7401'),
+    dataOrigins: ['https://relay.example:7421', 'https://relay.example:7441'] };
+  assert.deepEqual(defaultHubConfig().dataOrigins, []);
+  await saveHubConfig(config, path);
+  assert.deepEqual(await loadHubConfig(path), config);
+  for (const [origins, refusal] of [
+    [['relay.example:7421'], /must be an HTTP\(S\) origin/],
+    [['https://relay.example:7421/path'], /must be an HTTP\(S\) origin/],
+    [['https://user:secret@relay.example:7421'], /must be an HTTP\(S\) origin/],
+    [['https://relay.example:7421', 'https://relay.example:7421/'], /named twice/],
+    [['https://relay.example:7401'], /the advertised origin/],
+    [['http://relay.example:7421'], /data origins must be https:\/\//],
+    [Array.from({ length: 17 }, (_, n) => `https://relay.example:${7500 + n}`), /at most 16 data origins/],
+  ] as const) await assert.rejects(saveHubConfig({ ...config, dataOrigins: [...origins] }, path), refusal, origins.join(' '));
+  // A plain-HTTP listener, behind a terminator, may spread its URLs over plain origins
+  assert.equal(listenerProblem({ ...config, tls: false, allow: ['127.0.0.1'], advertiseUrl: some('http://127.0.0.1:7401'), dataOrigins: ['http://127.0.0.1:7421'] }), undefined);
+  assert.deepEqual(await loadHubConfig(path), config, 'a refused configuration leaves the saved one as it was');
+});
+
+it('carries a hub configuration an earlier release stored into the form with data origins, everything as it was and none of them', async () => {
+  const path = await home();
+  const file = join(path, HUB_CONFIG_FILE);
+  await writeFile(file, HUB_CONFIG_1_0_115);
+  await assert.rejects(loadHubConfig(path), /e3 1\.0\.115 wrote, in a form this release does not read/, 'this release\'s form does not read it');
+  assert.equal(await upgradeHubConfig(path), true);
+  const carried = { listen: some({ host: '127.0.0.1', port: 7331n }), allow: ['127.0.0.1'], idleExitMinutes: 30n, advertiseUrl: some('https://relay.example:7401'),
+    tls: true, dataOrigins: [] };
+  assert.deepEqual(await loadHubConfig(path), carried);
+  // Taken again, as a hub that starts after it does: nothing changes
+  const once = await readFile(file);
+  assert.equal(await upgradeHubConfig(path), false);
+  assert.deepEqual(await readFile(file), once);
+  // None to carry, and one in no form the step knows, are left as they are
+  assert.equal(await upgradeHubConfig(await home()), false);
+  await writeStateFile(file, encodeBeast2For(StringType)('not a configuration'));
+  assert.equal(await upgradeHubConfig(path), false);
+  await assert.rejects(loadHubConfig(path), new RegExp(`e3 ${E3_RACK_VERSION.replaceAll('.', '\\.')} wrote, in a form this release does not read`));
 });
 
 it('serves plain HTTP only on the loopback or a private address it names, and TLS on any address', () => {

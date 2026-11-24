@@ -125,6 +125,30 @@ it('prints the advertised HTTPS source and its certificate without the plain-HTT
   assert.match(help, /prepared\s+rack\s+worker\s+VM/);
 });
 
+it('configures the data origins a hub spreads its data URLs over, prints them in its config and status, and clears them', async () => {
+  const f = await fixture();
+  const advertised = 'https://rack-source.example.invalid:7401';
+  const extras = ['https://rack-source.example.invalid:7421', 'https://rack-source.example.invalid:7441'];
+  const none = /^Data origins: none \(every data URL on the advertised origin\)$/m;
+  assert.match(ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0', '--advertise-url', advertised)), none);
+  const set = ok(await f.cli('rack', 'config', '--data-origin', extras[0]!, '--data-origin', extras[1]!));
+  assert.match(set, new RegExp(`^Data origins: ${extras.join(', ')}, beside the advertised origin$`, 'm'));
+  assert.match(set, new RegExp(`^Advertise URL: ${advertised}$`, 'm'), 'the rest of the configuration is as it was');
+  assert.match(ok(await f.cli('rack', 'status')), new RegExp(`^Data origins: ${extras.join(', ')}, beside the advertised origin$`, 'm'));
+  assert.deepEqual((await new HubClient(f.home).getConfig()).dataOrigins, extras);
+  const refused = async (args: string[], reason: RegExp) => {
+    const result = await f.cli('rack', 'config', ...args);
+    assert.notEqual(result.exitCode, 0, result.stdout); assert.match(result.stderr, reason);
+  };
+  await refused(['--data-origin', 'http://rack-source.example.invalid:7421'], /data origins must be https:\/\//);
+  await refused(['--data-origin', advertised], /is the advertised origin/);
+  await refused(['--data-origin', `${extras[0]!}/path`], /must be an HTTP\(S\) origin/);
+  await refused(['--no-data-origins', '--data-origin', extras[0]!], /cannot be given together/);
+  assert.match(ok(await f.cli('rack', 'status')), new RegExp(`^Data origins: ${extras.join(', ')}, beside`, 'm'), 'a refused change leaves them as they were');
+  assert.match(ok(await f.cli('rack', 'config', '--no-data-origins')), none);
+  assert.match(ok(await f.cli('rack', 'status')), none);
+});
+
 it('serves plain HTTP only on a loopback or private address it names in --allow, and prints the HTTP opt-in', async () => {
   const f = await fixture();
   const refused = async (args: string[], reason: RegExp) => {

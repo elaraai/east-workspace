@@ -17,8 +17,12 @@ const decode = decodeBeast2For(Envelope);
 
 export { MutationQueue } from './mutation-queue.js';
 
-/** Reads a hub state payload, refusing an unknown format. @internal */
-export async function readStateFile(file: string): Promise<Uint8Array | null> {
+/**
+ * Reads a hub state payload and the release that wrote it, refusing an
+ * unknown format: what a step that carries a value an earlier release stored
+ * into this release's form reads, and what a refusal of one names. @internal
+ */
+export async function readStateEnvelope(file: string): Promise<{ release: string; value: Uint8Array } | null> {
   let bytes: Uint8Array;
   try { bytes = await readFile(file); } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -26,7 +30,12 @@ export async function readStateFile(file: string): Promise<Uint8Array | null> {
   }
   const envelope = decode(bytes);
   if (!equalFor(IntegerType)(envelope.format, 1n)) throw new Error(`${file} uses rack state format ${printFor(IntegerType)(envelope.format)}, written by e3 ${envelope.release}; update e3`);
-  return envelope.value;
+  return { release: envelope.release, value: envelope.value };
+}
+
+/** Reads a hub state payload, refusing an unknown format. @internal */
+export async function readStateFile(file: string): Promise<Uint8Array | null> {
+  return (await readStateEnvelope(file))?.value ?? null;
 }
 
 /** Atomically replaces a hub state value inside its private home. @internal */

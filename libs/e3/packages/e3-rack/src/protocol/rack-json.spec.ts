@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RACK_CALL_VALUE_OBJECTS, RACK_INLINE_OBJECT_DEFAULT, RACK_INLINE_OBJECT_MAX, RACK_SCOPES_ENDED_BYTES, RACK_SCOPES_ENDED_MAX, RACK_TRANSFERS_AT_ONCE, rackScopesEndedFitting,
+import { RACK_CALL_VALUE_OBJECTS, RACK_DATA_ORIGINS, RACK_DATA_ORIGINS_MAX, RACK_INLINE_OBJECT_DEFAULT, RACK_INLINE_OBJECT_MAX, RACK_SCOPES_ENDED_BYTES, RACK_SCOPES_ENDED_MAX, RACK_TRANSFERS_AT_ONCE, rackScopesEndedFitting,
   readRackHello, readRackInlineMax, readRackReport, readRackScopesEnded } from './rack-json.js';
 
 it('reads the features of a hello and of a report as the words they list, passing over an entry a later release names in another form', () => {
@@ -16,6 +16,17 @@ it('reads the features of a hello and of a report as the words they list, passin
   // None named is none taken
   assert.deepEqual(readRackHello(JSON.stringify({ protocol: 3, e3: '1.0.109' })).features, []);
   assert.deepEqual(readRackReport('{}').features, []);
+});
+
+it('reads the data origins of a hello that names them: each an HTTP(S) origin, passing over any other entry, and none of a hello that does not name the feature', () => {
+  const listed = ['https://relay.example:7421', 'https://relay.example:7441/', 'ftp://relay.example:7461', 'https://relay.example:7461/path',
+    'https://user:secret@relay.example:7481', 7, null, 'not a url', 'https://relay.example:7421'];
+  assert.deepEqual(readRackHello(JSON.stringify({ protocol: 3, e3: '1.0.116', features: [RACK_DATA_ORIGINS], dataOrigins: listed })).dataOrigins,
+    ['https://relay.example:7421', 'https://relay.example:7441'], 'each as its origin, once');
+  assert.deepEqual(readRackHello(JSON.stringify({ protocol: 3, e3: '1.0.116', dataOrigins: listed })).dataOrigins, undefined, 'a source that does not name the feature lists none');
+  assert.deepEqual(readRackHello(JSON.stringify({ protocol: 3, e3: '1.0.116', features: [RACK_DATA_ORIGINS], dataOrigins: 'https://relay.example:7421' })).dataOrigins, undefined);
+  const many = Array.from({ length: 40 }, (_, n) => `https://relay.example:${7500 + n}`);
+  assert.deepEqual(readRackHello(JSON.stringify({ protocol: 3, e3: '1.0.116', features: [RACK_DATA_ORIGINS], dataOrigins: many })).dataOrigins, many.slice(0, RACK_DATA_ORIGINS_MAX));
 });
 
 it('refuses features that are not a list', () => {

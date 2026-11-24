@@ -26,7 +26,7 @@ import { ApproveRackType, HubAttemptType, HubConfigType, HubEnrollResultType, Hu
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_INLINE_OBJECT_MAX, RACK_INLINE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_DATA_ORIGINS, RACK_INLINE_OBJECT_MAX, RACK_INLINE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { certificateSha256, createHubCertificate } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
@@ -264,6 +264,52 @@ it('builds every data URL on the advertised origin, not the origin the rack requ
   assert(target.value.url.startsWith(`${advertised}/api/rack/data/`), target.value.url);
   const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
   assert.equal(mint.apiUrl, advertised);
+});
+
+it('spreads the data URLs of a rack that takes data origins over them and its own origin in turn; any other rack is given its own alone', async () => {
+  const f = await fixture();
+  // Two further connections to the same listener, as a tunnel's are: each
+  // carries the listener's own TLS, so a rack's pin holds through them
+  const tunnels = [await f.link({}), await f.link({})];
+  const dataOrigins = tunnels.map((tunnel) => tunnel.origin);
+  const listener = (await f.status()).rackListener; assert(listener.type === 'up');
+  const own = listener.value.origin;
+  const before = readRackHello(await (await f.fetch(`${own}/api/rack/hello`)).text());
+  assert(!before.features.includes(RACK_DATA_ORIGINS), 'a hub with none names no data origins');
+  assert.equal(before.dataOrigins, undefined);
+  const set = await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType, body: { ...f.config, dataOrigins }, responseType: HubConfigType });
+  assert.deepEqual(set.dataOrigins, dataOrigins);
+  assert.equal((await f.status()).rackListener.type, 'up', 'the listener serves on, unbound');
+  const hello = readRackHello(await (await f.fetch(`${own}/api/rack/hello`)).text());
+  assert(hello.features.includes(RACK_DATA_ORIGINS));
+  assert.deepEqual(hello.dataOrigins, dataOrigins, 'the hello lists the origins beside its own, as configured now');
+  const objects = await f.objects(6, 8192);
+  const hashes = [...objects.keys()];
+  const session = await f.session();
+
+  const takes = await f.agent({ report: { features: [RACK_DATA_ORIGINS] } });
+  await takes.heartbeat();
+  await session.create(event(hashes));
+  const grant = await takes.claim(); assert(grant);
+  const response = await takes.storageRequest(grant, { need: hashes });
+  const origins = response.objects.map((object) => { assert(object.type === 'url'); return new URL(object.value.url).origin; });
+  for (const origin of [own, ...dataOrigins]) assert.equal(origins.filter((named) => named === origin).length, 2, `two URLs on ${origin}: ${origins.join(' ')}`);
+  // Fetched through each tunnel, with the one pinned certificate
+  const carried = tunnels.map((tunnel) => tunnel.link.carried.towardsAgent);
+  await takes.fetch(grant, hashes);
+  for (const hash of hashes) assert(await takes.holds(hash));
+  tunnels.forEach((tunnel, n) => assert(tunnel.link.carried.towardsAgent - carried[n]! >= 2 * 8192, `tunnel ${n} carried its objects`));
+  await takes.complete(grant, { taskName: 'task', status: 'failed' });
+
+  const older = await f.agent();
+  await older.heartbeat();
+  await session.create(event(hashes.slice(1)));
+  const other = await older.claim(); assert(other);
+  const told = await older.storageRequest(other, { need: hashes.slice(1) });
+  for (const object of told.objects) {
+    assert(object.type === 'url');
+    assert.equal(new URL(object.value.url).origin, own, 'a rack that does not name the feature is given its own origin alone');
+  }
 });
 
 it('keeps a saved listener it must not serve down, with the reason, until its configuration changes', async () => {

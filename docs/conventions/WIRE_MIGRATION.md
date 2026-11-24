@@ -1663,3 +1663,40 @@ Each wire changed under this rule, with the kind it is.
   The wires it uses are the lease scope above and hub control protocol 6's
   `fetch-costs`, whose `scope` this release brings with the protocol: no
   further step of either.
+- **e3-rack's `HubConfigType` gains `dataOrigins`: hub control protocol 7, a
+  hub state step, and a hello's `data-origins`** — three wires, none
+  package-borne:
+  - Stored state, of no repository: a hub's own configuration,
+    `hub-config.beast2` in its private home, which the hub alone reads and
+    writes (`hub/config.ts`). The configuration gains `dataOrigins`, an
+    `Array<String>` after `tls`: further origins of the same listener over
+    which the hub spreads the data URLs it gives a rack. The file's value
+    names its whole type, so one an earlier release stored does not decode
+    under the new type, and the hub's own step, `hub-config-data-origins`
+    (`upgradeHubConfig`), rewrites it as the hub starts, holding its lock,
+    before it reads its configuration: everything as it was and no data
+    origin, so an upgraded hub serves every data URL where it did. The step
+    is idempotent; a file in no form it knows is left as it is, and the read
+    refuses it naming the release its envelope says wrote it. The earlier
+    form is frozen (`HubConfigBeforeDataOriginsType`) and held by the rack
+    package's test to a configuration release 1.0.115 stored. An earlier
+    release that finds the rewritten file refuses it as a form it does not
+    read, as it would any other: hub state outside a repository keeps no
+    record of its steps, and a hub is run by one e3 at a time.
+  - What a hub and the e3 processes of its machine exchange over its socket:
+    `GET` and `POST /v1/config` carry the configuration, so hub control
+    protocol moves from 6 to 7 (`HUB_PROTOCOL`). It is negotiated exactly: an
+    e3 that finds a hub of protocol 6 asks it to drain and runs locally that
+    once, as for any older number.
+  - What a rack's agent and its source exchange, as JSON, so rack protocol 3
+    keeps its number: a source configured with data origins names
+    `data-origins` (`RACK_DATA_ORIGINS`) in its hello and lists them in a new
+    field, `dataOrigins`, which a reader takes only beside the feature, as
+    HTTP(S) origins, at most 16 (`RACK_DATA_ORIGINS_MAX`), passing over any
+    other entry; a source with none says the hello it said before. A rack's
+    report names the feature when its agent fetches a data URL on any origin
+    its source's hello lists, through the source's pinned certificate. The
+    hub builds a data URL on them only for a rack whose report names the
+    feature, so an agent from before it is given every URL on the advertised
+    origin, and an agent that names it, under a source from before it, is
+    told of none and fetches from the source's origin alone.

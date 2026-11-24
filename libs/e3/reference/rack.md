@@ -16,7 +16,7 @@ Part of the `e3` skill.
 | `e3 run <repo> <pkg.task> <inputs…> -o <out> --rack\|--rack-only` | Runs one task ad hoc on a rack, whatever the policy selects (a rule naming the task still sizes it); a split task's pieces and merges are leased (its merges here under its `--merges local`), its planning stays here. Writes the cache and history a local run writes, says where it ran and why, and ends with the rack summary. A run the cache answers opens no rack session. Ctrl-C leaves its leases and stops the output's write, the file at `-o` left as it was (exit 130). ❗ Refused for remote URLs. | `e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack` |
 | `e3 call <repo> [-w <ws>] <fn> [args…] --rack\|--rack-only` · `e3 call <repo> --ir <file> [args…] --rack` | Runs one call on a rack, whatever the policy selects, named by `fn:<name>` (an IR file's by its name): its own lease, sized as a whole task, its value back inline or, past 192 KiB, as an object. What no rack can run runs here; `[RACK] fn:<name> → <rack>` or `[LOCAL] fn:<name> (<reason>)` goes to stderr. Its time is its `fn:<name>` rule's `--timeout` when a rule sets one, longer or shorter than the CLI's ten minutes, however long: its drafts and its function share it, the function's part counted from when its lease is queued. A call no rack may run is judged before a rack session opens, and runs here at once, starting no hub. Ctrl-C leaves the lease; a value that came as Ctrl-C did is still printed. ❗ Refused for remote URLs. | `e3 call . -w dev train_once @.inputs.sales --rack` |
 | `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub, and lists how its last leases ended, each with its reason. | `e3 rack status` |
-| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
+| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--data-origin <origin>]… [--no-data-origins] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set, and a rack whose agent takes them is given its data URLs on it and each `--data-origin` in turn; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
 The local process owns graph planning, repository and cache. After a cache
 miss, eligible plain task, map and merge bodies can execute on the rack; input
@@ -109,7 +109,12 @@ origin advertised. Removing the certificate file, with the hub stopped, makes a
 new one, which every worker must then pin again. `--no-tls` is for a TLS
 terminator in front of the hub; the hub refuses plain HTTP on a wildcard or
 public address, or without `--allow`. A listener on every address needs
-`--advertise-url` to enroll.
+`--advertise-url` to enroll. `--data-origin <origin>` (repeated) names further
+origins of the same listener, each its own connection through the tunnel, over
+which the hub spreads the data URLs of a rack whose agent takes them, with the
+advertised origin among them: one connection's TCP window bounds every
+transfer in it. Each serves the listener's certificate; `--no-data-origins`
+clears them.
 
 The handoff targets a prepared independent worker VM with the matching verified
 `e3-rack` release. Its `configure --allocation <host-provisioned-path>` prompts
@@ -198,7 +203,7 @@ link cut short resumes; it keeps a rack's idle connection for 75 seconds. It
 sends an object of up to 64 KiB in the reply that asks for it, rather than a URL
 to be read in another round trip, to an agent that names the size it takes
 (`x-e3-rack-inline-max`; its hello names `inline-objects`).
-A hub and the e3 that calls it speak control protocol 6 exactly:
+A hub and the e3 that calls it speak control protocol 7 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
 an agent of another protocol is refused by name each time it asks, and
