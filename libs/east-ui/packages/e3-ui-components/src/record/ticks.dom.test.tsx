@@ -19,46 +19,23 @@
  * state, which the test reads back as East values.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, DictType, East, IntegerType, NullType, SetType, SortedSet, StringType, StructType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, SetType, SortedSet, StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, State, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { StateImpl, editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record } from "@elaraai/e3-ui/internal";
-import e3 from "@elaraai/e3";
+import * as ex from "@elaraai/e3-ui/examples/record/record-ticks";
+import { width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { touchFrame } from "../sheet/frame.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
-/** A press: its name and its hall. */
-const Press = StructType({ name: StringType, hall: StringType });
-const presses = e3.record("ticks_presses", DictType(StringType, Press), {
-    initial: new Map([
-        ["P-01", { name: "Offset press 1", hall: "Hall A" }],
-        ["P-02", { name: "Offset press 2", hall: "Hall A" }],
-        ["P-03", { name: "Digital press", hall: "Hall B" }],
-    ]),
-    // What the rail searches by.
-    indexes: (index) => ({ ticks_presses_by_name: index.on(["name"]) }),
-    mutations: (mutation) => ({ patch: mutation.patch() }),
-});
+/** The presses, keyed by text and searched by name; the benches, keyed by Integer; the racks, keyed by a code typed. */
+const { TicksPress: Press, ticksPresses: presses, TicksBench: Bench, ticksBenches: benches, TicksRack: Rack, ticksRacks: racks } = ex;
 
-/** A bench, keyed by its number. */
-const Bench = StructType({ name: StringType });
-const benches = e3.record("ticks_benches", DictType(IntegerType, Bench), {
-    initial: new Map([[1n, { name: "Assembly 1" }], [7n, { name: "Finishing" }]]),
-    mutations: (mutation) => ({ patch: mutation.patch() }),
-});
-
-/** A rack, keyed by the code a person types: its key built from its row. */
-const Rack = StructType({ code: StringType, bay: StringType });
-const racks = e3.record("ticks_racks", DictType(StringType, Rack), {
-    initial: new Map([["R-1", { code: "R-1", bay: "North" }], ["R-2", { code: "R-2", bay: "South" }]]),
-    mutations: (mutation) => ({ patch: mutation.patch() }),
-});
-
-const h = sheetHarness({ modules: { "record/ticks": { presses, benches, racks } }, frame: 2000 });
+const h = sheetHarness({ modules: { "record/record-ticks": ex }, frame: 2000 });
 
 /** Where each app keeps every call of its `onTick`: over rows keyed by text, and by Integer. */
 const HEARD = "record-ticks-heard";
@@ -300,6 +277,60 @@ describe("the rows a Record ticks (east-workspace#1737)", () => {
         await settle();
         expect(rows(c).map((row) => `${row.getAttribute("data-row-id")}${row.hasAttribute("data-ticked") ? " ticked" : ""}`)).toEqual(["R-1 ticked", "R-2"]);
         expectHeard([keysOf("R-1"), keysOf("R-9"), keysOf("R-1")]);
+    });
+
+    test("an Undo that takes a ticked new row back unticks it, and a Redo of a Delete the rows it takes again: onTick hears each", async () => {
+        const { container: c } = await h.mount({ fn: hearsWithDelete }, { storageKey: "record-ticks-undo" });
+        const keysNow = () => rows(c).map((row) => row.getAttribute("data-row-id")!);
+        const historyButton = (name: string) => within(slot(c, "toolbar")!).getByRole<HTMLButtonElement>("button", { name });
+        // A new press, ticked; the Add taken back, and its tick with it.
+        await press(action(c, "add")!);
+        const added = keysNow().find((id) => !["P-01", "P-02", "P-03"].includes(id))!;
+        await click(boxOf(c, added)!);
+        await press(historyButton(editingMessages.undo()));
+        expect(keysNow()).toEqual(["P-01", "P-02", "P-03"]);
+        // P-02 ticked and deleted, the Delete taken back, P-02 ticked again — and the Delete redone, its tick with it.
+        await click(boxOf(c, "P-02")!);
+        await press(action(c, "delete")!);
+        await press(historyButton(editingMessages.undo()));
+        await click(boxOf(c, "P-02")!);
+        await press(historyButton(editingMessages.redo()));
+        expect(keysNow()).toEqual(["P-01", "P-03"]);
+        expect(rows(c).filter((row) => row.hasAttribute("data-ticked"))).toEqual([]);
+        expectHeard([keysOf(added), keysOf(), keysOf("P-02"), keysOf(), keysOf("P-02"), keysOf()]);
+    });
+
+    test("narrowed to a phone's frame, which draws no tick boxes, the Record lets its ticks go, and onTick hears that none stand", async () => {
+        // The Record's frame laid out at a desktop's width, then at a phone's: what it reads its phone's rule from.
+        let frame = 900;
+        const real = Element.prototype.getBoundingClientRect;
+        const measured = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+            return this.hasAttribute("data-builder-frame")
+                ? { x: 0, y: 0, top: 0, left: 0, right: frame, bottom: 700, width: frame, height: 700, toJSON() {} } as DOMRect
+                : real.call(this);
+        });
+        let touch: (() => void) | undefined;
+        try {
+            const { container: c } = await h.mount({ fn: hearsWithDelete }, { storageKey: "record-ticks-narrowed" });
+            await click(boxOf(c, "P-02")!);
+            // The frame, and the rows' frame in it, narrowed to a phone's 390 — as a resize lays them out.
+            touch = touchFrame(390);
+            frame = 390;
+            await width(390);
+            expect([boxOf(c, "P-01"), rows(c).filter((row) => row.hasAttribute("data-ticked"))]).toEqual([null, []]);
+            expectHeard([keysOf("P-02"), keysOf()]);
+        } finally {
+            touch?.();
+            measured.mockRestore();
+        }
+    });
+
+    test("let go, the Record's ticks go with it, and onTick hears that none stand", async () => {
+        const { container: c, unmount } = await h.mount({ fn: hearsWithDelete }, { storageKey: "record-ticks-let-go-whole" });
+        await click(boxOf(c, "P-02")!);
+        unmount();
+        await settle();
+        expectHeard([keysOf("P-02"), keysOf()]);
     });
 
     test.each([

@@ -149,6 +149,13 @@ export interface SheetEntries {
      * Record's ticks (east-workspace#1737).
      */
     moved: ReadonlyMap<string, string>;
+    /**
+     * The new rows the last carry-over of the drafts gave another key, each by the key it had (#1583,
+     * `EditSession.renumbered`): another Save had taken theirs first, and the row under that key now is that Save's. A
+     * new map at each carry-over. What a host keeps by a row's id follows the row by it — a Record's ticks
+     * (east-workspace#1738's review).
+     */
+    renumbered: ReadonlyMap<string, string>;
 }
 
 /** What a host holds of a row to remove it later ({@link SheetEntries.hold}): its version — its draft, its wire row and its place. */

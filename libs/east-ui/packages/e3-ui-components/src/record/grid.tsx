@@ -38,8 +38,9 @@
  *
  * A press anywhere in the select column's cell ticks, not only on its box. A
  * tick never moves the ring, and the ring never ticks. The select column
- * stays at the left as the columns scroll sideways; a read-only Record has
- * none.
+ * stays at the left as the columns scroll sideways. It shows where the ticks
+ * are acted on — Delete, or the app's `onTick`, read only too — and a Record
+ * with neither has none (east-workspace#1737).
  *
  * On a phone's frame the grid is the Sheet's (#1536): no select column — a row
  * is picked by its title, and its ticks are not shown — the title held at the
@@ -190,7 +191,8 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
     const words = useSheetWords();
     // Each cell's issue, read out as its description: `{issuePrefix}-{c}`.
     const issuePrefix = useId();
-    // The select column, where the grid lays it out: a read-only Record has none, nor a phone's frame.
+    // The select column, where the grid lays it out: none where nothing acts on the ticks — no Delete, no `onTick` — nor
+    // in a phone's frame.
     const lead = layout.lead;
     const pinned = layout.pinPx > 0;
     // The clock, read once for the row's every age; the row draws again as it moves.

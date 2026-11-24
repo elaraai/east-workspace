@@ -45728,7 +45728,7 @@
         "panel"
       ],
       "imports": [
-        "import { DictType, East, FloatType, NullType, SetType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { DictType, East, FloatType, IntegerType, NullType, SetType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Reactive, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"

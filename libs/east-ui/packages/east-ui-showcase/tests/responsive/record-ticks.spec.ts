@@ -9,7 +9,9 @@
  * show, and each tick reaches the line over it, which counts and lists the
  * ticked presses; the header's box ticks every row shown, and then none. The
  * line's words, however many presses it lists, take none of the Record's
- * width: it stays wider than a phone's frame, its tick boxes drawn.
+ * width: it stays wider than a phone's frame, its tick boxes drawn. Narrowed
+ * to a phone's frame, which draws no tick boxes, the Record lets its ticks go,
+ * and the line says none stand (east-workspace#1738's review).
  *
  * Run: `pnpm exec playwright test record-ticks`.
  */
@@ -25,7 +27,7 @@ const ROOT = "[data-builder-frame]";
 const boxOf = (entry: Locator, id: string): Locator =>
     entry.locator(`[data-record] [data-slot="row"][data-row-id="${id}"] [role="checkbox"]`);
 
-test("each tick reaches the line over the Record, Add and Delete off: it counts and lists the presses ticked, and the header's box ticks every row and then none @desktop", async ({ page }) => {
+test("each tick reaches the line over the Record, Add and Delete off: it counts and lists the presses ticked, the header's box ticks every row and then none, and a phone's frame lets the ticks go @desktop", async ({ page }) => {
     const entry = await visitBuilder(page, "e3/record/record-ticks/recordTicks", ROOT, "light");
     // Wider than a phone's frame, which draws no tick boxes.
     await sizeBuilder(page, entry, ROOT, 720);
@@ -47,5 +49,13 @@ test("each tick reaches the line over the Record, Add and Delete off: it counts 
     await expect(entry.locator('[data-record] [data-slot="row"] [role="checkbox"]')).toHaveCount(4);
     await tickAll.click();
     await settled(page);
+    await expect(entry.getByText("No press ticked")).toBeVisible();
+    // A press ticked, and the frame narrowed to a phone's: no tick boxes, so no ticks — and the line hears it.
+    await boxOf(entry, "P-02").click();
+    await settled(page);
+    await expect(entry.getByText("1 press ticked: P-02")).toBeVisible();
+    await sizeBuilder(page, entry, ROOT, 390);
+    await expect(entry.locator('[data-record] [role="grid"]').first()).toHaveAttribute("data-phone");
+    await expect(entry.locator('[data-record] [data-slot="row"] [role="checkbox"]')).toHaveCount(0);
     await expect(entry.getByText("No press ticked")).toBeVisible();
 });

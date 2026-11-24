@@ -13,7 +13,10 @@
  * drops a row as the grid scrolls far from it, and its tick stays, holding
  * what the Sheet held of the row as it was ticked — so Delete takes it still.
  * A tick follows its row as an edit moves it under another key (`rowKey`), and
- * as an Undo puts it back (east-workspace#1737).
+ * as an Undo puts it back (east-workspace#1737) — and as the drafts' carry-over
+ * gives a new row another key, another Save having taken its own; and an Undo
+ * or a Redo that takes a ticked row away takes its tick with it
+ * (east-workspace#1738's review).
  *
  * @packageDocumentation
  */
@@ -45,8 +48,10 @@ export interface RecordTicks {
     held: () => ReadonlyMap<string, Held>;
     /** Where a tick takes what the Sheet holds of its row: the frame's, as the Sheet's rows stand. */
     holdWith: (hold: (id: string) => Held) => void;
-    /** Moves the tick of each row a gesture put under another key to the key it stands under now: each by the key it left. */
+    /** Moves the tick of each row a gesture, or the drafts' carry-over, put under another key to the key it stands under now: each by the key it left. */
     follow: (moves: ReadonlyMap<string, string>) => void;
+    /** Unticks each row `gone` says no longer stands — one an Undo or a Redo took away — in one change. */
+    drop: (gone: (id: string) => boolean) => void;
 }
 
 /**
@@ -82,6 +87,10 @@ export function createRecordTicks(): RecordTicks {
         size: () => ticked.size,
         held: () => ticked,
         holdWith: (next) => { hold = next; },
+        drop: (gone) => {
+            const kept = [...ticked].filter(([id]) => !gone(id));
+            if (kept.length < ticked.size) change(new Map(kept));
+        },
         follow: (moves) => {
             if (![...ticked.keys()].some((id) => moves.has(id))) return;
             change(new Map([...ticked].map(([id, held]) => {
