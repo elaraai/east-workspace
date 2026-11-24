@@ -180,7 +180,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     onTickRef.current = onTick;
     useEffect(() => {
         let heard: ReadonlySet<string> = new Set();
-        return ticks.subscribe(() => {
+        const stop = ticks.subscribe(() => {
             const ids = [...ticks.held().keys()];
             if (ids.length === heard.size && ids.every((id) => heard.has(id))) return;
             heard = new Set(ids);
@@ -189,6 +189,14 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
             const ticked = new SortedSet(ids, compareIds);
             queueMicrotask(() => call(ticked));
         });
+        // The Record let go, its ticks go with it: an app that heard some hears none (east-workspace#1738's review).
+        return () => {
+            stop();
+            const call = onTickRef.current;
+            if (heard.size === 0 || call === undefined) return;
+            const none = new SortedSet<string>([], compareIds);
+            queueMicrotask(() => call(none));
+        };
     }, [ticks]);
     const [status] = useState(createRecordStatus);
     // The grid is a phone's as its frame is, 560 wide or less — never as main is, which an overlaid inspector's rail
@@ -196,6 +204,9 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const frameRef = useRef<HTMLDivElement | null>(null);
     const frameWidth = useContainerWidth(frameRef);
     const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
+    // A tick no box shows goes (east-workspace#1738's review): in a phone's frame, which draws no select column, and where
+    // nothing acts on the ticks — the person could neither see them nor untick them, and the app hears that none stand.
+    useEffect(() => { if (phone === true || !tickable) ticks.clear(); }, [phone, tickable, ticks]);
     // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer — opened through the
     // frame's panes, as the Record's own code opens them.
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
@@ -225,9 +236,21 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const onHistory = useCallback((action: HistoryAction, session: SheetTransactions) => {
         const step = stepOf(action, session, fields);
         if (step === undefined) return undefined;
+        // The rows an Undo or a Redo puts under other keys: a new map where the step moves one (`EditSession.rekeyed`).
+        const rekeyedBefore = session.rekeyed;
         return () => {
             if (step.id !== "applied") {
                 if (step.id === "discarded") ticks.clear();
+                // An Undo or a Redo that takes ticked rows away takes their ticks (east-workspace#1738's review): a row it
+                // leaves with no draft — removed, or a new row taken back — stands no more. A ticked row it puts under
+                // another key goes on ticked there, followed first: its tick never left with the key it had.
+                else {
+                    if (session.rekeyed !== rekeyedBefore) ticks.follow(session.rekeyed);
+                    ticks.drop((id) => {
+                        const version = session.entries.get(id) ?? session.originals.get(id);
+                        return version !== undefined && version.draft === undefined;
+                    });
+                }
                 status.say(step);
                 return;
             }
@@ -344,9 +367,13 @@ function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOp
     // The rows ticked: what Delete deletes and the status line counts — a row a paged record has dropped as the grid
     // scrolled on among them, its tick holding what the Sheet held of it (#1579).
     ticks.holdWith(entries.hold);
-    // A ticked row a gesture moves under another key keeps its tick, under the key it stands under now (east-workspace#1737).
+    // A ticked row a gesture moves under another key keeps its tick, under the key it stands under now (east-workspace#1737);
+    // and a ticked new row the drafts' carry-over gives another key, another Save having taken its own — never the row
+    // that took it (east-workspace#1738's review).
     const moved = entries.moved;
     useEffect(() => { ticks.follow(moved); }, [moved, ticks]);
+    const renumbered = entries.renumbered;
+    useEffect(() => { ticks.follow(renumbered); }, [renumbered, ticks]);
     const tickVersion = useSyncExternalStore(ticks.subscribe, ticks.version);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tickVersion moves with every tick: the ticks are a store read by its version.
     const ticked = useMemo(() => ticks.size(), [ticks, tickVersion]);

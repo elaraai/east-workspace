@@ -201,12 +201,15 @@ export interface RecordTickOptions<K extends EastType> {
     /**
      * The ticked rows' keys, after each change of the ticks: a row's box ticked or unticked, the header's box ticking
      * every row shown or unticking them, and the ticks the Record lets go itself — Delete's, Discard's, a new search's or
-     * filter's, a row Details deletes. Each change is one call with the whole Set as it now stands, at the record's key
-     * type, a ticked row a paged record has scrolled away from among it, and a ticked row an edit moves under another key
-     * (`rowKey`) under the key it stands under now — an Undo putting it back. The Record starts with none ticked, and calls
-     * it then for nothing. Given, the select column shows — Delete on or off, read only too — as it does wherever Delete
-     * is on; with neither, the Record has none, and on a phone it has none. Passed through untouched, never called at
-     * build: an East function over `SetType(K)`, or a bare lambda, which is built at that type.
+     * filter's, a row Details deletes, a row an Undo or a Redo takes away, and every tick as the select column goes — in
+     * a phone's frame — and as the Record is let go. Each change is one call with the whole Set as it now stands, at the
+     * record's key type, a ticked row a paged record has scrolled away from among it, a ticked row an edit moves under
+     * another key (`rowKey`) under the key it stands under now — an Undo putting it back — and a ticked new row the
+     * drafts' carry-over gives another key, another Save having taken its own, under that key. The Record starts with
+     * none ticked, and calls it then for nothing. Given, the select column shows — Delete on or off, read only too — as
+     * it does wherever Delete is on; with neither, the Record has none, and on a phone it has none. Passed through
+     * untouched, never called at build: an East function over `SetType(K)`, or a bare lambda, which is built at that
+     * type — on `<Record slice>` alone, which says nothing else of K, an East function at the `rows` source's key type.
      */
     onTick?: SubtypeExprOrValue<FunctionType<[SetType<K>], NullType>>;
 }
@@ -390,7 +393,10 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
  * — the rows of the record the `rows` source of `slice` narrows, paged from
  * it, each row's id its record key: the rail draws its narrowing over them.
  * Handed no record, the Record is read only: with `record`, the record the
- * source reads, it saves (the form above).
+ * source reads, it saves (the form above). Nothing else this form is given
+ * says the rows' key type, so its `onTick` is an East function at the `rows`
+ * source's key type, `East.function([SetType(K)], NullType, …)`: a bare
+ * lambda would hear a Set of no key type.
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
