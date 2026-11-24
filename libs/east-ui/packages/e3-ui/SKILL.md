@@ -188,7 +188,7 @@ Task → What do you need?
     │   ├─ Its panes, each optional                           → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · inspector (+ fields)
     │   ├─ The app's own words for what it draws              → vocabulary={{ members, unassigned, source, destination, wanted, actual }}
     │   ├─ Its columns, registers and the driver              → Sheet.column.* / Sheet.register.* / Sheet.driver
-    │   ├─ A register keyed by a number, a date, any Dict key → Sheet.register.members(rows, { key: (_row, k) => k, label }): the enum and reference columns and band cells over it sit on a field of its key type, or its Option, a pick, a paste and Save writing that type; one register's members share one key type
+    │   ├─ A register keyed by a number, a date, any Dict key → over a Dict keyed by it, Sheet.register.members(lines.read(), { key: (_line, number) => number, label }) · over an Array, key: (row) => row.number (an Array's own key is the index, as text): the enum and reference columns and band cells over it sit on a field of its key type, or its Option, a pick, a paste and Save writing that type; one register's members share one key type, never an Option
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest() — over one entry's rows OptimiseRequest({ entry: K }) — to Sheet.Types.OptimiseResult(Rows), a patch of the rows its Save reaches; over a record only
@@ -201,7 +201,7 @@ Task → What do you need?
     │   ├─ Click-stepped states, two words, a checkbox        → Record.column.cycle(R, register, { scale? }) · toggle(R, { on, off }) · boolean(R, {…})
     │   ├─ A variant's cases, stepped in their order          → Record.column.cycle(R, Variant, { steps: [{ case, label, tone? }] })
     │   ├─ Who, and the row's last change                     → Record.column.person(R, register, {…}) · audit(R, { mode }) on a Record.Types.Change field
-    │   ├─ Registers keyed by a number, a date, any Dict key  → Record.register.members(lines.read(), { key: (_line, number) => number, label }): enum, reference, person and cycle sit on a field of its key type, or its Option, showing names and keeping the key; a column from data's functions take each member's key at that type
+    │   ├─ Registers keyed by a number, a date, any Dict key  → Record.register.members(lines.read(), { key: (_line, number) => number, label }) over a Dict keyed by it, or key: (row) => row.number over an Array: enum, reference, person and cycle sit on a field of its key type, or its Option, showing names and keeping the key; a column from data's functions take each member's key at that type
     │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
     │   ├─ A row's series as a Trace, read only               → Record.column.trace(R, { now?, axis?, scale?: "brand" | "diverge", future?, domain?: [min, max], absent? }) on an Array<Float> or its Option, or value: (row) => … — domain puts every row on one scale
     │   ├─ A row's series as a Sparkline, read only           → Record.column.sparkline(R, { type?: "line" | "area", domain?: [min, max], absent? }), on the same fields — its hover the last value and the range
