@@ -46,16 +46,19 @@
  *     and its stepper column, the text input) drop their own border and
  *     focus ring inside it.
  *   - Strip: `bg.panel` band as tall as a row (`density.row`), 4/20 padding;
- *     label mono 10/600/.13em uppercase brand; chips mono 12 (armed: 600 on
+ *     label mono 10/600/.13em uppercase brand; chips mono 13 (armed: 600 on
  *     brandTint + inset ring); the chips page rather than
  *     scroll or clip: `‹ 1/3 ›` ghost chevrons at the row's end, the count
- *     mono 10.5 tabular; meta mono 11 (ellipsis past a third of the band).
+ *     mono 10.5 tabular; meta mono 10.5 (ellipsis past a third of the band);
+ *     each run of words with its capitals at the middle of the band under its
+ *     rule (east-workspace#1748).
  *   - Footer: the shared rail's 28 px, 12 px side padding, as every builder's
  *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
- *     moves it; counts mono 11; key hint mono 10, each of its hints whole — a
+ *     moves it; counts mono 10.5; key hint mono 10, each of its hints whole — a
  *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
  *     right-aligned — in the danger ink while it says a gesture was refused —
- *     the shared loading line after it.
+ *     the shared loading line after it; each run of words with its capitals
+ *     at the middle of the 27 under its rule (east-workspace#1748).
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
@@ -172,6 +175,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { capitalsBox, centredCapitals } from "../face-capitals.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
@@ -202,6 +206,18 @@ const CELL_LINES = {
     _coarse: { lineHeight: CELL_LINE_EVEN, "--sheet-action-line": ACTION_LINE_EVEN },
     "[data-sheet-card][data-phone] &": { lineHeight: CELL_LINE, "--sheet-action-line": ACTION_LINE },
 } as const;
+
+/**
+ * The rooms the strip's words stand in (east-workspace#1748): the band under its 1px rule at each density, 35 at the
+ * middle one and 41 at the largest, and 31 at the smallest, where its 23px chips stand it 32 tall; and 37 on a touch
+ * screen, whose chips stand 29. Each part sets its words with their capitals at the room's middle (`centredCapitals`):
+ * its label stood a row high, 13 rows under the rule and 15 over the foot, and its chips' mono 12, whose capitals take an
+ * even 8 rows, half a row off it.
+ */
+const STRIP_ROOMS = [31, 35, 37, 41];
+
+/** The room the footer's words stand in: its 28px under its 1px rule. */
+const FOOTER_ROOM = 27;
 
 /**
  * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
@@ -1735,8 +1751,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         stripLabel: {
             flex: "none",
-            fontFamily: "mono",
-            fontSize: "10px",
+            ...centredCapitals("mono", "label.sm", STRIP_ROOMS),
             fontWeight: "600",
             letterSpacing: "0.13em",
             textTransform: "uppercase",
@@ -1755,13 +1770,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChip: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
-            _coarse: { paddingY: "6px" },
+            // Its words at the middle of its 23px, 29 on a touch screen (east-workspace#1748): mono's 13px, whose capitals take an
+            // odd 9 rows, as the odd rooms the chip stands in are; the 12px's 8 stood half a row off them.
+            ...capitalsBox("mono", "body", 23),
+            _coarse: { ...capitalsBox("mono", "body", 29) },
             color: "fg.subtle",
             paddingX: "8px",
-            paddingY: "3px",
             borderRadius: "{radii.sm}",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -1772,16 +1786,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChipOn: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
-            _coarse: { paddingY: "6px" },
+            // Its words at the middle of its 23px, 29 on a touch screen (east-workspace#1748): mono's 13px, whose capitals take an
+            // odd 9 rows, as the odd rooms the chip stands in are; the 12px's 8 stood half a row off them.
+            ...capitalsBox("mono", "body", 23),
+            _coarse: { ...capitalsBox("mono", "body", 29) },
             fontWeight: "600",
             color: "brand.fg",
             background: "brandTint",
             borderRadius: "{radii.sm}",
             paddingX: "8px",
-            paddingY: "3px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -1801,12 +1814,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChipFlat: {
             flex: "0 1 auto",
             minWidth: "0",
-            fontFamily: "mono",
-            fontSize: "12px",
-            lineHeight: "17px",
+            ...capitalsBox("mono", "body", 23),
             color: "fg.muted",
             paddingX: "8px",
-            paddingY: "3px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -1815,8 +1825,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flex: "none",
             minWidth: "0",
             maxWidth: "30%",
-            fontFamily: "mono",
-            fontSize: "11px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             color: "fg.muted",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -1824,8 +1833,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         stripKeys: {
             flex: "none",
-            fontFamily: "mono",
-            fontSize: "10.5px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
@@ -1854,8 +1862,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _coarse: { width: "28px", height: "28px" },
         },
         stripPageCount: {
-            fontFamily: "mono",
-            fontSize: "10.5px",
+            ...centredCapitals("mono", "label.md", STRIP_ROOMS),
             fontVariantNumeric: "tabular-nums",
             color: "fg.subtle",
             whiteSpace: "nowrap",
@@ -1897,8 +1904,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& > [data-footer-line]": { marginInlineStart: "0" },
         },
         footerCounts: {
-            fontFamily: "mono",
-            fontSize: "11px",
+            ...centredCapitals("mono", "label.md", FOOTER_ROOM),
             color: "fg.muted",
             whiteSpace: "nowrap",
             display: "inline-flex",
@@ -1911,8 +1917,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // The key hint: its hints run on, each whole — the fit ends them at a whole hint rather than cut a word.
         footerHint: {
             flex: "none",
-            fontFamily: "mono",
-            fontSize: "10px",
+            ...centredCapitals("mono", "label.sm", FOOTER_ROOM),
             color: "fg.subtle",
             letterSpacing: "0.04em",
             whiteSpace: "nowrap",
@@ -1923,8 +1928,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         footerMessage: {
             marginLeft: "auto",
-            fontFamily: "mono",
-            fontSize: "10.5px",
+            ...centredCapitals("mono", "label.md", FOOTER_ROOM),
             color: "fg.muted",
             whiteSpace: "nowrap",
             overflow: "hidden",
