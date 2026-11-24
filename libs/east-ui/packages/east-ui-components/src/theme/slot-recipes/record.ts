@@ -50,14 +50,16 @@
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
  *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5 at its
  *     end — in the room the text leaves, whole or not at all, so the text keeps
- *     its own (east-workspace#1743). Over a Sheet kind the Sheet's strip draws
- *     its chips in this frame.
+ *     its own (east-workspace#1743) — each with its capitals at the middle of
+ *     the 31 under its rule (east-workspace#1748). Over a Sheet kind the
+ *     Sheet's strip draws its chips in this frame.
  *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
  *     legend's 15-tall chips cut whole where the rail is short of room, and
  *     the shared loading line at its end; on a phone, the status line's words
  *     beside the line, in the band the frame lays over main's foot — and on a
  *     wider frame, where the toolbar's row cuts those words, the words whole
- *     at the footer's end, mono 11 in `fg.muted`, or the danger ink.
+ *     at the footer's end, mono 10.5 in `fg.muted`, or the danger ink. Each
+ *     run of words with its capitals at the middle of the 35 under its rule.
  *   - A phone (the Sheet's phone grid): no select column; the title held at
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
@@ -77,6 +79,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
+import { centredCapitals } from "../face-capitals.js";
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
@@ -161,12 +164,17 @@ const CELL_LINE = centredLine(34, 20);
 /** A part an odd number of pixels tall in a cell's even room, a compact chip's 15: a pixel under it, so it too starts on a whole one. */
 const ODD_PART = { marginBottom: "1px" } as const;
 
-/**
- * The strip's lines (#1638), centred in the 31px under its rule: its label's and its keys' a whole 15px, its words' 19px,
- * where the body's 1.5 gave the keys 15.75px and the words 18.75px.
- */
+/** The strip's line (#1638): a whole 15px, centred in the 31px under its rule, for any words of its own. */
 const STRIP_LINE = centredLine(31, 15);
-const STRIP_TEXT_LINE = centredLine(31, 19);
+
+/**
+ * The rooms the strip's and the footer's words stand in (east-workspace#1748): the 31px under the strip's rule and the
+ * 35px under the footer's. Each part sets its words with their capitals at its room's middle (`centredCapitals`). A whole
+ * line centred in the room left the mono label's capitals a row high, 11 rows under the rule and 13 over the foot, beside
+ * the words' 11 and 11; and the footer's line of 1.5, 15.75px, stood its words a fraction of a pixel under its rule.
+ */
+const STRIP_ROOM = 31;
+const FOOTER_ROOM = 35;
 
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
@@ -426,13 +434,13 @@ export const recordSlotRecipe = defineSlotRecipe({
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", position: "relative", overflow: "hidden",
         },
         stripLabel: {
-            flex: "none", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
+            flex: "none", ...centredCapitals("mono", "label.sm", STRIP_ROOM), fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             color: "brand.solid", whiteSpace: "nowrap",
         },
         /* The words keep their own width, cut with an ellipsis only where the strip is narrower than they are. */
-        stripText: { flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", lineHeight: STRIP_TEXT_LINE, color: "fg.strong" },
+        stripText: { flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...centredCapitals("body", "body.sm", STRIP_ROOM), color: "fg.strong" },
         /* The keys take what the label and the words leave, at the strip's end, whole or not at all (east-workspace#1743). */
-        stripKeys: { ...wholeOrNone("100%"), flex: "1 1 0%", minWidth: "0", justifyContent: "flex-end", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
+        stripKeys: { ...wholeOrNone("100%"), flex: "1 1 0%", minWidth: "0", justifyContent: "flex-end", ...centredCapitals("mono", "label.md", STRIP_ROOM), color: "fg.subtle", whiteSpace: "nowrap" },
 
         /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */
         footer: {
@@ -442,10 +450,10 @@ export const recordSlotRecipe = defineSlotRecipe({
             "& > [data-footer-line]": { marginInlineStart: "0" },
         },
         footerCount: {
-            fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap",
+            ...centredCapitals("mono", "label.md", FOOTER_ROOM), fontFeatureSettings: '"tnum" 1', color: "fg.muted", whiteSpace: "nowrap",
             "& b": { fontWeight: 600, color: "fg" },
         },
-        footerNote: { fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", color: "fg.muted", whiteSpace: "nowrap" },
+        footerNote: { ...centredCapitals("mono", "label.md", FOOTER_ROOM), fontFeatureSettings: '"tnum" 1', color: "fg.muted", whiteSpace: "nowrap" },
         footerSpacer: { flex: "1", minWidth: "0" },
         /* The status line's words on a phone, whose toolbar has no room for them: unseen and unheard on a wider frame, where
            the toolbar's line says them — but seen there too, one line at the footer's end, where the toolbar's row cuts
@@ -453,10 +461,10 @@ export const recordSlotRecipe = defineSlotRecipe({
         footerLive: {
             display: "none",
             "&[data-band]": {
-                display: "block", flex: "0 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted",
+                display: "block", flex: "0 1 auto", minWidth: "0", ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...refusedTone,
             },
-            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted", ...refusedTone },
+            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted", ...refusedTone },
         },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
         legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
@@ -467,7 +475,7 @@ export const recordSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "label.xs", fontWeight: 600,
             ...LOOKS,
         },
-        legendName: { fontFamily: "mono", fontSize: "label.md", color: "fg.muted" },
+        legendName: { ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted" },
 
         /* The inspector's facts (IN6): each the shared Field, its label and its key, over its value read only. */
         facts: { ...INSPECTOR_SECTION, gap: "{spacing.4}" },
