@@ -663,7 +663,7 @@ export type PlanChartStyleType = typeof PlanChartStyleType;
  * arms are meaningful (a Plan chart row's time axis is the shared canvas
  * scale, never per-axis).
  *
- * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, and every column stack's ends)
+ * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, every stack's ends, and its reference lines' values and target zones' ranges)
  * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ no ticks)
  * @property format - Optional tick format (the shared {@link ValueFormatType} — `Chart.format.*`)
  */
@@ -686,9 +686,13 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * stacking on its own — positive parts up from the baseline, negative parts
  * down — and the columns of a bucket that share no stack stand side by side
  * in it, a stack in one place; areas that share a `stack` pile up as columns
- * do; a scatter point with a `size` is a bubble; refLines are dotted
- * gridlines with a mono label. Each data layer draws as its `style` says
- * ({@link PlanChartStyleType}, #1753). Every mark sits at its true instant — a
+ * do; a scatter point with a `size` is a bubble. Each data layer draws as its
+ * `style` says ({@link PlanChartStyleType}, #1753). A refLine is a dotted rule
+ * with a mono caption — or ruled in its own `dash` — in its `color` or the
+ * label ink, its caption in its colour too; a refBand washes a span of
+ * instants (`x`), a range of values on its axis (`y`, a target zone), or the
+ * rectangle where they meet, a bound it is not given reaching the plot's edge,
+ * in its `color` or the paper wash. Every mark sits at its true instant — a
  * point beyond the window keeps its position and the plot clips it. Hovering
  * a bucket reads each data layer's value there.
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
@@ -705,8 +709,8 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * @property column - Per-bucket columns (optional breach; folds by `sum`; its style's `stack` piles it)
  * @property scatter - Point markers, a point with a `size` a bubble ({@link PlanChartScatterPointType})
  * @property band - A filled range (lo/hi per instant)
- * @property refLine - A horizontal reference line at a y value (dotted, mono label)
- * @property refBand - A vertical reference band between two instants
+ * @property refLine - A horizontal reference line at a y value: its caption, its `dash` (`none` ⇒ dotted) and its `color` (`none` ⇒ the label ink)
+ * @property refBand - A reference band (#1753): a span of instants (`x`), a range of values on its `axis` (`y` — a target zone), or both; `none` reaches the plot's edge. Its caption and its `color` (`none` ⇒ the paper wash)
  * @property refDot - A reference marker at an instant × y value
  */
 export const PlanChartLayerType = VariantType({
@@ -718,8 +722,11 @@ export const PlanChartLayerType = VariantType({
                           breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
     scatter: StructType({ points: ArrayType(PlanChartScatterPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
     band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
-    refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
-    refBand: StructType({ from: PlanInstantType, to: PlanInstantType, label: OptionType(StringType) }),
+    refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType),
+                          dash: OptionType(StringType), color: OptionType(StringType) }),
+    refBand: StructType({ x: OptionType(StructType({ from: PlanInstantType, to: PlanInstantType })),
+                          y: OptionType(StructType({ lo: FloatType, hi: FloatType })), axis: PlanAxisSideType,
+                          label: OptionType(StringType), color: OptionType(StringType) }),
     refDot:  StructType({ t: PlanInstantType, y: FloatType, axis: PlanAxisSideType,
                           label: OptionType(StringType) }),
 });

@@ -45,7 +45,10 @@ export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, e
                     case "line": case "area": case "column": case "scatter": case "band":
                         for (const p of layer.value.points) visit(p.t, false);
                         break;
-                    case "refBand": visit(layer.value.from, false); visit(layer.value.to, true); break;
+                    // A target zone spans values alone, and carries no instant (#1753).
+                    case "refBand":
+                        if (layer.value.x.type === "some") { visit(layer.value.x.value.from, false); visit(layer.value.x.value.to, true); }
+                        break;
                     case "refDot": visit(layer.value.t, false); break;
                     case "refLine": break;
                 }

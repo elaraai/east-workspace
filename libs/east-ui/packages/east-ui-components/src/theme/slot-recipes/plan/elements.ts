@@ -357,11 +357,19 @@ export const elementsBase = {
             strokeWidth: "1.5px",
             strokeDasharray: "3 2",
         },
-        "& [data-plan-mark='refline']": { stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "2 3" },
+        // A reference line: dotted in the label ink, unless it gives its own colour or dash (#1753).
+        "& [data-plan-mark='refline']": {
+            stroke: "var(--mark-ink, {colors.fg.subtle})",
+            strokeWidth: "1px",
+            strokeDasharray: "var(--mark-dash, 2 3)",
+        },
         "& [data-plan-mark='scatter']": { fill: "var(--mark-ink, {colors.accent.purple})", fillOpacity: "var(--mark-opacity, 1)", stroke: "none" },
         "& [data-plan-mark='refdot']": { fill: "bg.surface", stroke: "brand.solid", strokeWidth: "1.5px" },
     },
-    // A reference band — the paper wash under every mark, across its span.
+    // A reference band — the paper wash under every mark, across its span of
+    // instants, its range of values or both (#1753): the renderer places it, the
+    // plot's height where it gives no range. One in its author's colour is that
+    // colour mixed into the paper, as a chart draws a reference area.
     chartRefBand: {
         position: "absolute",
         top: 0,
@@ -369,6 +377,7 @@ export const elementsBase = {
         zIndex: 1,
         pointerEvents: "none",
         background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
+        "&[data-ink]": { background: "color-mix(in srgb, var(--mark-ink) 12%, transparent)" },
     },
     // A narrow card has no gutter, so its chart's left-axis ticks stand inside
     // the plot's left edge, as a chart's right-axis ticks stand inside its
@@ -396,6 +405,7 @@ export const elementsBase = {
         fontVariantNumeric: "tabular-nums",
         [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
     },
+    // A reference layer's caption, on a paper knockout — a coloured line's in its colour (#1753).
     refLabel: {
         position: "absolute",
         fontFamily: "mono",
@@ -407,6 +417,7 @@ export const elementsBase = {
         padding: "0 3px",
         zIndex: 4,
         pointerEvents: "none",
+        "&[data-ink]": { color: "var(--mark-ink)" },
     },
     // The crosshair readout (#743) — each data layer's value at the
     // hovered bucket, beside that bucket, in the ref-label vocabulary.

@@ -113,6 +113,8 @@ import {
  * The channels a chart layer carries: the Plan's own (its axis, its breach and its fold), and how it draws (#1753) —
  * the styling a `Chart.*` layer carries itself (east-ui's `MarkStyle`), under the same names but `label`, its
  * `key`. A layer over a values read (`Plan.line` …) takes them here; a `Plan.layer` wrap's win over its layer's own.
+ * A reference layer takes its `axis`, and its caption as its `label`; a reference line its `color` and `dash`, and a
+ * reference band its `color` too.
  *
  * @property axis - Which y-axis the layer scales against (default `"left"`)
  * @property breach - Breach threshold (`{ above }` / `{ below }`) — beyond it, marks render warn
@@ -190,7 +192,8 @@ export type PlanChartLayerInput = ChartLayer | PlanWrappedLayer;
 /**
  * Wraps a Chart layer builder result with the Plan's channels (axis side,
  * breach threshold, how a coarser bucket folds its points) and any styling to
- * draw it with in place of its own (#1753).
+ * draw it with in place of its own (#1753) — a reference line's colour and
+ * dash, and a reference band's colour and the axis its range of values is on.
  *
  * @param layer - The `Chart.Line` / `Column` / `Area` / `Scatter` / `Band` / `ref*` builder result
  * @param channels - The channels ({@link PlanLayerChannels})
@@ -287,32 +290,44 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
 
     if (layer.kind === "ref") {
         const side = axisSide(channels.axis);
+        // Its caption and its colour, a channel's over its own (#1753).
+        const caption = (own: SubtypeExprOrValue<StringType> | undefined) => {
+            const words = channels.label ?? own;
+            return words !== undefined ? some(words) : none;
+        };
+        const color = channels.color !== undefined ? some(channels.color) : none;
         if (layer.refKind === "line") {
             const o = layer.refOptions as RefLineOptions;
             if (o.y === undefined) {
                 throw new Error("Plan.chart: vertical (x) refLines are not supported — instants are event marks (Plan.events) or the axis now-line");
             }
+            const dash = channels.dash ?? o.dash;
             return East.value([East.value(variant("refLine", {
-                y: o.y, axis: side,
-                label: o.label !== undefined ? some(o.label) : none,
+                y: o.y, axis: side, label: caption(o.label),
+                dash: dash !== undefined ? some(dash) : none,
+                color,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         if (layer.refKind === "band") {
+            // A span of instants, a range of values — a target zone — or the rectangle where they meet, as a chart
+            // draws it: a bound it is not given reaches the plot's edge.
             const o = layer.refOptions as RefBandOptions;
-            if (o.x === undefined) {
-                throw new Error("Plan.chart: refBand needs x bounds (two instants) — y-range refBands are not supported on chart rows");
-            }
             return East.value([East.value(variant("refBand", {
-                from:  resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
-                to:    resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
-                label: o.label !== undefined ? some(o.label) : none,
+                x: o.x !== undefined
+                    ? some({
+                        from: resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                        to:   resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                    })
+                    : none,
+                y: o.y !== undefined ? some({ lo: o.y[0], hi: o.y[1] }) : none,
+                axis: side, label: caption(o.label), color,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         if (layer.refKind === "dot") {
             const o = layer.refOptions as RefDotOptions;
             return East.value([East.value(variant("refDot", {
                 t: resolveInstant(o.x as SubtypeExprOrValue<PlanInstantLikeType>, "refDot x"), y: o.y, axis: side,
-                label: o.label !== undefined ? some(o.label) : none,
+                label: caption(o.label),
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         throw new Error("Plan.chart: unsupported annotation layer");

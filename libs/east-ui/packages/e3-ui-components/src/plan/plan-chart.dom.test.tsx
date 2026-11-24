@@ -15,12 +15,13 @@
  * And how each layer draws (#1753): its ink by its name or its author's
  * colour, its width, dash, strengths and curve, its dots, round, and a lone
  * point's, a dashed line's planned part, the order the layers draw in, the
- * columns side by side in a bucket, the areas on a stack, and bubbles.
+ * columns side by side in a bucket, the areas on a stack, bubbles, a reference
+ * line's own dash and colour, and target zones.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { Profiler } from "react";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
@@ -148,8 +149,8 @@ describe("chart marks at their true positions (#743 item 3)", () => {
 
     test("a reference line and band span the render bounds, so a pan reveals them", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("refLine", { y: 5, axis: left, label: none }),
-            variant("refBand", { from: numberInstant(-1), to: numberInstant(0.5), label: none }),
+            variant("refLine", { y: 5, axis: left, label: none, dash: none, color: none }),
+            variant("refBand", { x: some({ from: numberInstant(-1), to: numberInstant(0.5) }), y: none, axis: left, label: none, color: none }),
         ], { left: valueAxis({ min: 0, max: 10 }) }))], 1), "chart-743-refs");
         const rule = container.querySelector(`${rowSel("c")} [data-plan-mark="refline"]`)!;
         // [0, 1) at step 1 overscans two steps each side: [-2, 3).
@@ -275,7 +276,7 @@ describe("the crosshair readout (#743)", () => {
                             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
                         variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, breach: none, fold: SUM,
                             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
-                        variant("refLine", { y: 10, axis: left, label: none }),
+                        variant("refLine", { y: 10, axis: left, label: none, dash: none, color: none }),
                     ]))], 4)} />
                 </Profiler>
             </ChakraProvider>,
@@ -549,5 +550,36 @@ describe("how each layer draws (#1753)", () => {
         const row = container.querySelector(rowSel("c"))!;
         // The greatest at the chart rules' 16px on an 87px plot; a quarter of its size, half its radius; no size, the layer's 4.
         expect([...row.querySelectorAll('[data-plan-dots] [data-plan-mark="scatter"]')].map((c) => Number(c.getAttribute("r")))).toEqual([16, 8, 4]);
+    });
+
+    test("a reference line rules in its own dash and its author's colour, its caption in that colour; one giving neither is dotted in the label ink", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("refLine", { y: 5, axis: left, label: some("FLOOR"), dash: some("6 4"), color: some("red.solid") }),
+            variant("refLine", { y: 8, axis: left, label: some("CAP"), dash: none, color: none }),
+        ], { left: valueAxis({ min: 0, max: 10 }) }))], 1), "chart-1753-reflines");
+        const [floor, cap] = [...container.querySelectorAll(`${rowSel("c")} [data-plan-mark="refline"]`)];
+        expect([prop(floor!, "--mark-ink"), prop(floor!, "--mark-dash")]).toEqual(["var(--chakra-colors-red-solid)", "6 4"]);
+        expect([prop(cap!, "--mark-ink"), prop(cap!, "--mark-dash")]).toEqual(["", ""]);
+        expect([screen.getByText("FLOOR").hasAttribute("data-ink"), prop(screen.getByText("FLOOR"), "--mark-ink")])
+            .toEqual([true, "var(--chakra-colors-red-solid)"]);
+        expect(screen.getByText("CAP").hasAttribute("data-ink")).toBe(false);
+    });
+
+    test("a target zone washes its range of values on its axis across the render bounds, in its colour, its caption inside its top; given a span of instants too, the rectangle where they meet", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("refBand", { x: none, y: some({ lo: 8, hi: 16 }), axis: left, label: some("ON TARGET"), color: some("green.solid") }),
+            variant("refBand", { x: some({ from: numberInstant(0), to: numberInstant(1) }), y: some({ lo: 24, hi: 28 }), axis: left, label: none, color: none }),
+        ], { left: valueAxis({ min: 0, max: 32 }) }))], 2), "chart-1753-zones");
+        const [zone, rect] = [...container.querySelectorAll<HTMLElement>(`${rowSel("c")} [data-plan-mark="refband"]`)];
+        // Across the render bounds, [-2, 4) of [0, 2): a pan reveals the rest of it.
+        expect([zone!.getAttribute("data-plan-frac"), zone!.getAttribute("data-plan-frac-end")]).toEqual(["-1.0000", "2.0000"]);
+        // [0, 32] over the 64px between 12.5 and 76.5 of the 87px plot: 16 at 44.5, 8 at 60.5.
+        expect([zone!.style.top, zone!.style.bottom]).toEqual([`${(44.5 / 87) * 100}%`, `${((87 - 60.5) / 87) * 100}%`]);
+        expect([zone!.hasAttribute("data-ink"), prop(zone!, "--mark-ink")]).toEqual([true, "var(--chakra-colors-green-solid)"]);
+        expect(screen.getByText("ON TARGET").style.top).toBe("45.5px");
+        // The first bucket, from 28 down to 24.
+        expect([rect!.style.left, rect!.style.width, rect!.style.top, rect!.style.bottom])
+            .toEqual(["0%", "50%", `${(20.5 / 87) * 100}%`, `${((87 - 28.5) / 87) * 100}%`]);
+        expect(rect!.hasAttribute("data-ink")).toBe(false);
     });
 });

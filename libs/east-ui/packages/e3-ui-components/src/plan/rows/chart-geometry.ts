@@ -444,10 +444,11 @@ export function axisTicks(axis: ChartAxisValue | undefined): readonly number[] {
  * @remarks
  * Derived from the geometry the row draws: line and scatter values; an area's
  * values AND its baseline (0) — a stacked area's, its stack's ends; a band's
- * bounds; reference lines and dots; and each column's span — its baseline
- * and, stacked, its stack's ends (#743 item 2). Explicit tick positions are
- * inside it too. A declared domain wins over the derived one. No data spans
- * `[0, 1]`, and an empty span opens to one unit.
+ * bounds; reference lines and dots, and a target zone's range of values
+ * (#1753); and each column's span — its baseline and, stacked, its stack's
+ * ends (#743 item 2). Explicit tick positions are inside it too. A declared
+ * domain wins over the derived one. No data spans `[0, 1]`, and an empty span
+ * opens to one unit.
  *
  * @param kind - The chart row
  * @param stacks - Its stack layout ({@link layoutStacks}), whose extents carry its columns and stacked areas
@@ -471,7 +472,10 @@ export function chartDomains(kind: ChartKindValue, stacks: StackLayout): { left:
             case "refLine": case "refDot":
                 values[layer.value.axis.type].push(layer.value.y);
                 break;
-            case "column": case "refBand":
+            case "refBand":
+                if (layer.value.y.type === "some") values[layer.value.axis.type].push(layer.value.y.value.lo, layer.value.y.value.hi);
+                break;
+            case "column":
                 break;
         }
     });

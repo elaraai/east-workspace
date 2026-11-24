@@ -1036,8 +1036,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(refLine.y, 100.0));
         $(Assert.equal(refLine.label.unwrap("some"), "TARGET"));
         const refBand = $.let(chart.layers.get(3n).unwrap("refBand"));
-        $(Assert.equal(refBand.from.unwrap("time"), W27));
-        $(Assert.equal(refBand.to.unwrap("time"), W28));
+        $(Assert.equal(refBand.x.unwrap("some").from.unwrap("time"), W27));
+        $(Assert.equal(refBand.x.unwrap("some").to.unwrap("time"), W28));
         const refDot = $.let(chart.layers.get(4n).unwrap("refDot"));
         $(Assert.equal(refDot.t.unwrap("time"), W28));
         $(Assert.equal(refDot.y, 20.0));
@@ -1152,6 +1152,35 @@ describeEast("Plan", (test) => {
         $(Assert.equal(scatter.points.map((_$, q) => q.y), [1.0, 2.0]));
         $(Assert.equal(scatter.points.map((_$, q) => q.size), [none, none]));
         $(Assert.equal(scatter.style.size, some(3.0)));
+    });
+
+    test("a reference line keeps its dash and takes its colour and caption through Plan.layer; a reference band spans instants, values on its axis — a target zone — or both, in its colour (#1753)", $ => {
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            Chart.refLine({ y: 100, label: "TARGET", dash: "6 4" }),
+            // A wrap's channels win over the line's own.
+            Plan.layer(Chart.refLine({ y: 90, label: "FLOOR" }), { color: "red.solid", dash: "2 2", label: "MIN", axis: "right" }),
+            Plan.layer(Chart.refBand({ y: [80, 95], label: "ON TARGET" }), { axis: "right", color: "green.solid" }),
+            Chart.refBand({ x: [W27, W28], y: [10, 20] }),
+            Chart.refBand({ x: [W28, W29], label: "CRUNCH" }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("refLine"), { y: 100.0, axis: variant("left", null), label: some("TARGET"), dash: some("6 4"), color: none }));
+        $(Assert.equal(layers.get(1n).unwrap("refLine"), { y: 90.0, axis: variant("right", null), label: some("MIN"), dash: some("2 2"), color: some("red.solid") }));
+        // A target zone: a range of values on the axis its wrap names, across the plot.
+        $(Assert.equal(layers.get(2n).unwrap("refBand"),
+            { x: none, y: some({ lo: 80.0, hi: 95.0 }), axis: variant("right", null), label: some("ON TARGET"), color: some("green.solid") }));
+        // Both, the rectangle where they meet; a span of instants alone, as ever.
+        const both = $.let(layers.get(3n).unwrap("refBand"));
+        $(Assert.equal(both.x.unwrap("some").from.unwrap("time"), W27));
+        $(Assert.equal(both.x.unwrap("some").to.unwrap("time"), W28));
+        $(Assert.equal(both.y, some({ lo: 10.0, hi: 20.0 })));
+        $(Assert.equal(layers.get(4n).unwrap("refBand").y, none));
+        $(Assert.equal(layers.get(4n).unwrap("refBand").label, some("CRUNCH")));
+        // A rule at an instant stays refused: an instant is an event row's, or the now-line.
+        const vertical = (() => {
+            try { Plan.chart({ key: "v", label: "V", layers: Chart.refLine({ x: W27 }) }); return ""; }
+            catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(vertical.includes("vertical (x) refLines are not supported")), true));
     });
 
     test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {
@@ -2424,8 +2453,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(0n).t.unwrap("number"), 1.0));
         $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(1n).t.unwrap("number"), 2.0));
         $(Assert.equal(nk.layers.get(1n).unwrap("refDot").t.unwrap("number"), 2.0));
-        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").from.unwrap("number"), 1.0));
-        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").to.unwrap("number"), 2.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").x.unwrap("some").from.unwrap("number"), 1.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").x.unwrap("some").to.unwrap("number"), 2.0));
         $(Assert.equal(nk.layers.get(3n).unwrap("scatter").points.get(0n).t.unwrap("number"), 3.0));
         const ordinal = $.let(Plan.chart({ key: "o", label: "O", layers: [
             Chart.Line(phases, { x: r => r.phase, y: r => r.y }),

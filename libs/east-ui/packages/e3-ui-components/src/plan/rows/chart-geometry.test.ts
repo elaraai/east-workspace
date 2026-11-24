@@ -238,6 +238,23 @@ describe("areas that share a stack pile up (#1753)", () => {
     });
 });
 
+describe("reference layers (#1753)", () => {
+    test("a target zone's range of values is inside its own axis's derived domain; a band over instants alone adds nothing to it", () => {
+        const scale = axis(2);
+        const kind = chart([
+            line([{ t: 0.5, y: 40 }, { t: 1.5, y: 60 }]),
+            variant("refBand", { x: none, y: some({ lo: 70, hi: 90 }), axis: variant("left", null), label: none, color: none }) as ChartLayerValue,
+            variant("refBand", { x: none, y: some({ lo: -5, hi: 5 }), axis: variant("right", null), label: none, color: none }) as ChartLayerValue,
+            variant("refBand", {
+                x: some({ from: numberInstant(0), to: numberInstant(1) }), y: none, axis: variant("left", null), label: none, color: none,
+            }) as ChartLayerValue,
+        ]);
+        const domains = chartDomains(kind, layoutStacks(kind.layers, scale));
+        expect(domains.left).toEqual({ min: 40, max: 90 });
+        expect(domains.right).toEqual({ min: -5, max: 5 });
+    });
+});
+
 describe("continuous series keep their true positions (#743 item 3)", () => {
     test("a vertex beyond the window keeps its fraction — nothing is clamped to the edge", () => {
         const scale = axis(1);
@@ -288,7 +305,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
         const kind = chart([
             line([{ t: 0.2, y: 3 }, { t: 0.7, y: 4 }, { t: 1.5, y: 5 }, { t: 2.2, y: 6 }, { t: 2.8, y: Number.NaN }]),
             column([{ t: 0.5, y: 12 }, { t: 2.5, y: -2 }]),
-            variant("refLine", { y: 10, axis: variant("left", null), label: none }) as ChartLayerValue,
+            variant("refLine", { y: 10, axis: variant("left", null), label: none, dash: none, color: none }) as ChartLayerValue,
             variant("band", {
                 points: [{ t: numberInstant(1.5), lo: 1, hi: 2.5 }], axis: variant("left", null),
                 style: {
@@ -429,7 +446,7 @@ describe("how each layer draws (#1753)", () => {
                     fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none,
                 },
             }) as ChartLayerValue,
-            variant("refLine", { y: 10, axis: variant("left", null), label: none }) as ChartLayerValue,
+            variant("refLine", { y: 10, axis: variant("left", null), label: none, dash: none, color: none }) as ChartLayerValue,
             variant("scatter", {
                 points: [], axis: variant("left", null),
                 style: {
@@ -467,7 +484,7 @@ describe("how each layer draws (#1753)", () => {
             },
         }) as ChartLayerValue;
         const kind = chart([
-            ordered(2), ordered(undefined), variant("refLine", { y: 1, axis: variant("left", null), label: none }) as ChartLayerValue,
+            ordered(2), ordered(undefined), variant("refLine", { y: 1, axis: variant("left", null), label: none, dash: none, color: none }) as ChartLayerValue,
             ordered(-1), ordered(0),
         ]);
         expect(drawOrder(kind)).toEqual([3, 1, 2, 4, 0]);

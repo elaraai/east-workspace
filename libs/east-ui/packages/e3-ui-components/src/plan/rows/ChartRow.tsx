@@ -25,8 +25,11 @@
  * - a scatter point with a size draws a bubble, its area in proportion to it;
  * - contiguous breach buckets derive the outlined warn rectangle at
  *   expanded density;
- * - refLines are dotted gridlines with a mono label; refBands paper washes;
- *   refDots ringed markers;
+ * - a refLine is a dotted rule — or ruled in its own dash — in its colour or
+ *   the label ink, its mono caption in its colour too; a refBand washes a span
+ *   of instants, a range of values on its axis (a target zone), or the
+ *   rectangle where they meet, in its colour or the paper; refDots ringed
+ *   markers;
  * - each tick is a gridline across the plot, under the marks, on the very
  *   scales the marks use (#1750): on a chart taller than a row's own lines the
  *   left axis reads it in the gutter's value slot beside it — a narrow card's,
@@ -271,6 +274,15 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
         const inks = chartInks(kind);
         return kind.layers.map((layer, li) => markLook(inks[li], styleOf(layer), system));
     }, [kind, system]);
+    // A reference line's and band's look (#1753): the colour its author chose, which its caption takes too, and a
+    // line's own dash — custom properties the recipe reads, as a data layer's are.
+    const refLooks = useMemo(() => kind.layers.map((layer) => {
+        if (layer.type !== "refLine" && layer.type !== "refBand") return undefined;
+        const vars: Record<string, string> = {};
+        if (layer.value.color.type === "some") vars["--mark-ink"] = resolveColor(system, layer.value.color.value);
+        if (layer.type === "refLine" && layer.value.dash.type === "some") vars["--mark-dash"] = layer.value.dash.value;
+        return { style: vars as CSSProperties, ink: layer.value.color.type === "some" ? "" as const : undefined };
+    }), [kind, system]);
     const order = useMemo(() => drawOrder(kind), [kind]);
     const columnsOf = useMemo(() => {
         const by = new Map<number, ColumnGeometry[]>();
@@ -420,7 +432,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             case "refLine": {
                 const at = ys(layer.value.axis.type)(layer.value.y);
                 pathMarks.push(<line key={`ref-${li}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={at} y2={at}
-                    vectorEffect="non-scaling-stroke" data-plan-mark="refline" />);
+                    vectorEffect="non-scaling-stroke" data-plan-mark="refline" style={refLooks[li]?.style} />);
                 break;
             }
             case "refDot": {
@@ -438,22 +450,38 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     return (
         <Box position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
             onClick={() => dispatch({ t: "row.select", key: rowKey })}>
-            {/* refBand paper washes under everything — across the render
-                bounds, so a pan reveals the rest of the band */}
+            {/* refBand washes under everything — a span of instants, or the
+                render bounds, so a pan reveals the rest of the band; a range of
+                values on its axis (a target zone), or the plot's height (#1753) */}
             {kind.layers.map((layer, li) => {
                 if (layer.type !== "refBand") return null;
-                const f0 = Math.max(scale.renderMin, scale.fracOf(layer.value.from));
-                const f1 = Math.min(scale.renderMax, scale.endFracOf(layer.value.to));
+                const { x: span, y: range, axis, label } = layer.value;
+                const f0 = span.type === "some" ? Math.max(scale.renderMin, scale.fracOf(span.value.from)) : scale.renderMin;
+                const f1 = span.type === "some" ? Math.min(scale.renderMax, scale.endFracOf(span.value.to)) : scale.renderMax;
                 if (!(f1 > f0)) return null;
-                const label = layer.value.label.type === "some" ? layer.value.label.value : undefined;
-                // The caption stays in view while the band does.
+                let top = 0;
+                let bottom = height;
+                if (range.type === "some") {
+                    const s = ys(axis.type);
+                    const [a, b] = [s(range.value.lo), s(range.value.hi)];
+                    top = Math.max(0, Math.min(a, b));
+                    bottom = Math.min(height, Math.max(a, b));
+                    if (!(bottom > top)) return null;
+                }
+                const caption = label.type === "some" ? label.value : undefined;
+                // The caption stays in view while the band does, inside its top.
                 const labelF = f0 < 0 && f1 > 0 ? 0 : f0;
+                const look = refLooks[li];
                 return (
                     <Box key={`refband-${li}`}>
-                        <Box css={styles.chartRefBand} style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%` }}
-                            data-plan-mark="refband"
+                        <Box css={styles.chartRefBand}
+                            style={{
+                                ...look?.style, left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`,
+                                ...(range.type === "some" ? { top: `${(top / height) * 100}%`, bottom: `${((height - bottom) / height) * 100}%` } : {}),
+                            }}
+                            data-plan-mark="refband" data-ink={look?.ink}
                             data-plan-frac={f0.toFixed(4)} data-plan-frac-end={f1.toFixed(4)} />
-                        {label !== undefined && <Box css={styles.refLabel} top="1px" style={{ left: `${labelF * 100}%` }}>{label}</Box>}
+                        {caption !== undefined && <Box css={styles.refLabel} style={{ left: `${labelF * 100}%`, top: `${top + 1}px` }}>{caption}</Box>}
                     </Box>
                 );
             })}
@@ -484,8 +512,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             {height >= CHART_TALL_PX && kind.layers.map((layer, li) => {
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
                     const top = Math.max(1, Math.min(height - 12, ys(layer.value.axis.type)(layer.value.y) - 11));
+                    // In its line's colour, where it has one (#1753).
                     return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px"
-                        style={{ top: `${top}px` }}>{layer.value.label.value}</Box>;
+                        style={{ ...refLooks[li]?.style, top: `${top}px` }} data-ink={refLooks[li]?.ink}>{layer.value.label.value}</Box>;
                 }
                 if (layer.type === "refDot" && layer.value.label.type === "some") {
                     const f = scale.fracOf(layer.value.t);

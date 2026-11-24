@@ -383,7 +383,7 @@ describe("Plan chart rows (§4·K3)", () => {
                     fold: variant("mean", null),
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 }),
-                variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
+                variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100"), dash: none, color: none }),
             ],
             left: some({
                 domain: some(variant("number", { min: 80, max: 110 })),

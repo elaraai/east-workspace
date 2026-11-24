@@ -136,7 +136,7 @@ describe("chart summary (#819)", () => {
             points: pts([2, 4]), axis: variant("left", null), breach: none, fold: variant("sum", null),
             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         });
-        const ref = variant("refLine", { y: 5, axis: variant("left", null), label: some("TARGET") });
+        const ref = variant("refLine", { y: 5, axis: variant("left", null), label: some("TARGET"), dash: none, color: none });
         expect(chartSummary(kind([line, cols, ref]), scale, w))
             .toBe("Chart: line min 3, max 7, last 5, 1 beyond threshold; columns min 2, max 4, last 4");
     });
