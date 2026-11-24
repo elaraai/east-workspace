@@ -52,7 +52,7 @@ import { SheetStrip } from "../sheet/Strip.js";
 import { stepCell, stepsInPlace } from "../sheet/steps.js";
 import type { SheetCellValue } from "../sheet/values.js";
 import { useSheetWords, type SheetWords } from "../sheet/words.js";
-import { ageOf, useRecordNow } from "./clock.js";
+import { ageOf, useRecordTime, type RecordTime } from "./clock.js";
 import { nameOf, useRecordGrid } from "./grid.js";
 import { recordMessages as m } from "./messages.js";
 import type { RecordNoun } from "./status.js";
@@ -85,8 +85,8 @@ export interface RecordStripInput {
     inspector: boolean;
     /** The Sheet's words. */
     words: SheetWords;
-    /** The Record's now: what an age counts to. */
-    now: Date;
+    /** The Record's time: what an age counts to. */
+    time: RecordTime;
 }
 
 /** A cell's value in words: a register's member by the label it shows, anything else as its column prints it — none, a dash. */
@@ -103,7 +103,7 @@ function valueText(meta: SheetColumnMeta, cell: SheetCellValue | undefined, regi
  * @returns The words; `undefined` for any other kind (SP7)
  */
 export function recordStripOf(input: RecordStripInput): RecordStripText | undefined {
-    const { at, columns, registers, writable, title, noun, inspector, words, now } = input;
+    const { at, columns, registers, writable, title, noun, inspector, words, time } = input;
     if (at === undefined) {
         const steps = writable && columns.list.some((meta) => meta.editable && stepsInPlace(meta));
         return { label: title ?? "", text: m.stripRest({ steps, inspector }), keys: "" };
@@ -173,7 +173,7 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
             return { label: m.stripTitle({ noun: noun.singular, id: row.id }), text: m.stripTitleText({ title: name, detail, inspector }), keys: "" };
         }
         case "age": {
-            const age = changes?.added === true ? undefined : ageOf(meta, cell, now);
+            const age = changes?.added === true ? undefined : ageOf(meta, cell, time);
             const threshold = getSomeorUndefined(kind.value.stale);
             if (age === undefined) {
                 // No moment to count from: the column's words for none, and what it counts.
@@ -214,12 +214,12 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
 export const RecordStrip = memo(function RecordStrip({ styles: sheetStyles, model, onAction, own, at, columns, registers, writable }: SheetHostStripProps) {
     const { styles, title, noun, inspector } = useRecordGrid();
     const words = useSheetWords();
-    const now = useRecordNow();
+    const time = useRecordTime();
     // A coarse pointer has no keys to press: its strip names none (east-workspace#1743).
     const coarse = useCoarsePointer();
     // What is in hand, or the column's own detail of the cell: the Sheet's strip.
     if (own || model.on) return <SheetStrip styles={sheetStyles} model={model} onAction={onAction} />;
-    const said = recordStripOf({ at, columns, registers, writable, title, noun, inspector, words, now });
+    const said = recordStripOf({ at, columns, registers, writable, title, noun, inspector, words, time });
     // Any other kind (SP7): its column and its value, so the band stays.
     const line = said ?? (at === undefined ? undefined : { label: at.column.header, text: valueText(at.column, at.row.cells.get(at.column.key), registers, words), keys: "" });
     if (line === undefined) return null;

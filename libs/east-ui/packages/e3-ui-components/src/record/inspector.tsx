@@ -58,7 +58,7 @@ import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectP
 import { issuesByField, targetBreachTone, targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../sheet/model.js";
 import type { SheetWords } from "../sheet/words.js";
-import { ageOf, useRecordNow } from "./clock.js";
+import { ageOf, useRecordTime } from "./clock.js";
 import { staleCountOf } from "./footer.js";
 import { RecordDisplay, isDisplayKind } from "./cells.js";
 import { nameOf, titleColumnOf, titleOf, useRecordGrid } from "./grid.js";
@@ -185,7 +185,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const { styles: record, groups } = useRecordGrid();
     const { focus, focused, status, ticks, readOnly } = useRecordInspector();
     const entries = useSheetEntries();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const edit = useTargetForm({ value, words, hidden, styles, inspect, target, form });
     const own = useAuthorDetails({ value, pane, inspect, target, form, struct: edit.struct });
     const issues = targetIssues(target, inspect, form, words);
@@ -318,14 +318,14 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                 }) }];
             }
             if (kind.type === "age") {
-                const age = ageOf(meta, cell, now);
+                const age = ageOf(meta, cell, time);
                 return [age === undefined
                     ? { key: meta.key, label: meta.header, text: getSomeorUndefined(kind.value.absent) ?? rm.absent(), stale: false }
                     : { key: meta.key, label: meta.header, text: words.number(age.n), stale: age.stale }];
             }
             return [];
         });
-    }, [isNew, columns, target.row, now, words]);
+    }, [isNew, columns, target.row, time, words]);
 
     // Its gestures (IN7): a copy after it, its title empty and the keyboard in it, and its deletion — none on a Record no
     // gesture changes, nor a gesture the record does not take.
@@ -429,9 +429,9 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
 function RecordNothing({ styles, inspect, words, columns }: { styles: Styles; inspect: SheetInspect; words: SheetWords; columns: SheetColumnIndex }) {
     const { styles: record } = useRecordGrid();
     const entries = useSheetEntries();
-    const now = useRecordNow();
+    const time = useRecordTime();
     const shown = entries.count.shown;
-    const stale = entries.whole ? staleCountOf(columns, entries.rows, entries.changes, now) : undefined;
+    const stale = entries.whole ? staleCountOf(columns, entries.rows, entries.changes, time) : undefined;
     const stats: [stat: "shown" | "pending" | "stale", text: string | undefined][] = [
         ["shown", shown === undefined ? undefined : words.number(shown)],
         ["pending", words.number(inspect.counts.pending)],

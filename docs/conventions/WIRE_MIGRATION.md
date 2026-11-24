@@ -1752,3 +1752,15 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under
   the new type. A UI task's output is not stored state, and an application's
   records keep their types, so no repository upgrade step ships with it.
+- **e3-ui's `Record` takes the page's day (#1746)** — package-borne. The
+  `Record` extension's payload gains `day`, after `autosave`: the day the
+  page sets (`Option<DateTime>`), as the page gives it, `none` where it sets
+  none. The renderer reads a row's cells at that day (the root's `cellsAt`),
+  writes a gesture's cells from data at it (`SheetEditingType`'s `decode`)
+  and counts an age's days and weeks to it, in place of the browser's local
+  calendar date at UTC midnight. A UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's
+  output is not stored state, and a column from data reads and writes a
+  field the app's record already holds, as it holds it, so no repository
+  upgrade step ships with it.

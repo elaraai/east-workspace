@@ -40,10 +40,10 @@ export const SheetUnsettableType = StructType({ field: StringType, label: String
  * group's {@link SheetUnsettableType} fields, on a sheet that adds that kind
  * of entry — one that applies, is not read only and inserts it: a new entry
  * whose constructor leaves one empty is never drafted. `decode` takes a wire
- * row, its prior draft and its prior wire row, and the renderer's day — the
- * browser's local calendar date at UTC midnight — at which a column from
- * data writes each of its cells the gesture changed, over the field as
- * drafted so far. `underKey`, over a record whose entries hold their own key
+ * row, its prior draft and its prior wire row, and the renderer's day — a
+ * Record's, the day its page sets, else the browser's local calendar date at
+ * UTC midnight — at which a column from data writes each of its cells the
+ * gesture changed, over the field as drafted so far. `underKey`, over a record whose entries hold their own key
  * in a field (`keyField`), takes an entry's draft, its wire row and a key's
  * id, and answers the two with the key in that field and in the cell of any
  * column over it: what a new entry is drafted as, and drafted again as where

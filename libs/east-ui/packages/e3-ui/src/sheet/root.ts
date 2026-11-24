@@ -611,8 +611,9 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             const unit = (cfg as { unit?: SheetAgeUnitLiteral }).unit ?? "days";
             const span = unit === "weeks" ? 604_800_000n : 86_400_000n;
             // The renderer's to call: hours from the moment to the browser's clock; days and weeks the calendar's, from the
-            // moment's date — read in UTC, as every East DateTime is — to the viewer's own day, which the renderer gives at
-            // UTC midnight, so the count turns over at their midnight, as the columns read at the day do. A moment ahead counts 0.
+            // moment's date — read in UTC, as every East DateTime is — to the Record's day: the day its page sets, as it gives
+            // it, else the viewer's own, which the renderer gives at UTC midnight, so the count turns over at their midnight, as
+            // the columns read at the day do. A moment ahead counts 0.
             const elapsed = unit === "hours"
                 ? East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
                     const ms = $.const(since.durationMilliseconds(now));
