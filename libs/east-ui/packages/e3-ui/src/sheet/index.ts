@@ -13,18 +13,25 @@
  *
  * The module is the namespace assembler over the split sources:
  * `types.ts` (the closed wire types + the typed constructors) ·
- * `columns.ts` (`Sheet.column.*`) · `registers.ts` (`Sheet.register.*`,
+ * `columns.ts` (`Sheet.column.*`) and `record-columns.ts` (the Record's own
+ * kinds) · `registers.ts` (`Sheet.register.*`,
  * `Sheet.driver`) · `link.ts` (`Sheet.link.*`) · `group.ts` (`Sheet.group`,
  * `Sheet.group.cell.*`) · `sub-rows.ts` (`Sheet.subRows` / `Sheet.subRow`) ·
  * `transactions.ts` and `drafts.ts` (the Sheet's names for the shared editing
  * contract, `contracts/editing.ts` #879 — `Sheet.apply`, the checked batch
  * types, the draft entry types and the `onPatch` event — plus the new-row
  * contexts only a sheet has) · `edits.ts` (the `edits` capabilities) ·
- * `bridge.ts` (the typed bridge) · `context-bridge.ts`, `draft-bridge.ts` and
+ * `describe.ts` and `column-meta.ts` (each column described against the row
+ * type, and what that learns) · `bridge.ts`, `data-bridge.ts` and
+ * `wrap-bridge.ts` (the typed bridge, a column from data's cells and writes,
+ * and the author's functions in their wire twins) · `context-bridge.ts`,
+ * `draft-bridge.ts` and
  * `seed-bridge.ts` (draft-aware contexts, draft decoding and the `newRow` /
  * `newGroup` defaults) · `editing-bridge.ts` and `editing-types.ts` (the
  * editing session's callbacks and their closed transport, the inline
- * `onUpdate` adapter among them) · `root.ts` (the grid's root) · `sheet.ts`
+ * `onUpdate` adapter among them) · `root.ts`, `options.ts` and
+ * `column-kind.ts` (the grid's root, the sheet's own options, and each
+ * column's wire kind) · `sheet.ts`
  * (`<Sheet>` itself, its payload and its `Sheet` carrier, #1216) with
  * `record.ts` (a record's rows, #1182), `templates.ts` (`Sheet.templates`,
  * the Rows tab's cards from templates records, #1345), `library.ts`
@@ -249,6 +256,8 @@ export {
     type SheetLinkConfig,
     type SheetStampedConfig,
     type SheetCustomConfig,
+} from "./columns.js";
+export {
     type RecordTitleConfig,
     type RecordPersonConfig,
     type RecordBooleanConfig,
@@ -265,7 +274,7 @@ export {
     cycle as recordCycleColumn,
     age as recordAgeColumn,
     audit as recordAuditColumn,
-} from "./columns.js";
+} from "./record-columns.js";
 export {
     type SheetRegisterValue,
     type SheetMembersConfig,
@@ -290,9 +299,8 @@ export {
     type SheetSuggestInput,
     type SheetProposerInput,
     type SheetStringField,
-    type SheetBindHandle,
-    createSheetRoot,
-} from "./root.js";
+} from "./options.js";
+export { type SheetBindHandle, createSheetRoot } from "./root.js";
 export {
     SheetTag,
     SheetComponent,
@@ -359,7 +367,8 @@ export {
     createSubRows,
     createSubRow,
 } from "./sub-rows.js";
-export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeGroupCell, optionPayload, cellTagOf } from "./bridge.js";
+export { type SheetColumnMeta, type SheetRuleCellMeta, optionPayload, cellTagOf } from "./column-meta.js";
+export { describeColumn, describeGroupCell } from "./describe.js";
 
 // ============================================================================
 // Sheet.patch

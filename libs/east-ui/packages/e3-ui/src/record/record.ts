@@ -52,8 +52,9 @@ import {
     createSheetPayload, SheetInspectorPaneType, SheetHistoryType,
     type SheetCommon, type SheetRecordHandle,
 } from "../sheet/sheet.js";
-import type { SheetOptions } from "../sheet/root.js";
-import type { RecordAgeColumn, RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import type { SheetOptions } from "../sheet/options.js";
+import type { RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import type { RecordAgeColumn } from "../sheet/record-columns.js";
 import type { RecordKeyField } from "../bind/record.js";
 import type { KindKeyBuilder } from "../utils/record-kind.js";
 import { groupMembers } from "../sheet/registers.js";
