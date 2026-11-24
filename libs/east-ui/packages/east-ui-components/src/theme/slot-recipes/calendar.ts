@@ -18,10 +18,10 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { oneLineBox } from "../one-line-box.js";
+import { RAIL_ODD_MARK } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
-import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { retainedColumn, retainedRow } from "./loading.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
@@ -33,6 +33,7 @@ import { nowSlots, nowBase } from "./time/now.js";
 import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
+import { TOOLBAR_TEXT } from "../toolbar-row.js";
 
 /**
  * A column of the Resources view over a paged resource kind (#1424), at its own offset: past the hour column, its place
@@ -78,13 +79,13 @@ const TIMELINE_HEAD = {
 export const calendarSlotRecipe = defineSlotRecipe({
     className: "east-calendar",
     slots: [
-        ...moveGhostSlots, "footerItem",
+        ...moveGhostSlots,
         "root", "main", "scroll", "head", "headerCaption", "columnHead", "columnMeta", "resourceHeading", "rowTitle", "dayHeading", "weekday", "dayDate",
         "timeGridContent", "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
         "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", ...scheduleGroupSlots, "title", "detail",
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
-        "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
+        "actions", ...schedulePaneSlots, "section", "status", "toolbarRange", "rangeTitle", "toolbarText",
         "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine", "shadeBar", "shadeHatch", "runRow", "runHead", "runPlot",
     ],
     base: {
@@ -153,7 +154,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-calendar-landing]": { display: "none" }, "&[data-calendar-landing]:where([data-drop-active] > *)": { display: "block" },
         },
         eventTop: { display: "flex", alignItems: "center", gap: "5px", minWidth: 0, flexShrink: 0, "[data-compact] &": { display: "contents" } },
-        eventIcon: { ...fontAwesomeSize("9px"), display: "inline-flex", alignItems: "center", flexShrink: 0, color: "fg.muted" },
+        // A kind's icon, an event's and its legend item's on the footer's rail (`builderFooter`), where its odd 9px is the
+        // rail's odd mark: it stands at the rail's middle beside the kind's name.
+        eventIcon: { ...fontAwesomeSize("9px"), display: "inline-flex", alignItems: "center", flexShrink: 0, color: "fg.muted", "[data-calendar-footer] &": RAIL_ODD_MARK },
         eventWarning: { ...fontAwesomeSize("9px"), display: "inline-flex", color: "fg.warning", flexShrink: 0, order: 4 },
         eventTitle: {
             textStyle: "body.sm", fontWeight: "semibold", lineHeight: EVENT_TITLE_LINE, minWidth: 0, whiteSpace: "nowrap",
@@ -221,11 +224,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
-        footer: builderFooter,
-        footerItem: builderFooterItem,
         toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" },
-        toolbarText: shellBase.footerItem,
+        toolbarText: TOOLBAR_TEXT,
         form: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { textStyle: "body.sm", padding: "16px", color: "fg.muted" },

@@ -254,7 +254,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const pagesRetry = paging.retry;
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
     const footer: SheetFooterProps = {
-        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), refused: noticeRefuses(ui.msg), loading: line, noun: rowsNoun, onRetry: retrySource,
+        items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), refused: noticeRefuses(ui.msg), loading: line, noun: rowsNoun, onRetry: retrySource,
         optimise: { line: optimiseParts.line, legend: optimiseParts.legend },
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };

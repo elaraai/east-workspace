@@ -30,7 +30,7 @@ import { chipRecipe } from "./recipes/chip.js";
 import { allocationBuilderSlotRecipe } from "./slot-recipes/allocationBuilder.js";
 import { allocationInspectorSlotRecipe } from "./slot-recipes/allocationInspector.js";
 import { avatarSlotRecipe } from "./slot-recipes/avatar.js";
-import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { builderFooterLineSlotRecipe, builderFooterSlotRecipe } from "./slot-recipes/builder-footer.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
@@ -287,6 +287,7 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Select's value, lg", at(selectSlotRecipe.variants, "size", "lg", "valueText"), "18px"],
         ["the status word", at(statusSlotRecipe.base, "label"), "13px"],
         ["the builders' footer line", at(builderFooterLineSlotRecipe.base, "root"), "15px"],
+        ["every builder's footer (east-workspace#1748)", at(builderFooterSlotRecipe.base, "root"), "15px"],
         ["a Matrix segment's label", at(matrixSlotRecipe.base, "seg"), "14px"],
         ["a Trace step's value, comfortable", at(traceSlotRecipe.variants, "density", "comfortable", "step"), "12px"],
         ["an icon button's count", at(iconButtonSlotRecipe.base, "badge"), "10px"],
@@ -364,7 +365,6 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Sheet row's number, in a phone's frame", at(sheet, "gutterNumber", "[data-sheet-card][data-phone] &"), "19px"],
         ["a Sheet half's label", at(sheet, "halfLabel"), "inherit"],
         ["a Sheet date editor's segments: the cell's line", at(sheet, "editorDate", "& :has(> [role=spinbutton])"), "inherit"],
-        ["the Sheet's footer", at(sheet, "footer"), "15px"],
         ["the Sheet's strip", at(sheet, "strip"), "15px"],
         ["a Sheet strip's chip: mono's own 13px line, its capitals at the chip's middle (east-workspace#1748)", at(sheet, "stripChip"), "15px"],
         ["the Query builder's status line", at(queryBuilderSlotRecipe.base, "status"), "19px"],

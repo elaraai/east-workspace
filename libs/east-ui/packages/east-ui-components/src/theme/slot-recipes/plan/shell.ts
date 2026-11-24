@@ -5,10 +5,11 @@
 
 /**
  * The Plan recipe's CHROME — the frame, the horizon brush, the ruler, the
- * footer, the focus bar, the diagnostics, the runs of rows not drawn yet, and
- * the canvas-wide overlays (the cursor hairline and chip, the element overlay
+ * focus bar, the diagnostics, the runs of rows not drawn yet, and the
+ * canvas-wide overlays (the cursor hairline and chip, the element overlay
  * body). The toolbar band is the Plan's `BuilderFrame`'s (#1193); its items
  * wear the shared parts' recipes — the record rail's summary its own (#1344).
+ * Its footer is every builder's (`builderFooter`, east-workspace#1748).
  * The library's tabs over a source of the rail take the shared Library
  * pane's body (`libraryPane`). The now line and its chip are the shared time part's
  * (`../time/now.ts`, #1148), merged into the recipe beside this one.
@@ -20,7 +21,6 @@
  */
 
 import { timeRulerBase, timeHeaderText } from "../time/axis.js";
-import { builderFooter, builderFooterItem } from "../builder-footer.js";
 import { schedulePaneBase } from "../schedule-pane.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { centredLine } from "../../one-line-box.js";
@@ -42,7 +42,7 @@ export const RULER_BANDS = {
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "frame", "body", "header", "brushTrack", "brushRow",
-    "brushCaption", "brushMeta", "brushPending", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
+    "brushCaption", "brushMeta", "brushPending", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "runBand", "runRow", "runGutter", "runPlot", "windowRetry",
     "cursorLine", "cursorChip", "elementOverlay", "libraryPane", "libraryPending",
@@ -153,9 +153,6 @@ export const shellBase = {
     },
     rulerTrack: { position: "relative", minWidth: 0, overflow: "clip" },
     ...timeRulerBase,
-    // One shared status rail in Plan and Calendar.
-    footer: { ...builderFooter, minHeight: "var(--plan-footer-h)" },
-    footerItem: builderFooterItem,
     // The focus band (`Plan links.html`, #1258) — a band between the header
     // and the body, 32 tall on the band paper: `← All rows` as a link at its
     // start, the focus's caption at its end. The ruler NEVER moves for it.

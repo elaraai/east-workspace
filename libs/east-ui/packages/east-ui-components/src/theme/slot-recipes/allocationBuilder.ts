@@ -20,8 +20,8 @@
  * - `status` — the day's status chip (`data-tone`).
  * - `pickerDot` — a day's mark in the date picker (`data-state`: `published`, `draft`, `empty`).
  * - `controls` — the controls the narrowest toolbar folds into one popover.
- * - `footer`, `footerItem` — the shared rail and its items.
- * - `legendItem`, `legendSwatch` — a legend entry and its swatch (`data-kind`).
+ * - `legendSwatch` — a legend item's swatch, by its kind (`data-kind`), before its words on every builder's footer rail
+ *   (`builderFooter`, east-workspace#1748).
  * - `error`, `empty` — a refused action's words, and an empty main; `narrowedEmpty` — the shared empty state where the
  *   narrowing leaves nothing to show (#1336).
  * - The Timeline (A14–A21): `timeline`; the panes' one head row, `head`, `headCaption`; the lane pane, `lanePane`,
@@ -72,7 +72,6 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
-import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
 import { linkRibbons, linkSelectedInk } from "./links/ribbons.js";
@@ -139,7 +138,7 @@ const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
     slots: [
-        "root", "main", "status", ...schedulePickerSlots, "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
+        "root", "main", "status", ...schedulePickerSlots, "controls", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardLeft", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
@@ -162,10 +161,6 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
         controls: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
-        footer: builderFooter,
-        footerItem: builderFooterItem,
-        // An item of the legend, whole on one line: the rail ends the legend at a whole item, then "…", where it cannot fit (#1398, CL3).
-        legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", flexShrink: 0 },
         // The mock's swatches, 16 × 10 (a link a 16 × 4 bar, a slot's status an 8px dot).
         legendSwatch: {
             width: "16px", height: "10px", flexShrink: 0, borderRadius: "sm", boxSizing: "border-box",

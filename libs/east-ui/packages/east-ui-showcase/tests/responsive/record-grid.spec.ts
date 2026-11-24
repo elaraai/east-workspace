@@ -24,6 +24,7 @@ import { expect, test, type Locator, type Page } from "playwright/test";
 import { visitBuilder } from "./builder-page";
 import { CLEAR, RECORD_ROOT, RECORD_THEMES, cellOf, looks, openRecord, played, recordTheme, rowOf } from "./record-page";
 import { settled } from "./settle";
+import { token } from "./tokens";
 
 /** Each density, as its control names it, and its rows' height. */
 const DENSITIES = [
@@ -82,7 +83,8 @@ function gridOf(entry: Locator) {
             const s = getComputedStyle(el);
             return {
                 family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, spacing: Math.round(parseFloat(s.letterSpacing) / parseFloat(s.fontSize) * 100) / 100,
-                caps: s.textTransform, line: s.lineHeight, ink: s.color, tnum: s.fontFeatureSettings.includes("tnum"),
+                // Its figures tabular, by the font's feature or the numeric variant: the one set of figures either way.
+                caps: s.textTransform, line: s.lineHeight, ink: s.color, tnum: s.fontFeatureSettings.includes("tnum") || s.fontVariantNumeric.includes("tabular-nums"),
             };
         };
         // A cell's padding, its box, and what it holds — from its first part's start to its last part's end.
@@ -139,6 +141,7 @@ for (const theme of RECORD_THEMES) {
     test(`the rota at each density: each column's cells and header padded and set as its kind is, the column groups over their columns, the select column and its ticks, the footer (${theme}) @desktop`, async ({ page }) => {
         const entry = await openRecord(page, "recordLooks", theme, 2160);
         const t = await recordTheme(page);
+        const panel = await token(page, "bg-panel");
         for (const d of DENSITIES) {
             await density(page, entry, d);
             const at = `${d.name.toLowerCase()}, ${theme}`;
@@ -186,10 +189,10 @@ for (const theme of RECORD_THEMES) {
                     .toEqual([46, 20, 20, 14, 14, "3px", t.c["bg-surface"], t.c["border-strong"]]);
             }
 
-            // FT1: the footer 36 tall, padded 0 20, 16 between its parts, a rule over it, on the paper: the rows shown of the record's, the
-            // first strong, then the stale note of the first age with a threshold.
+            // FT1: every builder's footer (east-workspace#1748) — 28 tall, padded 0 12, 14 between its parts, a rule over it, on the
+            // panel's paper: the rows shown of the record's, the first strong, then the stale note of the first age with a threshold.
             const f = m.footer;
-            expect([f.height, f.start, f.end, f.gap, f.rule, f.ruleInk, f.bg], `the footer, ${at}`).toEqual([36, 20, 20, "16px", "1px", t.c["border-subtle"], t.c["bg-surface"]]);
+            expect([f.height, f.start, f.end, f.gap, f.rule, f.ruleInk, f.bg], `the footer, ${at}`).toEqual([28, 12, 12, "14px", "1px", t.c["border-subtle"], panel]);
             expect([f.count.text, f.count.family, f.count.size, f.count.ink, f.count.tnum], at).toEqual([expect.stringMatching(/^3 of 3 people/), t.mono, t.size["label-md"], t.c["fg-muted"], true]);
             expect([f.strong.text, f.strong.weight, f.strong.ink], at).toEqual(["3", "600", t.c.fg]);
             expect([f.note?.text, f.note?.family, f.note?.size, f.note?.ink], at).toEqual(["1 stale · no update in 90 days", t.mono, t.size["label-md"], t.c["fg-muted"]]);
@@ -321,7 +324,7 @@ for (const theme of RECORD_THEMES) {
         await expect(entry.locator("[data-record] [aria-sort]")).toHaveCount(0);
     });
 
-    test(`each legend its register's: every member's chip at the legend's height in its look, each of a column one width, then its name (${theme}) @desktop`, async ({ page }) => {
+    test(`each legend its register's: every member's chip at the legend's height in its look and its own words, each of a column one width, then its name in the rail's item voice (${theme}) @desktop`, async ({ page }) => {
         // FT2, over a register of tones and over a scale.
         const preferences = await openRecord(page, "recordShiftPreferences", theme, 1600);
         const t = await recordTheme(page);
@@ -331,8 +334,8 @@ for (const theme of RECORD_THEMES) {
             const c = getComputedStyle(chip);
             const n = getComputedStyle(name);
             return {
-                chip: [chip.textContent, c.backgroundColor, c.color, c.borderTopColor], name: [name.textContent, n.fontFamily, n.fontSize, n.color],
-                type: [chip.getBoundingClientRect().height, c.fontFamily, c.fontSize, c.fontWeight], width: chip.getBoundingClientRect().width,
+                chip: [chip.textContent, c.backgroundColor, c.color, c.borderTopColor], name: [name.textContent, n.fontFamily, n.fontSize, n.color, n.textTransform],
+                type: [chip.getBoundingClientRect().height, c.fontFamily, c.fontSize, c.fontWeight, c.textTransform, c.letterSpacing], width: chip.getBoundingClientRect().width,
             };
         }));
         const tones = await legendOf(preferences);
@@ -341,7 +344,8 @@ for (const theme of RECORD_THEMES) {
             ["prefer", t.c["status-pos-subtle"], t.c["fg-success"], t.c["status-pos"]],
             ["can't", t.c["status-neg-subtle"], t.c["fg-danger"], t.c["status-neg"]],
         ]);
-        expect(tones.map((item) => item.name), theme).toEqual(["Can work", "Prefers", "Can't work"].map((name) => [name, t.mono, t.size["label-md"], t.c["fg-muted"]]));
+        // Each name in every builder's legend item voice (east-workspace#1748): mono 10 in capitals, in the subtle ink.
+        expect(tones.map((item) => item.name), theme).toEqual(["Can work", "Prefers", "Can't work"].map((name) => [name, t.mono, t.size["label-sm"], t.c["fg-subtle"], "uppercase"]));
         const matrix = await visitBuilder(page, "e3/record/record/recordSkillsMatrix", RECORD_ROOT, undefined);
         const scale = await legendOf(matrix);
         expect(scale.map((item) => item.chip), theme).toEqual([
@@ -351,7 +355,8 @@ for (const theme of RECORD_THEMES) {
         ]);
         expect(scale.map((item) => item.name[0]), theme).toEqual(["Not trained", "Supervised", "Competent"]);
         for (const legend of [tones, scale]) {
-            for (const item of legend) expect(item.type, `${item.chip[0]}, ${theme}`).toEqual([15, t.mono, t.size["label-xs"], "600"]);
+            // A chip in its own words, as a cell's chip is, whatever the item's voice around it.
+            for (const item of legend) expect(item.type, `${item.chip[0]}, ${theme}`).toEqual([15, t.mono, t.size["label-xs"], "600", "none", "normal"]);
             expect(new Set(legend.map((item) => item.width)).size, theme).toBe(1);
         }
     });

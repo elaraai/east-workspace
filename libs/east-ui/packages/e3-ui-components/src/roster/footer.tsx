@@ -7,7 +7,7 @@ import { Box } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RosterStyles, RosterValue } from "./model.js";
 
 /** The coverage marks the legend explains: who fills a slot's hours, and what it needs. Overtime is the app's pay's to say (§5.6). */
@@ -16,7 +16,8 @@ const legendOf = (words: RosterValue["vocabulary"]) => [
     { key: "requested", label: "Requested" }, { key: "open", label: "Open" }, { key: "needed", label: "Hours needed" },
 ] as const;
 /**
- * The shared footer rail explains the coverage marks, then a Save's notice of
+ * The shared footer rail (`builderFooter`, east-workspace#1748) explains the
+ * coverage marks, then a Save's notice of
  * the duties that left the week's window, and at its trailing end the shared
  * loading line (#1398, CL3): the week being read — `Loading 12–18 Mar` — or
  * why it could not be, with Retry. The rail never wraps and never cuts a word:
@@ -47,12 +48,13 @@ export function RosterFooter({ styles, vocabulary, duties, noun, line, optimise 
     const runLine = optimise?.line;
     const legend = legendOf(vocabulary);
     const units = legend.length + (elara ? 1 : 0);
-    return <Box ref={ref} css={styles.footer} data-roster-footer="">
-        {legend.map((item, i) => <Box as="span" key={item.key} css={[styles.footerItem, styles.legendItem]} data-roster-legend={item.key}
+    const footer = useSlotStyles("builderFooter");
+    return <Box ref={ref} css={footer.root} data-roster-footer="">
+        {legend.map((item, i) => <Box as="span" key={item.key} css={footer.item} data-roster-legend={item.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
             <Box as="span" aria-hidden="true" css={[item.key === "needed" ? styles.coverageTick : styles.coverageSegment, styles.legendSwatch]} data-kind={item.key} />{item.label}
         </Box>)}
-        {elara && <OptimiseLegendItem css={[styles.footerItem ?? {}, styles.legendItem ?? {}]} cut={footerCut(legend.length, fit)} />}
+        {elara && <OptimiseLegendItem css={footer.item} cut={footerCut(legend.length, fit)} />}
         <FooterMore shown={fit.kept < units} />
         {duties !== undefined && <RecordSliceSaveNotice slice={duties} singular={noun.singular} plural={noun.plural} />}
         {/* A run's line shows at once, whatever the reveal says: a run is not a read (#1409). */}

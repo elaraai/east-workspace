@@ -74,7 +74,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { builderFooter } from "./builder-footer.js";
+import { FOOTER_RAIL } from "./builder-footer.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 
 /** The motion of a state toggle: the design system's `--dur-base` on `--ease-in-out`. */
@@ -104,7 +104,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         },
         // A body value's bar: 12px, square-ended.
         loadingCell: { height: "12px", borderRadius: "0" },
-        loadingFooter: { ...builderFooter },
+        // The skeleton's footer: every builder's rail, where the builder's own will stand.
+        loadingFooter: FOOTER_RAIL,
         root: {
             position: "relative",
             isolation: "isolate",

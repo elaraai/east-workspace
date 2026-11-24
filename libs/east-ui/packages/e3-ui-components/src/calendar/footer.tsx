@@ -7,13 +7,13 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, useSlotClass, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, useSlotClass, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { CalendarKind, CalendarStyles } from "./model.js";
 import type { CalendarEventPart } from "./window.js";
 
 /**
- * The shared footer rail explains the Calendar's event kinds, each by its
- * icon, then each kind's Save notice of the events that left its source's
+ * The shared footer rail (`builderFooter`, east-workspace#1748) explains the
+ * Calendar's event kinds, each by its icon, then each kind's Save notice of the events that left its source's
  * narrowing, and at its trailing end the shared loading line (#1398, CL3):
  * the period being read — `Loading November 2026` — or why it could not be,
  * with Retry. The rail never wraps and never cuts a word: the legend stays
@@ -44,12 +44,13 @@ export function CalendarFooter({ styles, kinds, parts, locale, line, elara = fal
     const shown = useRevealed() === true;
     const units = kinds.length + (elara ? 1 : 0);
     const slot = useSlotClass();
-    return <Box ref={ref} css={styles.footer} data-calendar-footer="">
-        {kinds.map((kind, i) => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}
+    const footer = useSlotStyles("builderFooter");
+    return <Box ref={ref} css={footer.root} data-calendar-footer="">
+        {kinds.map((kind, i) => <Box as="span" key={kind.key} css={footer.item} data-calendar-legend={kind.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
-            <span className={slot(styles.eventIcon)}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span> {kind.name}
+            <span className={slot(styles.eventIcon)}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span>{kind.name}
         </Box>)}
-        {elara && <OptimiseLegendItem css={styles.footerItem} cut={footerCut(kinds.length, fit)} />}
+        {elara && <OptimiseLegendItem css={footer.item} cut={footerCut(kinds.length, fit)} />}
         <FooterMore shown={fit.kept < units} />
         {parts.map(({ kind, part }) => <RecordSliceSaveNotice key={kind.key} slice={part}
             singular={`${kind.name.toLocaleLowerCase(locale)} event`} plural={`${kind.name.toLocaleLowerCase(locale)} events`} />)}

@@ -7,14 +7,17 @@
  * A face's capitals at the middle of a room (east-workspace#1748): the faces'
  * metrics are the font files' own, the rows they take at each size are those
  * a browser lays out and paints, and each bar's words spread the line and the
- * padding that centre their capitals in the bar's room. Where the page draws
- * them is measured in the browser (`bar-capitals.spec.ts`).
+ * padding that centre their capitals in the bar's room — every builder's
+ * footer one rail, its marks beside its words at its middle too. Where the
+ * page draws them is measured in the browser (`bar-capitals.spec.ts`).
  */
 
 import { readFileSync } from "node:fs";
 import { brotliDecompressSync } from "node:zlib";
 import { describe, expect, test } from "vitest";
 import { FACE_METRICS, capitalsBox, centredCapitals, faceRows, type FaceMetrics, type FaceName } from "./face-capitals.js";
+import { RAIL_ODD_MARK, builderFooterSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { recordSlotRecipe } from "./slot-recipes/record.js";
 import { sheetSlotRecipe } from "./slot-recipes/sheet.js";
 
@@ -157,9 +160,20 @@ const words = (styles: unknown) => {
 /** A slot of a recipe's base, or a rule nested in it, by the keys down to it. */
 const slot = (base: unknown, ...keys: string[]) => keys.reduce<unknown>((at, key) => (at as Readonly<Record<string, unknown>>)[key], base);
 
+/** A length in whole pixels, as a slot sets it. */
+const px = (value: unknown): number => {
+    const text = String(value);
+    if (!/^\d+px$/.test(text)) throw new RangeError(`${text} is not a whole number of pixels`);
+    return Number.parseInt(text, 10);
+};
+
+/** The room every builder's footer stands its words in: its 28px under its 1px rule. */
+const RAIL_ROOM = 27;
+
 describe("the bars' words", () => {
     const record = recordSlotRecipe.base;
     const sheet = sheetSlotRecipe.base;
+    const footer = builderFooterSlotRecipe.base;
 
     test("the Record's strip: its label, its words and its keys, each with its capitals at the middle of the 31 under its rule", () => {
         expect(words(slot(record, "stripLabel"))).toEqual(centredCapitals("mono", "label.sm", 31));
@@ -167,11 +181,6 @@ describe("the bars' words", () => {
         expect(words(slot(record, "stripKeys"))).toEqual(centredCapitals("mono", "label.md", 31));
     });
 
-    test("the Record's footer: its counts, its note, its legend's names and the status line's words, in the 35 under its rule", () => {
-        for (const part of ["footerCount", "footerNote", "legendName"]) expect(words(slot(record, part)), part).toEqual(centredCapitals("mono", "label.md", 35));
-        expect(words(slot(record, "footerLive", "&[data-band]"))).toEqual(centredCapitals("mono", "label.md", 35));
-        expect(words(slot(record, "footerLive", "[data-phone] &"))).toEqual(centredCapitals("mono", "label.md", 35));
-    });
 
     test("the Sheet's strip: its label, its meta, its keys and its page count in every room it stands in; its chips 23 tall, 29 on a touch screen", () => {
         for (const part of ["stripLabel", "stripMeta", "stripKeys", "stripPageCount"]) {
@@ -185,9 +194,32 @@ describe("the bars' words", () => {
         }
     });
 
-    test("the Sheet's footer: its counts, its hint and its message, in the 27 under its rule", () => {
-        expect(words(slot(sheet, "footerCounts"))).toEqual(centredCapitals("mono", "label.md", 27));
-        expect(words(slot(sheet, "footerHint"))).toEqual(centredCapitals("mono", "label.sm", 27));
-        expect(words(slot(sheet, "footerMessage"))).toEqual(centredCapitals("mono", "label.md", 27));
+    test("every builder's footer: one 28px rail, its items, its hints, its counts and its message, each in the 27 under its rule", () => {
+        expect(px(slot(footer, "root", "minHeight")) - px(slot(footer, "root", "borderTopWidth"))).toBe(RAIL_ROOM);
+        for (const part of ["item", "hint"]) expect(words(slot(footer, part)), part).toEqual(centredCapitals("mono", "label.sm", RAIL_ROOM));
+        for (const part of ["count", "message"]) expect(words(slot(footer, part)), part).toEqual(centredCapitals("mono", "label.md", RAIL_ROOM));
+        // The status line's echo, on a phone and where the toolbar cuts it, keeps the message's words.
+        for (const form of ["&[data-band]", "[data-phone] &"]) expect(words(slot(footer, "message", "&[data-echo]", form)), form).toEqual(words({}));
+    });
+
+    test("an odd mark beside an item's words — the Record's legend chip, the Calendar's event icon — stands at the rail's middle, as the words do", () => {
+        const item = words(slot(footer, "item"));
+        const [line, top, bottom] = [item.lineHeight, item.paddingTop, item.paddingBottom].map(px) as [number, number, number];
+        const [over, under] = [RAIL_ODD_MARK.marginTop, RAIL_ODD_MARK.marginBottom].map(px) as [number, number];
+        const rows = faceRows("mono", "label.sm");
+        const marks = [["the Record's legend chip", px(slot(record, "legendChip", "height"))], ["the Calendar's event icon", px(slot(calendarSlotRecipe.base, "eventIcon", "height"))]] as const;
+        for (const [name, mark] of marks) {
+            expect(mark % 2, `${name}: an odd mark`).toBe(1);
+            // The item centres its words' line and the mark's margin box in its content, its padding round the taller.
+            const content = Math.max(line, over + mark + under);
+            const boxTop = (RAIL_ROOM - (top + content + bottom)) / 2;
+            const markTop = boxTop + top + (content - (over + mark + under)) / 2 + over;
+            const baseline = boxTop + top + (content - line) / 2 + rows.ascent;
+            expect(Number.isInteger(boxTop) && Number.isInteger(markTop), `${name}: on whole pixels`).toBe(true);
+            expect(markTop, `${name}: as many rows over it as under it`).toBe(RAIL_ROOM - markTop - mark);
+            expect(baseline - rows.capitals, `${name}: its words' capitals at the middle`).toBe(RAIL_ROOM - baseline);
+        }
+        expect(slot(record, "legendChip")).toMatchObject(RAIL_ODD_MARK);
+        expect(slot(calendarSlotRecipe.base, "eventIcon", "[data-calendar-footer] &")).toEqual(RAIL_ODD_MARK);
     });
 });

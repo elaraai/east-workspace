@@ -53,13 +53,15 @@
  *     its own (east-workspace#1743) — each with its capitals at the middle of
  *     the 31 under its rule (east-workspace#1748). Over a Sheet kind the
  *     Sheet's strip draws its chips in this frame.
- *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
- *     legend's 15-tall chips cut whole where the rail is short of room, and
- *     the shared loading line at its end; on a phone, the status line's words
- *     beside the line, in the band the frame lays over main's foot — and on a
- *     wider frame, where the toolbar's row cuts those words, the words whole
- *     at the footer's end, mono 10.5 in `fg.muted`, or the danger ink. Each
- *     run of words with its capitals at the middle of the 35 under its rule.
+ *   - Footer: every builder's rail (`builderFooter`, east-workspace#1748):
+ *     the rows shown and the stale note in its count voice, the legend's
+ *     members in its item voice, each one's 15-tall chip before its name —
+ *     the Record's own mark, the rail's odd mark (`RAIL_ODD_MARK`) — cut whole
+ *     where the rail is short of room, and the shared loading line at its end;
+ *     on a phone, the status line's words beside the line, in the band the
+ *     frame lays over main's foot — and on a wider frame, where the toolbar's
+ *     row cuts those words, the words whole at the footer's end, in the
+ *     danger ink while they say a gesture was refused.
  *   - A phone (the Sheet's phone grid): no select column; the title held at
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
@@ -85,7 +87,7 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { refusedRow, refusedTone } from "../refused-mark.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
-import { FOOTER_FIT } from "./builder-footer.js";
+import { RAIL_ODD_MARK } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
 /** A chip's or a legend chip's look: the first member, a scale step, a toggle's on, or a valence's wash, edge and text step. */
@@ -168,13 +170,11 @@ const ODD_PART = { marginBottom: "1px" } as const;
 const STRIP_LINE = centredLine(31, 15);
 
 /**
- * The rooms the strip's and the footer's words stand in (east-workspace#1748): the 31px under the strip's rule and the
- * 35px under the footer's. Each part sets its words with their capitals at its room's middle (`centredCapitals`). A whole
- * line centred in the room left the mono label's capitals a row high, 11 rows under the rule and 13 over the foot, beside
- * the words' 11 and 11; and the footer's line of 1.5, 15.75px, stood its words a fraction of a pixel under its rule.
+ * The room the strip's words stand in (east-workspace#1748): the 31px under its rule. Each part sets its words with their
+ * capitals at its middle (`centredCapitals`): a whole line centred in it left the mono label's capitals a row high, 11
+ * rows under the rule and 13 over the foot, beside the words' 11 and 11.
  */
 const STRIP_ROOM = 31;
-const FOOTER_ROOM = 35;
 
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
@@ -188,7 +188,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock", "display",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
-        "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
+        "legendChip",
         "facts", "factValue", "statValue",
     ],
     base: {
@@ -442,40 +442,17 @@ export const recordSlotRecipe = defineSlotRecipe({
         /* The keys take what the label and the words leave, at the strip's end, whole or not at all (east-workspace#1743). */
         stripKeys: { ...wholeOrNone("100%"), flex: "1 1 0%", minWidth: "0", justifyContent: "flex-end", ...centredCapitals("mono", "label.md", STRIP_ROOM), color: "fg.subtle", whiteSpace: "nowrap" },
 
-        /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */
-        footer: {
-            ...FOOTER_FIT,
-            height: "36px", boxSizing: "border-box", flex: "none", display: "flex", alignItems: "center", gap: "16px", paddingInline: "20px",
-            borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", background: "bg.surface", overflow: "hidden",
-            "& > [data-footer-line]": { marginInlineStart: "0" },
-        },
-        footerCount: {
-            ...centredCapitals("mono", "label.md", FOOTER_ROOM), fontFeatureSettings: '"tnum" 1', color: "fg.muted", whiteSpace: "nowrap",
-            "& b": { fontWeight: 600, color: "fg" },
-        },
-        footerNote: { ...centredCapitals("mono", "label.md", FOOTER_ROOM), fontFeatureSettings: '"tnum" 1', color: "fg.muted", whiteSpace: "nowrap" },
-        footerSpacer: { flex: "1", minWidth: "0" },
-        /* The status line's words on a phone, whose toolbar has no room for them: unseen and unheard on a wider frame, where
-           the toolbar's line says them — but seen there too, one line at the footer's end, where the toolbar's row cuts
-           them for want of room (`data-band`). */
-        footerLive: {
-            display: "none",
-            "&[data-band]": {
-                display: "block", flex: "0 1 auto", minWidth: "0", ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...refusedTone,
-            },
-            "[data-phone] &": { display: "block", flex: "1 1 auto", minWidth: "0", ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted", ...refusedTone },
-        },
-        legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
-        legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
-        /* A legend chip: as wide as a cell's chip is, at its own face, its one line the room inside its edge as a cell's chip's is. */
+        /* A legend member's chip, before its name on the footer's rail (every builder's, `builderFooter`): as wide as a cell's
+           chip is, at its own face and in its own words — whatever the rail's item around it says — its one line the room
+           inside its edge as a cell's chip's is. It is an odd 15 tall: the rail's odd mark, so it and its name both stand at
+           the rail's middle. */
         legendChip: {
             ...oneLineBox(15), minWidth: "max(20px, calc(var(--record-chip-ch, 0) * 1ch + 10px))", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
             alignItems: "center", justifyContent: "center", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
-            fontFamily: "mono", fontSize: "label.xs", fontWeight: 600,
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: 600, letterSpacing: "normal", textTransform: "none",
+            ...RAIL_ODD_MARK,
             ...LOOKS,
         },
-        legendName: { ...centredCapitals("mono", "label.md", FOOTER_ROOM), color: "fg.muted" },
 
         /* The inspector's facts (IN6): each the shared Field, its label and its key, over its value read only. */
         facts: { ...INSPECTOR_SECTION, gap: "{spacing.4}" },

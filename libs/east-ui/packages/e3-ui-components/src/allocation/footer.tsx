@@ -5,7 +5,7 @@
 import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, footerCut, useFooterFit, useRevealed, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { AllocationStyles } from "./model.js";
 import { one, useNouns, type Nouns } from "./nouns.js";
 
@@ -29,7 +29,8 @@ export const legends = (nouns: Nouns) => ({
 });
 
 /**
- * The shared footer rail with the layout's legend (A79) — no counts, hints or
+ * The shared footer rail (`builderFooter`, east-workspace#1748) with the
+ * layout's legend (A79) — no counts, hints or
  * status — and at its trailing end the shared loading line (#1398, CL3): the
  * day being read — `Loading Tue, May 11, 2027` — or why it could not be, with
  * Retry. The rail never wraps and never cuts a word: the legend stays whole
@@ -53,12 +54,13 @@ export function AllocationFooter({ styles, layout, line, optimise }: {
     const elara = optimise?.legend === true;
     const runLine = optimise?.line;
     const units = items.length + (elara ? 1 : 0);
-    return <Box ref={ref} css={styles.footer} data-allocation-footer={layout}>
-        {items.map((item, i) => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}
+    const footer = useSlotStyles("builderFooter");
+    return <Box ref={ref} css={footer.root} data-allocation-footer={layout}>
+        {items.map((item, i) => <Box as="span" key={item.kind} css={footer.item} data-allocation-legend={item.kind}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
             <Box as="span" aria-hidden="true" css={styles.legendSwatch} data-kind={item.kind} />{item.label}
         </Box>)}
-        {elara && <OptimiseLegendItem css={[styles.footerItem ?? {}, styles.legendItem ?? {}]} cut={footerCut(items.length, fit)} />}
+        {elara && <OptimiseLegendItem css={footer.item} cut={footerCut(items.length, fit)} />}
         <FooterMore shown={fit.kept < units} />
         {/* A run's line shows at once, whatever the reveal says: a run is not a read (#1409). */}
         <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />

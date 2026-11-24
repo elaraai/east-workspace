@@ -5,8 +5,10 @@
 
 /**
  * The status footer (28px, `Plan Spec.html` §1) — the Plan's frame's footer
- * (#1193): mono 10px status items; `tone` tints (`warning` for the exceptions
- * count), `end: true` right-aligns.
+ * (#1193), every builder's rail (`builderFooter`, east-workspace#1748): the
+ * Plan's counts in the footer's voice, then the author's items as status
+ * items, mono 10px; `tone` tints (`warning` for the exceptions count),
+ * `end: true` right-aligns.
  *
  * It leads with the Plan's own counts (PB23): its event kinds' events in the
  * window, their backlog, the changes waiting on Save, and when a kind's record
@@ -37,7 +39,7 @@ import { Box } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, useSlotStyles, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine } from "../../shared/loading.js";
 import { sameDay } from "../../shared/schedule/window.js";
@@ -45,7 +47,6 @@ import type { PlanTransport } from "./transport.js";
 import { usePlanWords } from "../words.js";
 import type { PlanEventCounts } from "../frame/counts.js";
 
-type Styles = Record<string, Record<string, unknown>>;
 type FooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
 
 /** A source whose Save notice the footer shows: its part, and the words it counts in. */
@@ -64,7 +65,6 @@ export interface PlanSaveNotice {
 const NO_RETRY = () => undefined;
 
 export interface PlanFooterProps {
-    styles: Styles;
     /** The author's footer items, in order. */
     items: ReadonlyArray<FooterItemValue>;
     /** What the canvas says of its reads — a paged source's, or its event kinds' rows' — omitted on a canvas that reads neither. */
@@ -87,7 +87,7 @@ export interface PlanFooterProps {
 }
 
 /** The 28px footer band (renders nothing with nothing to say). */
-export function PlanFooter({ styles, items, transport, noun, counts, unread, pending, notices, optimise }: PlanFooterProps) {
+export function PlanFooter({ items, transport, noun, counts, unread, pending, notices, optimise }: PlanFooterProps) {
     const words = usePlanWords();
     const { m } = words;
     // The loading line, in the Plan's words (#1398, CL3), on the Plan's one reveal clock (CL4): its frame's
@@ -102,6 +102,7 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
     const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
+    const footer = useSlotStyles("builderFooter");
     // The Plan's own counts, in the order the footer reads them — the events' "…" until their first read lands. A kind
     // whose events are not counted (#1039) is named so, never counted as none; a kind hidden in the Series tab is in no
     // count, so with every kind hidden there is none.
@@ -130,21 +131,21 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
     // The counts and the author's items: each whole, the legend the rail fits — and, during a run's highlight, `Elara change`.
     const units = own.length + items.length + (legend ? 1 : 0);
     return (
-        <Box ref={rail} css={styles.footer} data-slot="footer">
+        <Box ref={rail} css={footer.root} data-slot="footer">
             {own.map((count, i) => (
-                <Box key={count.key} css={styles.footerItem} data-plan-count={count.key} data-footer-unit="" data-footer-cut={footerCut(i, fit)}
+                <Box key={count.key} css={footer.count} data-plan-count={count.key} data-footer-unit="" data-footer-cut={footerCut(i, fit)}
                     data-opn={count.key === "backlog" && optimise?.flash === true ? "" : undefined}>{count.text}</Box>
             ))}
             {items.map((item, i) => {
                 const tone = item.tone.type === "some" ? item.tone.value.type : undefined;
                 return (
-                    <Box key={i} css={styles.footerItem} data-tone={tone} data-end={item.end ? "" : undefined}
+                    <Box key={i} css={footer.item} data-tone={tone} data-end={item.end ? "" : undefined}
                         data-footer-unit="" data-footer-cut={footerCut(own.length + i, fit)}>
                         {item.text}
                     </Box>
                 );
             })}
-            {legend && <OptimiseLegendItem css={styles.footerItem} cut={footerCut(own.length + items.length, fit)} />}
+            {legend && <OptimiseLegendItem css={footer.item} cut={footerCut(own.length + items.length, fit)} />}
             <FooterMore shown={fit.kept < units} />
             {notices?.map((notice) => <RecordSliceSaveNotice key={notice.key} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
             {/* The line's slot: a paged canvas's reads and the event kinds' rows', and — with event kinds — a run of the optimiser, the slot kept while they are not out. */}
