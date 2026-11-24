@@ -845,10 +845,11 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * Every host with a slice rail (#952) or a toolbar row of its own, by an
  * example that mounts it, and the viewport widths it is swept across — each
  * host's own range: the flagship's wide layout holds down to 886px, its record
- * rail (#1344) folding first, its summary gone by 1000 and its date navigator
- * compact by 900 — narrower, its library's 44px rail leaves main under the
- * 480px the narrow layout takes over at, so the sweep stops at 900; its narrow
- * layout is `planTargetState`'s in a 360px box, as a phone's;
+ * rail (#1344) folding first, its summary gone by 1000 and its date
+ * navigator's label short there, between its arrows still at 900 (#1740) —
+ * narrower, its library's 44px rail leaves main under the 480px the narrow
+ * layout takes over at, so the sweep stops at 900; its narrow layout is
+ * `planTargetState`'s in a 360px box, as a phone's;
  * a Plan with editing over a keyed paged source, its palette its library
  * (#1193, #1259), is swept through its narrow layout, which its library's rail
  * brings on at 800px, and the items that stay fold no less than they did
@@ -892,18 +893,20 @@ type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 /** The Plan's own order (the user's decision, #952; its frame's toolbar,
  *  #1193, PB21), after its record rail (#1344): the rail's summary first,
  *  after every step of the rail and before the Plan's own (ruled 18 Oct,
- *  #1340); then the date navigator compacts, the resolution folds into its
- *  menu, the fold toggle to its icon and the key search to its icon; then,
- *  where the Plan navigates its dates, the toggle, the navigator and the
- *  resolution fold into the navigator's View, one move; and the history item
- *  folds last, to its buttons — each step where its item has it to take. */
+ *  #1340); then the date navigator's label shortens, between its arrows
+ *  still, the resolution folds into its menu, the fold toggle to its icon and
+ *  the key search to its icon; then, where the Plan navigates its dates, the
+ *  navigator's arrows go — the last of its own the row gives up (#1740) — and
+ *  the toggle, the navigator and the resolution fold into the navigator's
+ *  View, one move; and the history item folds last, to its buttons — each
+ *  step where its item has it to take. */
 function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const navigates = state.has("time-navigation");
     return [
         ["record-summary", 1],
         ["time-navigation", 1], ["resolution", 1], ["groups", 1],
         ["seek", 1],
-        ...(navigates ? [["groups", 2] as const, ["time-navigation", 2] as const, ["resolution", 2] as const] : []),
+        ...(navigates ? [["time-navigation", 2] as const, ["groups", 2] as const, ["time-navigation", 3] as const, ["resolution", 2] as const] : []),
         ["history", 1],
     ];
 }

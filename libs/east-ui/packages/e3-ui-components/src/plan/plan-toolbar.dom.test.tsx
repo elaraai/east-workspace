@@ -8,9 +8,10 @@
  * #1193, PB20, PB21, #1344): one ladder over its items — the record rail of its
  * one `Slice.bindRecords` first, in the rail's order (each field's chip, the
  * terminal Filters chip, the icon), its summary after every step of it, then
- * the Plan's own (the user's decision): the date navigator compacts, the
+ * the Plan's own (the user's decision): the date navigator's label shortens, the
  * resolution segment folds into its menu, the fold-all toggle into its icon;
- * the key search folds into its icon; the fold toggle and the resolution then
+ * the key search folds into its icon; the date navigator's arrows go only then
+ * (#1740); the fold toggle and the resolution then
  * fold into the date navigator's View, as Calendar's and Roster's do, and the
  * overlaps chip with them; the history item folds last, to its buttons. The window is the date
  * navigator's on a time axis, so the range field of a source holding it is no
@@ -86,7 +87,7 @@ const FORM_PX: Record<string, readonly number[]> = {
     "record-summary": [200],
     seek: [200, 44],
     groups: [170, 90],
-    "time-navigation": [260, 180, 220],
+    "time-navigation": [260, 230, 180, 220],
     resolution: [150, 80],
     overlaps: [110, 50],
     tools: [180, 70],
@@ -128,7 +129,7 @@ afterAll(() => {
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
-const W40 = new Date("2026-09-28T00:00:00Z");
+const W51 = new Date("2026-12-14T00:00:00Z");
 
 /** The window the toolbar's navigator reads: twelve weeks from W27, by the week. */
 const WEEKLY: PlanScale = planScale({ kind: "time", window: { min: W27, max: W39 }, resolution: "week", words: PLAN_WORDS })!;
@@ -251,14 +252,14 @@ type LadderStep = ReadonlyArray<readonly [string, number]>;
 /**
  * The Plan's ladder, step by step: the rail's (each field's chip, the
  * terminal chip, the icon) and its summary, then the Plan's own — the date
- * navigator compacts, the resolution folds to its menu, the fold toggle to its
- * icon, and the three fold into the navigator's View together — the history
- * last.
+ * navigator's label shortens, the resolution folds to its menu, the fold
+ * toggle to its icon, the navigator's arrows go, and the three fold into the
+ * navigator's View together — the history last.
  */
 const LADDER: readonly LadderStep[] = [
     [["record-slices", 1]], [["record-slices", 2]], [["record-slices", 3]], [["record-slices", 4]],
-    [["record-summary", 1]], [["time-navigation", 1]], [["resolution", 1]], [["groups", 1]],
-    [["groups", 2], ["time-navigation", 2], ["resolution", 2]],
+    [["record-summary", 1]], [["time-navigation", 1]], [["resolution", 1]], [["groups", 1]], [["time-navigation", 2]],
+    [["groups", 2], ["time-navigation", 3], ["resolution", 2]],
     [["history", 1]],
 ];
 
@@ -267,12 +268,12 @@ const LADDER: readonly LadderStep[] = [
 const SEEK_LADDER: readonly LadderStep[] = [[["seek", 1]], [["history", 1]]];
 
 /** The Plan's ladder with an overlapping pair (#1198, #1344): the overlaps chip
- *  shortens after the date navigator compacts, and folds into its View with
+ *  shortens after the date navigator's label does, and folds into its View with
  *  the fold toggle and the resolution, one move. */
 const OVERLAPS_LADDER: readonly LadderStep[] = [
     [["record-slices", 1]], [["record-slices", 2]], [["record-slices", 3]], [["record-slices", 4]],
-    [["record-summary", 1]], [["time-navigation", 1]], [["overlaps", 1]], [["resolution", 1]], [["groups", 1]],
-    [["groups", 2], ["time-navigation", 2], ["resolution", 2], ["overlaps", 2]],
+    [["record-summary", 1]], [["time-navigation", 1]], [["overlaps", 1]], [["resolution", 1]], [["groups", 1]], [["time-navigation", 2]],
+    [["groups", 2], ["time-navigation", 3], ["resolution", 2], ["overlaps", 2]],
     [["history", 1]],
 ];
 
@@ -341,7 +342,29 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(errored.container.querySelector('[role="alert"]')).toBeNull();
     });
 
-    test("a narrowing row folds the rail first, then its summary; the date navigator compacts, the resolution and the fold toggle shorten, the three fold into the navigator's View, and the history folds last (PB21)", async () => {
+    test("the date navigator keeps its arrows as its label shortens, and steps its window a screenful; the arrows go only once the resolution and the fold toggle have folded (#1740)", async () => {
+        const moved: (readonly [number, number])[] = [];
+        const parts: ChromeParts = { ...await everything(), moveWindow: (min, max) => { moved.push([min, max]); } };
+        // The rail at its icon and its summary folded: the row has room for every form of the Plan's own but the navigator's widest.
+        const shortened = new Map([["record-slices", 4], ["record-summary", 1], ["groups", 0], ["time-navigation", 1], ["resolution", 0], ["history", 0]]);
+        row.px = needs(shortened);
+        const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
+        expect(stateOf(container)).toEqual(shortened);
+        const navigator = () => container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!;
+        // Its short label, the window's weeks, between its arrows: each named for the twelve weeks it steps.
+        expect(navigator().querySelector("[data-time-label]")!.textContent).toBe("W27 – W38");
+        expect(within(navigator()).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Previous 12 weeks", "Choose plan dates", "Next 12 weeks"]);
+        fireEvent.click(within(navigator()).getByRole("button", { name: "Next 12 weeks" }));
+        expect(moved).toEqual([[W39.getTime(), W51.getTime()]]);
+        // The resolution at its menu and the fold toggle at its icon: the arrows are the next to go, the label staying.
+        const bare = new Map([...shortened, ["groups", 1], ["time-navigation", 2], ["resolution", 1]]);
+        resize(needs(bare));
+        expect(stateOf(container)).toEqual(bare);
+        expect(within(navigator()).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Choose plan dates"]);
+        expect(navigator().querySelector("[data-time-label]")!.textContent).toBe("W27 – W38");
+    });
+
+    test("a narrowing row folds the rail first, then its summary; the date navigator's label shortens, the resolution and the fold toggle shorten, the navigator's arrows go, the three fold into the navigator's View, and the history folds last (PB21)", async () => {
         const start = new Map([["record-slices", 0], ["record-summary", 0], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["history", 0]]);
         const c = walk(await everything(), start, LADDER);
         // Folded all the way: the rail's icon, no summary, the navigator's View, and the history's buttons alone.
@@ -390,7 +413,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(c.querySelector("[data-history-form='buttons']")).not.toBeNull();
     });
 
-    test("on a time axis the overlaps chip shortens after the date navigator compacts, and folds into its View with the fold toggle and the resolution, one move; the View's chip selects the first pair (#1198, #1344)", async () => {
+    test("on a time axis the overlaps chip shortens after the date navigator's label does, and folds into its View with the fold toggle and the resolution, one move; the View's chip selects the first pair (#1198, #1344)", async () => {
         const pair = onePair();
         const selected: (readonly string[])[] = [];
         const parts: ChromeParts = { ...await everything(), selectEvents: (keys) => { selected.push(keys); } };
@@ -451,10 +474,10 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         const chips = [...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")]
             .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
         expect(chips).toEqual(["rows.at"]);
-        // The navigator's Next steps the twelve weeks a week on: the canvas's own window, W28 to W40.
+        // The navigator's Next steps the twelve weeks their own length on: the canvas's own window, W39 to W51.
         const navigator = container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!;
-        fireEvent.click(within(navigator).getByRole("button", { name: "Next week" }));
-        expect(moved).toEqual([[W28.getTime(), W40.getTime()]]);
+        fireEvent.click(within(navigator).getByRole("button", { name: "Next 12 weeks" }));
+        expect(moved).toEqual([[W39.getTime(), W51.getTime()]]);
     });
 
     test("the overlaps chip shortens to its glyph and its count, its name the whole words; a click selects both events of the first pair (#1198, PB52)", () => {

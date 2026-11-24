@@ -36,6 +36,56 @@ describe("Shared time navigation", () => {
         await press(within(container).getByRole("button", { name: `Next ${period}` }));
         expect(onChange.mock.calls).toEqual([[expected]]);
     });
+    test.each([
+        ["day", 7, "7 days", Date.UTC(2028, 1, 7), Date.UTC(2028, 0, 24)],
+        ["week", 4, "4 weeks", Date.UTC(2028, 1, 28), Date.UTC(2028, 0, 3)],
+        ["month", 3, "3 months", Date.UTC(2028, 3, 30), Date.UTC(2027, 9, 31)],
+    ] as const)("an arrow steps its stride of %ss, and is named for what it steps — in the row and in the popup (#1740)", async (period, stride, named, next, previous) => {
+        const { container, onChange } = mount({ period, stride });
+        expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual([`Previous ${named}`, "Choose date", `Next ${named}`]);
+        await press(within(container).getByRole("button", { name: `Next ${named}` }));
+        await press(within(container).getByRole("button", { name: `Previous ${named}` }));
+        expect(onChange.mock.calls).toEqual([[next], [previous]]);
+        // The popup's own arrows step the same stride: a row that has given up its arrows keeps them there.
+        await open(container);
+        await press(within(popup()).getByRole("button", { name: `Next ${named}` }));
+        expect(onChange.mock.lastCall).toEqual([next]);
+    });
+    test("the short label stands between the arrows: a row short of room gives up its words before its arrows (#1740)", () => {
+        const { container } = mount({ period: "week", shortLabel: true, end: Date.UTC(2028, 2, 26, 23), rangeLabel: "The range" });
+        expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(["Previous week", "Choose date", "Next week"]);
+        expect(container.querySelector("[data-time-label]")!.textContent).toBe("W5 – W12");
+        expect(container.querySelector("[data-time-trigger]")!.getAttribute("title")).toBe("The range");
+    });
+    test("the popup opens again on the panel chosen last — Days, Weeks or Range — while its period is chosen by them (#1740)", async () => {
+        const panel = () => popup().querySelector("[data-time-picker]")!.getAttribute("data-time-panel");
+        const reopen = async (container: HTMLElement) => { await userEvent.setup().keyboard('{Escape}'); await closed(); await open(container); };
+        const days = mount({ rangeEditor: <div>Shared range controls</div> });
+        await open(days.container);
+        expect(panel()).toBe("day");
+        await press(within(popup()).getByRole("radio", { name: "Weeks" }));
+        await reopen(days.container);
+        expect(panel()).toBe("week");
+        // A week chosen closes the popup; it opens on its weeks again.
+        await press(popup().querySelector(`[data-time-week="${Date.UTC(2028, 0, 24)}"]`)!);
+        await closed();
+        await open(days.container);
+        expect(panel()).toBe("week");
+        await press(within(popup()).getByRole("radio", { name: "Range" }));
+        await reopen(days.container);
+        expect(panel()).toBe("range");
+        expect(within(popup()).getByText("Shared range controls")).toBeTruthy();
+        await userEvent.setup().keyboard('{Escape}'); await closed();
+        days.unmount();
+        // A month's navigator opens on its months whatever was chosen: its grid is its period's.
+        const months = mount({ period: "month", rangeEditor: <div>Shared range controls</div> });
+        await open(months.container);
+        expect(panel()).toBe("month");
+        await press(within(popup()).getByRole("radio", { name: "Range" }));
+        expect(panel()).toBe("range");
+        await reopen(months.container);
+        expect(panel()).toBe("month");
+    });
     test("date trigger sits between the arrows, and popup Today chooses UTC today and closes", async () => {
         const { container, onChange } = mount();
         expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(["Previous day", "Choose date", "Next day"]);

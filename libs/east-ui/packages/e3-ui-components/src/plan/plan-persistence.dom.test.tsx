@@ -80,6 +80,7 @@ const W29 = new Date("2026-07-13T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const W40 = new Date("2026-09-28T00:00:00Z");
 const W41 = new Date("2026-10-05T00:00:00Z");
+const W52 = new Date("2026-12-21T00:00:00Z");
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolean): PlanWireRow {
@@ -484,10 +485,10 @@ describe("the canvas's own window survives a remount (#1344)", () => {
         fireEvent.keyDown(first.container.querySelector("[data-plan-body]")!, { key: "]" });
         expect(firstTick(first.container)).toBe("W28");
         await waitFor(() => expect(storedAt("plan-own").window).toEqual({ kind: "time", min: W28.getTime(), max: W40.getTime(), resolution: "week" }));
-        // A step of the date navigator: a week on again.
-        fireEvent.click(within(navigatorOf(first.container)).getByRole("button", { name: "Next week" }));
-        expect(firstTick(first.container)).toBe("W29");
-        await waitFor(() => expect(storedAt("plan-own").window).toEqual({ kind: "time", min: W29.getTime(), max: W41.getTime(), resolution: "week" }));
+        // A step of the date navigator: the window's own twelve weeks on.
+        fireEvent.click(within(navigatorOf(first.container)).getByRole("button", { name: "Next 12 weeks" }));
+        expect(firstTick(first.container)).toBe("W40");
+        await waitFor(() => expect(storedAt("plan-own").window).toEqual({ kind: "time", min: W40.getTime(), max: W52.getTime(), resolution: "week" }));
         first.unmount();
 
         const drawn: (string | undefined)[] = [];
@@ -498,8 +499,8 @@ describe("the canvas's own window survives a remount (#1344)", () => {
             </ChakraProvider>,
         );
         // Its first frame drew the window the viewer left — never the axis's W27 — and it stays there.
-        expect(drawn).toEqual(["W29"]);
-        expect(firstTick(second.container)).toBe("W29");
+        expect(drawn).toEqual(["W40"]);
+        expect(firstTick(second.container)).toBe("W40");
     });
 
     test("its zoom is kept with it (#1438): over a slice that kept none — a page's store gone with the page — a remount opens at the zoom it was shown at; a window kept with none, wider than the canvas draws a week at a time, is not taken back", async () => {

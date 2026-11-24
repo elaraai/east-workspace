@@ -28,16 +28,19 @@
  *
  * They fold on one ladder (#952): the rail first, its summary folding after
  * every step of it — then the Plan's own items (the user's decision,
- * 2026-09-27): the overlaps chip to its glyph and its count — words give way
- * before a control does — then the resolution segment folds into a one-chip
- * menu, then the fold toggle keeps only its icon. On a row narrower still the
- * key search folds into its icon, which opens the box in a popover (#1193):
- * with that, a phone's row holds every item. The history item folds last, to
- * its buttons. Before that last step, a time-axis Plan folds its group and
- * resolution controls into the shared date navigator's View, and its overlaps
- * chip with them, one move, as Calendar and Roster fold theirs (#1344: a
- * phone's row has room for the rail's icon, the View and the history item,
- * and no more). Nothing wraps or goes to a second row.
+ * 2026-09-27): the date navigator's label shortens and the overlaps chip keeps
+ * its glyph and its count — words give way before a control does — then the
+ * resolution segment folds into a one-chip menu, then the fold toggle keeps
+ * only its icon. On a row narrower still the key search folds into its icon,
+ * which opens the box in a popover (#1193): with that, a phone's row holds
+ * every item. The date navigator's arrows go only then (#1740, agreed 24 Nov
+ * 2026): they step the window a screenful, the control a viewer reaches for
+ * most, so they are the last of the Plan's own the row gives up. The history
+ * item folds last, to its buttons. Before that last step, a time-axis Plan
+ * folds its group and resolution controls into the shared date navigator's
+ * View, and its overlaps chip with them, one move, as Calendar and Roster fold
+ * theirs (#1344: a phone's row has room for the rail's icon, the View and the
+ * history item, and no more). Nothing wraps or goes to a second row.
  */
 
 import { useCallback, useMemo } from "react";
@@ -61,10 +64,11 @@ import { SEARCH_BOX_RANK } from "../../shared/schedule/search-rank.js";
 import { isPlanRowsFind } from "../find.js";
 import { PLAN_TOOLS, type PlanTool } from "../links/connect.js";
 
-/** The Plan's own fold ranks, after every step of the rail's (#952): the
- *  overlaps chip keeps its glyph and its count, the resolution then the fold
- *  toggle shorten, and the key search folds into its icon. The history item's
- *  step (`DEFAULT_RANK`) comes after all of them. */
+/** The Plan's own fold ranks, after every step of the rail's (#952): the date
+ *  navigator's label shortens and the overlaps chip keeps its glyph and its
+ *  count, the resolution then the fold toggle shorten, the key search folds
+ *  into its icon, and only then do the date navigator's arrows go (#1740). The
+ *  history item's step (`DEFAULT_RANK`) comes after all of them. */
 const PLAN_RANK = {
     overlapsShort: HOST_RANK,
     resolution: HOST_RANK + 1,
@@ -72,6 +76,7 @@ const PLAN_RANK = {
     tools: HOST_RANK + 3,
     seek: HOST_RANK + 4,
     time: HOST_RANK,
+    arrows: HOST_RANK + 5,
     controls: HOST_RANK + 6,
 } as const;
 
@@ -227,10 +232,12 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             {linkMenu(true)}
             {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
         </>;
+        // Its label shortens first and its arrows stay: they go after every other control of the Plan's has folded, the
+        // step before all of them fold into its View.
         return {
-            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.controls],
-            bundle: [undefined, "plan.controls"],
-            forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} compact />,
+            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.arrows, PLAN_RANK.controls],
+            bundle: [undefined, undefined, "plan.controls"],
+            forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} shortLabel />, <PlanTimeNavigator {...window} compact />,
                 <PlanTimeNavigator {...window} compact controls={compactControls} />],
         };
     }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,

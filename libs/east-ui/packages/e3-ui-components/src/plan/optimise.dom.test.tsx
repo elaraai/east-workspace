@@ -361,8 +361,8 @@ const windowSearches = (request: E3Request): boolean => request.kind === "find" 
     && request.query.get("index") === "plan_print_jobs_by_time";
 /** The requests made of the jobs' record since the request log held `from`. */
 const jobsSince = (from: number): E3Request[] => h.requests().slice(from).filter((request) => request.dataset === JOBS);
-/** The toolbar's step to the next day. */
-const nextDay = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "Next day" });
+/** The toolbar's step to the next window: the four weeks of days after the ones in view. */
+const nextWindow = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "Next 28 days" });
 
 /**
  * The print works' jobs, read a window at a time behind their rail, on a canvas that zooms — the day, the week, the
@@ -432,14 +432,14 @@ describe("the period a run is asked of (rule 1)", () => {
 });
 
 describe("the eye waits on nothing the canvas reads (rule 6)", () => {
-    test("over jobs read a window at a time, the eye is on while the next day's window is still on its way, and a click asks e3 nothing of the jobs for its request: the call alone", async () => {
+    test("over jobs read a window at a time, the eye is on while the next window is still on its way, and a click asks e3 nothing of the jobs for its request: the call alone", async () => {
         const { container } = await h.mount(windowed);
         await waitFor(() => expect(backlogCount(container)).toBeGreaterThan(0), { timeout: 10_000 });
-        // The next day's reads: the rows' window over the range the canvas reads, held — the canvas waits for it.
-        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        // The next window's reads — the four weeks from 2 November: the rows' window over the range the canvas reads, held — the canvas waits for it.
+        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-31T00:00:00Z")));
         const hold = calls.hold();
         try {
-            await press(nextDay(container));
+            await press(nextWindow(container));
             await waitFor(() => expect(rowsWindow.held).toBeGreaterThan(0));
             // The eye waits for none of it.
             expect(eye(container)!.disabled).toBe(false);
@@ -583,11 +583,11 @@ describe("an event kind's window that fails, on the footer's line (#1398)", () =
         const { container } = await h.mount(twoKinds);
         await settle();
         expect(line(container).hasAttribute("data-idle")).toBe(true);
-        // The shifts' window over the range the canvas reads after a step to the next day: refused.
-        const failing = shiftsFrom(new Date("2026-10-04T00:00:00Z"));
+        // The shifts' window over the range the canvas reads after a step to the next window, the four weeks from 2 November: refused.
+        const failing = shiftsFrom(new Date("2026-10-31T00:00:00Z"));
         const restore = h.e3.fail(failing);
         try {
-            await press(nextDay(container));
+            await press(nextWindow(container));
             expect([line(container).hasAttribute("data-failed"), line(container).querySelector("[data-line-text]")?.textContent])
                 .toEqual([true, "Couldn't read crew shift events"]);
             expect(line(container).getAttribute("title")).toContain(SHIFTS);

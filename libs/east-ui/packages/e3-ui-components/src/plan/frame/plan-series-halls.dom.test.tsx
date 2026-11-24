@@ -442,11 +442,11 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
             await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1002"))));
             await chooseHalls(["Hall 3"]);
             await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1003"))));
-            // The window a day on, written into the jobs' source's range — their start an Option, as the rail prints it.
-            await press(within(slot(c, "toolbar")!).getByRole("button", { name: "Next day" }));
+            // The window its own fortnight on, written into the jobs' source's range — their start an Option, as the rail prints it.
+            await press(within(slot(c, "toolbar")!).getByRole("button", { name: "Next 14 days" }));
             const maybeTime = printFor(OptionType(DateTimeType));
             expect(state("job").where.get("start")).toEqual(variant("range", {
-                from: maybeTime(some(new Date("2026-10-06T00:00:00Z"))), to: maybeTime(some(new Date("2026-10-20T00:00:00Z"))),
+                from: maybeTime(some(new Date("2026-10-19T00:00:00Z"))), to: maybeTime(some(new Date("2026-11-02T00:00:00Z"))),
             }));
             expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
         } finally {

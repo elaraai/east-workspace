@@ -33,6 +33,16 @@ export interface TimeNavigatorProps {
     onChange: (date: number) => void;
     now?: Date;
     compact?: boolean;
+    /**
+     * The short label between the arrows (#1740): what a row short of room keeps before its arrows go, words giving way
+     * before a control does. `compact` takes the arrows too.
+     */
+    shortLabel?: boolean;
+    /**
+     * How many of its periods an arrow steps (#1740): a host whose window spans several steps its whole length, a
+     * screenful — a week of days by a week. One period where left out.
+     */
+    stride?: number;
     /** A truthful visible/custom range may replace the anchor's label. */
     rangeLabel?: string | undefined;
     /**
@@ -74,7 +84,7 @@ export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefin
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, end, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, shortLabel = false, stride = 1, rangeLabel, end, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     // Its styles made once for the theme (#1398, CL9): the navigator draws again with every step of its builder's dates.
@@ -84,6 +94,8 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     const [month, setMonth] = useState(() => monthStart(date));
     const [panel, setPanel] = useState<Panel>(firstPanel(period, initialPanel));
     const [dayPanel, setDayPanel] = useState<"day" | "week">(initialPanel ?? (period === "week" ? "week" : "day"));
+    // The panel the viewer chose last, which the popover opens on again (#1740): one choice a navigator, kept while it is mounted.
+    const [chosen, setChosen] = useState<"day" | "week" | "range" | undefined>(undefined);
     const current = dayStart(date);
     const start = weekStart(current, sunday);
     const today = dayStart(now);
@@ -103,16 +115,22 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         setOpen(next);
         if (next) {
             setMonth(monthStart(date));
-            const initial = initialPanel ?? (period === "week" ? "week" : "day");
-            setDayPanel(initial); setPanel(firstPanel(period, initial));
+            // The panel chosen last, where the period's own first panel is one of the choices: a month's or a year's
+            // grid is its period's, whatever was chosen at days.
+            const initial = chosen === "day" || chosen === "week" ? chosen : initialPanel ?? (period === "week" ? "week" : "day");
+            const first = firstPanel(period, initial);
+            setDayPanel(initial);
+            setPanel(chosen === "range" && rangeEditor !== undefined && (first === "day" || first === "week") ? "range" : first);
         }
     };
     const commit = (next: number) => { onChange(next); setOpen(false); };
     const choose = (next: number) => commit(dayStart(next).getTime() + date - current.getTime());
-    const move = (step: number) => commit(shiftCalendar(new Date(date), period, step).getTime());
+    const move = (step: number) => commit(shiftCalendar(new Date(date), period, step * stride).getTime());
+    // What an arrow steps, as its name says it: one period, or the several of a screenful.
+    const stepped = stride === 1 ? period : `${stride} ${period}s`;
     const arrows = <>
-        <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
-        <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
+        <Button size="xs" variant="ghost" aria-label={`Previous ${stepped}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
+        <Button size="xs" variant="ghost" aria-label={`Next ${stepped}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
     </>;
     const weekNumber = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))}`;
     const weekLabel = (d: Date) => `${weekNumber(d)} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
@@ -120,7 +138,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     // The short label names the window's periods, its first to its last — one period, where the window is (#1680's review).
     const last = dayStart(end ?? date);
     const lastWeek = weekStart(last, sunday);
-    const shortLabel = period === "week"
+    const shortText = period === "week"
         ? (sameDate(lastWeek, start) ? weekNumber(start) : `${weekNumber(start)} – ${weekNumber(lastWeek)}`)
         : format.periodRange(current, last, period === "hour" || period === "day" ? "day" : period === "year" ? "year" : "month");
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
@@ -129,7 +147,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     // 23 Oct 2026); the popover's own buttons keep its density.
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
         trigger={<Button size="sm" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
-            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} data-time-icon="" /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
+            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} data-time-icon="" /> : <><Box as="span" css={styles.label} data-time-label="">{compact || shortLabel ? shortText : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
         footActions={<Button size="xs" variant="solid" onClick={() => { choose(today.getTime()); onToday?.(); }}>Today</Button>}>
@@ -139,7 +157,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
                 <Button size="xs" variant="ghost" css={styles.heading} aria-label={panel === "year" ? "Choose month" : panel === "month" ? "Choose year" : "Choose month"} onClick={() => setPanel(panel === "month" ? "year" : "month")}>{heading}<FontAwesomeIcon icon={faCaretDown} /></Button>
                 <Button size="xs" variant="ghost" aria-label={`Next ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
             </Box>}
-            {(panel === "day" || panel === "week" || rangeEditor !== undefined) && <Seg label="Choose by" name="picker-unit" scope={scope} fullWidth items={rangeEditor === undefined ? DAY_WEEK : DAY_WEEK_RANGE} active={panel} onPick={next => { if (next !== "range") setDayPanel(next); setPanel(next); }} />}
+            {(panel === "day" || panel === "week" || rangeEditor !== undefined) && <Seg label="Choose by" name="picker-unit" scope={scope} fullWidth items={rangeEditor === undefined ? DAY_WEEK : DAY_WEEK_RANGE} active={panel} onPick={next => { if (next !== "range") setDayPanel(next); setPanel(next); setChosen(next); }} />}
             {panel === "range" && rangeEditor}
             {panel === "week" && <Box css={styles.weeks}>{weeks.map(week => <chakra.button key={week.getTime()} type="button" css={styles.week}
                 {...{ [`data-${scope}-picker-week`]: week.toISOString().slice(0, 10) }} data-time-week={week.getTime()}
@@ -170,8 +188,8 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         </Box>
     </SliceEditPopover>;
     return <Box css={styles.root} data-time-navigation={scope} data-time-period={period} data-time-anchor={date}>
-        {!compact && <Button size="sm" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Previous ${stepped}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
         {picker}
-        {!compact && <Button size="sm" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Next ${stepped}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
     </Box>;
 }

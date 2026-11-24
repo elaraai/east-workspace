@@ -432,20 +432,20 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(ticks()[0]).toBe("W30");
         untouched();
-        // A step of the date navigator, a week on again, its weeks kept.
-        fireEvent.click(within(container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next week" }));
-        expect(ticks()[0]).toBe("W31");
+        // A step of the date navigator, the window's own ten weeks on, its weeks kept.
+        fireEvent.click(within(container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next 10 weeks" }));
+        expect(ticks()[0]).toBe("W40");
         expect(ticks()).toHaveLength(10);
         untouched();
-        // The lens's body slides: the horizon is now the axis's window and the window shown, W27 to W41, with the window's
-        // ten weeks again either side — W17 to W51, thirty-four weeks on a 3,400px track — and its body, from 1,900px, slid
+        // The lens's body slides: the horizon is now the axis's window and the window shown, W27 to W50, with the window's
+        // ten weeks again either side — forty-three weeks from W17, on a 4,300px track — and its body, from 2,300px, slid
         // a week on.
-        expect(screen.getByText("HORIZON · 34 WK")).toBeTruthy();
-        trackPx = 3400;
-        fireEvent.pointerDown(track, { clientX: 1900, pointerId: 1, buttons: 1 });
-        fireEvent.pointerMove(track, { clientX: 2000, pointerId: 1, buttons: 1 });
+        expect(screen.getByText("HORIZON · 43 WK")).toBeTruthy();
+        trackPx = 4300;
+        fireEvent.pointerDown(track, { clientX: 2800, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 2900, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
-        await waitFor(() => expect(ticks()[0]).toBe("W32"));
+        await waitFor(() => expect(ticks()[0]).toBe("W41"));
         expect(ticks()).toHaveLength(10);
         untouched();
     });

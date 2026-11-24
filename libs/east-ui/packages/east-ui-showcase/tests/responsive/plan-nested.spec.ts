@@ -229,20 +229,20 @@ function movedIn(frames: readonly Frame[]): string[] {
     return bad;
 }
 
-/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of a week, a zoom to a month. */
+/** What a gesture does, at 1440 and on a phone: a scroll to rows not read, a pan of the dates, a zoom to a month. */
 const GESTURES = {
     // At 1440 the canvas scrolled to its 76th row; on a phone, the list's next cards shown.
     scroll: async (_page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) await entry.locator("[data-plan-more='rows']").click();
         else await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 75 * 32; });
     },
-    // A week on: at 1440 the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a phone, the date
-    // navigator's popover's Next week — the View its toolbar folds the navigator into, the window's weeks named whole
-    // (#1680's review).
+    // The dates moved on: at 1440 a week, the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a
+    // phone the window's own thirteen weeks (#1740), the date navigator's popover's Next — the View its toolbar folds
+    // the navigator into, the window's weeks named whole (#1680's review).
     pan: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
             await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
-            await page.getByRole("button", { name: "Next week", exact: true }).click();
+            await page.getByRole("button", { name: "Next 13 weeks", exact: true }).click();
             await page.keyboard.press("Escape");
         } else {
             await entry.locator("[data-plan-row]").first().focus();
