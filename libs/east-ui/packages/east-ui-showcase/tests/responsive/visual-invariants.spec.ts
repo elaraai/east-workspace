@@ -30,6 +30,11 @@ const RULED = ["planTargetState", "planMeasures", "planRowDrop", "planNumberAxis
 /** The row kinds whose plots carry the shared grid. */
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
+/** A chart column in the first series' ink (#1753): its layer's name the first to appear (`data-series` 0), or its
+ *  layer given no name and no colour of its own (no `--mark-ink` set on it), which draws in its mark's own ink — the
+ *  first series' too. */
+const FIRST_INK = "[data-plan-mark='column']:is([data-series='0'], :not([data-series]):not([style*='--mark-ink']))";
+
 /** The ruler and body share the gutter boundary, NOW and each bucket's rule — its last whole pixel (#1735): the
  * ruler's tick draws it as its right border, the row's grid as a line of its SVG. Read as pixel columns from the
  * plot's left, each one whole and the same in both. */
@@ -77,7 +82,7 @@ async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
  * page — each as a line saying what, where and by how much.
  */
 async function violations(entry: Locator): Promise<string[]> {
-    return entry.evaluate((root) => {
+    return entry.evaluate((root, firstInk) => {
         const bad: string[] = [];
         const body = root.querySelector("[data-plan-body]")!;
         const cs = (el: Element) => getComputedStyle(el);
@@ -264,7 +269,7 @@ async function violations(entry: Locator): Promise<string[]> {
             const columns = [...row.querySelectorAll("[data-plan-mark='column']")];
             if (columns.length === 0) continue;
             for (const c of columns) {
-                if (c.getAttribute("data-series") !== "0") continue;
+                if (!c.matches(firstInk)) continue;
                 const fill = cs(c).fill;
                 if (!c.hasAttribute("data-planned") && fill !== T.series1) bad.push(`column (actual): ${fill}, want ${T.series1}`);
                 if (c.hasAttribute("data-planned") && fill === T.series1) bad.push("column (forecast): drawn as an actual");
@@ -369,7 +374,7 @@ async function violations(entry: Locator): Promise<string[]> {
             if (Math.abs(hh - sh) > 0.5) bad.push(`heat row "${name(heat)}" ${hh}px beside a ${sh}px span row, both laid out at ${h}px`);
         }
         return bad;
-    });
+    }, FIRST_INK);
 }
 
 test.describe("Visual invariants — the Plan", () => {
@@ -390,7 +395,7 @@ test.describe("Visual invariants — the Plan", () => {
 
         test(`planNumberAxis (${theme}): the horizon is an overview with a lens and no histogram; the window is the orders' range, its eight days counted in the rail's summary; the range chip in mono; the footer says plain summaries`, async ({ page }) => {
             const entry = await openExample(page, "planNumberAxis", PLAN_EXAMPLES, theme);
-            const read = await entry.evaluate((root) => {
+            const read = await entry.evaluate((root, firstInk) => {
                 const body = root.querySelector("[data-plan-body]")!;
                 const plot = body.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
                 const lens = body.querySelector("[data-slot='horizon'] [data-plan-lens]");
@@ -413,7 +418,7 @@ test.describe("Visual invariants — the Plan", () => {
                         heatLabels: count("[data-plan-heat-label]"),
                         spans: count("[data-run]"),
                         committed: count("[data-run][data-state='obs']"),
-                        columns: count("[data-plan-row][data-plan-kind='chart'] [data-plan-mark='column'][data-series='0']"),
+                        columns: count(`[data-plan-row][data-plan-kind='chart'] ${firstInk}`),
                         // Its output chart shows its value on its first line, so its scale is its gridline (#1750).
                         scale: count("[data-plan-row][data-plan-kind='chart'] [data-plan-gridline]"),
                         now: count("[data-plan-row] [data-plan-now]"),
@@ -429,7 +434,7 @@ test.describe("Visual invariants — the Plan", () => {
                     footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-footer-more]):not([data-footer-line])")].map((el) => (el as HTMLElement).innerText),
                     summary: (root.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='record-summary'] [data-record-slices-summary]") as HTMLElement | null)?.innerText ?? null,
                 };
-            });
+            }, FIRST_INK);
             for (const [hook, n] of Object.entries(read.seen)) expect(n, `the ${hook} hook`).toBeGreaterThan(0);
             // The lens meets the plot's own edges: its connectors end where the grid does.
             expect(read.lens).toEqual({ left: 0, width: 0 });
