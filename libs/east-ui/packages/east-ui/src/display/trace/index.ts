@@ -71,6 +71,7 @@ function buildStyle(options: TraceOptions | undefined): ExprType<TraceStyleType>
  * @param tracks - One row per measure, each `{ name, values }`
  * @param options - Optional config: `now`, `density`, `scale`, `future`, `axis`, `domain`, colour overrides
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When `domain`'s bounds are written as numbers and draw no scale: one is no finite number, or the max is not past the min
  *
  * @remarks
  * Read-only by construction — no events, no commit, no drag. Each track's heat
@@ -122,7 +123,7 @@ function createTrace(
         density: densityValue ? some(densityValue) : none,
         scale: scaleValue ? some(scaleValue) : none,
         future: futureValue ? some(futureValue) : none,
-        domain: numberDomainOf(options?.domain),
+        domain: numberDomainOf(options?.domain, "Trace", "one scale for every track"),
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

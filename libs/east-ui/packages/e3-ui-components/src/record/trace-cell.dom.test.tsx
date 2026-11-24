@@ -21,6 +21,7 @@ import * as ex from "@elaraai/e3-ui/examples/record/record-display";
 import { settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { touchFrame } from "../sheet/frame.test-utils.js";
 import { recordMessages as m } from "./messages.js";
+import { stripSays } from "./strip.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -109,6 +110,13 @@ describe("a Record's trace cells (east-workspace#1728)", () => {
             const history = cell(container, id, "history");
             expect([traces(history).length, absent(history), history.title], id).toEqual([0, "no history", "no history"]);
         }
+        // The strip says what the cell says (east-workspace#1734's review): the column's words, or the Record's dash.
+        await press(cell(container, "M-04", "history"));
+        expect(stripSays(container)).toEqual(["Last year", "no history", "↑ ↓ ← → move"]);
+        await press(cell(container, "M-07", "history"));
+        expect(stripSays(container)).toEqual(["Last year", "no history", "↑ ↓ ← → move"]);
+        await press(cell(container, "M-07", "load"));
+        expect(stripSays(container)).toEqual(["Load", m.absent(), "↑ ↓ ← → move"]);
     });
 
     test("read only: a clear, typing and a paste pass a trace by, the status line saying so — its steps as they were (T1)", async () => {

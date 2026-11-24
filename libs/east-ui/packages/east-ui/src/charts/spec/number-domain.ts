@@ -22,15 +22,22 @@ import { NumberDomainType } from "./types.js";
 export type NumberDomainInput = readonly [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>];
 
 /**
- * A numeric `[min, max]` as the wire holds it.
+ * A numeric `[min, max]` as the wire holds it: bounds written as numbers that draw no scale refused as it is built
+ * ({@link drawsDomain}), and bounds an expression gives as they come.
  *
  * @param domain - The bounds as written, or none
+ * @param subject - What is given the domain, as a refusal names it: `Trace`, or a Record's `Sheet: column "load"`
+ * @param scale - What the domain is, as the refusal says it: `one scale for every track`
  * @returns The domain, or `none` without one
+ * @throws {Error} When both bounds are written as numbers and draw no scale: one is no finite number, or the max is not past the min
  */
-export function numberDomainOf(domain: NumberDomainInput | undefined): ExprType<OptionType<NumberDomainType>> {
-    return domain === undefined
-        ? East.value(none, OptionType(NumberDomainType))
-        : East.value(some({ min: domain[0], max: domain[1] }), OptionType(NumberDomainType));
+export function numberDomainOf(domain: NumberDomainInput | undefined, subject: string, scale: string): ExprType<OptionType<NumberDomainType>> {
+    if (domain === undefined) return East.value(none, OptionType(NumberDomainType));
+    const [min, max] = domain;
+    if (typeof min === "number" && typeof max === "number" && !drawsDomain(min, max)) {
+        throw new Error(`${subject} has the domain [${min}, ${max}] — ${scale} runs from its min to a max past it, both finite numbers`);
+    }
+    return East.value(some({ min, max }), OptionType(NumberDomainType));
 }
 
 const floatLess = lessFor(FloatType);

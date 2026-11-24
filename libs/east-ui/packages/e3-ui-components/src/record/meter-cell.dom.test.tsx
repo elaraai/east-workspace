@@ -20,6 +20,7 @@ import userEvent from "@testing-library/user-event";
 import * as ex from "@elaraai/e3-ui/examples/record/record-display";
 import { settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { recordMessages as m } from "./messages.js";
+import { stripSays } from "./strip.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -82,6 +83,9 @@ describe("a Record's meter cells (east-workspace#1730)", () => {
         // The Record's dash where a column gives no words: none of the others is none.
         expect(absent(cell(container, "M-07", "booked"))).toBeUndefined();
         expect(m.absent()).toBe("—");
+        // The strip says what the cell says (east-workspace#1734's review): the column's words.
+        await press(yieldOf);
+        expect(stripSays(container)).toEqual(["Yield", "nothing made", "↑ ↓ ← → move"]);
     });
 
     test("read only: a clear and a paste pass a meter by, the status line saying so (M1)", async () => {

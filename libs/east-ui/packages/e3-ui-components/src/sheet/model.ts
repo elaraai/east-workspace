@@ -36,6 +36,7 @@ import type {
 import type { SheetWords } from "./words.js";
 import { blankRowId } from "./sheet-types.js";
 import { DATE_DISPLAY_PATTERN, isWhenLevel, type WhenLevel } from "./parse/date.js";
+import { formatNumberBare } from "./parse/quantity.js";
 import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
@@ -538,14 +539,15 @@ export function formatQuantity(n: number, format: TickFormatOpt, words: Formatte
 /**
  * A series' numbers as text (east-workspace#1728) — what copy puts and a strip says: each as data, every digit and
  * never grouped, in the viewer's language, between separators that are never its decimal one: `12, 14.5, 13`
- * (`12; 14,5; 13` in `de-DE`).
+ * (`12; 14,5; 13` in `de-DE`) — a value that is no finite number nothing between its separators, as a Float cell
+ * copies it.
  *
  * @param values - The series
  * @param words - The viewer's formatters
  * @returns The text; empty for an empty series
  */
 export function seriesText(values: readonly number[], words: Formatters): string {
-    return values.map((n) => words.bare(n)).join(words.separators.decimal === "," ? "; " : ", ");
+    return values.map((n) => formatNumberBare(n, words)).join(words.separators.decimal === "," ? "; " : ", ");
 }
 
 /** A Float as East prints it — a series' numbers where no viewer's language is to hand. */

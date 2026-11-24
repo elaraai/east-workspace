@@ -227,6 +227,14 @@ export type SheetBandType = typeof SheetBandType;
 export const SHEET_TITLE_CELL = "$title";
 
 /**
+ * The cell key a row's read at the day says why it failed under (east-workspace#1734's review): the message of a mark,
+ * or a column from data's `read` or `mark`, that threw over the row, a String. The renderer keeps the row's own cells
+ * then, every marked one locked, and the row's meters, each read apart, stand over them. The `$` prefix keeps it clear
+ * of every field name, as {@link SHEET_TITLE_CELL} does.
+ */
+export const SHEET_UNREAD_CELL = "$unread";
+
+/**
  * The key of an UNRENDERED cell a column's rule projects into (#844) — a
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.

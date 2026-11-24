@@ -379,13 +379,14 @@ export const recordSlotRecipe = defineSlotRecipe({
            between its paddings, starting a whole number of pixels under the row's edge: a compact trace's 22 in the 34 or 30 of
            a 36 or 32 row, a condensed one's 15 in a 28 row's 26 a pixel under it, as any odd part stands (`data-density`, the
            trace's); a sparkline the room's height less 6 at its top and its foot — 22, 18 or 14 — its line in the brand, the
-           Sparkline's own colour (`currentColor`); a meter's bar and its percent on an even 20px line, in Details as in a row,
+           Sparkline's own colour (`currentColor`), its stroke whole where the line runs along its box's top or foot, the
+           inset its room (east-workspace#1734's review); a meter's bar and its percent on an even 20px line, in Details as in a row,
            the size container its Meter reads: under 56px wide, the bar alone. In Details, across its field's line, the
            Input's height. */
         display: {
             flex: "1 1 auto", minWidth: "0", display: "flex", alignItems: "center",
             "&[data-density=condensed]": ODD_PART,
-            "&[data-kind=sparkline]": { alignSelf: "stretch", paddingBlock: "6px", color: "brand.solid" },
+            "&[data-kind=sparkline]": { alignSelf: "stretch", paddingBlock: "6px", color: "brand.solid", "& svg": { overflow: "visible" } },
             "&[data-kind=meter]": { containerType: "inline-size", lineHeight: "20px" },
             "&[data-place=details]": { height: fieldHeights.md, boxSizing: "border-box" },
         },

@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { useChakraContext } from "@chakra-ui/react";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, equivalentFor, lessFor, type ValueTypeOf } from "@elaraai/east";
 import { Sparkline, drawsDomain } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
@@ -48,6 +48,9 @@ export interface EastChakraSparklineProps {
     value: SparklineValue;
 }
 
+/** East's order of Floats: what says a series' min is below its max. */
+const floatLess = lessFor(FloatType);
+
 /**
  * Generates SVG path data for sparkline.
  * Uses a normalized coordinate system (0-100) that scales with viewBox.
@@ -56,7 +59,7 @@ export interface EastChakraSparklineProps {
  * @param isArea - Whether the area under the line is filled too
  * @param domain - One vertical scale for the values (east-workspace#1729): each drawn at its place in it, one past
  *   either end at that end; `undefined`, or one whose bounds are no finite numbers or whose max is not past its min,
- *   the data's own min and max — and a single value at the middle
+ *   the data's own min and max — and a single value, or one value throughout, at the middle
  * @returns The line's path, and the area's (`""` for a line)
  */
 export function generatePaths(
@@ -88,13 +91,16 @@ export function generatePaths(
     const min = scale?.min ?? Math.min(...data);
     const max = scale?.max ?? Math.max(...data);
     const range = max - min || 1;
+    // One value throughout, and no domain to place it on: the line runs across the middle, as a single value's does
+    // (east-workspace#1734's review) — over a range of none it would lie on the box's foot.
+    const flat = scale === undefined && !floatLess(min, max);
 
     const xStep = (width - padding * 2) / (data.length - 1);
     const yScale = (height - padding * 2) / range;
 
     const points = data.map((value, i) => {
         const x = padding + i * xStep;
-        const y = scale !== undefined ? yOn(value, scale.min, scale.max) : height - padding - (value - min) * yScale;
+        const y = scale !== undefined ? yOn(value, scale.min, scale.max) : flat ? height / 2 : height - padding - (value - min) * yScale;
         return { x, y };
     });
 

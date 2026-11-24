@@ -1714,7 +1714,12 @@ Each wire changed under this rule, with the kind it is.
   cell, which sorts between `Null` and `String`, so `String` moves down one. A
   meter's max and tone are read by the root's `cellsAt`, its max cell holding
   a Float — or, where the app's max or tone threw over the row, the error's
-  message, a String. east-ui's `Trace` and `Sparkline` arms gain `domain`, an
+  message, a String; and where a mark or a column from data threw over the
+  row, `cellsAt` leaves the error's message in the row's `$unread` cell, a
+  String, and reads its meters all the same. A custom column's `parse` giving
+  a series is refused at build, as a payload no cell of it holds, and a Trace
+  or a Sparkline given a `domain` written as numbers that draw no scale is
+  refused as it is built. east-ui's `Trace` and `Sparkline` arms gain `domain`, an
   `Option<NumberDomainType>` — the Trace's after `future`, the Sparkline's
   after `type` — one scale for every track, or every line. They travel in
   east-ui's `UIComponentType` and in the `Sheet` and `Record` extensions'
