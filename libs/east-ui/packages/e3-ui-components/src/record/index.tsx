@@ -291,6 +291,8 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         forms,
         // Whether its Autosave begins on, as its author says.
         autosave: value.autosave,
+        // The frame it lays the sheet in: a field of its Details with the keyboard holds the day (`useEditDay`).
+        frame: frameRef,
     }), [rowPx, tickable, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);

@@ -13,10 +13,14 @@
  * viewer is in, wherever they are — read again at each whole minute while it
  * reads anything at the day, and drawn again only when the day turns.
  *
+ * An edit is made against the day its editor opened on ({@link useEditDay}):
+ * the day a sheet reads and writes at holds while an editor is open, and moves
+ * on only once it has closed.
+ *
  * @packageDocumentation
  */
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import { DateTimeType, equalFor } from "@elaraai/east";
 
 const SheetDayContext = createContext<Date | undefined>(undefined);
@@ -71,4 +75,55 @@ export function useSheetDay(reads: boolean): Date {
         return () => { if (timer !== undefined) clearTimeout(timer); };
     }, [given, reads]);
     return given ?? own;
+}
+
+/**
+ * The day a sheet reads and writes at, held while an edit is open on it (east-workspace#1746). An editor's text is
+ * typed against the cells as its day read them, and a write decodes a row's cells from data against what that day
+ * read: written at another, the typed cell lands on that day's entry, and every cell that differs between the two days
+ * with it. So from an edit's opening the day holds — under a cell's editor or a phone's bottom editor, and while the
+ * inspector has the keyboard, a field of whose form keeps its text until the keyboard leaves the field for another
+ * part — through the commit that closes it, which the sheet writes in the render it closes in; a render later the
+ * sheet reads at the day now. The parts that count time — a Record's ages — follow their clock meanwhile.
+ *
+ * @param now - The day now: the host's, else the viewer's own ({@link useSheetDay})
+ * @param editing - Whether an editor of the grid is open
+ * @param frame - The frame the sheet is laid in, its inspector with it
+ * @returns The day the sheet reads and writes at
+ */
+export function useEditDay(now: Date, editing: boolean, frame: RefObject<HTMLElement | null>): Date {
+    const [typing, setTyping] = useState(false);
+    useEffect(() => {
+        let leaving: ReturnType<typeof setTimeout> | undefined;
+        // In the sheet's own inspector: a field's box, its steppers, its choices.
+        const ours = (at: EventTarget | null): boolean =>
+            at instanceof Element && frame.current?.contains(at) === true && at.closest("[data-sheet-inspector]") !== null;
+        const entered = (event: FocusEvent): void => {
+            if (!ours(event.target)) return;
+            if (leaving !== undefined) clearTimeout(leaving);
+            leaving = undefined;
+            setTyping(true);
+        };
+        // A field commits its text in a microtask of the keyboard's leaving it: the day holds until a task after the
+        // keyboard has left the inspector, which its going to another of the inspector's parts takes back.
+        const left = (event: FocusEvent): void => {
+            if (!ours(event.target)) return;
+            if (leaving !== undefined) clearTimeout(leaving);
+            leaving = setTimeout(() => { leaving = undefined; setTyping(false); }, 0);
+        };
+        document.addEventListener("focusin", entered);
+        document.addEventListener("focusout", left);
+        return () => {
+            document.removeEventListener("focusin", entered);
+            document.removeEventListener("focusout", left);
+            if (leaving !== undefined) clearTimeout(leaving);
+        };
+    }, [frame]);
+    const open = editing || typing;
+    const [held, setHeld] = useState(now);
+    // Let go a render after the edit closes: the render it closes in writes its commit, at the day it holds.
+    useLayoutEffect(() => {
+        if (!open) setHeld((was) => (dayEqual(was, now) ? was : now));
+    }, [open, now]);
+    return held;
 }

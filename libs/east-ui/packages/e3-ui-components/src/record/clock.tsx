@@ -12,7 +12,9 @@
  * age column's count of a row's moment is taken against them. Every part that
  * counts reads the one time, so a day that turns over where the viewer is, or
  * a day the page sets, moves the age cells, their stale dots, the footer's
- * count, the inspector's facts and the cells from data together.
+ * count, the inspector's facts and the cells from data together — but under
+ * an edit open on the sheet, whose cells from data keep the day it was opened
+ * on until it closes (`useEditDay`, `../sheet/day.tsx`).
  *
  * @packageDocumentation
  */

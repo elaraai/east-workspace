@@ -11,12 +11,15 @@
  * briefing count to it, and an edit's `write` is handed it. A new day read in
  * its place reads every row's cells again with no remount, the drafts kept: a
  * drafted field shows as read at the new day, and Undo takes each edit back
- * whatever day it was made at. Without `day`, the Record reads at the
- * viewer's own day, as before.
+ * whatever day it was made at. An edit open as the day moves on — a cell's
+ * editor, a Details field with the keyboard — keeps the day it was opened on:
+ * the cells under it read that day until it closes, and its text is saved at
+ * it. Without `day`, the Record reads at the viewer's own day, as before.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { DateTimeType, East, encodeBeast2For, equalFor, printFor } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
@@ -80,8 +83,8 @@ async function planFor(day: Date) {
     await settle();
 }
 
-/** A crew member's hours on a machine, typed into its cell — the ring on it first — and committed with ⇥. */
-async function typeHours(c: HTMLElement, id: string, machine: string, text: string) {
+/** A crew member's hours on a machine, typed into its cell's editor — the ring on it first — and left open: its input. */
+async function openHours(c: HTMLElement, id: string, machine: string, text: string): Promise<HTMLInputElement> {
     const at = cell(c, id, `planned:${machine}`);
     fireEvent.mouseDown(at, { button: 0 });
     fireEvent.click(at);
@@ -95,6 +98,12 @@ async function typeHours(c: HTMLElement, id: string, machine: string, text: stri
     });
     fireEvent.input(input, { target: { value: text } });
     await settle();
+    return input;
+}
+
+/** A crew member's hours on a machine, typed into its cell and committed with ⇥. */
+async function typeHours(c: HTMLElement, id: string, machine: string, text: string) {
+    const input = await openHours(c, id, machine, text);
     fireEvent.keyDown(input, { key: "Tab" });
     await settle();
 }
@@ -157,6 +166,48 @@ describe("the page's day (#1746)", () => {
         await settle();
         await planFor(MONDAY);
         expect([hours(container, "C-001", ["M-10", "M-11"]), drafted(container, "C-001")]).toEqual([["6", "2"], false]);
+    });
+
+    test("an edit is saved at the day it was typed against, though the page's day moves on under its open editor: the cells keep that day until the editor closes", async () => {
+        const { container } = await h.mount(ex.recordPlannedHours, { storageKey: "record-day-held" });
+        // Monday: 6 hours on M-10, 2 on M-11. A 9 typed over the 6, its editor left open.
+        const input = await openHours(container, "C-001", "M-10", "9");
+        // The page's day moves on to Tuesday — a run's, or its own code's — the keyboard still in the editor.
+        await planFor(TUESDAY);
+        // The row under the editor reads Monday still: what the 9 is typed against.
+        expect(hours(container, "C-001", ["M-11"])).toEqual(["2"]);
+        fireEvent.keyDown(input, { key: "Tab" });
+        await settle();
+        // The editor closed, the cells read Tuesday: its own 8 on M-10, as it was — the 9 is none of Tuesday's.
+        expect([hours(container, "C-001", ["M-10", "M-11"]), drafted(container, "C-001")]).toEqual([["8", ""], true]);
+        // Monday holds it.
+        await planFor(MONDAY);
+        expect(hours(container, "C-001", ["M-10", "M-11"])).toEqual(["9", "2"]);
+    });
+
+    test("Details with the keyboard holds the day too: a field's text, committed as the keyboard leaves it, is saved at the day it was typed against", async () => {
+        const { container } = await h.mount(ex.recordPlannedHours, { storageKey: "record-day-field" });
+        // The ring on A. Morgan's name: Details shows her, her hours on Press A a line of its form.
+        await act(async () => { fireEvent.mouseDown(cell(container, "C-001", "name"), { button: 0 }); });
+        await settle();
+        const box = () => within(container.querySelector<HTMLElement>('[data-sheet-inspector] [data-field="planned:M-10"]')!).getByRole<HTMLInputElement>("spinbutton");
+        expect(box().value).toBe("6");
+        const user = userEvent.setup();
+        await user.clear(box());
+        await user.type(box(), "9");
+        await settle();
+        // The page's day moves on to Tuesday, the keyboard still in the field: the row reads Monday still.
+        await planFor(TUESDAY);
+        expect([hours(container, "C-001", ["M-11"]), box().value]).toEqual([["2"], "9"]);
+        // ⇥ takes the keyboard to the field's own stepper: the field keeps its text, and the day holds.
+        await user.tab();
+        await settle();
+        expect([hours(container, "C-001", ["M-11"]), box().value]).toEqual([["2"], "9"]);
+        // The keyboard leaves Details, and the field commits its text: the 9 is Monday's, and the cells then read Tuesday.
+        await act(async () => { (document.activeElement as HTMLElement).blur(); });
+        await waitFor(() => expect(hours(container, "C-001", ["M-10", "M-11"])).toEqual(["8", ""]));
+        await planFor(MONDAY);
+        expect(hours(container, "C-001", ["M-10", "M-11"])).toEqual(["9", "2"]);
     });
 
     test("without `day`, the Record reads at the viewer's own day: its cells and its ages the clock's date's, as before", async () => {

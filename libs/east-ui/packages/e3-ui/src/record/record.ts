@@ -200,9 +200,11 @@ export interface RecordCommon<R extends StructTypeOf, C> {
      * The day the Record's columns from data read and write their cells at — each one's `read`, `write` and `mark`
      * handed it as the page gives it, never rounded — and its ages in days and weeks count to: a value, or an
      * expression, a reactive state's `read()` or a dataset's value, so a page plans as at a day that is not the
-     * viewer's today. As it changes, every row's cells from data are read again at the new day, with no rebuild, and
+     * viewer's today. As it changes, every row's cells from data are read again at the new day, with no remount, and
      * the drafts stay: a draft is the row's field, so a drafted field shows as read at the new day, Undo takes back
-     * each edit whatever day it was made at, and Save commits the fields. Left out, the viewer's own day: the browser's
+     * each edit whatever day it was made at, and Save commits the fields. An edit open as it changes — a cell's editor,
+     * or the inspector with the keyboard — keeps the day it was opened on: the cells read that day until it closes,
+     * and its text is saved at it. Left out, the viewer's own day: the browser's
      * local calendar date at UTC midnight, which turns over at their midnight. An age in hours counts to the browser's
      * clock either way. The Record draws nothing for the day: the page shows the day it sets, and lets a person change
      * it if it wants to.
