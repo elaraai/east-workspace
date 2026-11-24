@@ -8,8 +8,10 @@
  * vertex beyond the window keeps its x and the plot clips it), columns that
  * fit the plot because the domain holds their baseline and stacks, stacks
  * kept per value axis, gutter ticks on the marks' own scale, gaps that break a
- * line or an area, and the crosshair readout — each layer's value at the
- * hovered bucket, written without a render. And its gutter and axes (#1750):
+ * line or an area, and the readout (#1753) — the row under the pointer's in
+ * full over the canvas, a line a series in the legend's order, and every other
+ * chart row's values beside the hovered bucket, written without a render. And
+ * its gutter and axes (#1750):
  * a gridline a tick under the marks, the left axis in the gutter's value slot,
  * the right reading the left's ticks, and the name on the row's first line.
  * And how each layer draws (#1753): its ink by its name or its author's
@@ -269,52 +271,87 @@ describe("gaps (#743)", () => {
     });
 });
 
-describe("the crosshair readout (#743)", () => {
-    const stubRect = (el: HTMLElement) => Object.defineProperty(el, "getBoundingClientRect", {
-        value: () => ({ left: 0, top: 0, right: 1000, bottom: 88, width: 1000, height: 88, x: 0, y: 0, toJSON: () => ({}) }),
+describe("the readout (#743, #1753)", () => {
+    /** A box `top` px down the page, 1000 wide and 88 tall — what jsdom, which lays nothing out, cannot measure. */
+    const stubRect = (el: Element, top: number) => Object.defineProperty(el, "getBoundingClientRect", {
+        value: () => ({ left: 0, top, right: 1000, bottom: top + 88, width: 1000, height: 88, x: 0, y: top, toJSON: () => ({}) }),
     });
 
-    test("hovering a bucket reads each data layer's value there — written straight into the DOM, no render", () => {
+    test("the row under the pointer reads, over the canvas, the column's name and a line a series in the legend's order — its stroke, its name and what it reads; every other chart row its values beside the bucket; written straight into the DOM, no render", () => {
         const commits: string[] = [];
         const { container } = render(
             <ChakraProvider value={system}>
-                <Profiler id="chart-743-readout" onRender={(_id, phase) => { commits.push(phase); }}>
-                    <EastChakraPlan storageKey="chart-743-readout" value={planRoot([planRow("c", chartKind([
-                        variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN,
-                            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
-                        variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, breach: none, fold: SUM,
-                            style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
-                        variant("refLine", { y: 10, axis: left, label: none, dash: none, color: none }),
-                    ]))], 4)} />
+                <Profiler id="chart-1753-readout" onRender={(_id, phase) => { commits.push(phase); }}>
+                    <EastChakraPlan storageKey="chart-1753-readout" value={planRoot([
+                        planRow("c", chartKind([
+                            variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, breach: none, fold: SUM,
+                                style: { label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                            variant("line", { points: [pt(0.5, 42), pt(1.5, 44)], axis: left, breach: none, fold: MEAN,
+                                style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: some(-1) } }),
+                            variant("band", { points: [{ t: numberInstant(0.5), lo: 38, hi: 46 }], axis: left,
+                                style: { label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                            variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN,
+                                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                            variant("line", { points: [pt(0.5, 50)], axis: left, breach: none, fold: MEAN,
+                                style: { label: some("Plan"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: false, order: none } }),
+                            variant("refLine", { y: 10, axis: left, label: none, dash: none, color: none }),
+                        ], { left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }) })),
+                        planRow("d", chartKind([
+                            variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN,
+                                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                            variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, breach: none, fold: SUM,
+                                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+                            variant("refLine", { y: 10, axis: left, label: none, dash: none, color: none }),
+                        ])),
+                    ], 4)} />
                 </Profiler>
             </ChakraProvider>,
         );
-        const row = container.querySelector(rowSel("c"))!;
-        const readout = row.querySelector("[data-plan-readout]") as HTMLElement;
-        const values = () => [...readout.querySelectorAll("[data-plan-readout-value]")].map((v) => v.textContent);
-        // Closed at rest — one reading per DATA layer (the reference line reads nothing).
-        expect(readout.hasAttribute("data-open")).toBe(false);
-        expect(readout.querySelectorAll("[data-plan-readout-value]")).toHaveLength(2);
+        const c = container.querySelector(rowSel("c"))!;
+        const d = container.querySelector(rowSel("d"))!;
+        // The row under the pointer's box hangs from the page, outside the rows.
+        const tip = [...document.querySelectorAll<HTMLElement>("[data-plan-tooltip]")]
+            .find((el) => el.getAttribute("data-plan-tooltip") === c.getAttribute("data-plan-row"))!;
+        expect(container.contains(tip)).toBe(false);
+        const read = (el: Element, attr: string) => [...el.querySelectorAll(`[${attr}]`)].map((v) => v.textContent);
+        const other = d.querySelector<HTMLElement>("[data-plan-readout]")!;
+        // Closed at rest. A line a series, in the order they are declared — Printed, then Output's line and band
+        // together though Output draws first — and a line for the layer that names none; no line for a layer whose
+        // tooltip is off, nor for the reference line.
+        expect([tip.hasAttribute("data-open"), read(tip, "data-plan-tooltip-name")]).toEqual([false, ["Printed", "Output", ""]]);
+        // Each stroke in its series' ink — the first series colour, the next — and the unnamed line's in its mark's own.
+        expect([...tip.querySelectorAll("[data-plan-tooltip-swatch]")].map((s) => [s.getAttribute("data-series"), s.getAttribute("data-kind")]))
+            .toEqual([["0", "column"], ["1", "line"], [null, "line"]]);
 
-        const plot = row.children[1] as HTMLElement;
-        stubRect(plot);
+        const plot = c.children[1] as HTMLElement;
+        stubRect(plot, 100);
+        stubRect(c.querySelector("[data-plan-chart]")!, 100);
+        const chart = c.querySelector("[data-plan-chart]")!;
         const before = commits.length;
-        fireEvent.pointerMove(plot, { clientX: 125 });            // bucket 0
-        expect(readout.hasAttribute("data-open")).toBe(true);
-        expect(values()).toEqual(["1.5", "12"]);
-        // Beside the bucket: the left half reads to its right.
-        expect(readout.style.left).toBe("25%");
-        fireEvent.pointerMove(plot, { clientX: 400 });            // bucket 1 — no column there
-        expect(values()).toEqual(["2", "—"]);
-        fireEvent.pointerMove(plot, { clientX: 700 });            // bucket 2 — the right half reads to its left
-        expect(values()).toEqual(["4", "30"]);
-        expect(readout.style.left).toBe("50%");
-        fireEvent.pointerMove(plot, { clientX: 900 });            // bucket 3 — nothing to read
-        expect(readout.hasAttribute("data-open")).toBe(false);
-        fireEvent.pointerMove(plot, { clientX: 125 });
-        expect(readout.hasAttribute("data-open")).toBe(true);
+        fireEvent.pointerMove(chart, { clientX: 125 });           // bucket 0
+        // The column's name, then what each series reads, with its unit: Output's value and its band's range on one line.
+        expect([tip.hasAttribute("data-open"), read(tip, "data-plan-tooltip-title"), read(tip, "data-plan-tooltip-value")])
+            .toEqual([true, ["0"], ["12 k sheets", "42 (38–46) k sheets", "1.5 k sheets"]]);
+        // Beside the bucket, the left half reading to its right, at the plot's top.
+        expect([tip.style.left, tip.style.top, tip.style.transform]).toEqual(["250px", "102px", "translateX(4px)"]);
+        // The row's own values beside the bucket give way to it; the other chart row reads its own there.
+        expect([c.querySelector("[data-plan-readout]")!.hasAttribute("data-open"), other.hasAttribute("data-open"), read(other, "data-plan-readout-value")])
+            .toEqual([false, true, ["1.5", "12"]]);
+        fireEvent.pointerMove(chart, { clientX: 400 });           // bucket 1 — Printed has nothing there
+        expect([read(tip, "data-plan-tooltip-value"), read(other, "data-plan-readout-value")]).toEqual([["—", "44 k sheets", "2 k sheets"], ["2", "—"]]);
+        fireEvent.pointerMove(chart, { clientX: 700 });           // bucket 2 — the right half reads to its left
+        expect([read(tip, "data-plan-tooltip-value"), tip.style.left, tip.style.transform])
+            .toEqual([["30 k sheets", "—", "4 k sheets"], "500px", "translateX(calc(-100% - 4px))"]);
+        fireEvent.pointerMove(chart, { clientX: 900 });           // bucket 3 — nothing to read
+        expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([false, false]);
+        // A scroll moves the plot from under the box: it closes, and the pointer's next move opens it again.
+        fireEvent.pointerMove(chart, { clientX: 125 });
+        fireEvent.scroll(window);
+        expect(tip.hasAttribute("data-open")).toBe(false);
+        fireEvent.pointerMove(chart, { clientX: 400 });
+        expect(tip.hasAttribute("data-open")).toBe(true);
         fireEvent.pointerLeave(plot);
-        expect(readout.hasAttribute("data-open")).toBe(false);
+        expect([tip.hasAttribute("data-open"), other.hasAttribute("data-open")]).toEqual([false, false]);
         // Not one commit: the readout is chrome, like the hairline (#609).
         expect(commits.length).toBe(before);
     });

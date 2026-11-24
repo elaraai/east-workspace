@@ -774,56 +774,144 @@ export function readoutLayers(kind: ChartKindValue): ReadoutLayer[] {
     return out;
 }
 
+/** One line of a chart row's readout (#1753): a series, or a layer that names none. */
+export interface ReadoutLine {
+    /** Its name — the series' `label`; none for a layer that gives none, which reads its stroke and its value alone. */
+    name: string | undefined;
+    /** Its ink, which its stroke draws in ({@link chartInks}). */
+    ink: ChartInk;
+    /** Its first layer's mark — the ink a stroke draws in where its layer has none of its own. */
+    kind: "line" | "area" | "column" | "scatter" | "band";
+    /** Its unit: its first layer's axis's `label`, where the axis names one. */
+    unit: string | undefined;
+    /** Its layers' indices, in the order they are declared. */
+    layers: number[];
+}
+
 /**
- * Each readout layer's value at each bucket, formatted by its axis — the
- * crosshair's text (#743). A layer's value at a bucket is its LAST value in
- * the bucket (a band's `lo–hi`) — a gap is no value; a layer with none there
- * reads `—`. Buckets where no layer has a value are absent.
+ * What a chart row's readout reads at a bucket (#1753): a line a series — the
+ * layers of one name read together — and a line a layer that gives no name.
+ *
+ * @remarks
+ * The lines are in the order their series are declared, the legend's order —
+ * never the order they draw in, which a layer's `order` changes. A reference
+ * layer reads nothing. Where the row's hover reads them, a layer whose
+ * `tooltip` is off is left out, and a row whose `tooltip` is off reads none;
+ * the inspector reads every series, whatever its hover shows.
+ *
+ * @param kind - The chart row
+ * @param hover - The lines are the hover's, which the `tooltip` switches leave layers out of
+ * @returns Its lines
+ */
+export function readoutLines(kind: ChartKindValue, hover: boolean): ReadoutLine[] {
+    if (hover && !kind.tooltip) return [];
+    const inks = chartInks(kind);
+    const lines: ReadoutLine[] = [];
+    const byName = new Map<string, ReadoutLine>();
+    kind.layers.forEach((layer, li) => {
+        switch (layer.type) {
+            case "line": case "area": case "column": case "scatter": case "band": {
+                const { axis, style } = layer.value;
+                if (hover && !style.tooltip) return;
+                const named = style.label.type === "some" ? byName.get(style.label.value) : undefined;
+                if (named !== undefined) {
+                    named.layers.push(li);
+                    return;
+                }
+                const declared = axis.type === "left" ? kind.left : kind.right;
+                const line: ReadoutLine = {
+                    name: style.label.type === "some" ? style.label.value : undefined,
+                    ink: inks[li] ?? {},
+                    kind: layer.type,
+                    unit: declared.type === "some" && declared.value.label.type === "some" ? declared.value.label.value : undefined,
+                    layers: [li],
+                };
+                if (line.name !== undefined) byName.set(line.name, line);
+                lines.push(line);
+                return;
+            }
+            case "refLine": case "refBand": case "refDot":
+                return;
+        }
+    });
+    return lines;
+}
+
+/**
+ * What each line of a chart row's readout reads at each bucket, formatted by
+ * its axis (#743, #1753).
+ *
+ * @remarks
+ * A layer's value at a bucket is its LAST value there — a gap is no value. A
+ * line reads the value of the first of its layers that has one there, and the
+ * range of the first of its bands that has one, beside it — a line and its
+ * band read `42 (38–46)` — then, where it is read in full, its unit. A line
+ * with nothing there reads `—`, so no line moves as the pointer does. A bucket
+ * where no line reads anything is absent.
  *
  * @param kind - The chart row
  * @param scale - The shared scale
- * @param w - The canvas's words — the locale values format in, and a band's range (#820)
- * @returns Bucket index → one text per {@link readoutLayers} entry
+ * @param w - The canvas's words — the locale values format in, and how a reading reads (#820)
+ * @param read - How it is read: `hover`, the row's hover, whose lines the `tooltip` switches leave out
+ *   ({@link readoutLines}); `units`, each reading ends in its unit — the hover's box and the inspector's do, the values a
+ *   row reads beside a bucket stand bare
+ * @returns Bucket index → one text per {@link readoutLines} entry
  */
-export function readoutTable(kind: ChartKindValue, scale: PlanScale, w: PlanWords): Map<number, string[]> {
-    const layers = readoutLayers(kind);
+export function readoutTable(kind: ChartKindValue, scale: PlanScale, w: PlanWords, read: { hover: boolean; units: boolean }): Map<number, string[]> {
+    const lines = readoutLines(kind, read.hover);
+    const units = read.units;
     const format: Record<ChartSide, (v: number) => string> = {
         left: axisFormatter(kind.left.type === "some" ? kind.left.value : undefined, w.locale),
         right: axisFormatter(kind.right.type === "some" ? kind.right.value : undefined, w.locale),
     };
-    const table = new Map<number, string[]>();
-    const cell = (bucket: number, slot: number, text: string) => {
-        let row = table.get(bucket);
-        if (row === undefined) {
-            row = layers.map(() => "—");
-            table.set(bucket, row);
+    // Each line's value and range at each bucket — a layer's last in the bucket, its line's first such layer's.
+    const found = new Map<number, { value: (string | undefined)[]; range: (string | undefined)[] }>();
+    const at = (bucket: number) => {
+        let held = found.get(bucket);
+        if (held === undefined) {
+            held = { value: lines.map(() => undefined), range: lines.map(() => undefined) };
+            found.set(bucket, held);
         }
-        row[slot] = text;
+        return held;
     };
-    layers.forEach(({ index }, slot) => {
-        const layer = kind.layers[index]!;
-        switch (layer.type) {
-            case "line": case "area": case "column": case "scatter": {
-                const fmt = format[layer.value.axis.type];
-                for (const p of layer.value.points) {
-                    const bi = scale.bucketOf(p.t);
-                    if (bi >= 0 && Number.isFinite(p.y)) cell(bi, slot, fmt(p.y));
-                }
-                break;
-            }
-            case "band": {
-                const fmt = format[layer.value.axis.type];
-                for (const p of layer.value.points) {
-                    const bi = scale.bucketOf(p.t);
-                    if (bi >= 0 && Number.isFinite(p.lo) && Number.isFinite(p.hi)) {
-                        cell(bi, slot, w.m.valueRange({ from: fmt(p.lo), to: fmt(p.hi) }));
+    lines.forEach((line, slot) => {
+        const firstValue = new Map<number, number>();
+        const firstRange = new Map<number, number>();
+        line.layers.forEach((li, order) => {
+            const layer = kind.layers[li]!;
+            switch (layer.type) {
+                case "line": case "area": case "column": case "scatter": {
+                    const fmt = format[layer.value.axis.type];
+                    for (const p of layer.value.points) {
+                        const bi = scale.bucketOf(p.t);
+                        if (bi < 0 || !Number.isFinite(p.y) || (firstValue.get(bi) ?? order) < order) continue;
+                        firstValue.set(bi, order);
+                        at(bi).value[slot] = fmt(p.y);
                     }
+                    break;
                 }
-                break;
+                case "band": {
+                    const fmt = format[layer.value.axis.type];
+                    for (const p of layer.value.points) {
+                        const bi = scale.bucketOf(p.t);
+                        if (bi < 0 || !Number.isFinite(p.lo) || !Number.isFinite(p.hi) || (firstRange.get(bi) ?? order) < order) continue;
+                        firstRange.set(bi, order);
+                        at(bi).range[slot] = w.m.valueRange({ from: fmt(p.lo), to: fmt(p.hi) });
+                    }
+                    break;
+                }
+                case "refLine": case "refBand": case "refDot":
+                    break;
             }
-            case "refLine": case "refBand": case "refDot":
-                break;
-        }
+        });
     });
+    const table = new Map<number, string[]>();
+    for (const [bucket, held] of found) {
+        table.set(bucket, lines.map((line, slot) => {
+            const value = held.value[slot];
+            const range = held.range[slot];
+            return value === undefined && range === undefined ? "—" : w.m.chartReading({ value, range, unit: units ? line.unit : undefined });
+        }));
+    }
     return table;
 }

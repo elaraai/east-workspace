@@ -11,11 +11,12 @@
 /**
  * A chart row's geometry (#743): column stacks per value axis, stack and sign,
  * value domains that contain what is drawn, continuous series at their true
- * positions, gaps, the crosshair's per-bucket reading, the one set of ticks
- * both axes read (#1750) and how many round values an axis asks for, and how
- * each layer draws — its ink by its name, the order the layers draw in, a point
- * no stroke joins, the columns side by side in a bucket, the areas on a stack
- * and a bubble's radius (#1753).
+ * positions, gaps, the readout's per-bucket reading — a line a series (#1753) —
+ * the one set of ticks both axes read (#1750) and how many round values an axis
+ * asks for, how each layer draws — its ink by its name, the order the layers
+ * draw in, a point no stroke joins, the columns side by side in a bucket, the
+ * areas on a stack and a bubble's radius (#1753) — and the legend's lines and
+ * the room they take (#1750).
  */
 
 import { describe, test, expect } from "vitest";
@@ -23,8 +24,8 @@ import { none, some, variant } from "@elaraai/east";
 import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    CHART_TALL_PX, axisFormatter, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks,
-    lonePoint, readoutTable, splitAtNow, valueScale,
+    CHART_TALL_PX, axisFormatter, breached, bubbleRadius, chartDomains, chartInks, chartLegend, chartTicks, drawOrder, drawnPoints,
+    layoutStacks, legendFit, lonePoint, readoutLines, readoutTable, splitAtNow, valueScale,
     type ChartKindValue, type ChartLayerValue,
 } from "./chart-geometry.js";
 import { planMessages } from "../messages.js";
@@ -305,7 +306,56 @@ describe("gaps and breaches", () => {
     });
 });
 
-describe("the crosshair's reading per bucket (#743)", () => {
+describe("the readout's reading per bucket (#743, #1753)", () => {
+    test("a line a series, in the order the series are declared, the layers of one name read together — a value and its band's range on one line, then its axis's unit — and a line a layer that names none; the tooltip switches leave a line out of the hover's reading, never the inspector's", () => {
+        const scale = axis(2);
+        const kind = chart([
+            variant("column", {
+                points: [pt(0.5, 12)], axis: variant("left", null), breach: none, fold: variant("sum", null),
+                style: {
+                    label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("line", {
+                points: [pt(0.5, 42), pt(1.5, 44)], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: some(-1),
+                },
+            }) as ChartLayerValue,
+            variant("band", {
+                points: [{ t: numberInstant(0.5), lo: 38, hi: 46 }, { t: numberInstant(1.5), lo: 40, hi: 48 }], axis: variant("left", null),
+                style: {
+                    label: some("Output"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            line([{ t: 0.5, y: 1.5 }]),
+            variant("line", {
+                points: [pt(0.5, 50)], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("Plan"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: false, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("refLine", { y: 10, axis: variant("left", null), label: none, dash: none, color: none }) as ChartLayerValue,
+        ], { left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }) });
+        // Printed before Output, as declared, though Output draws first; Output's line and band one line.
+        expect(readoutLines(kind, true).map((l) => [l.name, l.layers, l.unit, l.kind]))
+            .toEqual([["Printed", [0], "k sheets", "column"], ["Output", [1, 2], "k sheets", "line"], [undefined, [3], "k sheets", "line"]]);
+        const hover = readoutTable(kind, scale, PLAN_WORDS, { hover: true, units: true });
+        expect(hover.get(0)).toEqual(["12 k sheets", "42 (38–46) k sheets", "1.5 k sheets"]);
+        expect(hover.get(1)).toEqual(["—", "44 (40–48) k sheets", "—"]);
+        // Beside a bucket, bare.
+        expect(readoutTable(kind, scale, PLAN_WORDS, { hover: true, units: false }).get(0)).toEqual(["12", "42 (38–46)", "1.5"]);
+        // The inspector reads every series, a layer's tooltip off or the row's.
+        expect(readoutLines(kind, false).map((l) => l.name)).toEqual(["Printed", "Output", undefined, "Plan"]);
+        const off = { ...kind, tooltip: false } as ChartKindValue;
+        expect([readoutLines(off, true), readoutLines(off, false).length]).toEqual([[], 4]);
+        expect(readoutTable(off, scale, PLAN_WORDS, { hover: false, units: true }).get(0)).toEqual(["12 k sheets", "42 (38–46) k sheets", "1.5 k sheets", "50 k sheets"]);
+    });
+
     test("each data layer reads its last value in the bucket; a gap is no value; a bucket with nothing to read is absent", () => {
         const scale = axis(4);
         const kind = chart([
@@ -320,8 +370,8 @@ describe("the crosshair's reading per bucket (#743)", () => {
                 },
             }) as ChartLayerValue,
         ]);
-        const table = readoutTable(kind, scale, PLAN_WORDS);
-        // One text per DATA layer (the reference line reads nothing).
+        const table = readoutTable(kind, scale, PLAN_WORDS, { hover: true, units: true });
+        // One text a layer that names no series (the reference line reads nothing).
         expect(table.get(0)).toEqual(["4", "12", "—"]);
         expect(table.get(1)).toEqual(["5", "—", "1–2.5"]);
         // The trailing gap does not hide the bucket's earlier value.
@@ -334,7 +384,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
         const kind = chart([line([{ t: 0.5, y: 0.25 }])], {
             left: some({ domain: none, tickValues: none, numTicks: none, format: some(variant("percent", null)), label: none }),
         });
-        expect(readoutTable(kind, scale, PLAN_WORDS).get(0)).toEqual(["25%"]);
+        expect(readoutTable(kind, scale, PLAN_WORDS, { hover: true, units: true }).get(0)).toEqual(["25%"]);
     });
 
     test("values speak the canvas's locale — an undeclared axis's terse numbers and a declared format alike (#820)", () => {
@@ -350,7 +400,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
                 },
             }) as ChartLayerValue,
         ]);
-        const table = readoutTable(kind, scale, de);
+        const table = readoutTable(kind, scale, de, { hover: true, units: true });
         // One decimal, never grouped — `2,5`, `1234`; a band's range is the table's.
         expect(table.get(0)).toEqual(["2,5", "1,5–2,3"]);
         expect(table.get(1)).toEqual(["1234", "—"]);
@@ -559,5 +609,59 @@ describe("how each layer draws (#1753)", () => {
         expect(bubbleRadius(kind, 31)!(400)).toBeCloseTo(7.75, 9);
         // A row whose points have no size draws its dots.
         expect(bubbleRadius(chart([kind.layers[1]!]), 120)).toBeUndefined();
+    });
+});
+
+describe("the legend (#1750)", () => {
+    test("a line a named series, in the order they are declared — the layers of one name one line, on the first's axis, its unit that axis's label — none for an unnamed or a reference layer, or one whose legend is off; the axis named only where the chart draws on both", () => {
+        const kind = chart([
+            variant("line", {
+                points: [], axis: variant("right", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("Rate"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            column([{ t: 0.5, y: 4 }]),
+            variant("column", {
+                points: [pt(0.5, 12)], axis: variant("left", null), breach: none, fold: variant("sum", null),
+                style: {
+                    label: some("Printed"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: some(-1),
+                },
+            }) as ChartLayerValue,
+            variant("band", {
+                points: [], axis: variant("left", null),
+                style: {
+                    label: some("Rate"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("line", {
+                points: [], axis: variant("left", null), breach: none, fold: variant("mean", null),
+                style: {
+                    label: some("Plan"), color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: false, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("refLine", { y: 10, axis: variant("left", null), label: some("CAP"), dash: none, color: none }) as ChartLayerValue,
+        ], {
+            left: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("k sheets") }),
+            right: some({ domain: none, tickValues: none, numTicks: none, format: none, label: some("%") }),
+        });
+        const legend = chartLegend(kind);
+        expect(legend.entries.map((e) => [e.name, e.side, e.unit, e.ink])).toEqual([["Rate", "right", "%", { series: 0 }], ["Printed", "left", "k sheets", { series: 1 }]]);
+        expect(legend.bothAxes).toBe(true);
+        // On one axis, no line names it; a row whose legend is off lists none.
+        expect(chartLegend(chart([kind.layers[2]!])).bothAxes).toBe(false);
+        expect(chartLegend({ ...kind, legend: false } as ChartKindValue).entries).toEqual([]);
+    });
+
+    test("a room holds every line it has room for, 24 each; short of room for every one, its last says how many more there are — with room for one, every series; with room for none, none", () => {
+        expect(legendFit(2, 56)).toEqual({ shown: 2, more: 0 });
+        expect(legendFit(4, 56)).toEqual({ shown: 1, more: 3 });
+        expect(legendFit(2, 46)).toEqual({ shown: 0, more: 2 });
+        expect(legendFit(3, 14)).toEqual({ shown: 0, more: 0 });
+        expect(legendFit(0, 56)).toEqual({ shown: 0, more: 0 });
     });
 });

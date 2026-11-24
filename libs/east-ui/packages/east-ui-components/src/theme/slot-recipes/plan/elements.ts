@@ -31,7 +31,8 @@ import { GUTTER_SLOT_W, PLAN_ROW_CONTROLS_SHOWN } from "./rows.js";
 export const elementsSlots = [
     "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight",
     "chartTickGutter", "refLabel", "chartLegend", "chartLegendCard", "chartLegendItem", "chartLegendSwatch", "chartLegendName", "chartLegendAxis",
-    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
+    "chartReadout", "chartReadoutValue", "chartTooltip", "chartTooltipTitle", "chartTooltipValue",
+    "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
 
@@ -71,9 +72,9 @@ const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
 const TICK_LINE = "14px";
 
 /**
- * A chart's series colours (#949, #1753), by a mark's place among the series (`data-series`): the brand first
- * (`--brand-d`, the chart rule), then the chart accents in their fixed order — teal, purple, blue, orange. Each sets the
- * custom property a mark draws in, and a legend's stroke beside it (#1750), so the two never disagree.
+ * A chart's series colours (#949, #1753), by a mark's place among the series (`data-series`): the brand first, as the
+ * chart rule has it, then the chart accents in their fixed order. Each sets the custom property a mark draws in, and a
+ * legend's stroke and a readout's beside it (#1750), so they never disagree.
  */
 const CHART_SERIES_INKS = {
     "& [data-series='0']": { "--mark-ink": "{colors.brand.solid}" },
@@ -87,7 +88,7 @@ const CHART_SERIES_INKS = {
 const LEGEND_ROOM = "24px";
 const LEGEND_LINE = "14px";
 
-/** A legend's words, wherever it stands: mono 10, one line. */
+/** A legend's words, wherever they stand — a readout's too — on one line. */
 const legendWords = {
     fontFamily: "mono",
     fontSize: "10px",
@@ -412,7 +413,7 @@ export const elementsBase = {
         zIndex: 5,
     },
     // Over the marks, a number stands on the paper, as a reference line's caption does (#1750): a column under it does
-    // not show through. Its words keep their place, 3px in from the plot's edge.
+    // not show through. Its padding is the inset it stood at, so its words keep their place.
     chartTickLeft: { ...chartTick, left: 0, padding: "0 3px", background: "bg.surface" },
     chartTickRight: {
         ...chartTick,
@@ -435,9 +436,9 @@ export const elementsBase = {
         [PLAN_ROW_CONTROLS_SHOWN]: { "&[data-under-controls]": { visibility: "hidden" } },
     },
     // A chart row's legend (#1750), down its gutter under the row's lines, which the renderer places it beneath: a line a
-    // named series, the spec's 24px of room each, from the name's x — the gutter's own indent, which it takes from the
-    // cell, then past the caret's cell and its gap on a row that folds — to the value slot and its gap, which the left
-    // axis's numbers keep. It takes no pointer.
+    // named series, in the spec's room each, from the name's x — the gutter's own indent, which it takes from the cell,
+    // then past the caret's cell and its gap on a row that folds — to the value slot and its gap, which the left axis's
+    // numbers keep. It takes no pointer.
     chartLegend: {
         position: "absolute",
         left: 0,
@@ -462,21 +463,23 @@ export const elementsBase = {
         minWidth: 0,
         ...CHART_SERIES_INKS,
     },
-    // One series: its stroke, then 6 and its name and unit, then 6 and — on a chart that draws on both axes — its axis.
+    // One series: its stroke, its name and unit, and — on a chart that draws on both axes — its axis.
     chartLegendItem: {
         display: "flex",
         alignItems: "center",
         gap: "6px",
         minWidth: 0,
     },
-    // A series' stroke, 12 × 2 in its colour: the series colour its name takes, or the colour its author chose.
+    // A series' stroke in its colour: the series colour its name takes, or the colour its author chose — a readout's
+    // layer that has neither, its mark's own ink (#1753).
     chartLegendSwatch: {
         flex: "none",
         width: "12px",
         height: "2px",
         background: "var(--mark-ink, {colors.brand.solid})",
+        "&[data-kind='scatter']": { background: "var(--mark-ink, {colors.accent.purple})" },
     },
-    // Its name and unit, mono 10 / 500 in the muted ink — the part of the line that gives way.
+    // Its name and unit — the part of the line that gives way.
     chartLegendName: {
         ...legendWords,
         fontWeight: "medium",
@@ -485,7 +488,7 @@ export const elementsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
     },
-    // Its axis, mono 10 / 400 in the label ink.
+    // Its axis, a step quieter than its name: it qualifies the name, never competes with it.
     chartLegendAxis: {
         ...legendWords,
         flex: "none",
@@ -506,10 +509,12 @@ export const elementsBase = {
         pointerEvents: "none",
         "&[data-ink]": { color: "var(--mark-ink)" },
     },
-    // The crosshair readout (#743) — each data layer's value at the
-    // hovered bucket, beside that bucket, in the ref-label vocabulary.
-    // The cursor channel fills, places and opens it (`data-open`), so a
-    // hover renders nothing; above the now line so it stays legible.
+    // The crosshair readout (#743) of every chart row but the one under the
+    // pointer, whose readout is the full one (`chartTooltip`, #1753): each
+    // series' value at the hovered bucket, beside that bucket, in the
+    // ref-label vocabulary. The cursor channel fills, places and opens it
+    // (`data-open`), so a hover renders nothing; above the now line so it
+    // stays legible.
     chartReadout: {
         position: "absolute",
         top: "2px",
@@ -530,12 +535,39 @@ export const elementsBase = {
         zIndex: 8,
         "&[data-open]": { display: "flex" },
     },
-    // One layer's value — in its mark's ink: lines, areas and bands the
-    // brand, columns the default ink, scatter the chart accent.
+    // One series' value, in the ink of its first layer's mark, so each value
+    // is told to its mark at a glance.
     chartReadoutValue: {
         "&[data-kind='line'], &[data-kind='area'], &[data-kind='band']": { color: "brand.fg" },
         "&[data-kind='scatter']": { color: "accent.purple" },
     },
+    // The full readout of the row under the pointer (#1753): over the canvas, fixed to the page where the renderer
+    // writes it, beside the hovered column, so no row's edge cuts it; the readout's paper and ring. The column's name
+    // over a line a series — its stroke, its name, and what it reads at the line's end. The cursor channel fills,
+    // places and opens it (`data-open`), so a hover renders nothing; it takes no pointer.
+    chartTooltip: {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        display: "none",
+        gridTemplateColumns: "auto minmax(0, 1fr) auto",
+        alignItems: "center",
+        columnGap: "6px",
+        rowGap: "4px",
+        padding: "6px 8px",
+        maxWidth: "320px",
+        background: "bg.surface",
+        borderRadius: "4px",
+        boxShadow: "0 0 0 1px {colors.border.subtle}",
+        pointerEvents: "none",
+        zIndex: "tooltip",
+        ...CHART_SERIES_INKS,
+        "&[data-open]": { display: "grid" },
+    },
+    // The column's name, across the box.
+    chartTooltipTitle: { ...legendWords, gridColumn: "1 / -1", fontWeight: "semibold", color: "fg.default" },
+    // What a series reads, at its line's end — its figures one width, so the values line up down the box.
+    chartTooltipValue: { ...legendWords, fontWeight: "semibold", color: "fg.default", fontVariantNumeric: "tabular-nums", textAlign: "right" },
     // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
     // Each glyph's size is the canvas's (`--plan-mark-…`), so a link meets a
     // mark at the glyph's edges (#1258).

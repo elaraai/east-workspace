@@ -40,8 +40,11 @@
  * - a chart taller than a row's own lines lists its named series down its
  *   gutter under its name (#1750), each in its colour — a phone card on one
  *   line under its title;
- * - hovering a bucket reads out each data layer's value there — unless the
- *   row's `tooltip` is off.
+ * - hovering a bucket reads it (#1753): the row under the pointer, in a box
+ *   over the canvas that no row's edge cuts — the column's name, then a line a
+ *   series in the legend's order, its stroke, its name and what it reads there
+ *   — and every other chart row its series' values beside the bucket; a row
+ *   whose `tooltip` is off reads none.
  *
  * The marks are `@visx/shape` paths over `@visx/scale` value scales (#743),
  * from the numbers `chart-geometry.ts` derives. They render in a
@@ -57,8 +60,8 @@
  * each data layer's min, max and last value, and its breaches (#819).
  */
 
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Box, chakra, useChakraContext, type SystemContext } from "@chakra-ui/react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Box, chakra, Portal, useChakraContext, type SystemContext } from "@chakra-ui/react";
 import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
 import { curveFor, resolveColor } from "@elaraai/east-ui-components/internal";
@@ -69,7 +72,7 @@ import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
     CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks, lonePoint,
-    readoutLayers, readoutTable, splitAtNow, styleOf, valueScale,
+    readoutLines, readoutTable, splitAtNow, styleOf, valueScale,
     type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartLegend, type ChartPointValue, type ChartSide,
     type ChartStyleValue, type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
@@ -242,32 +245,66 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
         return rects;
     }, [kind.layers, scale, expanded]);
 
-    // ── The crosshair readout (#743) ──
-    // Each data layer's value at the hovered bucket, written straight into
-    // the DOM from the cursor channel — a hover renders nothing (#609). A row
-    // whose tooltip is off reads none (#1753).
-    const readLayers = useMemo(() => (kind.tooltip ? readoutLayers(kind) : []), [kind]);
-    const readings = useMemo(() => readoutTable(kind, scale, words), [kind, scale, words]);
+    // ── The readout (#743, #1753) ──
+    // What each series reads at the hovered bucket, written straight into the DOM from the cursor channel — a hover
+    // renders nothing (#609). The row under the pointer reads it in full, in a box over the canvas that no row's edge
+    // cuts: the column's name, then a line a series in the legend's order. Every other chart row reads its series'
+    // values beside the bucket, inside its plot, as the crosshair crosses it. A row whose tooltip is off reads none.
+    const lines = useMemo(() => readoutLines(kind, true), [kind]);
+    const readings = useMemo(() => readoutTable(kind, scale, words, { hover: true, units: true }), [kind, scale, words]);
+    const bare = useMemo(() => readoutTable(kind, scale, words, { hover: true, units: false }), [kind, scale, words]);
+    const chartRef = useRef<HTMLDivElement | null>(null);
     const readoutRef = useRef<HTMLDivElement | null>(null);
+    const tipRef = useRef<HTMLDivElement | null>(null);
+    // The pointer is over this row's plot: its moves say so before the cursor channel hears of them.
+    const hovered = useRef(false);
     const cursor = usePlanCursor();
+    // The full readout stands where the plot was as it opened: a scroll moves the plot from under it, so a scroll
+    // closes it, and the pointer's next move opens it where the plot is then.
+    const closeTip = useCallback(function close() {
+        tipRef.current?.removeAttribute("data-open");
+        window.removeEventListener("scroll", close, true);
+    }, []);
+    useEffect(() => closeTip, [closeTip]);
     const showReading = useCallback((bucket: number) => {
-        const el = readoutRef.current;
-        if (el === null) return;
+        if (bucket < 0) hovered.current = false;
+        readoutRef.current?.removeAttribute("data-open");
+        closeTip();
         const values = readings.get(bucket);
         const b = scale.buckets[bucket];
-        if (values === undefined || b === undefined) {
-            el.removeAttribute("data-open");
-            return;
-        }
-        el.querySelectorAll<HTMLElement>("[data-plan-readout-value]").forEach((span, i) => {
-            span.textContent = values[i] ?? "—";
-        });
+        if (values === undefined || b === undefined) return;
         // Beside the bucket, on the side with room.
         const onRight = b.x0 + b.x1 > 1;
+        const shift = onRight ? "translateX(calc(-100% - 4px))" : "translateX(4px)";
+        const tip = tipRef.current;
+        const plot = chartRef.current;
+        if (hovered.current && tip !== null && plot !== null) {
+            const title = tip.querySelector<HTMLElement>("[data-plan-tooltip-title]");
+            if (title !== null) title.textContent = scale.bucketText(b);
+            tip.querySelectorAll<HTMLElement>("[data-plan-tooltip-value]").forEach((span, i) => {
+                span.textContent = values[i] ?? "—";
+            });
+            const rect = plot.getBoundingClientRect();
+            tip.style.left = `${rect.left + (onRight ? b.x0 : b.x1) * rect.width}px`;
+            tip.style.top = `${rect.top + 2}px`;
+            tip.style.transform = shift;
+            tip.setAttribute("data-open", "");
+            // Where the plot is near the page's foot, it stands up from it, whole.
+            const tall = tip.getBoundingClientRect().height;
+            if (rect.top + 2 + tall > window.innerHeight) tip.style.top = `${Math.max(0, window.innerHeight - tall - 2)}px`;
+            window.addEventListener("scroll", closeTip, { capture: true, passive: true });
+            return;
+        }
+        const el = readoutRef.current;
+        if (el === null) return;
+        const plain = bare.get(bucket);
+        el.querySelectorAll<HTMLElement>("[data-plan-readout-value]").forEach((span, i) => {
+            span.textContent = plain?.[i] ?? "—";
+        });
         el.style.left = `${(onRight ? b.x0 : b.x1) * 100}%`;
-        el.style.transform = onRight ? "translateX(calc(-100% - 4px))" : "translateX(4px)";
+        el.style.transform = shift;
         el.setAttribute("data-open", "");
-    }, [readings, scale]);
+    }, [readings, bare, scale, closeTip]);
     useEffect(() => cursor.subscribe(showReading), [cursor, showReading]);
 
     // The chart's words (#819) — a strip says its values block by block instead.
@@ -454,8 +491,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     }
 
     return (
-        <Box position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
-            onClick={() => dispatch({ t: "row.select", key: rowKey })}>
+        <Box ref={chartRef} position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
+            onClick={() => dispatch({ t: "row.select", key: rowKey })}
+            onPointerMove={() => { hovered.current = true; }}
+            onPointerLeave={() => { hovered.current = false; }}>
             {/* refBand washes under everything — a span of instants, or the
                 render bounds, so a pan reveals the rest of the band; a range of
                 values on its axis (a target zone), or the plot's height (#1753) */}
@@ -539,12 +578,30 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     {t.right}
                 </Box>
             ))}
-            {readLayers.length > 0 && (
+            {lines.length > 0 && (
                 <Box ref={readoutRef} css={styles.chartReadout} data-plan-readout>
-                    {readLayers.map((l, i) => (
-                        <Box key={i} as="span" css={styles.chartReadoutValue} data-kind={l.kind} data-plan-readout-value={i} />
+                    {lines.map((line, i) => (
+                        <Box key={i} as="span" css={styles.chartReadoutValue} data-kind={line.kind} data-plan-readout-value={i} />
                     ))}
                 </Box>
+            )}
+            {lines.length > 0 && (
+                // The row under the pointer reads in full over the canvas, where no row's edge cuts it (#1753): the
+                // column's name, then a line a series — its stroke, its name, and what it reads. The plot's own name
+                // says its values to a reader (#819), so a reader skips it.
+                <Portal>
+                    <Box ref={tipRef} css={styles.chartTooltip} data-plan-tooltip={rowKey} aria-hidden="true">
+                        <Box as="span" css={styles.chartTooltipTitle} data-plan-tooltip-title="" />
+                        {lines.map((line, i) => (
+                            <Fragment key={i}>
+                                <Box as="span" css={styles.chartLegendSwatch} data-kind={line.kind} data-plan-tooltip-swatch=""
+                                    {...markLook(line.ink, undefined, system)} />
+                                <Box as="span" css={styles.chartLegendName} data-plan-tooltip-name="">{line.name}</Box>
+                                <Box as="span" css={styles.chartTooltipValue} data-plan-tooltip-value={i} />
+                            </Fragment>
+                        ))}
+                    </Box>
+                </Portal>
             )}
         </Box>
     );

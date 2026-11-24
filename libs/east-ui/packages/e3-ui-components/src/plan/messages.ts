@@ -579,6 +579,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** A chart row's legend's last line, where the row has no room for every series (#1750) — `+2 more`; `every` where it
      *  has room for this line alone, which then stands for every series — `3 series`. */
     chartLegendMore: (p: { n: number; count: string; every: boolean }) => string;
+    /** What a series of a chart row reads at a bucket, in its readout (#1753) — `42 (38–46) k sheets`: `value` its
+     *  value there, `range` its band's ({@link PlanMessages.valueRange}), each formatted and `undefined` where it has
+     *  none; `unit` its axis's label, where the axis names one. */
+    chartReading: (p: { value: string | undefined; range: string | undefined; unit: string | undefined }) => string;
 
     // ── The live region (#819) ─────────────────────────────────────────────
     /** A row was selected. */
@@ -925,6 +929,10 @@ export const planMessages: PlanMessages = {
     chartSeries: ({ name, unit }) => (unit !== undefined && unit !== "" ? `${name} ${unit}` : name),
     chartAxisSide: ({ side }) => side,
     chartLegendMore: ({ count, every }) => (every ? `${count} series` : `+${count} more`),
+    chartReading: ({ value, range, unit }) => {
+        const reading = value === undefined ? range ?? "" : range === undefined ? value : `${value} (${range})`;
+        return unit !== undefined && unit !== "" ? `${reading} ${unit}` : reading;
+    },
 
     announceSelected: ({ label }) => `Selected ${label}`,
     announceEvents: ({ n, count }) => (n === 0 ? "No event selected" : `${count} ${plural(n, "event", "events")} selected`),
