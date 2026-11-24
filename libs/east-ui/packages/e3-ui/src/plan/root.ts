@@ -612,7 +612,10 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             index: index.name,
             source: binding.id,
             tile: variant(index.tile, null),
-            summary: index.summary === undefined ? none : some(variant(index.summary, null)),
+            // The periods the index keeps each node's totals and the record's totals at, finest first (#1739): a row past
+            // the cap shades from one of the first, and the horizon's bars are read at one of the second.
+            summary: index.summary.map((period) => variant(period, null)),
+            totals: index.totals.map((period) => variant(period, null)),
             uses,
             rows: ordered.nestedRows(apply, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
         } as never, PlanNestedType) as ExprType<PlanNestedType>;

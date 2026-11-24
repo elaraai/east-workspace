@@ -115,34 +115,49 @@ export interface NestedBuilder<T extends EastType> {
    * A nested series index (#1434): every collection the record's rows nest,
    * filed in time. Each item is filed once (or once a year past a year) by its
    * collection, its row, the node holding it and its time, carrying the item;
-   * each node's totals are kept a `summary` tile at a time; every parent's
-   * subtotals of a collection of values declared with a rollup are kept at every
-   * level from `tile` up; and each item of a collection declared `{ rollup: true }`
-   * is filed under every ancestor too. The record's other indexes then carry its
-   * rows without the listed collections, so a page of rows reads no nested item,
-   * and `Data.bindPaged` asks it beside any of them (#1435). A record has one; no
-   * field leads it, and it takes no `value`.
+   * each node's totals are kept a tile at a time, at each period `summary`
+   * names; every parent's subtotals of a collection of values declared with a
+   * rollup are kept at every level from `tile` up; and each item of a
+   * collection declared `{ rollup: true }` is filed under every ancestor too.
+   *
+   * The record's totals are kept beside it, at each period `totals` names: how
+   * many items or values of a collection touch each tile, on every row, and the
+   * milliseconds of it the items cover — an index of the record's named
+   * `<index>_span` (e3-types' `nestedSpanName`), its key `{ collection, level,
+   * tile }`. A period's totals, a node's or the record's, count an item once
+   * in each tile of the period it touches, so a period is read as it is kept:
+   * a quarter's bar from the quarters, never its months added up, which would
+   * count an item once a month.
+   *
+   * The record's other indexes then carry its rows without the listed
+   * collections, so a page of rows reads no nested item, and `Data.bindPaged`
+   * asks it beside any of them (#1435). A record has one; no field leads it,
+   * and it takes no `value`.
    *
    * @param spec - `collections`, each declared with {@link items}, {@link values}, {@link rows} or {@link recursive};
-   *   `tile`, the finest level an item is filed at; `summary`, the tile each node's totals are kept by
+   *   `tile`, the finest level an item is filed at; `summary`, the periods each node's totals are kept at, none where
+   *   left out; `totals`, the periods the record's totals are kept at, a month, a quarter and a year where left out
    * @param options - Its runner
    * @returns The index, its key e3-types' `NestedEntryKeyType` and its value `NestedEntryType`
    * @throws {Error} Where a collection's declaration does not fit its field, naming the collection and what to write;
-   *   for a tile of none of the five; or for a second nested series index on the record, naming the first
+   *   for a tile of none of the five; for a `summary` or a `totals` that is no list of them, names one twice, or —
+   *   the `totals` — names none; or for a second nested series index on the record, naming the first
    *
    * @example
    * ```ts
    * const machines = e3.record('machines', MachinesType, {
    *   initial: new Map(),
    *   indexes: (index) => ({
-   *     // Every collection a machine nests, filed from a week up and totalled a month at a time:
+   *     // Every collection a machine nests, filed from a week up: each machine's totals kept a week and a month at a
+   *     // time, and the record's a month, a quarter and a year.
    *     machines_in_time: index.nestedSeries({
    *       collections: {
    *         jobs: index.nestedSeries.items({ from: 'start', to: 'end' }),
    *         load: index.nestedSeries.values(),
    *       },
    *       tile: 'week',
-   *       summary: 'month',
+   *       summary: ['week', 'month'],
+   *       totals: ['month', 'quarter', 'year'],
    *     }),
    *   }),
    * });
@@ -680,7 +695,7 @@ export const INDEX_BUILDER = {
     areaDefinition(where, name, record, spec as Parameters<typeof areaDefinition>[3], runnerOf(options))),
   flatSeries: (spec: unknown, options?: unknown) => indexDraft('index.flatSeries', options, (where, record, name) => {
     if (typeof spec === 'object' && spec !== null && 'collections' in spec) {
-      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nestedSeries({ collections, tile, summary? })`);
+      throw new Error(`${where} '${name}' takes key, from, to and tile — collections are a nested series index's: index.nestedSeries({ collections, tile, summary?, totals? })`);
     }
     const value = (options as PlainIndexOptions | undefined)?.value;
     return seriesDefinition(where, name, record, spec as Parameters<typeof seriesDefinition>[3], { ...runnerOf(options), ...(value !== undefined && { value }) });

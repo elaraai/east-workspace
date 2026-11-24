@@ -155,7 +155,7 @@ export const scaleHalls = e3.record("scale_halls", Halls, {
             scale_halls_in_time: index.nestedSeries({
                 collections: { presses: index.nestedSeries.rows({ tasks: index.nestedSeries.rows({}) }) },
                 tile: "day",
-                summary: "month",
+                summary: ["month"],
             }),
         } : {}),
     }),

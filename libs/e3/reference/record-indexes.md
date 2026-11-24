@@ -314,10 +314,11 @@ machine's jobs and its load a day at a time, a hall's members, an assembly's
 parts to any depth. One declaration a record lists every collection its rows
 nest, each field with a builder saying what it holds. e3 files each item apart
 from its row — once, by its collection, its row, its node and its time — keeps
-each node's totals a summary tile at a time, and each parent's subtotals at
-every level; and the record's other indexes carry the rows without those
-collections, so a page of rows reads none of them and a window of items reads
-no row.
+each node's totals at each period its `summary` names, the record's totals
+across every row at each period its `totals` names, and each parent's
+subtotals at every level; and the record's other indexes carry the rows
+without those collections, so a page of rows reads none of them and a window
+of items reads no row.
 
 ```typescript
 // MachinesType: Dict<String, { name, site, status, jobs: Dict<String, Job>, load: Dict<DateTime, Float> }>
@@ -330,7 +331,8 @@ const machines = e3.record('machines', MachinesType, {
         load: index.nestedSeries.values(),                              // a value per instant: keyed by the instant
       },
       tile: 'week',
-      summary: 'month',
+      summary: ['week', 'month'],                                 // each machine's totals, a week and a month at a time
+      totals: ['month', 'quarter', 'year'],                       // every machine's together: what it keeps where this is left out
     }),
     machines_by_site: index.on(['site']),                         // pages each machine without its jobs and load
   }),
@@ -341,7 +343,7 @@ const halls = e3.record('halls', HallsType, {
     halls_in_time: index.nestedSeries({
       collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) },
       tile: 'day',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
 });
@@ -356,7 +358,7 @@ const assemblies = e3.record('assemblies', AssembliesType, {
         }),
       },
       tile: 'week',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
 });
@@ -374,6 +376,22 @@ misnamed time, or a builder on the wrong kind of field, is an error where it is
 written, and its message says what fits. The definition checks the same again,
 in words, for a declaration TypeScript could not see. A record has one nested
 series index, which takes no `on` and no `value`.
+
+| Option | |
+|---|---|
+| `collections` | every collection the rows nest, each field with its builder |
+| `tile` | the finest level an item is filed at: `day`, `week`, `month`, `quarter` or `year` |
+| `summary` | the periods each node's totals are kept at: a list of tiles, in any order, each once — `['week', 'month']`. Left out, or empty, the index keeps no node's totals |
+| `totals` | the periods the record's totals are kept at, across every row (its span, below): a list of tiles, each once, and at least one. Left out, a month, a quarter and a year |
+
+**A period is kept, never added up.** An item counts once in each tile of a
+period it touches: a job over two months is in each month's count, and once in
+their quarter's. So a quarter's totals are not its months' summed, and no
+reader makes a coarser period from a finer one: list each period something
+reads. A Plan shades a row past what it can draw from the period its column
+is, where the index keeps it, and draws its horizon's bars from the record's
+totals at the period it draws (see **e3-ui**). Each period is kept by every
+write, so a period nothing reads costs a write its upkeep for nothing.
 
 **What it files.** Every entry is keyed `{ collection, row, path, run, level,
 tile, item }` (e3-types' `NestedEntryKeyType`): the collection's place, the
@@ -397,9 +415,9 @@ Each run of a node is one contiguous range a level:
 | Run | Holds |
 |---|---|
 | `items` | each item once, as a series index files an event — at the level its length fits, past a year under each year — carrying it (`.item .jobs (…)`); a value, and an `{ at }` item, at the declared tile alone |
-| `totals` | where `summary` is declared, each node's `{ count, ms, values }` a summary tile at a time; for a Float or Integer collection, `values` is the sum, the least, the greatest and the last there, taken in key order |
+| `totals` | each node's `{ count, ms, values }` a tile at a time, at each period `summary` names: a range a period, an entry's `level` the period it is kept at; for a Float or Integer collection, `values` is the sum, the least, the greatest and the last there, taken in key order |
 | `subtotals(rollup)` | for `values({ rollup })`, every parent's subtotal by each rollup at each level from `tile` to the year, where a descendant's value touches the tile: a node holding values folds its own, a parent aggregates its children's, in key order |
-| `subtree`, `subtreeTotals` | for `items(…, { rollup: true })`, each item under every ancestor too, `.under (path, id)`, and each ancestor's totals of them |
+| `subtree`, `subtreeTotals` | for `items(…, { rollup: true })`, each item under every ancestor too, `.under (path, id)`, and each ancestor's totals of them, at each period `summary` names |
 
 A rollup is `'sum'`, `'mean'` (a mean of means up the tree), `'min'`, `'max'`,
 `'count'` (the leaf rows beneath that hold a value), a fold and an aggregate
@@ -421,26 +439,37 @@ binding of the record's indexes lists the nested index by name beside any that
 carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site',
 'machines_in_time'] })` (see **e3-ui**).
 
-**Its span.** Beside every nested series index e3 keeps its span, an index of
-the record's named `<index>_span` (e3-types' `nestedSpanName`), built with it
-and never declared: under each collection's place and each month its items or
-values touch (`NestedSpanKeyType`, `{ collection, tile }`), how many of them
-touch it and the milliseconds of it its items cover, summed across the rows as a
-summary index's totals are, and a month let go once nothing touches it. A
-collection's first and last month held are its span across the record — what a
-Plan's horizon covers for the series reading it — and its months' counts are
-how much it holds in each, which the horizon's strip draws as its bars (see
-**e3-ui**). Reading it is one search a collection, an exact match on its
-place, and one read of the first and last entry of each. An index the record
-declares under that name is refused.
+**Its span: the record's totals.** Beside every nested series index e3 keeps
+its span, an index of the record's named `<index>_span` (e3-types'
+`nestedSpanName`), built with it and never declared: under each collection's
+place, each period `totals` names and each tile of the period its items or
+values touch (`NestedSpanKeyType`, `{ collection, level, tile }`), how many of
+them touch the tile and the milliseconds of it its items cover, summed across
+the rows as a summary index's totals are, and a tile let go once nothing
+touches it. A collection's first and last tile held at a period are its span
+across the record — what a Plan's horizon covers for the series reading it —
+and its tiles' counts are how much it holds in each, which the horizon's strip
+draws as its bars, read at the period it draws (see **e3-ui**). A collection's
+tiles of one period are one contiguous range: a search by its place and the
+period finds them, and a range of the period's tiles a part of them. An index
+the record declares under that name is refused.
 
 **Writes.** A row a write updates by a patch is maintained by the patch: e3
 walks it along the declaration — each collection's Dict patch, and each child
 rows' — and compares the entries of only the items it names, with the totals of
-the summary tiles they touch and the subtotals of the tiles they touch at each
-level. A replace on the way, which a recursive type's patch always is, and an
+the tiles they touch at each period and the subtotals of the tiles they touch
+at each level. The record's totals are kept the same way, from the items and
+values the patch names, before and after, never from the rows whole: they are
+sums, so what those items took away and gave is what the whole rows' difference
+is. A replace on the way, which a recursive type's patch always is, and an
 inserted or deleted row are compared whole. Both ways give the same delta, and a maintained
 index is the one `e3 reindex` rebuilds, byte for byte.
+
+An item is split over the tiles of each period the index keeps totals at, as a
+summary index splits an event: as many as 4,096 a period, so with `day` among
+its `summary` or its `totals` an item longer than eleven years is refused where
+it is written, naming it, its span and the period. Leave the day out, or end
+the item.
 
 ## Entries indexes — `index.entries(field)`
 
@@ -545,8 +574,8 @@ parameter by it:
 | `index.nestedSeries` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
 
 It takes the indexes e3 keeps beside one as well: a nested series index's span
-(`machines.indexes.machines_in_time.nested.span`, keyed `{ collection, tile }`,
-its `k` Null) and an entries index's lean rows
+(`machines.indexes.machines_in_time.nested.span`, keyed `{ collection, level,
+tile }`, its `k` Null) and an entries index's lean rows
 (`stations.indexes.stations_by_service.entries.rows`). Beside a nested series
 index or an entries index, an index that carries nothing or the row carries the
 lean row. Its `type` says so, and so does TypeScript: the body's parameter, and
@@ -607,7 +636,9 @@ in the index's own order.
 A nested series index's span and an entries index's lean rows are read as
 plain indexes are, with `of` and `between`. A span's entry stands for every
 row of its key and names none, so its read gives the index key,
-`{ collection, tile }`, in a row's key's place.
+`{ collection, level, tile }`, in a row's key's place: `of({ collection })`
+reads a collection's tiles at every period the index keeps, and
+`of({ collection, level })` those of one.
 
 **A nested series index's readers.** A nested series index files a row's tree
 a node at a time, each node's entries in runs, so each reader reads one node:
@@ -635,15 +666,17 @@ linesInTime.subtotals({ collection: ['units', 'load'], row: line, rollup: 'mean'
 |---|---|---|---|
 | `items(node)` | the node's own items that overlap `[from, to)`, each with its id, in its collection's own key type; or its values in the window, each with its instant | | one a level for items timed `{ from, to }`; one for values and items timed `{ at }` |
 | `subtree(node)` | the items of every node beneath the node that overlap the window, each with `{ path, id }`: the keys from the node down to the one holding it — a path, `end` or a `step` and the rest — and its id, each an id of the index's (`NestedUnderType(index)` is the type) | `items(…, { rollup: true })` | one a level |
-| `totals(node)` | the node's totals of the collection in each summary tile that overlaps the window — `{ count, ms, values }`, `values` the sum, least, greatest and latest of numbers — with the tile's start | `summary` | one |
-| `subtreeTotals(node)` | the same, of the items beneath the node | `rollup: true` and `summary` | one |
+| `totals({ …node, tile? })` | the node's totals of the collection in each tile of a period that overlaps the window — `{ count, ms, values }`, `values` the sum, least, greatest and latest of numbers — with the tile's start. `tile` names the period, one `summary` lists; where `summary` lists one it may be left out | `summary` | one |
+| `subtreeTotals({ …node, tile? })` | the same, of the items beneath the node | `rollup: true` and `summary` | one |
 | `subtotals({ …node, rollup, level? })` | a parent's subtotal of its children's values in each tile of `level` that overlaps the window, with the tile's start. `rollup` is written as the collection declares it; `level` is the index's tile where left out, or a coarser one | `values({ rollup })` | one |
 
 A node that holds values of its own draws them and keeps no subtotal, so its
 `subtotals` is empty; a row or a node that is not there reads as empty too. A
 place the index does not file, a collection not rolled up, a rollup it does not
-keep, a level finer than its tile and totals of an index with no `summary` are
-each refused where the reader is called, naming what the index does keep.
+keep, a level finer than its tile, totals of an index with no `summary`, totals
+at a period its `summary` does not list and totals that name no period of
+several are each refused where the reader is called, naming what the index
+does keep; TypeScript offers `tile` the periods the declaration lists.
 
 | Rule | |
 |---|---|

@@ -203,7 +203,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
                 checks_works_by_name: index.on(["name"]),
                 checks_works_in_time: index.nestedSeries({
                     collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }), parts: index.nestedSeries.recursive() }) },
-                    tile: "week", summary: "month",
+                    tile: "week", summary: ["month"],
                 }),
             }),
         });
@@ -252,8 +252,8 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             }),
         });
         refusedBoth(jobsSpan(), () => Data.bindPaged(untotalled, { indexes: ["checks_untotalled_by_name", "checks_untotalled_in_time"] }),
-            'Plan: "checks_untotalled_in_time" keeps no totals — the Plan draws a view\'s items while they number 10,000 or fewer, and the ' +
-            'totals\' shading past that: declare summary: "month"');
+            'Plan: "checks_untotalled_in_time" keeps no totals — the Plan draws a view\'s items while they number 10,000 or fewer, and past that ' +
+            'shades each row from its totals at the period its column is, or one that divides it: declare summary: ["week", "month"]');
     });
 
     test("checks nothing over rows read whole: a function there may map a collection", () => {

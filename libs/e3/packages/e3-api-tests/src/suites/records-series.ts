@@ -32,7 +32,10 @@
  * members' loads a week at a time, as one range; a part's subtree's jobs,
  * filed under it too, as one range a level; and a job moved, read back where
  * it went — each held to a brute force over the rows written. The machines'
- * other index carries each machine without its collections.
+ * other index carries each machine without its collections. And the span
+ * beside the machines' nested index (#1739): each collection's totals across
+ * every machine, a month, a quarter and a year at a time, each period read as
+ * one range of it and kept as a job moves.
  */
 
 import { describe, it } from 'node:test';
@@ -46,8 +49,8 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  NestedEntryKeyType, NestedEntryType, NestedIdType, RecordLevelType, RecordNestedPathType, RecordNestedRunType, RecordSummaryTotalsType,
-  indexWindowType,
+  NestedEntryKeyType, NestedEntryType, NestedIdType, NestedSpanKeyType, RecordLevelType, RecordNestedPathType, RecordNestedRunType,
+  RecordSummaryTotalsType, indexWindowType, nestedSpanName,
 } from '@elaraai/e3-types';
 import {
   ApiError,
@@ -258,8 +261,19 @@ const AssembliesWindowType = ArrayType(StructType({
   ik: AssembliesKeyType, key: StringType, value: NestedEntryType(AssemblyPlacesType), row: OptionType(AssemblyType),
 }));
 type AssembliesEntry = ValueTypeOf<typeof AssembliesWindowType>[number];
+/**
+ * The window of the span beside the machines' nested index (#1739): a collection's place, a period and a tile of it,
+ * standing for every machine's items of it — its `key` Null — with their totals. Its test holds it to `indexWindowType`.
+ */
+const SpanWindowType = ArrayType(StructType({ ik: NestedSpanKeyType, key: NullType, value: RecordSummaryTotalsType, row: OptionType(MachineType) }));
+/** The periods a nested series index keeps its record's totals at when it names none. */
+const SPAN_PERIODS = ['month', 'quarter', 'year'] as const;
 
 const decodeMachinesWindow = decodeBeast2For(MachinesWindowType);
+const decodeSpanWindow = decodeBeast2For(SpanWindowType);
+const printTotals = printFor(RecordSummaryTotalsType);
+const levelEqual = equalFor(RecordLevelType);
+const machineUnjoined = equalFor(OptionType(MachineType));
 const decodeHallsWindow = decodeBeast2For(HallsWindowType);
 const decodeAssembliesWindow = decodeBeast2For(AssembliesWindowType);
 const encodeMachinesPatch = encodeBeast2For(PatchType(MachinesType));
@@ -316,23 +330,26 @@ function nestedTile(collection: readonly string[], row: string, path: string, ru
   return { fields: [...nestedLead(collection, row, path, run, filed.level), printDateTime(new Date(filed.tile))] };
 }
 
-/** The months a span touches, half-open, by each one's start, with the milliseconds of each it covers; an instant covers none of its month. */
-function monthsOf(start: number, end: number): Array<{ month: number; ms: bigint }> {
-  if (end <= start) return [{ month: tileStart('month', start), ms: 0n }];
-  const months: Array<{ month: number; ms: bigint }> = [];
-  for (let month = tileStart('month', start); month < end; month = tileStep('month', month, 1)) {
-    months.push({ month, ms: BigInt(Math.min(tileStep('month', month, 1), end) - Math.max(month, start)) });
+/** The tiles of a level a span touches, half-open, by each one's start, with the milliseconds of each it covers; an instant covers none of its tile. */
+function tilesOf(level: Level, start: number, end: number): Array<{ tile: number; ms: bigint }> {
+  if (end <= start) return [{ tile: tileStart(level, start), ms: 0n }];
+  const tiles: Array<{ tile: number; ms: bigint }> = [];
+  for (let tile = tileStart(level, start); tile < end; tile = tileStep(level, tile, 1)) {
+    tiles.push({ tile, ms: BigInt(Math.min(tileStep(level, tile, 1), end) - Math.max(tile, start)) });
   }
-  return months;
+  return tiles;
 }
 
-/** Jobs' totals a month at a time, worked out from them: under each month's start, the jobs touching it and the time of it they cover. */
-function monthTotals(jobs: Iterable<NestedJob>): Map<number, { count: bigint; ms: bigint }> {
+/**
+ * Jobs' totals a tile of a level at a time, worked out from them: under each tile's start, the jobs touching it and
+ * the time of it they cover — a job counted once in every tile it touches, at whichever level.
+ */
+function tileTotals(level: Level, jobs: Iterable<NestedJob>): Map<number, { count: bigint; ms: bigint }> {
   const totals = new Map<number, { count: bigint; ms: bigint }>();
   for (const job of jobs) {
-    for (const { month, ms } of monthsOf(job.start.getTime(), job.end.getTime())) {
-      const held = totals.get(month) ?? { count: 0n, ms: 0n };
-      totals.set(month, { count: held.count + 1n, ms: held.ms + ms });
+    for (const { tile, ms } of tilesOf(level, job.start.getTime(), job.end.getTime())) {
+      const held = totals.get(tile) ?? { count: 0n, ms: 0n };
+      totals.set(tile, { count: held.count + 1n, ms: held.ms + ms });
     }
   }
   return totals;
@@ -799,7 +816,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const where = (row: string, collection: string, month: number) => `${row} ${collection} ${printDateTime(new Date(month))}`;
       const expected = new Map<string, unknown>();
       for (const [row, machine] of machines) {
-        for (const [month, totals] of monthTotals(machine.jobs.values())) {
+        for (const [month, totals] of tileTotals('month', machine.jobs.values())) {
           expected.set(where(row, 'jobs', month), variant('totals', { count: totals.count, ms: totals.ms, values: none }));
         }
         const loads = new Map<number, { count: bigint; sum: number; min: number; max: number; last: number }>();
@@ -901,13 +918,75 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const from = tileStep('month', tileStart('month', JOBS_FROM.getTime()), -2);
       const totals = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time',
         [nestedRange(['jobs'], row, ROW_ITSELF, TOTALS_RUN, 'month', from, tileStep('month', from, 8))], hash, decodeMachinesWindow);
-      const expected = monthTotals(jobs.values());
+      const expected = tileTotals('month', jobs.values());
       assert.equal(totals.length, expected.size, 'a total for each month its jobs touch');
       for (const entry of totals) {
         const want = expected.get(entry.ik.tile.getTime());
         assert.ok(want !== undefined && machineEntryEqual(entry.value, variant('totals', { count: want.count, ms: want.ms, values: none })),
           `${printDateTime(entry.ik.tile)}: ${printFor(NestedEntryType(MachinePlacesType))(entry.value)}`);
       }
+    });
+
+    it('keeps each collection\'s totals across every machine a month, a quarter and a year at a time in the span beside the index, each period read as one range, and keeps them as a job moves (#1739)', async (t) => {
+      const { ctx, ws, machines } = await withNested(t);
+      const opts = await ctx.opts();
+      const SPAN = nestedSpanName('machines_in_time');
+      const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'machines', opts);
+      const span = sig.indexes.find((index) => stringEqual(index.name, SPAN));
+      assert.ok(span !== undefined && span.built && span.summary, 'the span is built, a summary beside the nested index');
+      assert.ok(isTypeValueEqual(span.keyType, toEastTypeValue(NestedSpanKeyType)), 'keyed by a collection\'s place, a period, then a tile of it');
+      assert.ok(isTypeValueEqual(span.valueType, toEastTypeValue(RecordSummaryTotalsType)), 'holding totals');
+      assert.ok(isTypeEqual(SpanWindowType, indexWindowType(NullType, NestedSpanKeyType, RecordSummaryTotalsType, MachineType)),
+        'its window is e3-types\' index window, its key Null');
+
+      /** One period of a collection's span, as a horizon reads it: one range of it, its tiles from two before the first job's to before the eighth on. */
+      const periodOf = (hash: string, collection: string, period: Level) => {
+        const lead = [printPath(pathOf([collection]) as never), printLevel(variant(period, null))];
+        const from = tileStep(period, tileStart(period, JOBS_FROM.getTime()), -2);
+        return readRuns(ctx, ws, recordAt('machines'), SPAN,
+          [{ from: [...lead, printDateTime(new Date(from))], to: [...lead, printDateTime(new Date(tileStep(period, from, 8)))] }], hash, decodeSpanWindow);
+      };
+      /** Holds the span, a period at a time, to what the rows give: every machine's jobs touching a tile and the time of it they cover, and its loads in it. */
+      const assertSpan = async (rows: Machines, when: string): Promise<void> => {
+        const hash = await nestedHash(ctx, ws, 'machines');
+        for (const period of SPAN_PERIODS) {
+          const loads = new Map<number, { count: bigint; ms: bigint }>();
+          for (const machine of rows.values()) {
+            for (const at of machine.load.keys()) {
+              const tile = tileStart(period, at.getTime());
+              loads.set(tile, { count: (loads.get(tile)?.count ?? 0n) + 1n, ms: 0n });
+            }
+          }
+          const expected = { jobs: tileTotals(period, [...rows.values()].flatMap((machine) => [...machine.jobs.values()])), load: loads };
+          for (const collection of ['jobs', 'load'] as const) {
+            const entries = await periodOf(hash, collection, period);
+            assert.equal(entries.length, expected[collection].size, `${when}, a total for each ${period} the machines' ${collection} touch, and no other`);
+            for (const entry of entries) {
+              const at = `${when}, the ${collection} of the ${period} of ${printDateTime(entry.ik.tile)}`;
+              const want = expected[collection].get(entry.ik.tile.getTime());
+              assert.ok(levelEqual(entry.ik.level, variant(period, null)), `${at}: read under its period`);
+              assert.ok(want !== undefined && integerEqual(entry.value.count, want.count) && integerEqual(entry.value.ms, want.ms),
+                `${at}: ${printTotals(entry.value)} read, ${want === undefined ? 'none' : printTotals(want)} there`);
+              assert.ok(machineUnjoined(entry.row, none), `${at} names no row`);
+            }
+          }
+        }
+      };
+      // As written, from nothing: every row read whole.
+      await assertSpan(machines, 'as written');
+      // Another session moves a job a quarter on, into the next year, through the record's patch door: each period's
+      // totals are kept from what the patch touched, and are what the rows then give.
+      const row = 'M-007';
+      const id = 'j-7-0';
+      const machine = machines.get(row)!;
+      const job = machine.jobs.get(id)!;
+      const jobs = new SortedMap(machine.jobs, stringOrder);
+      jobs.set(id, { ...job, start: new Date(job.start.getTime() + 13 * WEEK_MS), end: new Date(job.end.getTime() + 13 * WEEK_MS) });
+      const next = new SortedMap(machines, stringOrder);
+      next.set(row, { ...machine, jobs });
+      assert.notEqual(tileStart('year', jobs.get(id)!.start.getTime()), tileStart('year', job.start.getTime()), 'the move crosses a year, so every period\'s totals change');
+      await writeNested(ctx, ws, 'machines', encodeMachinesPatch(diffFor(MachinesType)(machines, next)));
+      await assertSpan(next, 'a job moved');
     });
   });
 }

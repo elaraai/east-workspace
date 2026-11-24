@@ -1732,3 +1732,48 @@ Each wire changed under this rule, with the kind it is.
   tile })`), built as every index is when its package is deployed; no index a
   record already has changes its key or what it carries. A UI task's output is
   not stored state, so no repository upgrade step ships with it.
+- **A nested series index keeps its totals a period each, and its span's key
+  gains the period (#1739)** — package-borne. `index.nestedSeries` takes its
+  `summary` as a list of periods where it took one tile, and `totals` beside
+  it: the periods each node's totals are kept at, none where it lists none,
+  and the periods the record's totals are kept at across its rows — a month, a
+  quarter and a year where the declaration names none. A node's totals runs
+  (`totals`, `subtreeTotals`) hold a tile at each period of `summary`, an
+  entry's `level` the period it is kept at, so the entry key
+  (`NestedEntryKeyType`) keeps its type, and an index holds a run a period
+  where it held one. The span's key (`NestedSpanKeyType`) gains `level`,
+  between `collection` and `tile` — `{ collection, level, tile }`, the period
+  a tile is of (`RecordLevelType`) — where it was `{ collection, tile }`, a
+  collection's months. An item counts once in each tile of a period it
+  touches, so a period's totals are read as they are kept, and no reader adds
+  a finer period's up into a coarser one. Each nested series index a package
+  declares, and the span beside it, changes with them, so both are rebuilt as
+  the package is deployed, as any changed index is; an index is derived from
+  its record, so no repository upgrade step ships, and no reader keeps the
+  earlier form. A write keeps the span from what its patch touched of each
+  row — the items and values the patch names, before and after — where it
+  read each changed row whole: that is the programs' own, generated at
+  export, and no stored form's. A package's source that wrote `summary:
+  "month"` writes `summary: ["month"]` before its next export, the builder
+  refusing the earlier form by name; and a task's or a function's reader
+  names the period it reads, `totals({ …, tile: "month" })`, where its index
+  keeps several.
+- **e3-ui's nested binding and the Plan's seam name the periods a nested
+  series index keeps its totals at (#1739)** — package-borne. A binding that
+  lists a nested series index carries the index's part in its type
+  (`NestedPartType`, which `data_bind_indexed` takes as a type parameter and
+  the part's value beside it): its `summary`, a struct whose one field was the
+  index's summary tile, holds a field for each period the index keeps each
+  node's totals at, the empty struct where it keeps none, and it gains
+  `totals`, after `summary`, a field for each period it keeps the record's
+  totals at. The seam a Plan's root carries over rows paged beside the index
+  (`PlanNestedType`) holds `summary` as those periods, finest first — an Array
+  of `RecordSliceTileType` where it was an Option of one — and gains `totals`,
+  after it, the same way. Past its cap a row shades from the period its column
+  is where `summary` lists it, else from the coarsest listed that divides the
+  column, and the horizon's bars are read at the period of `totals` they count
+  by: no page adds a finer period's totals up into a coarser one the index
+  keeps. A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it.

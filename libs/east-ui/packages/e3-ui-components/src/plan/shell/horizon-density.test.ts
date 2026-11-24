@@ -5,80 +5,18 @@
  */
 
 /**
- * The horizon's density (#1438): the period its bars count by for the
- * track's width, its buckets clipped to the horizon, and each month's count
- * in the bucket it starts in; over the record's totals (#1732), the period
- * chosen of those there are totals at, and each bucket its own period's count.
+ * The horizon's density (#1438, #1732): the period its bars count by for the
+ * track's width, of those there are counts at — the periods a nested series
+ * index keeps the record's totals at, or those every record source lists — its
+ * buckets clipped to the horizon, and each bucket its own period's count.
  */
 
 import { describe, expect, test } from "vitest";
-import { HORIZON_BUCKET_UNITS, horizonDensity, horizonTotalsDensity, horizonUnit } from "./horizon-density.js";
+import { HORIZON_BUCKET_UNITS, horizonTotalsDensity, horizonUnit } from "./horizon-density.js";
 
 const at = (iso: string): number => new Date(`${iso}T00:00:00Z`).getTime();
 
-/** Every month of 2022–2031, each counting its month's number in the year. */
-const decade = Array.from({ length: 120 }, (_, i) => [Date.UTC(2022 + Math.floor(i / 12), i % 12, 1), (i % 12) + 1] as const);
-
-describe("horizonDensity (#1438)", () => {
-    test("the finest of month, quarter and year that keeps 4px a bucket", () => {
-        const lo = at("2022-01-01");
-        const hi = at("2032-01-01");
-        expect(horizonDensity(lo, hi, decade, 1000)!.unit).toBe("month");
-        expect(horizonDensity(lo, hi, decade, 300)!.unit).toBe("quarter");
-        expect(horizonDensity(lo, hi, decade, 60)!.unit).toBe("year");
-        // A year where none keeps 4px.
-        expect(horizonDensity(lo, hi, decade, 20)!.unit).toBe("year");
-    });
-
-    test("a bucket counts the months starting in it, and the largest is the max", () => {
-        const months = horizonDensity(at("2022-01-01"), at("2032-01-01"), decade, 1000)!;
-        expect(months.buckets).toHaveLength(120);
-        expect(months.buckets.slice(0, 3).map((b) => b.count)).toEqual([1, 2, 3]);
-        expect(months.max).toBe(12);
-        const quarters = horizonDensity(at("2022-01-01"), at("2032-01-01"), decade, 300)!;
-        expect(quarters.buckets).toHaveLength(40);
-        expect(quarters.buckets.slice(0, 4).map((b) => b.count)).toEqual([6, 15, 24, 33]);
-        expect(quarters.max).toBe(33);
-        const years = horizonDensity(at("2022-01-01"), at("2032-01-01"), decade, 60)!;
-        expect(years.buckets.map((b) => b.count)).toEqual(Array.from({ length: 10 }, () => 78));
-    });
-
-    test("the buckets run from the period the horizon begins in to the one it ends in, each clipped to it", () => {
-        // A horizon of whole weeks: Monday 27 December 2021 to Monday 3 January 2022 plus a year.
-        const lo = at("2021-12-27");
-        const hi = at("2023-01-02");
-        const d = horizonDensity(lo, hi, decade, 400)!;
-        expect(d.unit).toBe("month");
-        expect(d.buckets[0]!.start.toISOString()).toBe("2021-12-01T00:00:00.000Z");
-        expect(d.buckets[0]!.from).toBe(0);
-        expect(d.buckets[0]!.to).toBeCloseTo((at("2022-01-01") - lo) / (hi - lo), 12);
-        expect(d.buckets.at(-1)!.start.toISOString()).toBe("2023-01-01T00:00:00.000Z");
-        expect(d.buckets.at(-1)!.to).toBe(1);
-        // December 2021 holds no month's count; January 2023 counts its month whole, as e3 keeps no finer count.
-        expect([d.buckets[0]!.count, d.buckets[1]!.count, d.buckets.at(-1)!.count]).toEqual([0, 1, 1]);
-    });
-
-    test("a month the horizon's start clips counts whole in the first bucket, as one its end clips does — a source's horizon begins on its first event's day (#1710)", () => {
-        // From Wednesday 5 October 2022 to the year's end: October, clipped to its 5th, counts whole in the first bucket.
-        const d = horizonDensity(at("2022-10-05"), at("2023-01-01"), decade, 400)!;
-        expect(d.buckets.map((b) => b.count)).toEqual([10, 11, 12]);
-        expect([d.buckets[0]!.start.toISOString(), d.buckets[0]!.from]).toEqual(["2022-10-01T00:00:00.000Z", 0]);
-    });
-
-    test("a short horizon over a nested series' months still counts by the month: e3 keeps no finer count (#1732)", () => {
-        // Four weeks from Monday 5 October 2026 on 280px, where a day would keep 10px.
-        expect(horizonDensity(at("2026-10-05"), at("2026-11-02"), decade, 280)!.unit).toBe("month");
-    });
-
-    test("a month outside the horizon counts in no bucket, and no horizon or no track has no buckets", () => {
-        const d = horizonDensity(at("2025-01-01"), at("2026-01-01"), decade, 400)!;
-        expect(d.buckets.reduce((n, b) => n + b.count, 0)).toBe(78);
-        expect(horizonDensity(at("2025-01-01"), at("2025-01-01"), decade, 400)).toBeUndefined();
-        expect(horizonDensity(at("2025-01-01"), at("2026-01-01"), decade, 0)).toBeUndefined();
-    });
-});
-
-describe("the horizon over the record's totals (#1732)", () => {
+describe("the horizon's period and its buckets (#1438, #1732)", () => {
     const lo = at("2022-01-01");
     const hi = at("2032-01-01");
 
@@ -90,6 +28,45 @@ describe("the horizon over the record's totals (#1732)", () => {
         expect(horizonUnit(lo, hi, 60, ["month"])).toBe("month");
         expect(horizonUnit(lo, hi, 20, HORIZON_BUCKET_UNITS)).toBe("year");
         expect(horizonUnit(lo, hi, 1000, [])).toBeUndefined();
+    });
+
+    test("over a nested series it is one of the periods the index keeps the record's totals at: month, quarter and year, or the weeks it lists (#1739)", () => {
+        const kept = ["month", "quarter", "year"] as const;
+        expect(horizonUnit(lo, hi, 1000, kept)).toBe("month");
+        expect(horizonUnit(lo, hi, 300, kept)).toBe("quarter");
+        expect(horizonUnit(lo, hi, 60, kept)).toBe("year");
+        // A year where none keeps 4px.
+        expect(horizonUnit(lo, hi, 20, kept)).toBe("year");
+        // Four weeks from Monday 5 October 2026 on 280px: a month where the index keeps none finer, a week where it lists weeks.
+        expect(horizonUnit(at("2026-10-05"), at("2026-11-02"), 280, kept)).toBe("month");
+        expect(horizonUnit(at("2026-10-05"), at("2026-11-02"), 280, ["week", "month"])).toBe("week");
+    });
+
+    test("a quarter's bar is the quarter's own count, never its months' added up: an item over two months is counted once (#1739)", () => {
+        // One item from the middle of October 2022 to the middle of November: in each month's count, and once in the quarter's.
+        const from = at("2022-10-01");
+        const to = at("2023-01-01");
+        const months = horizonTotalsDensity(from, to, "month", new Map([[at("2022-10-01"), 1], [at("2022-11-01"), 1]]))!;
+        expect(months.buckets.map((b) => b.count)).toEqual([1, 1, 0]);
+        const quarter = horizonTotalsDensity(from, to, "quarter", new Map([[at("2022-10-01"), 1]]))!;
+        expect(quarter.buckets.map((b) => b.count)).toEqual([1]);
+        expect(quarter.max).toBe(1);
+    });
+
+    test("the buckets run from the period the horizon begins in to the one it ends in, each clipped to it, and a period outside the horizon is in none", () => {
+        // A horizon of whole weeks: Monday 27 December 2021 to Monday 2 January 2023.
+        const from = at("2021-12-27");
+        const to = at("2023-01-02");
+        const d = horizonTotalsDensity(from, to, "month",
+            new Map([[at("2021-11-01"), 9], [at("2022-01-01"), 1], [at("2023-01-01"), 1], [at("2023-02-01"), 9]]))!;
+        expect(d.buckets[0]!.start.toISOString()).toBe("2021-12-01T00:00:00.000Z");
+        expect(d.buckets[0]!.from).toBe(0);
+        expect(d.buckets[0]!.to).toBeCloseTo((at("2022-01-01") - from) / (to - from), 12);
+        expect(d.buckets.at(-1)!.start.toISOString()).toBe("2023-01-01T00:00:00.000Z");
+        expect(d.buckets.at(-1)!.to).toBe(1);
+        // December 2021 holds nothing; January 2023, clipped to its 2nd, counts whole, as e3 keeps no finer count.
+        expect([d.buckets[0]!.count, d.buckets[1]!.count, d.buckets.at(-1)!.count]).toEqual([0, 1, 1]);
+        expect(d.buckets.reduce((n, b) => n + b.count, 0)).toBe(2);
     });
 
     test("a short horizon reads days or weeks where there are totals at them: four weeks on 280px a bar a day, thirteen a bar a week — never one month's block (#1732)", () => {

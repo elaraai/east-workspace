@@ -5,7 +5,7 @@
 
 /**
  * The nested series index's declaration (#1434): one a record,
- * `index.nestedSeries({ collections, tile, summary })` among its indexes, whose
+ * `index.nestedSeries({ collections, tile, summary, totals })` among its indexes, whose
  * `collections` declares every collection the record's rows nest, each
  * field with a builder saying what it holds — things people drag (`items`), a
  * value per instant (`values`), child rows (`rows`), or more rows of the row's
@@ -101,7 +101,8 @@ export interface SeriesRecursive {
  *   no start is filed nowhere; one with no end, or an end at or before its start, is an instant. `{ at }`: its items'
  *   instant field.
  * @param options - `rollup: true`: each item is filed under every ancestor row too, so a parent reads its subtree's items
- *   in one range a level (its bands), and e3 keeps each subtree's totals a summary tile at a time
+ *   in one range a level (its bands), and e3 keeps each subtree's totals a tile at a time, at each period the index
+ *   keeps its nodes' totals at
  * @returns The declaration, for its field in `collections`
  */
 export function items<
@@ -234,19 +235,22 @@ export type PlacesOf<V, C> = VariantType<{
 
 /**
  * What a nested series index's definition carries for its binding (#1435): its
- * collections as written, its tile and summary tile as written, its
- * declaration as an East value, the field names as data, and its span typed
- * as the index it is.
+ * collections and its tile as written, the periods its nodes' totals and the
+ * record's totals are kept at, its declaration as an East value, the field
+ * names as data, and its span typed as the index it is.
  */
 export interface NestedOf<S> {
   readonly collections: S extends { collections: infer C } ? C : never;
   readonly tile: S extends { tile: infer T extends RecordTile } ? T : RecordTile;
-  readonly summary: S extends { summary: infer U extends RecordTile } ? U : undefined;
+  /** The periods each node's totals are kept at, finest first: those `summary` names, and none where it names none. */
+  readonly summary: S extends { summary: readonly (infer U extends RecordTile)[] } ? readonly U[] : readonly never[];
+  /** The periods the record's totals are kept at, finest first: those `totals` names, or a month, a quarter and a year. */
+  readonly totals: S extends { totals: readonly (infer U extends RecordTile)[] } ? readonly U[] : readonly ('month' | 'quarter' | 'year')[];
   readonly declaration: RecordNestedDecl;
-  /** Its span (#1438): each collection's tiles across the record's rows, keyed `{ collection, tile }` and summed as a
-   *  summary's totals are. */
+  /** Its span (#1438): the record's totals, each collection's tiles at each period across the record's rows, keyed
+   *  `{ collection, level, tile }` and summed as a summary's totals are. */
   readonly span: RecordIndexDef<string, EastType, typeof NestedSpanKeyType, typeof RecordSummaryTotalsType, readonly string[] | undefined>
-    & { readonly span: { readonly of: string; readonly tile: RecordTile } };
+    & { readonly span: { readonly of: string; readonly tiles: readonly RecordTile[]; readonly touched: { toIR(): unknown } } };
 }
 
 // ── The declaration, checked ──────────────────────────────────────────────────

@@ -416,29 +416,29 @@ export interface SeriesInTimeReaders<IK extends EastType = EastType, P extends E
 }
 
 /**
- * The window a summary's reader is given: a key's, `{ key, from, to }`, for a
- * summary filed by one; the window alone for one with no key, the record's
- * totals a tile (#1732).
+ * The window a totals reader is given: a key's, `{ key, from, to }`, of a
+ * summary index; the window alone of the record's totals (`index.totals`),
+ * which are kept under no key (#1732).
  */
 export type SummaryWindow<IK> = IK extends StructType<{ key: EastType }> ? KeyWindow<IK> : TimeWindow;
 
 /**
- * A summary index's readers (`index.summary`).
+ * A summary index's readers (`index.summary`), and the record's totals'
+ * (`index.totals`).
  *
- * @typeParam IK - The index's key type, `{ on, key, tile }`, or `{ on, tile }` for a summary with no key
+ * @typeParam IK - The index's key type, `{ on, key, tile }`, or `{ on, tile }` for the record's totals
  */
 export interface SummaryReaders<IK extends EastType = EastType> {
   /**
    * The totals of each tile of `key` that overlaps `[from, to)`: how many
-   * rows touch the tile, and the milliseconds of it they cover — of a summary
-   * with no key, the record's totals of each such tile under the leading
-   * fields, given no key (#1732). A window that ends at or before its start
-   * holds none. One run.
+   * rows touch the tile, and the milliseconds of it they cover — of the
+   * record's totals, each such tile's under the leading fields, given no key
+   * (#1732). A window that ends at or before its start holds none. One run.
    *
-   * @param window - The leading fields, each exactly, the key of a summary filed by one, and the window
+   * @param window - The leading fields, each exactly, a summary index's key, and the window
    * @returns The read: each tile's totals, and the tile's start in place of a row's key
-   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them; or a
-   *   summary with no key is given one
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them; or
+   *   the record's totals are given a key
    */
   totals(window: LeadingOn<IK> & SummaryWindow<IK>): IndexRead<typeof RecordSummaryTotalsType, DateTimeType>;
 }
@@ -623,15 +623,16 @@ function seriesInTimeReaders(entries: Entries): SeriesInTimeReaders {
 function summaryReaders(entries: Entries): SummaryReaders {
   const summary = entries.def.summary!;
   const level = variant(summary.tile, null);
-  // A summary with no key keeps the record's totals a tile under its leading fields alone (#1732): its run is theirs.
+  // The record's totals (`index.totals`) are a summary under no key, kept a tile under its leading fields alone
+  // (#1732): its run is theirs.
   const keyed = summary.key !== undefined;
   return {
     totals: (window) => {
       const given = (window ?? {}) as { on?: unknown; key?: unknown; from?: unknown; to?: unknown };
       if (!keyed && given.key !== undefined) {
         throw new Error(
-          `${entries.name} totals: the summary keeps the record's totals a tile, under no key — it takes no \`key\`: a key's totals are a ` +
-          'summary filed by it, index.summary({ key, … })',
+          `${entries.name} totals: the index keeps the record's totals a tile, under no key — it takes no \`key\`: a key's totals are a ` +
+          'summary index\'s, index.summary({ key, … })',
         );
       }
       const written = keyed ? keyWindow(entries, 'totals', window) : {
@@ -955,8 +956,9 @@ export function NestedUnderType(index: Pick<RecordIndexDef, 'name' | 'nested' | 
  * @typeParam K - The record's key type
  * @typeParam V - The record's row type
  * @typeParam C - The index's collections, as declared
+ * @typeParam U - The periods the index keeps each node's totals at, its `summary`
  */
-export interface NestedReaders<K extends EastType = EastType, V = unknown, C = unknown> {
+export interface NestedReaders<K extends EastType = EastType, V = unknown, C = unknown, U extends RecordTile = RecordTile> {
   /**
    * A node's own items, or values, that overlap `[from, to)`: an item timed
    * `{ from, to }` as an interval index's row overlaps a window, a value or
@@ -970,16 +972,20 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
    */
   items<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, NestedKeyAt<V, C, Place>>;
   /**
-   * A node's totals of a collection, a summary tile at a time, for each tile
-   * that overlaps `[from, to)`: how many items touch it, the milliseconds of
-   * it they cover, and for numbers their sum, least, greatest and latest. One
-   * run.
+   * A node's totals of a collection at one of the periods the index keeps
+   * them at, for each tile of it that overlaps `[from, to)`: how many items
+   * touch it, the milliseconds of it they cover, and for numbers their sum,
+   * least, greatest and latest. A period's totals count an item once in every
+   * tile of it the item touches, so a period is read as it is kept, never
+   * added up from a finer one. One run.
    *
-   * @param window - The collection, the row, the path to the node, and the window
+   * @param window - The collection, the row, the path to the node, the period — `tile`, which an index keeping its
+   *   totals at one period may leave out — and the window
    * @returns The read: each tile's totals, and the tile's start
-   * @throws {Error} Where the function is built, when the index keeps no totals: it declares no `summary`
+   * @throws {Error} Where the function is built, when the index keeps no totals: it declares no `summary`; when it
+   *   keeps them at several periods and `tile` names none; or when `tile` is none of them, naming those it keeps
    */
-  totals(window: NestedWindow<K, NestedPlaceOf<C>>): IndexRead<typeof RecordNestedTotalsType, DateTimeType>;
+  totals(window: NestedWindow<K, NestedPlaceOf<C>> & { tile?: U }): IndexRead<typeof RecordNestedTotalsType, DateTimeType>;
   /**
    * A parent's subtotals of a collection of values by one of its rollups, at
    * a level, for each tile that overlaps `[from, to)`. One run.
@@ -1001,15 +1007,17 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
    */
   subtree<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, NestedUnderType>;
   /**
-   * A node's totals of the items beneath it, of a collection rolled up, a
-   * summary tile at a time. One run.
+   * A node's totals of the items beneath it, of a collection rolled up, at
+   * one of the periods the index keeps its totals at, as {@link totals} reads
+   * a node's own. One run.
    *
-   * @param window - The collection, the row, the path to the node, and the window
+   * @param window - The collection, the row, the path to the node, the period — `tile`, as {@link totals} takes
+   *   it — and the window
    * @returns The read: each tile's totals, and the tile's start
-   * @throws {Error} Where the function is built, when the collection's items are not rolled up, or the index
-   *   declares no `summary`
+   * @throws {Error} Where the function is built, when the collection's items are not rolled up; or as {@link totals}
+   *   does of the index's `summary` and the `tile`
    */
-  subtreeTotals(window: NestedWindow<K, NestedPlaceOf<C>>): IndexRead<typeof RecordNestedTotalsType, DateTimeType>;
+  subtreeTotals(window: NestedWindow<K, NestedPlaceOf<C>> & { tile?: U }): IndexRead<typeof RecordNestedTotalsType, DateTimeType>;
 }
 
 /** Whether two rollups are one, as an index keeps them. */
@@ -1164,11 +1172,21 @@ function nestedReaders(entries: Entries): NestedReaders {
     });
   };
 
-  const summary = (reader: string): RecordTile => {
-    if (nested.summary === undefined) {
-      throw new Error(`${entries.name} ${reader}: the index keeps no totals — declare the tile they are kept by, as index.nestedSeries({ …, summary: 'month' })`);
+  /** The period a totals reader reads: the one it names, of those the index keeps, or the one the index keeps alone. */
+  const totalsAt = (reader: string, window: unknown): RecordTile => {
+    const kept = nested.summary;
+    if (kept.length === 0) {
+      throw new Error(`${entries.name} ${reader}: the index keeps no totals — declare the periods they are kept at, as index.nestedSeries({ …, summary: ['month'] })`);
     }
-    return nested.summary;
+    const tile = (window as { tile?: unknown }).tile;
+    if (tile === undefined) {
+      if (kept.length === 1) return kept[0]!;
+      throw new Error(`${entries.name} ${reader}: the index keeps its totals at ${kept.join(', ')} — name the one to read, as tile: '${kept[0]}'`);
+    }
+    if (typeof tile !== 'string' || !(kept as readonly string[]).includes(tile)) {
+      throw new Error(`${entries.name} ${reader}: the index keeps its totals at ${kept.join(', ')}, and none at ${JSON.stringify(tile)}`);
+    }
+    return tile as RecordTile;
   };
   const rolledUp = (reader: string, collection: NestedCollection): void => {
     if (collection.kind !== 'items' || !collection.rollup) {
@@ -1187,7 +1205,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     },
     totals: (window) => {
       const at = written('totals', window);
-      const tile = summary('totals');
+      const tile = totalsAt('totals', window);
       return readOf(DateTimeType, RecordNestedTotalsType, ($, give) => { tilesOf($, variant('totals', null), tile, 'totals', at, give); });
     },
     subtotals: (window) => {
@@ -1217,7 +1235,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     subtreeTotals: (window) => {
       const at = written('subtreeTotals', window);
       rolledUp('subtreeTotals', at.collection);
-      const tile = summary('subtreeTotals');
+      const tile = totalsAt('subtreeTotals', window);
       return readOf(DateTimeType, RecordNestedTotalsType, ($, give) => { tilesOf($, variant('subtreeTotals', null), tile, 'totals', at, give); });
     },
   };
@@ -1253,7 +1271,8 @@ export type IndexReadersOf<D> =
       : D extends { readonly interval: object } ? IntervalReaders<IK, C, RecordKeyOf<T>>
       : D extends { readonly area: object } ? AreaReaders<IK, C, RecordKeyOf<T>>
       : D extends { readonly entries: object } ? EntriesReaders<IK, C, RecordKeyOf<T>>
-      : D extends { readonly nested: { readonly collections: infer N } } ? NestedReaders<RecordKeyOf<T>, RecordRowOf<T>, N>
+      : D extends { readonly nested: { readonly collections: infer N; readonly summary: infer Kept extends readonly RecordTile[] } }
+        ? NestedReaders<RecordKeyOf<T>, RecordRowOf<T>, N, Kept[number]>
       : PlainReaders<IK, C, D extends { readonly span: object } ? IK : RecordKeyOf<T>>
     : Record<never, never>;
 

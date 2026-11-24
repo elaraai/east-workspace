@@ -61,7 +61,7 @@ function machines() {
       in_time: index.nestedSeries({
         collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() },
         tile: 'week',
-        summary: 'month',
+        summary: ['month'],
       }),
       busy: index.summary({ key: 'site', from: 'planned_start', to: 'planned_end', tile: 'day' }),
     }),
@@ -92,7 +92,8 @@ describe('e3.record declared whole', () => {
     assert.equal(rec.indexes.by_statuses.multi, true);
     assert.equal(rec.indexes.in_window.interval.from, 'planned_start');
     assert.equal(rec.indexes.planned.series.tile, 'week');
-    assert.equal(rec.indexes.in_time.nested.summary, 'month');
+    assert.deepEqual(rec.indexes.in_time.nested.summary, ['month']);
+    assert.deepEqual(rec.indexes.in_time.nested.totals, ['month', 'quarter', 'year']);
     assert.equal(rec.indexes.busy.summary.tile, 'day');
   });
 
@@ -211,11 +212,11 @@ describe('e3.record refuses, naming the record and the part', () => {
     assert.throws(declare({
       // @ts-expect-error collections are the nested index's
       indexes: (index) => ({ in_time: index.flatSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week' }) }),
-    }), /^Error: e3\.record 'm': index\.flatSeries 'in_time' takes key, from, to and tile — collections are a nested series index's: index\.nestedSeries\(\{ collections, tile, summary\? \}\)$/);
+    }), /^Error: e3\.record 'm': index\.flatSeries 'in_time' takes key, from, to and tile — collections are a nested series index's: index\.nestedSeries\(\{ collections, tile, summary\?, totals\? \}\)$/);
     assert.throws(declare({
       // @ts-expect-error key, from and to are a series index's
       indexes: (index) => ({ in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, key: 'site', from: 'planned_start', to: 'planned_end', tile: 'week' }) }),
-    }), /^Error: e3\.record 'm': index\.nestedSeries 'in_time' takes collections, tile and summary — key, from and to file the record's own events: index\.flatSeries\(\{ key, from, to, tile \}\)$/);
+    }), /^Error: e3\.record 'm': index\.nestedSeries 'in_time' takes collections, tile, summary and totals — key, from and to file the record's own events: index\.flatSeries\(\{ key, from, to, tile \}\)$/);
   });
 
   it('an option a builder does not take', () => {

@@ -792,7 +792,9 @@ the index, and the record's binding carries what the reader needs of e3.
 none, except over a record's rows paged beside their nested series index.
 `PlanNestedType` carries the index by name, the binding it is read through by
 its id (the record's, whatever a Slice narrows of it), the index's tile and
-summary tile, what each series reads of it (`PlanNestedUseType`: the
+the periods it keeps its totals at (`summary` and `totals`, a list each since
+#1739, below; one summary tile before it), what each series reads of it
+(`PlanNestedUseType`: the
 collection's place, the levels its items are filed at, how its rows shade past
 the cap, how its parents read) and `rows`, the function that draws a window of
 lean rows filled with the cells read, the drafted rows in their places, and the
@@ -1384,6 +1386,47 @@ a case for each kind, and one source of the rail.
 - A record a kind keeps for itself reads as before: `case` is left out.
 
 Nothing of the Plan's payload changes.
+
+## Totals a period each (#1739)
+
+Before #1739 a nested series index kept each row's totals at one tile, its
+`summary`, and the record's totals a month at a time. Past the cap a Plan
+shaded its rows only at a zoom that tile divided, and drew them hatched at any
+other with nothing on the page to say why; and the horizon added the months up
+into a quarter's or a year's bar, counting an item once for each month it
+touched. Now the index names the periods it keeps each at, and the Plan reads
+the period it draws.
+
+| Before | Now | Example |
+|---|---|---|
+| `index.nestedSeries({ collections, tile: "week", summary: "month" })` | `summary: ["week", "month"]`: each row's totals at every period listed. A list of one keeps what the one tile kept | `planNestedAll` |
+| the record's totals, a month at a time | `totals: ["month", "quarter", "year"]`: the periods the record's totals are kept at across its rows — these three where it is left out | `planNestedAll` |
+
+`summary` given as one tile is refused as the record is built, naming the
+list it takes. Both are the record's declaration, which is e3's
+(`reference/record-indexes.md`): none of the Plan's own props changes.
+
+### Behaviour that changed
+
+- **Past the cap, a row shades at the zoom's own period** where `summary`
+  lists it: from the week's totals at a week's zoom, from the month's at a
+  month's. At a zoom `summary` does not list, it shades from the coarsest
+  period listed that divides the column, as a quarter does from its months.
+- **Where no period listed divides the column, the Plan says so.** The rows
+  past the cap are hatched, and the frame draws the notice a Plan of event
+  kinds draws past its own cap: how many items are in view, and the
+  resolution to switch to, the finest `summary` lists.
+- **A horizon's bar counts an item once.** The bars are a period `totals`
+  lists, the finest that leaves each bar room on the track, read as the index
+  keeps it: a job over a month's end is in both months' bars and once in
+  their quarter's, where a quarter's bar was its months' added up.
+
+### The wire
+
+`PlanNestedType`'s `summary` is those periods, finest first, where it was one
+tile or none, and it gains `totals` after it; a record's indexed binding
+carries the same two in its nested part (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
 
 ## Extracted contracts (do this first when migrating imports)
 

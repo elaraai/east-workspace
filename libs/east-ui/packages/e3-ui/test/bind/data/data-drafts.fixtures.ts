@@ -60,7 +60,7 @@ export const draftLedgers = e3.record("draft_ledgers", DictType(StringType, Draf
                 measures: index.nestedSeries.rows({ readings: index.nestedSeries.values({ rollup: ["sum", "mean", "count", { fold: "last", aggregate: "sum" }] }) }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

@@ -326,8 +326,8 @@ export const recordReadEntriesIndex = example({
 });
 
 export const recordReadNestedIndex = example({
-  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'items', 'totals', 'subtotals', 'subtree', 'subtreeTotals', 'index.nestedSeries', 'nested', 'tree', 'rollup', 'window', 'function'],
-  description: 'Read a nested series index inside a function, one node of a row\'s tree at a time: `items` gives a node\'s own items or values that overlap a window, `subtree` the items of every node beneath it, `totals` and `subtreeTotals` their totals a summary tile, and `subtotals` a parent\'s subtotal of its children\'s values by a rollup',
+  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'items', 'totals', 'subtotals', 'subtree', 'subtreeTotals', 'index.nestedSeries', 'nested', 'tree', 'rollup', 'summary', 'period', 'tile', 'window', 'function'],
+  description: 'Read a nested series index inside a function, one node of a row\'s tree at a time: `items` gives a node\'s own items or values that overlap a window, `subtree` the items of every node beneath it, `totals` and `subtreeTotals` their totals a tile of a period the index\'s `summary` names — a week, a month — the one `tile` names where it keeps several, and `subtotals` a parent\'s subtotal of its children\'s values by a rollup',
   fn: () => {
     const JobType = StructType({ title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
     const UnitType = StructType({ name: StringType, jobs: DictType(StringType, JobType), load: DictType(DateTimeType, FloatType) });
@@ -357,7 +357,10 @@ export const recordReadNestedIndex = example({
             }),
           },
           tile: 'day',
-          summary: 'month',
+          // Each node's totals, kept a week and a month at a time: a read names the one it wants. The record's totals
+          // across every line, which a Plan's horizon draws, are kept a month, a quarter and a year at a time unless
+          // `totals` names other periods.
+          summary: ['week', 'month'],
         }),
       }),
     });
@@ -379,12 +382,13 @@ export const recordReadNestedIndex = example({
     // from the node down to the one holding it, and its id. The collection declares `rollup: true`.
     const jobsOnLine = e3.function('jobs_on_line', { inputs: [inTime], args: [StringType, DateTimeType, DateTimeType], output: IntegerType },
       ($, linesInTime, line, from, to) => linesInTime.subtree({ collection: ['units', 'jobs'], row: line, from, to }).collect($).size());
-    // `totals`: a node's totals a summary tile — how many, and for numbers their sum, least, greatest and latest — and
-    // the tile's start. The index declares `summary`.
+    // `totals`: a node's totals a tile of a period the index's `summary` names — how many, and for numbers their sum,
+    // least, greatest and latest — and the tile's start. `tile` names the period, where the index keeps several; an
+    // item counts once in every tile it touches, so a coarser period is read as kept, never added up from a finer one.
     const peakLoad = e3.function('peak_load_a_month', { inputs: [inTime], args: [...Window], output: DictType(DateTimeType, FloatType) },
       ($, linesInTime, line, unit, from, to) => {
         const peaks = $.let(new Map(), DictType(DateTimeType, FloatType));
-        linesInTime.totals({ collection: ['units', 'load'], row: line, path: [variant('units', unit)], from, to }).each($, ($, totals, month) => {
+        linesInTime.totals({ collection: ['units', 'load'], row: line, path: [variant('units', unit)], tile: 'month', from, to }).each($, ($, totals, month) => {
           $.match(totals.values, { some: ($, values) => { $(peaks.insert(month, values.max)); } });
         });
         return peaks;

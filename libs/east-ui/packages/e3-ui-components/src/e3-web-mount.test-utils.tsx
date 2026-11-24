@@ -351,8 +351,9 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         if (state.workspace === undefined) throw new Error("the test has no workspace: the harness's beforeEach has not run");
         return state.workspace;
     };
-    // The first deploy pays for every record's initial value and index.
-    beforeAll(async () => { state.e3 = await startTestE3(modules); }, 120_000);
+    // The first deploy pays for every record's initial value and index: for the largest fixtures, the nested series'
+    // (`plan/plan-nested.fixtures`), about two minutes on a hosted runner, which a runner at half speed doubles.
+    beforeAll(async () => { state.e3 = await startTestE3(modules); }, 300_000);
     afterAll(() => { state.e3?.close(); state.e3 = undefined; });
     beforeEach(async () => {
         StateRuntime.initializeStore(new UIStore());

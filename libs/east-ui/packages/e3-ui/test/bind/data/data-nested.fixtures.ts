@@ -111,7 +111,7 @@ export const nestedMachines = e3.record("nested_machines", NestedMachines, {
                 output: index.nestedSeries.values(),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -141,11 +141,13 @@ export const nestedLedgers = e3.record("nested_ledgers", DictType(StringType, Ne
     indexes: (index) => ({
         // The ledgers by name.
         ledgers_by_name: index.on(["name"]),
-        // What the ledgers file in time: each measure's readings, a ledger keeping their sums from the week up.
+        // What the ledgers file in time: each measure's readings, a ledger keeping their sums from the week up — each
+        // measure's totals a week and a month at a time, and the record's a month and a year.
         ledgers_in_time: index.nestedSeries({
             collections: { measures: index.nestedSeries.rows({ readings: index.nestedSeries.values({ rollup: "sum" }) }) },
             tile: "week",
-            summary: "month",
+            summary: ["week", "month"],
+            totals: ["month", "year"],
         }),
     }),
     mutations: (mutation) => ({
@@ -188,7 +190,7 @@ export const nestedAssemblies = e3.record("nested_assemblies", DictType(StringTy
         assemblies_in_time: index.nestedSeries({
             collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

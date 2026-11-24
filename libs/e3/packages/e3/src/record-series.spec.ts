@@ -953,7 +953,7 @@ describe('index.summary and index.totals — their contributions and declaration
     assert.throws(() => East.function([totals.type], TileTotals, ($, entries) =>
       // @ts-expect-error — a summary with no key is read under its leading fields alone
       totals.read(entries).totals({ on: { state: 'confirmed' }, key: 'P-1001', from: at('2026-10-05T00:00:00.000'), to: at('2026-10-12T00:00:00.000') }).collect($)),
-    /e3\.index 'jobs\.jobs_by_state_week_totals' totals: the summary keeps the record's totals a tile, under no key — it takes no `key`: a key's totals are a summary filed by it, index\.summary\(\{ key, … \}\)/);
+    /e3\.index 'jobs\.jobs_by_state_week_totals' totals: the index keeps the record's totals a tile, under no key — it takes no `key`: a key's totals are a summary index's, index\.summary\(\{ key, … \}\)/);
   });
 });
 

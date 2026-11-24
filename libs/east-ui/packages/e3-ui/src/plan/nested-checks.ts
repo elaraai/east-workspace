@@ -64,15 +64,18 @@ export interface PlanNestedRollup {
 
 /**
  * A source's nested series index, as the Plan's build reads it: its name,
- * its tile and its summary tile, and each collection by its field.
+ * its tile, the periods it keeps its totals at, and each collection by its
+ * field.
  */
 export interface PlanNestedIndex {
     /** The index's name. */
     readonly name: string;
     /** The finest level it files at, and keeps subtotals from. */
     readonly tile: string;
-    /** The tile it keeps each node's totals by; none where it keeps none. */
-    readonly summary: string | undefined;
+    /** The periods it keeps each node's totals at, finest first: what a row past the cap shades from; none where it keeps none. */
+    readonly summary: readonly string[];
+    /** The periods it keeps the record's totals at, finest first: what the horizon's bars count by. */
+    readonly totals: readonly string[];
     /** Each collection's declaration, by its field. */
     readonly collections: ReadonlyMap<string, PlanNestedDeclaration>;
 }
@@ -115,8 +118,8 @@ function declarationOf(marker: EastType): PlanNestedDeclaration {
 /**
  * Reads a source's nested series index at build, from its binding's nested
  * part's type (`Data.bindPaged(record, { indexes })`): its name, each
- * collection's place, what it holds, its times and its rollups, its tile and
- * its summary's.
+ * collection's place, what it holds, its times and its rollups, its tile, and
+ * the periods it keeps each node's totals and the record's totals at.
  *
  * @param nested - The nested part's type, as the binding's type, or its Slice's `rows` source's, holds it
  * @returns The index's declaration; `undefined` for a binding listing none
@@ -126,7 +129,9 @@ export function planNestedIndex(nested: EastType | undefined): PlanNestedIndex |
     const part = fieldsOf((nested.cases as Readonly<Record<string, EastType>>).some);
     const name = nameOf(part?.index);
     if (part === undefined || name === undefined) return undefined;
-    return { name, tile: nameOf(part.tile)!, summary: nameOf(part.summary), collections: collectionsOf(part.collections) };
+    // Each period a field of its marker's struct, in the order the binding lists them: finest first.
+    const periods = (marker: EastType | undefined) => Object.keys(fieldsOf(marker) ?? {});
+    return { name, tile: nameOf(part.tile)!, summary: periods(part.summary), totals: periods(part.totals), collections: collectionsOf(part.collections) };
 }
 
 /**
@@ -454,9 +459,9 @@ export function checkPlanNested(series: unknown, context: PlanNestedContext): re
             `${context.axisKind === "number" ? "a number" : "an ordinal"} axis — bind the rows whole, or use a time axis`);
     }
     for (const use of uses) checkUse(use, index);
-    if (index.summary === undefined) {
-        throw new Error(`Plan: "${index.name}" keeps no totals — the Plan draws a view's items while they number 10,000 or fewer, and the ` +
-            'totals\' shading past that: declare summary: "month"');
+    if (index.summary.length === 0) {
+        throw new Error(`Plan: "${index.name}" keeps no totals — the Plan draws a view's items while they number 10,000 or fewer, and past that ` +
+            'shades each row from its totals at the period its column is, or one that divides it: declare summary: ["week", "month"]');
     }
     const subtotalled = uses.find((use) => use.subtotal !== undefined);
     if (subtotalled !== undefined && context.resolutions !== undefined) checkResolutions(subtotalled.series, index, context.resolutions);

@@ -33,11 +33,14 @@
  * While a collection's items in the cells wanted are at most
  * {@link SCHEDULE_EVENT_CAP}, they draw. Past it, no item of it is read, and the
  * rows of the series reading it shade from their totals — a parent rolling it
- * up into bands from its subtree's — at the summary tile, where that divides the
- * canvas's bucket: the share of each bucket booked, how many items touch it, or
- * its values folded as the series folds them. Where no summary divides it, the
- * rows are hatched, and the reader names the collection among its notices, with
- * how many items there are.
+ * up into bands from its subtree's — at the canvas's bucket's own period where
+ * the index keeps each row's totals at it, an item counted once as e3 counts
+ * it, else at the coarsest period it keeps them at that divides the bucket, its
+ * tiles inside each bucket added up: the share of each bucket booked, how many
+ * items touch it, or its values folded as the series folds them. Where it keeps
+ * them at no period that divides the bucket, the rows are hatched, and the
+ * reader names the collection among its notices, with how many items there are
+ * and the finest period its totals are kept at, which the canvas's banner says.
  *
  * # What it hands on
  *
@@ -95,6 +98,8 @@ export interface PlanNestedNotice {
     readonly place: readonly string[];
     /** How many of its items the cells wanted hold. */
     readonly items: number;
+    /** The finest period the index keeps each row's totals at, which shades its rows at a resolution it divides; `undefined` when it keeps them at none. */
+    readonly resolution: RecordTile | undefined;
 }
 
 /** What the reader hands the canvas (see the module docs). */
@@ -359,7 +364,7 @@ function viewOf(view: PlanNestedView | undefined, visible: readonly PlanRowValue
  * @param lit - The index's literals
  * @param capped - The places past the cap, as their key prints them: their rows read totals in place of items
  * @param derives - How a row derives its numbers from its children's: as it was drawn before the reader shaded it
- * @param summary - The summary tile, where it divides the canvas's bucket; `undefined` where none does
+ * @param summary - The period the rows past the cap read their totals at; `undefined` where the index keeps them at none that divides the canvas's bucket
  * @returns The runs, each node's at a level once
  */
 function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<string>, summary: RecordTile | undefined,
@@ -509,7 +514,10 @@ const samePlace = (a: readonly string[], b: readonly string[]): boolean => a.len
 /** Whether two reads draw the same. */
 function sameRead(a: Read, b: Read): boolean {
     return blobEqual(a.cells, b.cells) && shadingEqual(a.shading, b.shading) && sameParents(a.parents, b.parents)
-        && a.notices.length === b.notices.length && a.notices.every((n, i) => n.items === b.notices[i]!.items && samePlace(n.place, b.notices[i]!.place));
+        && a.notices.length === b.notices.length && a.notices.every((n, i) => {
+            const m = b.notices[i]!;
+            return n.items === m.items && n.resolution === m.resolution && samePlace(n.place, m.place);
+        });
 }
 
 /** A tile's totals, as numbers: how many items touch it, the ms of it they cover, and their values' sum, least, greatest and last. */
@@ -663,8 +671,10 @@ class NestedCellsReader {
             this.held = { revision: revision.value, spans: new Map(), found: new Map(), read: new Map(), counting: [], reading: [] };
         }
         const index = binding.nested.index;
-        const summaryTile = args.seam.summary.type === "some" ? args.seam.summary.value.type as RecordTile : undefined;
-        const summary = summaryTile !== undefined && dividingTiles(args.resolution).includes(summaryTile) ? summaryTile : undefined;
+        // The periods the index keeps each row's totals at. Past the cap a row shades at the canvas's bucket's own where
+        // that is one of them, else at the coarsest of them that divides the bucket: those that divide it come coarsest first.
+        const kept = new Set(args.seam.summary.map((period) => period.type as RecordTile));
+        const summary = dividingTiles(args.resolution).find((tile) => kept.has(tile));
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
         const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf);
         const firstParts = this.partsOf(first, lit);
@@ -703,7 +713,7 @@ class NestedCellsReader {
             this.held.found.delete(part.text);
             read.delete(part.text);
         }
-        return this.drawn(args, wanted, spans, capped, items, summary);
+        return this.drawn(args, wanted, spans, capped, items, summary, TILES.find((tile) => kept.has(tile)));
     }
 
     /**
@@ -813,9 +823,12 @@ class NestedCellsReader {
         return n;
     }
 
-    /** What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched. */
+    /**
+     * What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched —
+     * `summary` the period their totals were read at, `finest` the finest the index keeps them at, which a notice names.
+     */
     private drawn(args: PlanNestedArgs, cells: readonly Cell[], held: ReadonlyMap<string, Span>, capped: ReadonlySet<string>,
-        items: ReadonlyMap<string, number>, summary: RecordTile | undefined): Read {
+        items: ReadonlyMap<string, number>, summary: RecordTile | undefined, finest: RecordTile | undefined): Read {
         const binding = indexedBindingOf(args.seam.source)!;
         const lit = literals(binding);
         // Each drafted row's Save, previewed (#1437), put into what is held: an entry's insert or update where a held run's
@@ -845,7 +858,7 @@ class NestedCellsReader {
             })));
         }
         const parents: PlanParentSubtotals = new Map([...byRow].map(([key, uses]) => [key, [...uses].sort(([a], [b]) => a - b).map(([, series]) => series)] as const));
-        // The rows past the cap: their totals at the summary tile, or the hatch where none divides the bucket.
+        // The rows past the cap: their totals at the period read, or the hatch where the index keeps them at none that divides the bucket.
         const shades = new Map<string, Map<string, Map<number, Totals>>>();
         const series = new Map<string, Use>();
         for (const cell of cells) {
@@ -876,14 +889,14 @@ class NestedCellsReader {
             const use = series.get(key)!;
             shading.set(key, new SortedMap([...rows].map(([path, tiles]) => [path, shadesOf(tiles, buckets, use.shade)] as const), compareString));
         }
-        // A place past the cap no summary shades: its rows hatched, and the notice — the rows laid out, and the pinned.
+        // A place past the cap no totals shade at this resolution: its rows hatched, and the notice — the rows laid out, and the pinned.
         const shown = [...pinnedRows(args.index), ...args.visible];
         const notices: PlanNestedNotice[] = [];
         if (summary === undefined && capped.size > 0) {
             for (const use of args.seam.uses) {
                 const place = lit.place(use.place);
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
-                notices.push({ place: use.place, items: items.get(place) ?? 0 });
+                notices.push({ place: use.place, items: items.get(place) ?? 0, resolution: finest });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
                 for (const row of shown) {
                     if (row.id.type === "entry" && stringEqual(row.id.value.series, use.series)) rows.set(printPathText(row.id.value.path), hatchOf(buckets));
@@ -973,7 +986,7 @@ export interface PlanNestedReaderProps {
     onLead: (lead: PlanNestedLead | undefined) => void;
     /** Where the rows waiting on a read in flight go, by their keys: called only when they move, and with none as it unmounts. */
     onWaiting: (rows: ReadonlySet<string>) => void;
-    /** Where the span of the collections the series shown read, and their months' counts, go (#1438): called only when they move. */
+    /** Where the span of the collections the series read, and the read of what those shown hold in each period, go (#1438): called only when they move. */
     onSpan: (span: PlanNestedSpanRead | typeof SPAN_READING | undefined) => void;
 }
 
@@ -1016,111 +1029,158 @@ export function PlanNestedReader({ seam, visible, index, scale, views, session, 
 export type PlanNestedSpan = readonly [number, number];
 
 /**
- * How much the collections a Plan's series read hold in each month (#1438),
- * as e3 keeps it in the index's span: each month's start, in ms, and the items
- * and values touching it across the rows, in order — what the horizon's bars
- * count.
+ * How much the collections a Plan's series shown read hold in each period
+ * (#1438), as e3 keeps it in the index's span at the period: what the
+ * horizon's bars count. An item is in the count of each period it touches,
+ * once — a quarter's count is e3's own, never its months' added up.
  */
-export type PlanNestedMonths = readonly (readonly [number, number])[];
+export interface PlanNestedTotals {
+    /** The period they are counted by. */
+    readonly unit: RecordTile;
+    /** Each period's count, by its start in ms: a period nothing touches has none. */
+    readonly tiles: ReadonlyMap<number, number>;
+}
 
 /**
  * The span's read (#1438): the span of what every series reads — the horizon,
- * whichever are shown (#1440) — and the months' counts of what the series
- * shown read.
+ * whichever are shown (#1440) — the periods the horizon's bars may count by,
+ * and the read of their counts.
  */
 export interface PlanNestedSpanRead {
-    /** `[from, to)`, in ms: from the first month any collection of any series touches to the end of the last. */
+    /** `[from, to)`, in ms: from the first period any collection of any series touches to the end of the last, by the finest period the index keeps the record's totals at. */
     readonly span: PlanNestedSpan;
-    /** Each month's count across the series shown, in order: none while none is shown. */
-    readonly months: PlanNestedMonths;
+    /** The periods the index keeps the record's totals at, finest first: those the horizon's bars may count by. */
+    readonly periods: readonly RecordTile[];
+    /**
+     * How much the collections the series shown read hold in each period, at one of
+     * {@link PlanNestedSpanRead.periods} — nothing while none is shown. A tracked read: an evaluation that reads it runs
+     * again when it lands. While a read again is in flight — a commit's, another period's — it answers the last read,
+     * at the period that was read by, so the bars hold still until the new counts land; {@link SPAN_READING} before the
+     * first lands.
+     */
+    readonly totals: (period: RecordTile) => PlanNestedTotals | typeof SPAN_READING;
 }
 
 /** A span whose read is in flight. */
 export const SPAN_READING = "reading";
 
-/** An entry of a nested series index's span, as a read of its runs gives it: its month, and its totals. */
+/** An entry of a nested series index's span, as a read of its runs gives it: its tile, and its totals. */
 type SpanEntry = { readonly ik: { readonly value: { readonly tile: Date } }; readonly value: option<{ readonly count: bigint }> };
 
 /** A collection's place, printed as its key. */
 const placeKey = (place: readonly string[]): string => place.join("\u0001");
 
 /**
- * Each collection's months, as the index's span keeps them (#1438): its
- * months across the record's rows — one batch of searches, each an exact
- * match on a collection's place, and one read of their entries, each
- * collection's the next of them in the window that read answers.
+ * Where each collection's tiles at a period are in the index's span (#1438):
+ * one batch of searches, each an exact match on a collection's place and the
+ * period, which lead its key — the collection's tiles at the period follow, in
+ * time order.
  *
  * @param binding - The binding the rows are read through
  * @param places - The collections' places, each by its field names from the row down
- * @returns Each collection holding an item's months, by its place's key; {@link SPAN_READING} while a read is in flight; undefined where none holds one
+ * @param period - The period: one the index keeps the record's totals at
+ * @returns Each collection's run, in the places' order, one holding no tile empty; {@link SPAN_READING} while the searches are in flight
  */
-function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[]): ReadonlyMap<string, PlanNestedMonths> | typeof SPAN_READING | undefined {
-    if (places.length === 0) return undefined;
-    const name = nestedSpanName(binding.nested!.index);
+function spanRuns(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): readonly Range[] | typeof SPAN_READING {
     const lit = literals(binding);
-    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.place(place)], prefix: none })));
-    if (found.type !== "some") return SPAN_READING;
-    // Each collection's months, in the index's order, as a read of runs asks: ascending and disjoint.
-    const held = found.value.map((range, i) => ({ range, key: placeKey(places[i]!) }))
-        .filter(({ range }) => range.count > 0n)
-        .sort((a, b) => (a.range.row < b.range.row ? -1 : a.range.row > b.range.row ? 1 : 0));
-    if (held.length === 0) return undefined;
-    const read = binding.batches.runsAll(name, held.map(({ range }) => ({ found: true, row: range.row, count: range.count })));
+    const level = lit.level(period);
+    const found = binding.batches.seekAll(nestedSpanName(binding.nested!.index),
+        places.map((place) => variant("fields", { values: [lit.place(place), level], prefix: none })));
+    return found.type === "some" ? found.value : SPAN_READING;
+}
+
+/** Two runs in the index's order: a read of runs asks them ascending and disjoint. */
+const byRow = (a: Range, b: Range): number => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0);
+
+/**
+ * The span of some collections, as the index's span keeps it at a period
+ * (#1438): from the first period any of them touches across the record's rows
+ * to the end of the last — one batch of searches, and one read of each
+ * collection's first tile and its last.
+ *
+ * @param binding - The binding the rows are read through
+ * @param places - The collections' places, each by its field names from the row down
+ * @param period - The period: the finest the index keeps the record's totals at
+ * @returns `[from, to)`, in ms; {@link SPAN_READING} while a read is in flight; undefined where none holds an item
+ */
+function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): PlanNestedSpan | typeof SPAN_READING | undefined {
+    if (places.length === 0) return undefined;
+    const runs = spanRuns(binding, places, period);
+    if (runs === SPAN_READING) return SPAN_READING;
+    const ends = runs.filter((run) => run.count > 0n).sort(byRow).flatMap((run): Range[] => {
+        const first = { found: true, row: run.row, count: 1n };
+        return run.count > 1n ? [first, { found: true, row: run.row + run.count - 1n, count: 1n }] : [first];
+    });
+    if (ends.length === 0) return undefined;
+    const read = binding.batches.runsAll(nestedSpanName(binding.nested!.index), ends);
+    if (read.type !== "some") return SPAN_READING;
+    let first = Infinity;
+    let last = -Infinity;
+    for (const entry of read.value as readonly SpanEntry[]) {
+        const at = entry.ik.value.tile.getTime();
+        first = Math.min(first, at);
+        last = Math.max(last, at);
+    }
+    return [first, tileNext(period, new Date(last)).getTime()];
+}
+
+/**
+ * A collection's periods' counts, as the index's span keeps them at a period: each period's start, in ms, and the items
+ * and values touching it across the rows, in order.
+ */
+type SpanCounts = readonly (readonly [number, number])[];
+
+/**
+ * How much each collection holds in each period, as the index's span keeps it
+ * at the period (#1438): one batch of searches, and one read of their entries,
+ * each collection's the next of them in the window that read answers.
+ *
+ * @param binding - The binding the rows are read through
+ * @param places - The collections' places, each by its field names from the row down
+ * @param period - The period: one the index keeps the record's totals at
+ * @returns Each collection holding an item's periods' counts, by its place's key; {@link SPAN_READING} while a read is in flight
+ */
+function spanCounts(binding: IndexedBindingRead, places: readonly (readonly string[])[], period: RecordTile): ReadonlyMap<string, SpanCounts> | typeof SPAN_READING {
+    const byPlace = new Map<string, SpanCounts>();
+    if (places.length === 0) return byPlace;
+    const runs = spanRuns(binding, places, period);
+    if (runs === SPAN_READING) return SPAN_READING;
+    const held = runs.map((run, i) => ({ run, key: placeKey(places[i]!) })).filter(({ run }) => run.count > 0n).sort((a, b) => byRow(a.run, b.run));
+    if (held.length === 0) return byPlace;
+    const read = binding.batches.runsAll(nestedSpanName(binding.nested!.index), held.map(({ run }) => ({ found: true, row: run.row, count: run.count })));
     if (read.type !== "some") return SPAN_READING;
     const entries = read.value as readonly SpanEntry[];
-    const byPlace = new Map<string, PlanNestedMonths>();
     let at = 0;
-    for (const { range, key } of held) {
-        const n = Number(range.count);
+    for (const { run, key } of held) {
+        const n = Number(run.count);
         byPlace.set(key, entries.slice(at, at + n).map((entry) => [entry.ik.value.tile.getTime(), entry.value.type === "some" ? Number(entry.value.value.count) : 0] as const));
         at += n;
     }
     return byPlace;
 }
 
-/**
- * The span of every collection, and the months' counts of those shown (#1438,
- * #1440): from the first month any touches to the end of the last, and each
- * month's count summed across the shown ones' places.
- *
- * @param byPlace - Each collection's months, by its place's key
- * @param shown - The keys of the places the series shown read
- * @returns The span's read; undefined where no collection holds an item
- */
-function spanRead(byPlace: ReadonlyMap<string, PlanNestedMonths>, shown: ReadonlySet<string>): PlanNestedSpanRead | undefined {
-    let first = Infinity;
-    let last = -Infinity;
-    const counts = new Map<number, number>();
-    for (const [key, months] of byPlace) {
-        for (const [at, n] of months) {
-            first = Math.min(first, at);
-            last = Math.max(last, at);
-            if (shown.has(key)) counts.set(at, (counts.get(at) ?? 0) + n);
-        }
-    }
-    if (!Number.isFinite(first)) return undefined;
-    return { span: [first, tileNext("month", new Date(last)).getTime()], months: [...counts].sort((a, b) => a[0] - b[0]) };
-}
-
-/** Whether two reads of a span say the same: its ends, and each month's count. */
+/** Whether two reads of a span say the same: its ends, the periods its bars may count by, and the read of their counts. */
 function sameSpanRead(a: PlanNestedSpanRead, b: PlanNestedSpanRead): boolean {
-    return a.span[0] === b.span[0] && a.span[1] === b.span[1] && a.months.length === b.months.length
-        && a.months.every(([at, n], i) => at === b.months[i]![0] && n === b.months[i]![1]);
+    return a.span[0] === b.span[0] && a.span[1] === b.span[1] && a.totals === b.totals
+        && a.periods.length === b.periods.length && a.periods.every((period, i) => period === b.periods[i]);
 }
 
 /**
  * The span of what every series the canvas lays out reads — the horizon,
- * whichever are shown — and the months' counts of what the series shown read
- * (#1438, #1440), read again at each revision. Every series' collections are
- * read once, so switching a series asks nothing: its collections leave the
- * bars, and with none shown the strip still spans what they hold, its bars
- * empty, where it once fell back to the window alone and moved with every
- * drag. While a read again is in flight it is the last read, so the horizon
- * and its bars hold still until the new counts land.
+ * whichever are shown — and the read of what the series shown hold in each
+ * period (#1438, #1440), read again at each revision. The span is read by the
+ * finest period the index keeps the record's totals at, each collection's
+ * first tile and its last; the counts by the period the horizon draws its bars
+ * by, every series' collections together, so switching a series asks nothing:
+ * its collections leave the bars, and with none shown the strip still spans
+ * what they hold, its bars empty, where it once fell back to the window alone
+ * and moved with every drag. While a read again is in flight it is the last
+ * read, so the horizon and its bars hold still until the new one lands.
  *
  * @param seam - The root's seam
  * @param index - Every row the canvas holds: its rows' series are the ones shown
- * @returns The span and its months; {@link SPAN_READING} while the first read is in flight; undefined where no collection holds an item
+ * @returns The span's read; {@link SPAN_READING} while the first read is in flight; undefined where no collection holds
+ *   an item, or the index keeps the record's totals at no period
  */
 export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): PlanNestedSpanRead | typeof SPAN_READING | undefined {
     // Every place a series reads: one read for them all, whichever series are shown.
@@ -1141,20 +1201,41 @@ export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): P
         }
         return keys.join("\u0002");
     }, [seam, index]);
+    const shown = useMemo(() => new Set(shownKey === "" ? [] : shownKey.split("\u0002")), [shownKey]);
+    // The periods the index keeps the record's totals at, finest first: the span is read by the finest.
+    const periods = useMemo(() => {
+        const kept = new Set(seam.totals.map((period) => period.type as RecordTile));
+        return TILES.filter((tile) => kept.has(tile));
+    }, [seam]);
+    const finest = periods[0];
     const read = useCallback(() => {
         const binding = indexedBindingOf(seam.source);
-        return binding?.nested === undefined ? undefined : spanOf(binding, places);
-    }, [seam.source, places]);
+        return binding?.nested === undefined || finest === undefined ? undefined : spanOf(binding, places, finest);
+    }, [seam.source, places, finest]);
     const { result } = useTrackedEvaluation(read);
+    // What the series shown hold in each period, as the horizon asks it: the last read stands while one again is in flight.
+    const counted = useRef<PlanNestedTotals | undefined>(undefined);
+    const totals = useCallback((period: RecordTile): PlanNestedTotals | typeof SPAN_READING => {
+        const binding = indexedBindingOf(seam.source);
+        // No binding to read through holds nothing to count, as it holds no span.
+        const byPlace = binding?.nested === undefined ? new Map<string, SpanCounts>() : spanCounts(binding, places, period);
+        if (byPlace === SPAN_READING) return counted.current ?? SPAN_READING;
+        const tiles = new Map<number, number>();
+        for (const [key, counts] of byPlace) {
+            if (!shown.has(key)) continue;
+            for (const [at, n] of counts) tiles.set(at, (tiles.get(at) ?? 0) + n);
+        }
+        counted.current = { unit: period, tiles };
+        return counted.current;
+    }, [seam.source, places, shown]);
     const last = useRef<PlanNestedSpanRead | typeof SPAN_READING | undefined>(SPAN_READING);
     return useMemo(() => {
         if (!result.ok) {
             console.error("[Plan] the span of the rows' nested series could not be read:", result.error);
             return undefined;
         }
-        const byPlace = result.value;
-        const next = byPlace === SPAN_READING || byPlace === undefined ? byPlace
-            : spanRead(byPlace, new Set(shownKey === "" ? [] : shownKey.split("\u0002")));
+        const span = result.value;
+        const next = span === SPAN_READING || span === undefined ? span : { span, periods, totals };
         const was = last.current;
         // Read again, the last read holds until the new one lands; the same read as the last is the last, so a reader of
         // it draws once.
@@ -1162,7 +1243,7 @@ export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): P
         if (next !== SPAN_READING && next !== undefined && was !== SPAN_READING && was !== undefined && sameSpanRead(was, next)) return was;
         last.current = next;
         return next;
-    }, [result, shownKey]);
+    }, [result, periods, totals]);
 }
 
 // ============================================================================

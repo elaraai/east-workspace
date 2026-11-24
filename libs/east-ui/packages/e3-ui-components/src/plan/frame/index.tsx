@@ -502,6 +502,20 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             </Box>,
         );
     }
+    // The rows' own collections holding more items in view than are drawn, where their index keeps no totals that shade
+    // them at this resolution (#1739): their rows hatched, and this — how many items there are, and the resolution their
+    // totals shade at, which is the index's, the same for each of them.
+    const itemsOver = chrome?.itemsOver ?? [];
+    if (itemsOver.length > 0) {
+        const inView = itemsOver.reduce((n, notice) => n + notice.items, 0);
+        const shadesAt = itemsOver[0]!.resolution;
+        bannerNodes.push(
+            <Box key="items" data-plan-banner="items">
+                <BannerView status="info" title={m.tooManyItems({ n: inView, count: words.number(inView) })}
+                    description={m.tooManyEventsHint({ resolution: shadesAt === undefined ? undefined : m.resolutionName({ resolution: shadesAt }).toLocaleLowerCase(words.locale) })} />
+            </Box>,
+        );
+    }
     // A link kind holding more links than are read (#1541, U10): none of them is drawn, and this says how many there are.
     for (const over of chrome?.linksOver ?? []) {
         bannerNodes.push(

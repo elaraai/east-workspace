@@ -158,7 +158,10 @@ import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLa
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
-import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
+import {
+    PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows,
+    type PlanNestedLead, type PlanNestedNotice, type PlanNestedSpanRead, type SPAN_READING,
+} from "./root/nested.js";
 import { usePlanKeptRoot } from "./root/kept.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
@@ -251,6 +254,8 @@ const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
 const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 /** No index of an event kind's source: a kind with none. */
 const NO_INDEXES: readonly never[] = [];
+/** No collection of the rows' own holds more items in view than are drawn, unshaded. */
+const NO_ITEMS_OVER: readonly PlanNestedNotice[] = [];
 
 /** Default gutter width (px, desktop — #1680's review, over the §8 sheet's 168). */
 const GUTTER_W = 240;
@@ -2595,6 +2600,8 @@ export function usePlanCanvas({
             } : undefined,
             cells: lead.cells,
             linksOver: linksOverCap,
+            // The same array while the reader's notices hold, so the frame's banners are made again only as they move.
+            itemsOver: nestedSeam !== undefined && nestedLead !== undefined ? nestedLead.notices : NO_ITEMS_OVER,
             tools: toolsChrome,
             footer: data.footer,
             id: getSomeorUndefined(data.id),

@@ -876,8 +876,11 @@ export const AssembliesType = DictType(StringType, AssemblyType);
  * Creates a package with, each record empty and with its patch door:
  * - Record "machines", and its nested series index "machines_in_time": each
  *   machine's jobs, things people drag, and its load, a value a day, filed
- *   from the week up and totalled a month at a time; beside it
- *   "machines_by_site", which carries each machine without them
+ *   from the week up and totalled a month at a time — and, in the span beside
+ *   it, "machines_in_time_span", across every machine a month, a quarter and
+ *   a year at a time, the periods an index keeps the record's totals at when
+ *   it names none (#1739); beside them "machines_by_site", which carries each
+ *   machine without them
  * - Record "halls", and "halls_in_time": each member's load, rolled up by its
  *   mean, so each hall keeps its members' mean at every level from the day up
  * - Record "assemblies", and "assemblies_in_time": each part's jobs, rolled
@@ -899,7 +902,7 @@ export async function createNestedSeriesPackageZip(
     initial: new Map(),
     indexes: (index) => ({
       machines_in_time: index.nestedSeries({
-        collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() }, tile: 'week', summary: 'month',
+        collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() }, tile: 'week', summary: ['month'],
       }),
       machines_by_site: index.on(['site']),
     }),
@@ -911,7 +914,7 @@ export async function createNestedSeriesPackageZip(
     initial: new Map(),
     indexes: (index) => ({
       halls_in_time: index.nestedSeries({
-        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+        collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: 'mean' }) }) }, tile: 'day', summary: ['month'],
       }),
     }),
     mutations: (mutation) => ({
@@ -924,7 +927,7 @@ export async function createNestedSeriesPackageZip(
       assemblies_in_time: index.nestedSeries({
         collections: { parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nestedSeries.recursive() }) },
         tile: 'week',
-        summary: 'month',
+        summary: ['month'],
       }),
     }),
     mutations: (mutation) => ({

@@ -219,6 +219,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
      *  see where they fall`; `undefined`, it has none. */
     tooManyEventsHint: (p: { resolution: string | undefined }) => string;
+    /** The notice's title over the rows' own collections (#1739): more of their items in view than are drawn, and no totals
+     *  to shade them at this resolution — `12,480 items in view`. The line under it is {@link PlanMessages.tooManyEventsHint}'s. */
+    tooManyItems: (p: { n: number; count: string }) => string;
 
     // ── Too many links to draw (#1541, U10) ────────────────────────────────
     /** The notice's title: a link kind holding more links than are read — `10,001 flow links`; `kind` its name as running
@@ -714,6 +717,7 @@ export const planMessages: PlanMessages = {
     tooManyEventsHint: ({ resolution }) => (resolution === undefined
         ? "Too many to draw at this resolution: narrow the filters, or zoom in."
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+    tooManyItems: ({ n, count }) => `${count} ${plural(n, "item", "items")} in view`,
     tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
     tooManyLinksHint: () => "Too many to draw: none of them is shown.",
     toolsLabel: () => "Tools",

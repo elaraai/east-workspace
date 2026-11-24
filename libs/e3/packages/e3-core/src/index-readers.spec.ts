@@ -66,7 +66,7 @@ const LineIds = NestedIdType({ units: StringType, 'units.jobs': StringType });
 const LinePath = NestedPathType(LineIds);
 /** A job beneath a line, as its subtree's read names it: the units' keys down to the unit holding it, and its id. */
 const Beneath = DictType(StructType({ path: LinePath, id: LineIds }), NullType);
-const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
+const TileTotals = DictType(DateTimeType, RecordNestedTotalsType);
 
 const WS = 'main';
 const LIMITS = { timeoutMs: 240_000, maxResultBytes: 4 * 1024 * 1024, maxLogBytes: 64 * 1024 };
@@ -141,7 +141,8 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
             }),
           },
           tile: 'week',
-          summary: 'month',
+          // Each node's totals a week and a month: a read names the one it reads (#1739).
+          summary: ['week', 'month'],
         }),
       }),
       mutations: (mutation) => ({
@@ -287,11 +288,27 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
       e3.function('plain_unit_sheets', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: SheetsType }, (_$, rows, line, unit, from, to) =>
         rows.get(line).units.get(unit).sheets.filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))),
       // A unit's sheets' totals a month, of a window of whole months: how many, their sum, the least, the greatest and the latest
-      e3.function('plain_unit_months', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: MonthTotals }, (_$, rows, line, unit, from, to) =>
+      e3.function('plain_unit_months', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals }, (_$, rows, line, unit, from, to) =>
         rows.get(line).units.get(unit).sheets
           .filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))
           .groupReduce(
             (_$, _sheets, counted) => East.DateTime.roundDownMonth(counted, 1n),
+            ($) => $.const({ count: 0n, ms: 0n, values: none }, RecordNestedTotalsType),
+            (_$, totals, sheets) => ({
+              count: totals.count.add(1n),
+              ms: totals.ms,
+              values: some(totals.values.match({
+                none: () => ({ sum: sheets, min: sheets, max: sheets, last: sheets }),
+                some: (_$, was) => ({ sum: was.sum.add(sheets), min: East.min(was.min, sheets), max: East.max(was.max, sheets), last: sheets }),
+              })),
+            }),
+          )),
+      // The same totals a week, of a window of whole weeks (#1739): the weeks are kept beside the months, never made of them
+      e3.function('plain_unit_weeks', { inputs: [lines], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals }, (_$, rows, line, unit, from, to) =>
+        rows.get(line).units.get(unit).sheets
+          .filter((_$, _sheets, counted) => East.greaterEqual(counted, from).and(() => East.less(counted, to)))
+          .groupReduce(
+            (_$, _sheets, counted) => East.DateTime.roundDownWeek(counted, 1n),
             ($) => $.const({ count: 0n, ms: 0n, values: none }, RecordNestedTotalsType),
             (_$, totals, sheets) => ({
               count: totals.count.add(1n),
@@ -394,8 +411,10 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
         }),
         e3.function(onRuntime('unit_sheets', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, unit, from, to) =>
           entries.items({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
-        e3.function(onRuntime('unit_months', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: MonthTotals, ...on }, ($, entries, line, unit, from, to) =>
-          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
+        e3.function(onRuntime('unit_months', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals, ...on }, ($, entries, line, unit, from, to) =>
+          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], tile: 'month', from, to }).collect($)),
+        e3.function(onRuntime('unit_weeks', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: TileTotals, ...on }, ($, entries, line, unit, from, to) =>
+          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], tile: 'week', from, to }).collect($)),
         e3.function(onRuntime('line_weeks', runtime), { inputs: [linesInTime], args: [StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, from, to) =>
           entries.subtotals({ collection: ['units', 'sheets'], row: line, rollup: 'sum', from, to }).collect($)),
       ];
@@ -542,10 +561,14 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     assert.ok(beneath.size >= 4 * 12, `four units' jobs beneath their line: ${beneath.size}`);
     const sheets = await held('unit_sheets', 'plain_unit_sheets', 'lines_in_time', SheetsType, [line, unit, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(sheets.size, 28, 'a value a day for four weeks');
-    // Whole months, and whole weeks: the totals of two months, and the line's sum of its units' sheets in each of four weeks
-    const months = await held('unit_months', 'plain_unit_months', 'lines_in_time', MonthTotals,
+    // Whole months, and whole weeks: the totals of two months, those of four weeks — each period read as the index
+    // keeps it, by the `tile` a read names — and the line's sum of its units' sheets in each of four weeks
+    const months = await held('unit_months', 'plain_unit_months', 'lines_in_time', TileTotals,
       [line, unit, arg(DateTimeType, at('2026-02-01T00:00:00.000')), arg(DateTimeType, at('2026-04-01T00:00:00.000'))], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(months.size, 2);
+    const unitWeeks = await held('unit_weeks', 'plain_unit_weeks', 'lines_in_time', TileTotals, [line, unit, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
+    assert.equal(unitWeeks.size, 4);
+    for (const [, totals] of unitWeeks) assert.equal(totals.count, 7n, 'a value a day, seven a week');
     const weeks = await held('line_weeks', 'plain_line_weeks', 'lines_in_time', SheetsType, [line, ...window], NESTED_MOST, NESTED_AT_LEAST, 'lines');
     assert.equal(weeks.size, 4);
   });

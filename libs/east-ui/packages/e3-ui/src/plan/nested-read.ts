@@ -79,7 +79,12 @@ export type PlanNestedShadingType = typeof PlanNestedShadingType;
  * @property source - The binding they are read through, by its id: the record's, whatever a Slice narrows of it — what
  *   a reader reads the cells, the drafts' preview (#1437) and the rows by key through
  * @property tile - The index's finest level
- * @property summary - The tile it keeps its totals by; none for none
+ * @property summary - The periods it keeps each node's totals at, finest first: a row past the cap shades from the one
+ *   its column is, where the index keeps it, else from the coarsest of them that divides the column — never a finer
+ *   period added up where the column's own is kept, as each period counts an item once in each of its tiles the item
+ *   touches
+ * @property totals - The periods it keeps the record's totals at, finest first: the horizon's bars are read at the one
+ *   they count by
  * @property uses - What each series reads of it
  * @property rows - A window's blocks: `(offset, limit, the cells read, the drafted rows by id, the shading)` → the
  *   window's rows, each lean row — or a drafted row whole in its place — filled with the items the cells hold of it,
@@ -91,7 +96,8 @@ export const PlanNestedType = StructType({
     index: StringType,
     source: StringType,
     tile: RecordSliceTileType,
-    summary: OptionType(RecordSliceTileType),
+    summary: ArrayType(RecordSliceTileType),
+    totals: ArrayType(RecordSliceTileType),
     uses: ArrayType(PlanNestedUseType),
     rows: FunctionType([IntegerType, IntegerType, BlobType, DictType(StringType, BlobType), PlanNestedShadingType], OptionType(PlanBlocksType)),
 });

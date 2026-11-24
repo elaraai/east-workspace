@@ -103,7 +103,7 @@ const lines = e3.record("lines", LinesType, {
                 }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
 });

@@ -17,18 +17,20 @@
  * the grid below is that window, magnified.
  *
  * Its bars (#1438): over rows read through a nested series index, how much
- * the collections the series shown read hold in each month, as e3 keeps it in
- * the index's span — a bar each month, quarter or year, the finest that keeps
- * 4px a bar (`horizonDensity`). Over record sources holding the window
- * (#1732), the record's totals a period each source lists in its binding's
- * `totals`: how many of its events touch each period, under its narrowing,
- * as e3 keeps them — read over the whole years around the horizon, summed over
- * the sources, nothing counted (`shared/time/horizon-totals.ts`). A bar each
- * period of the finest every source lists that keeps 4px a bar, or the
- * coarsest of them (`horizonUnit`). The largest is under the caption, `max
- * 1,559 items / mo`, or `no data`; while a source's totals are read the strip
- * says it reads them, and where a source's do not serve its narrowing, or a
- * source lists none, it draws no bars.
+ * the collections the series shown read hold in each period, as e3 keeps it in
+ * the index's span at each period the record's totals are kept at — read at
+ * the period the bars draw by, so an item over two months is in each month's
+ * count and once in their quarter's, never two months added up. Over record
+ * sources holding the window (#1732), the record's totals a period each source
+ * lists in its binding's `totals`: how many of its events touch each period,
+ * under its narrowing, as e3 keeps them — read over the whole years around the
+ * horizon, summed over the sources, nothing counted
+ * (`shared/time/horizon-totals.ts`). Either way a bar each period of the
+ * finest there are counts at that keeps a bar its least width, or the coarsest
+ * of them (`horizonUnit`). The largest is under the caption, `max 1,559 items
+ * / mo`, or `no data`; while the counts are first read the strip says it reads
+ * them, and where a source's do not serve its narrowing, or there are counts
+ * at no period, it draws no bars.
  *
  * Renders only over a horizon of the AXIS's arm (#631): a `datetime` domain on
  * a time axis, a `float` / `integer` domain on a number axis. The horizon
@@ -61,7 +63,7 @@ import type { PlanHorizonUnit } from "../messages.js";
 import { windowPartsDomain, type PlanWindowDomain, type PlanWindowPart } from "../root/window.js";
 import type { PlanNestedSpan, PlanNestedSpanRead, SPAN_READING } from "../root/nested.js";
 import { usePlanWords, type PlanWords } from "../words.js";
-import { HORIZON_BUCKET_UNITS, horizonDensity, horizonTotalsDensity, horizonUnit, type HorizonDensity } from "./horizon-density.js";
+import { HORIZON_BUCKET_UNITS, horizonTotalsDensity, horizonUnit, type HorizonDensity } from "./horizon-density.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -84,8 +86,8 @@ export interface HorizonBrushProps {
      *  holding its own, and taken into the sources' domains where they hold the window. */
     stated: readonly [number, number] | undefined;
     /** The span of what every series reads through the rows' nested series index (#1438, #1440), whichever are shown, or its read in
-     *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts —
-     *  the series shown's — its bars. */
+     *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its periods' counts —
+     *  the series shown's, read at the period the bars draw by — its bars. */
     span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
@@ -215,13 +217,28 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
         return { lo, hi, periods };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
     }, [fits, domain?.min, domain?.max, own, scale, shownFrom, shownTo, statedFrom, statedTo]);
-    // Its bars over the sources holding the window (#1732): the record's totals a period every source lists, at the finest
-    // that keeps 4px a bar, read over the whole years around the horizon and summed — nothing counted, as e3 keeps them.
-    const units = useMemo(() => (own ? [] : totalsUnits(parts.map(({ part }) => part), HORIZON_BUCKET_UNITS)), [own, parts]);
-    const totalsUnit = own || extent === undefined || scale.kind !== "time" || !(trackPx > 0) ? undefined : horizonUnit(extent.lo, extent.hi, trackPx, units);
-    const readTotals = useCallback(() => (totalsUnit === undefined || extent === undefined ? undefined
-        : sourcesTotals(parts.map(({ part }) => part), totalsUnit, extent.lo, extent.hi)), [parts, totalsUnit, extent]);
+    // The period its bars count by: the finest there are counts at that keeps a bar its least width — over the rows' nested
+    // series (#1438), of those its index keeps the record's totals at; over the sources holding the window (#1732), of
+    // those every source lists.
+    const kept = read?.periods;
+    const units = useMemo(() => (own ? kept ?? [] : totalsUnits(parts.map(({ part }) => part), HORIZON_BUCKET_UNITS)), [own, kept, parts]);
+    const totalsUnit = extent === undefined || scale.kind !== "time" || !(trackPx > 0) ? undefined : horizonUnit(extent.lo, extent.hi, trackPx, units);
+    // Over the sources, each period's totals read over the whole years around the horizon and summed — nothing counted, as
+    // e3 keeps them.
+    const readTotals = useCallback(() => (own || totalsUnit === undefined || extent === undefined ? undefined
+        : sourcesTotals(parts.map(({ part }) => part), totalsUnit, extent.lo, extent.hi)), [own, parts, totalsUnit, extent]);
     const { result: sourceTotals } = useTrackedEvaluation(readTotals);
+    // Over the rows' nested series, what the series shown hold in each period, as e3 keeps it in the index's span at the
+    // period: no finer period's counts are added up into it.
+    const spanTotals = read?.totals;
+    const readSpanTotals = useCallback(() => (!own || spanTotals === undefined || totalsUnit === undefined ? undefined : spanTotals(totalsUnit)),
+        [own, spanTotals, totalsUnit]);
+    const { result: spanCounts } = useTrackedEvaluation(readSpanTotals);
+    const nested = useMemo(() => {
+        if (spanCounts.ok) return spanCounts.value;
+        console.error("[Plan] the horizon's counts of the rows' nested series could not be read:", spanCounts.error);
+        return undefined;
+    }, [spanCounts]);
     if (!own && !recordDomain.ok) return <Box css={styles.partError} role="alert">
         Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
@@ -271,15 +288,15 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
     const periods = extent.periods;
     const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
-    // Its bars: over the rows' nested series, each month's items as e3 keeps them in the index's span, in the finest period
-    // that keeps 4px a bar (#1438); over the sources holding the window, each period's totals of them all (#1732), the strip
-    // saying so while they are read.
+    // Its bars, a bar a period at its own count: over the rows' nested series, what the series shown hold in it (#1438) —
+    // the last read standing, at the period it was read by, while one again is in flight; over the sources holding the
+    // window, the totals of them all (#1732). The strip says so while they are first read.
     const totals = !own && sourceTotals.ok ? sourceTotals.value : undefined;
     const density = scale.kind !== "time" ? undefined
-        : own ? (read?.months === undefined ? undefined : horizonDensity(extent.lo, extent.hi, read.months, trackPx))
+        : own ? (nested === undefined || nested === READING ? undefined : horizonTotalsDensity(extent.lo, extent.hi, nested.unit, nested.tiles))
             : totalsUnit === undefined || totals?.state !== "read" ? undefined : horizonTotalsDensity(extent.lo, extent.hi, totalsUnit, totals.tiles);
     const buckets = density === undefined ? undefined : densityBuckets(density, words);
-    const counting = totals?.state === "pending";
+    const counting = own ? nested === READING : totals?.state === "pending";
     // A key moves the window a period of the resolution; a handle says its instant — the end handle, on a time axis, the
     // last day inside the window, as the date navigator names it (`max − 1 ms`, its time too at the hour's resolution):
     // the window ends exclusively, so its end's own instant is the next day's start.

@@ -130,26 +130,31 @@ type NestedNameOf<I extends FieldIndexes<EastType>> = Extract<I[number], { neste
 /** The listed nested series index's tile, as written; `never` where none is listed. */
 type NestedTileOf<I extends FieldIndexes<EastType>> =
     Extract<I[number], { nested: object }> extends { nested: { tile: infer T extends string } } ? T : never;
-/** The listed nested series index's summary tile, as written; `never` where it keeps none, or none is listed. */
+/** The periods the listed nested series index keeps each node's totals at, as written; `never` where it keeps none, or none is listed. */
 type NestedSummaryOf<I extends FieldIndexes<EastType>> =
-    Extract<I[number], { nested: object }> extends { nested: { summary: infer U } } ? (U extends string ? U : never) : never;
-/** A name as a binding's type carries it: a struct whose one field is the name; the empty struct for none. */
+    Extract<I[number], { nested: object }> extends { nested: { summary: readonly (infer U)[] } } ? (U extends string ? U : never) : never;
+/** The periods the listed nested series index keeps the record's totals at — those it names, or a month, a quarter and a year; `never` where none is listed. */
+type NestedTotalsOf<I extends FieldIndexes<EastType>> =
+    Extract<I[number], { nested: object }> extends { nested: { totals: readonly (infer U)[] } } ? (U extends string ? U : never) : never;
+/** Names as a binding's type carries them: a struct with a field for each — one name, one field; the empty struct for none. */
 type OneOf<N extends string> = StructType<{ [K in N]: NullType }>;
 
 /**
  * A binding's nested part (#1435): its collections' marker `C`, and the
- * index's name, its tile and its summary tile, each as structure — a struct
- * whose one field is the name, as a time's role names its field — so a Plan
- * holds its series to them in the editor and as it is built, through `$.let`
- * and the Slice ({@link NestedPartType}).
+ * index's name, its tile, and the periods it keeps each node's totals and the
+ * record's totals at, each as structure — a struct whose fields are the names,
+ * as a time's role names its field — so a Plan holds its series to them in the
+ * editor and as it is built, through `$.let` and the Slice
+ * ({@link NestedPartType}).
  *
  * @typeParam C - The collections' marker type
  * @typeParam Name - The nested series index's name
  * @typeParam Tile - Its tile
- * @typeParam Summary - Its summary tile; `never` for none
+ * @typeParam Summary - The periods it keeps each node's totals at; `never` for none
+ * @typeParam Totals - The periods it keeps the record's totals at
  */
-export type NestedPart<C extends EastType, Name extends string, Tile extends string = never, Summary extends string = never> =
-    ReturnType<typeof NestedPartType<C, OneOf<Name>, OneOf<Tile>, OneOf<Summary>>>;
+export type NestedPart<C extends EastType, Name extends string, Tile extends string = never, Summary extends string = never, Totals extends string = never> =
+    ReturnType<typeof NestedPartType<C, OneOf<Name>, OneOf<Tile>, OneOf<Summary>, OneOf<Totals>>>;
 /**
  * Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind — and
  * a series index's copy of each event, where it carries one (#1725).
@@ -252,29 +257,35 @@ export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>, X e
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object } | { entries: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
             IndexFields<readonly (RailIndexes<I>[number] | X[number])[]>, IndexKeys<K, readonly (I[number] | X[number])[]>,
-            NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
+            NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>, NestedTotalsOf<I>>,
             MaintenanceOf<K, R, I>, CopiesOf<K, R, I>>
         : never;
 
 /**
  * A binding's nested part's type (#1434, #1435): its nested series index's
- * name, its tile and its summary tile, each a struct whose one field is it,
- * and how each collection the index files is declared, as structure
- * ({@link NestedMarker}); none where the binding lists none, its parts then the
- * empty struct, as a summary tile is where the index keeps no totals.
+ * name and its tile, each a struct whose one field is it; the periods it
+ * keeps each node's totals at (its `summary`) and the record's totals at (its
+ * `totals`), each a struct with a field a period, finest first; and how each
+ * collection the index files is declared, as structure ({@link NestedMarker});
+ * none where the binding lists none, its parts then the empty struct, as its
+ * `summary` is where the index keeps no node's totals.
  *
  * @typeParam C - The collections' marker type
  * @typeParam I - The index's name, as a struct of one field
  * @typeParam T - Its tile, as a struct of one field
- * @typeParam U - Its summary tile, as a struct of one field, or the empty struct
+ * @typeParam U - The periods it keeps each node's totals at, as a struct of a field each, or the empty struct
+ * @typeParam X - The periods it keeps the record's totals at, as a struct of a field each
  * @param collections - The collections' marker type
  * @param index - The index's name
  * @param tile - Its tile
- * @param summary - Its summary tile
+ * @param summary - The periods it keeps each node's totals at
+ * @param totals - The periods it keeps the record's totals at
  * @returns The part's type
  */
-export function NestedPartType<C extends EastType, I extends EastType, T extends EastType, U extends EastType>(collections: C, index: I, tile: T, summary: U) {
-    return OptionType(StructType({ index, tile, summary, collections }));
+export function NestedPartType<C extends EastType, I extends EastType, T extends EastType, U extends EastType, X extends EastType>(
+    collections: C, index: I, tile: T, summary: U, totals: X,
+) {
+    return OptionType(StructType({ index, tile, summary, totals, collections }));
 }
 
 /**
@@ -488,16 +499,18 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         throw new Error("Data.bindPaged with join: false needs an index without Set fields for its unfiltered view; add a one-entry-per-row field index or use join: true");
     }
     const indexFields = StructType(fields);
-    // The nested index's part (#1435): its declaration as structure, its tile and its summary tile.
+    // The nested index's part (#1435): its declaration as structure, its tile, and the periods it keeps each node's
+    // totals and the record's totals at, each finest first, as its definition lists them.
     const declared = nested?.nested;
     const marker = declared === undefined ? { type: StructType({}), value: {} } : nestedMarker(declared.declaration);
-    const one = (name: string | undefined) => markerStruct(name === undefined ? [] : [[name, LEAF]]);
-    const index = one(nested?.name);
-    const tile = one(declared?.tile);
-    const summary = one(declared?.summary);
-    const nestedType = NestedPartType(marker.type, index.type, tile.type, summary.type);
+    const each = (names: readonly string[]) => markerStruct(names.map((name) => [name, LEAF] as const));
+    const index = each(nested === undefined ? [] : [nested.name]);
+    const tile = each(declared === undefined ? [] : [declared.tile]);
+    const summary = each(declared?.summary ?? []);
+    const kept = each(declared?.totals ?? []);
+    const nestedType = NestedPartType(marker.type, index.type, tile.type, summary.type, kept.type);
     const nestedValue = declared === undefined ? none
-        : some({ index: index.value, tile: tile.value, summary: summary.value, collections: marker.value });
+        : some({ index: index.value, tile: tile.value, summary: summary.value, totals: kept.value, collections: marker.value });
     // Each listed nested series and summary index's maintenance for one row (#1437): e3's own, the function its commit
     // runs, so a page previews a drafted row's Save with it. A reader of the record's other indexes reads them as saved.
     const maintained = options.indexes

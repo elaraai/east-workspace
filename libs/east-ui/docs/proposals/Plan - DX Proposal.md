@@ -219,7 +219,7 @@ export const works = e3.record("works", DictType(StringType, GroupRowType), {
         }),
       },
       tile: "day",
-      summary: "month",
+      summary: ["month"],
     }),
   }),
   mutations: (mutation) => ({
@@ -872,7 +872,7 @@ export const machines = e3.record("machines", DictType(StringType, MachineRowTyp
         kinds: index.nestedSeries.rows({}),                 // child rows keyed by a variant: E1 (#1540)
       },
       tile: "day",
-      summary: "month",
+      summary: ["month"],
     }),
   }),
 });
@@ -1080,7 +1080,7 @@ export const works = e3.recordComposite("works", GroupRowType, {
         }),
       },
       tile: "day",
-      summary: "month",
+      summary: ["month"],
     }),
   }),
   mutations: (mutation) => ({
@@ -1555,7 +1555,7 @@ const crews = e3.record("crews", DictType(StringType, CrewType), {
     crews_in_time: index.nestedSeries({
       collections: { hours: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }) },
       tile: "week",
-      summary: "month",
+      summary: ["month"],
     }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),

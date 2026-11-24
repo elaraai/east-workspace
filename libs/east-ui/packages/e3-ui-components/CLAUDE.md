@@ -2103,8 +2103,16 @@ window through the seam with what it read:
   tiles it adds. A batch in flight is asked again until it lands, never asked
   beside a new one.
 - **The cap.** Past 10,000 items of a collection in the cells wanted, its rows
-  shade from their totals at the summary tile where it divides the bucket, or
-  are hatched with the reader's notice.
+  shade from their totals (#1739): at the period their column is where the
+  index keeps each row's totals at it (the seam's `summary`), else at the
+  coarsest period it keeps that divides the column (`dividingTiles`) — a
+  week's zoom from the week's totals, a quarter's from its months'. Where it
+  keeps none that divides the column the rows are hatched, and the reader
+  names the collection among its notices, each with its items in view and the
+  finest period kept. The canvas hands them on as its chrome's `itemsOver`,
+  and the frame draws one notice of them, as a Plan of event kinds draws its
+  own past the cap (`data-plan-banner="items"`): how many items are in view,
+  and the resolution to switch to.
 - **What it hands on.** The cells, encoded as the binding's fill takes them;
   the shading; each parent's subtotals by row key, which `derivePlan` draws in
   place of its children's, unfolded; a version the canvas's paged source names
@@ -2117,23 +2125,35 @@ window through the seam with what it read:
   reveal clock: the rows in view the canvas reports at rest, or, narrow, the
   cards the list shows (`narrowShown`), since the list reports no range.
 - **The span.** The collections every series of the canvas reads, shown or
-  not (`usePlanNestedSpan`, #1440): their months across the record's rows,
+  not (`usePlanNestedSpan`, #1440): their periods across the record's rows,
   each with the items and values touching it, as e3 keeps them in the index's
   span (`<index>_span`, which the binding reads as a summary index, never
-  listed) — one search a collection, an exact match on its place, and one read
-  of their entries, ascending, each collection's kept apart; the span is the
-  first month any touches to the end of the last, and the months' counts are
-  the shown series' collections' alone. Switching a series asks nothing, and
-  with every series off the strip still spans the data, its bars empty.
-  Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
-  beside the window shown where no source holds the window, a zoom to a table
-  cell's period keeps the window inside it, its row held while it is first
-  read, and a read again holds the last until it lands.
+  listed) at each period the index keeps the record's totals at (the seam's
+  `totals`, #1739). Its key leads with a collection's place and the period,
+  so a period's tiles are one search a collection, an exact match on the two
+  (`spanRuns`). The span is read at the finest period kept — each
+  collection's first tile and its last, in one read — from the first period
+  any touches to the end of the last (`spanOf`). The counts are read at the
+  period the horizon asks (the read's `totals(period)`, over `spanCounts`:
+  one read of the collections' entries, ascending, each collection's kept
+  apart), and are the shown series' collections' alone. Switching a series
+  asks nothing, and with every series off the strip still spans the data, its
+  bars empty. Reported apart (`onSpan`, a `PlanNestedSpanRead`: the span, the
+  periods kept and the read of their counts); the horizon spans it beside the
+  window shown where no source holds the window, a zoom to a table cell's
+  period keeps the window inside it, its row held while it is first read, and
+  a read again holds the last — the span, and the counts at the period they
+  were read by — until it lands.
 - **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
-  `horizonDensity` buckets the months' counts in the finest of month, quarter
-  and year that keeps 4px a bucket on the strip (the band measures its track,
-  `data-plan-horizon-track`), from the period the horizon begins in to the one
-  it ends in, each clipped to it — a month the horizon clips counts whole, as
+  the bars count by the finest period the index keeps the record's totals at
+  that keeps 4px a bucket on the strip (`horizonUnit` over the span's
+  `periods`; the band measures its track, `data-plan-horizon-track`), the
+  coarsest where none does, and each bucket is that period's own count as e3
+  keeps it (`horizonTotalsDensity`, #1739): an item is in the count of each
+  period it touches, once, so a job over a month's end is in both months'
+  bars and once in their quarter's, and no finer period's counts are added
+  up. The buckets run from the period the horizon begins in to the one it
+  ends in, each clipped to it — a period the horizon clips counts whole, as
   e3 keeps no finer count. The strip draws them (east-ui-components'
   `BrushStrip`); the caption's meta line says the largest bucket and its
   period (`max 1,559 items / mo`), or `no data`, and a bar's hover its period

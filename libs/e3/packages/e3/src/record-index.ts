@@ -167,8 +167,14 @@ export interface NestedSeriesIndexSpec<T extends EastType = EastType> {
   /** The finest level an item is filed at, and the finest a parent's subtotals are kept at: `day`, `week` (ISO, from
    *  Monday), `month`, `quarter` or `year`, in UTC. */
   tile: RecordTile;
-  /** The tile each node's totals are kept by; omitted, none are kept. */
-  summary?: RecordTile;
+  /** The periods each node's totals are kept at, a tile at a time: what a row is shaded by where its items are too
+   *  many to read. Each period counts an item once in each of its tiles the item touches, so a reader reads the
+   *  period it draws. Omitted, none are kept. */
+  summary?: readonly RecordTile[];
+  /** The periods the record's totals are kept at, beside the index: how many items or values of each collection
+   *  touch each tile, on every row — a horizon's bars. Omitted, a month, a quarter and a year; a day and a week
+   *  where named. */
+  totals?: readonly RecordTile[];
   /** Refused: the key form's fields, beside `collections`. */
   key?: never;
   /** Refused: the key form's fields, beside `collections`. */

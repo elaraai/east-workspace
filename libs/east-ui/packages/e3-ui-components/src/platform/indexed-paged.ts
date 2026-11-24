@@ -21,7 +21,7 @@ import { toFindQuery } from "./find-query.js";
 
 type Metadata = Record<string, Record<string, unknown>>;
 /** A binding's nested part (#1435): the nested series index it lists, its name the one field of its `index`, or none. */
-type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType, StructType, StructType>>>;
+type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType, StructType, StructType, StructType>>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };
@@ -76,9 +76,9 @@ function isNested(nested: Nested, name: string): boolean {
 
 /**
  * Whether an index is the listed nested series index's span (#1438): the index
- * e3 keeps beside it, each collection's months across the record's rows,
- * summed as a summary's totals are — read by its searches and runs, never
- * listed, as the nested series index is.
+ * e3 keeps beside it, each collection's tiles across the record's rows at each
+ * period the record's totals are kept at, summed as a summary's totals are —
+ * read by its searches and runs, never listed, as the nested series index is.
  */
 function isSpan(nested: Nested, name: string): boolean {
     return nested.type === "some" && Object.keys(nested.value.index).some((index) => nestedSpanName(index) === name);

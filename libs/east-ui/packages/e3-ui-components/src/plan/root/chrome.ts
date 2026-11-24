@@ -28,6 +28,7 @@ import type { PlanToolsChrome } from "../links/connect.js";
 import type { PlanLinksOver } from "../links/kinds.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanCanvasInspect } from "./inspect.js";
+import type { PlanNestedNotice } from "./nested.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
 import type { PlanWindowPart } from "./window.js";
 
@@ -156,6 +157,12 @@ export interface PlanChrome {
     cells: ScheduleCellsRead | undefined;
     /** The link kinds holding more links than are read (#1541, U10): none of such a kind's links is drawn, and the frame's notice says how many it holds. */
     linksOver: readonly PlanLinksOver[];
+    /**
+     * The rows' own collections holding more items in view than are drawn, which no totals shade at this resolution
+     * (#1739): their rows are hatched, and the frame's notice says how many items there are, and the resolution their
+     * totals shade at. None for a Plan whose rows read no nested series index.
+     */
+    itemsOver: readonly PlanNestedNotice[];
     /** The tools the viewer picks among (#1541, U10): Select and Connect, shown while a link kind is editable; `undefined` while none is. */
     tools: PlanToolsChrome | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */

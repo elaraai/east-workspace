@@ -450,39 +450,55 @@ export interface RecordIndexDef<
   /** What a summary index totals a record's events by (#1039): the same
    *  fields and tile as a series index's. It holds, under each key and tile,
    *  `{ on, key, tile }`, how many rows touch the tile and the milliseconds of
-   *  it they cover — or, declared with no `key`, under each tile, `{ on, tile
-   *  }`, the record's totals (#1732); its {@link keyFn} is a row's
+   *  it they cover — or, with no `key`, the record's totals (`index.totals`,
+   *  #1732), under each tile, `{ on, tile }`; its {@link keyFn} is a row's
    *  contributions, `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
   readonly summary?: { readonly key?: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
-  /** A nested series index's span (#1438): the nested series index whose
-   *  collections it counts, and the tile it counts by. It holds, under each
-   *  collection's place and each tile its items or values touch, how many of
-   *  them touch it and the milliseconds of it its items cover — kept as a
-   *  summary's totals are, so a collection's first and last tile held are its
-   *  span, and its tiles' counts how much it holds in each. Its {@link keyFn} is a row's tiles,
-   *  `(K, V) -> Dict<{ collection, tile }, Totals>`, and its value type
-   *  `Totals`. Built beside its nested series index, never declared. */
-  readonly span?: { readonly of: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** A nested series index's span (#1438): the record's totals of the
+   *  collections its nested series index files, and the periods they are kept
+   *  at, finest first. It holds, under each collection's place, each period
+   *  and each tile of the period its items or values touch, how many of them
+   *  touch the tile and the milliseconds of it its items cover — kept as a
+   *  summary's totals are, an item counted once in each tile of a period it
+   *  touches — so a collection's first and last tile held at a period are its
+   *  span, and its tiles' counts how much it holds in each. Its {@link keyFn}
+   *  is a row's tiles, `(K, V) -> Dict<{ collection, level, tile }, Totals>`,
+   *  and its value type `Totals`. `touched` is what a row's patch touched of
+   *  the row, `(V, V, Patch) -> Variant<{ replaced, unchanged, touched: {
+   *  held, next } }>`: the row before and after, holding the items and values
+   *  the patch names and no other, which a write keeps the totals by. They are
+   *  sums, so what the touched items took away and gave is what the whole
+   *  rows' difference is. Built beside its nested series index, never
+   *  declared. */
+  readonly span?: {
+    readonly of: string;
+    readonly tiles: readonly ('day' | 'week' | 'month' | 'quarter' | 'year')[];
+    readonly touched: { toIR(): unknown };
+  } | undefined;
   /** What a nested series index files (#1434): every collection the record's
-   *  rows nest, as written; its tile and summary tile; its declaration as an
-   *  East value, the field names as data, which the binding reads (#1435); the
-   *  lean row, `(K, V) -> V`, which the record's other indexes carry beside it
-   *  in place of none or the row (`builtIndex`); and a write's entries by its
-   *  patch, `(K, V, V, Patch) -> Variant<{ whole, changed: { before, after } }>`,
-   *  given the row before and after and the patch between them, which a write
-   *  maintains the index by where the patch can say what it touched. Its key
-   *  is e3-types' `NestedEntryKeyType`, its value `NestedEntryType`, and its
-   *  {@link keyFn} a row's entries, `(K, V) -> Dict<IK, P>`. */
+   *  rows nest, as written; its tile; the periods each node's totals are kept
+   *  at, its `summary`, finest first, and none where it keeps none; the
+   *  periods the record's totals are kept at, its `totals`, finest first
+   *  ({@link span}); its declaration as an East value, the field names as
+   *  data, which the binding reads (#1435); the lean row, `(K, V) -> V`, which
+   *  the record's other indexes carry beside it in place of none or the row
+   *  (`builtIndex`); and a write's entries by its patch, `(K, V, V, Patch) ->
+   *  Variant<{ whole, changed: { before, after } }>`, given the row before and
+   *  after and the patch between them, which a write maintains the index by
+   *  where the patch can say what it touched. Its key is e3-types'
+   *  `NestedEntryKeyType`, its value `NestedEntryType`, and its {@link keyFn}
+   *  a row's entries, `(K, V) -> Dict<IK, P>`. */
   readonly nested?: {
     readonly collections: unknown;
     readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year';
-    readonly summary: 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined;
+    readonly summary: readonly ('day' | 'week' | 'month' | 'quarter' | 'year')[];
+    readonly totals: readonly ('day' | 'week' | 'month' | 'quarter' | 'year')[];
     readonly declaration: RecordNestedDecl;
     readonly lean: { toIR(): unknown };
     readonly byPatch: { toIR(): unknown };
     /** A lean row filled with entries read of it, `(K, V, Array<{ ik, value }>) → V` (#1438): what a reader of the index's cells draws a row with. */
     readonly fill: { toIR(): unknown };
-    /** Its span (#1438): each collection's tiles across the record's rows, an index of the record's beside it ({@link span}). */
+    /** Its span (#1438): the record's totals, each collection's tiles at each period across the record's rows, an index of the record's beside it ({@link span}). */
     readonly span: RecordIndexDef;
   } | undefined;
   /** What an entries index files (#1521): the Dict field of the record's rows

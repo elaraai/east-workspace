@@ -226,10 +226,10 @@ export type RecordRollup = ValueTypeOf<typeof RecordRollupType>;
  * another.
  *
  * @property items - The node's own items or values, each at the level it is filed at
- * @property totals - The node's own totals, a summary tile at a time
+ * @property totals - The node's own totals, a tile at a time at each period the index keeps them at
  * @property subtotals - A parent's subtotals by one of the collection's rollups, at each level from the index's tile up
  * @property subtree - The items of the node's descendants, filed under it too (`items(…, { rollup: true })`)
- * @property subtreeTotals - Its descendants' items' totals, a summary tile at a time
+ * @property subtreeTotals - Its descendants' items' totals, a tile at a time at each period the index keeps its totals at
  */
 export const RecordNestedRunType = VariantType({
   items: NullType,
@@ -360,7 +360,7 @@ export function NestedItemType<I extends EastType, P extends EastType>(id: I, pa
  * @property row - The record row's key
  * @property path - The child rows' keys from the row down to the node the entry is about: `end` for the row itself
  * @property run - Which of the node's runs ({@link RecordNestedRunType})
- * @property level - The level the entry is filed at; a total's, the summary tile's
+ * @property level - The level the entry is filed at; a total's, the period it is kept at
  * @property tile - The start of the level's tile
  * @property item - Which item ({@link NestedItemType})
  */
@@ -373,18 +373,22 @@ export function NestedEntryKeyType<K extends EastType, I extends EastType>(rowKe
 }
 
 /**
- * The key a nested series index's span keeps its totals under (#1438): a
- * collection's place, as an entry's key names it, and a month its items or
- * values touch. Each holds how many of them touch it and the milliseconds of it
- * its items cover ({@link RecordSummaryTotalsType}), summed across the record's
- * rows as a summary index's totals are, so a collection's first and last month
- * held are its span across the rows, and its months' counts how much it holds
- * in each.
+ * The key a nested series index's span keeps the record's totals under
+ * (#1438): a collection's place, as an entry's key names it, a period the
+ * index keeps them at, and a tile of the period its items or values touch.
+ * Each holds how many of them touch the tile and the milliseconds of it its
+ * items cover ({@link RecordSummaryTotalsType}), summed across the record's
+ * rows as a summary index's totals are. An item counts once in each tile of a
+ * period it touches, so a period's totals are read as they are kept, never
+ * added up from a finer one. A collection's first and last tile held at a
+ * period are its span across the rows, and its tiles' counts how much it
+ * holds in each.
  *
  * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
- * @property tile - The start of a month its items or values touch
+ * @property level - The period the totals are kept at
+ * @property tile - The start of a tile of the period its items or values touch
  */
-export const NestedSpanKeyType = StructType({ collection: RecordNestedPathType, tile: DateTimeType });
+export const NestedSpanKeyType = StructType({ collection: RecordNestedPathType, level: RecordLevelType, tile: DateTimeType });
 export type NestedSpanKeyType = typeof NestedSpanKeyType;
 
 /**
@@ -413,8 +417,8 @@ export function entriesRowsName(index: string): string {
 }
 
 /**
- * One collection's totals in one summary tile (#1434), for one node, or for
- * its descendants' items under `subtreeTotals`.
+ * One collection's totals in one tile of a period the index keeps them at
+ * (#1434), for one node, or for its descendants' items under `subtreeTotals`.
  *
  * @property count - How many items touch the tile
  * @property ms - The milliseconds of the tile they cover; an instant covers none

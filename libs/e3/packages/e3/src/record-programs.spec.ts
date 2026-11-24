@@ -76,7 +76,7 @@ const machines = record('machines', Machines, {
     in_time: index.nestedSeries({
       collections: { jobs: index.nestedSeries.items({ from: 'start', to: 'end' }), load: index.nestedSeries.values() },
       tile: 'week',
-      summary: 'month',
+      summary: ['month'],
     }),
   }),
   mutations: (mutation) => ({ patch: mutation.patch() }),

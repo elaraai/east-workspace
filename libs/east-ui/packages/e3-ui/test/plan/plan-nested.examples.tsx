@@ -193,7 +193,11 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
                 parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }),
             },
             tile: "week",
-            summary: "month",
+            // Each works' totals a week and a month at a time: past 10,000 items in view its rows shade from the week's
+            // at a week's zoom, and from the month's at a month's, a quarter's and a year's.
+            summary: ["week", "month"],
+            // Every works' together a month, a quarter and a year at a time: the horizon's bars, read at the period they count by.
+            totals: ["month", "quarter", "year"],
         }),
     }),
     mutations: (mutation) => ({
@@ -323,7 +327,7 @@ export const planConflictWorks = e3.record("plan_conflict_works", DictType(Strin
         plan_conflict_works_in_time: index.nestedSeries({
             collections: { crews: index.nestedSeries.rows({ hours: index.nestedSeries.values({ rollup: "sum" }) }) },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

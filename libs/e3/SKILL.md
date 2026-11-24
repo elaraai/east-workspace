@@ -79,7 +79,7 @@ What do you need?
 │   │   ├─ Read a block of keys over time tiles, each key's totals, or the whole record's → index.flatSeries | index.summary | index.totals
 │   │   ├─ A screen of many keys over a window (a board of grouped rows) → index.flatSeries({ on: [group], key, from, to, tile, order: 'time' }): a tile's events together; read one key's events through an index in key order (reference/record-indexes.md)
 │   │   ├─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
-│   │   │   → index.nestedSeries({ collections, tile, summary? })
+│   │   │   → index.nestedSeries({ collections, tile, summary?, totals? }): summary and totals each a list of periods, ['week', 'month']
 │   │   ├─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
 │   │   └─ Read an index inside a task or a function → e3.index(record.indexes.<name>) among its inputs: the entries, with its kind's readers — of, between, overlapping, events, totals, within, a nested index's items, subtree, subtotals — each a read: each($, body) | collect($)
 │   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order (reference/record-migrations.md)

@@ -1593,7 +1593,7 @@ export const planPressMachines = e3.record("plan_press_machines", DictType(Strin
                 kinds: index.nestedSeries.rows({}),
             },
             tile: "day",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
 });
@@ -2328,7 +2328,7 @@ export const planWorksRows = e3.record("plan_works_rows", DictType(StringType, W
                 }),
             },
             tile: "day",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

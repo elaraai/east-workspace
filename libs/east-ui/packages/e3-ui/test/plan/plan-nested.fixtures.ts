@@ -138,7 +138,7 @@ export const machines = e3.record("machines", DictType(StringType, Machine), {
                 output: index.nestedSeries.values(),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -199,7 +199,7 @@ export const halls = e3.record("halls", DictType(StringType, Hall), {
         halls_in_time: index.nestedSeries({
             collections: { members: index.nestedSeries.rows({ load: index.nestedSeries.values({ rollup: "mean" }) }) },
             tile: "day",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -295,7 +295,7 @@ export const assemblies = e3.record("assemblies", DictType(StringType, Assembly)
                 parts: index.nestedSeries.rows({ jobs: index.nestedSeries.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nestedSeries.recursive() }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({
@@ -398,7 +398,7 @@ export const ledgers = e3.record("ledgers", DictType(StringType, Ledger), {
                 }),
             },
             tile: "week",
-            summary: "month",
+            summary: ["month"],
         }),
     }),
     mutations: (mutation) => ({

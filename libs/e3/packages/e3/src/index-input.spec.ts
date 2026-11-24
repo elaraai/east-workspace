@@ -111,7 +111,7 @@ describe('e3.index', () => {
     const Machine = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
     const machines = record('machines', DictType(StringType, Machine), {
       initial: new Map(),
-      indexes: (index) => ({ machines_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week', summary: 'month' }) }),
+      indexes: (index) => ({ machines_in_time: index.nestedSeries({ collections: { load: index.nestedSeries.values() }, tile: 'week', summary: ['month'] }) }),
     });
     const span = machines.indexes.machines_in_time.nested.span;
     assertType(index(span).type, DictType(StructType({ ik: span.keyType, k: NullType }), RecordSummaryTotalsType), 'a nested series index\'s span, summed as a summary is');
