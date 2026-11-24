@@ -16,7 +16,8 @@
  * colour, its width, dash, strengths and curve, its dots, round, and a lone
  * point's, a dashed line's planned part, the order the layers draw in, the
  * columns side by side in a bucket, the areas on a stack, bubbles, a reference
- * line's own dash and colour, and target zones.
+ * line's own dash and colour, and target zones; and a row's switches — its grid
+ * and its tooltip — and how many numbers an axis asks for.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -48,7 +49,9 @@ const SUM = variant("sum", null);
 const valueAxis = (opts: { min?: number; max?: number; ticks?: number[] }) => some({
     domain: opts.min !== undefined && opts.max !== undefined ? some(variant("number", { min: opts.min, max: opts.max })) : none,
     tickValues: opts.ticks !== undefined ? some(variant("number", opts.ticks)) : none,
+    numTicks: none,
     format: none,
+    label: none,
 });
 const chartKind = (layers: unknown[], opts: { left?: unknown; right?: unknown } = {}) => variant("chart", {
     layers,
@@ -57,6 +60,9 @@ const chartKind = (layers: unknown[], opts: { left?: unknown; right?: unknown } 
     height: variant("expanded", null),
     expandedHeight: none,
     expandable: false,
+    grid: true,
+    legend: true,
+    tooltip: true,
 });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
@@ -380,7 +386,7 @@ describe("the chart row's gutter and axes (#1750)", () => {
             layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
                 style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
             left: valueAxis({ min: 80, max: 110, ticks: [80, 100] }), right: none,
-            height, expandedHeight: none, expandable: true,
+            height, expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
         });
         const { container } = renderPlan(planRoot([
             planRow("fixed", chart(variant("fixed", "88px"))),
@@ -401,7 +407,7 @@ describe("the chart row's gutter and axes (#1750)", () => {
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
             ],
             left: valueAxis({ min: 0, max: 40, ticks: [0, 20, 40] }), right: valueAxis({ min: 0, max: 100 }),
-            height: variant("spark", null), expandedHeight: none, expandable: false,
+            height: variant("spark", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
         });
         const { container } = renderPlan(planRoot([
             planRow("one", spark),
@@ -421,6 +427,7 @@ describe("the chart row's gutter and axes (#1750)", () => {
             layers: [variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
                 style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
         });
         const tall = chartKind([variant("line", { points: [pt(0.5, 94)], axis: left, breach: none, fold: MEAN,
             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })]);
@@ -581,5 +588,49 @@ describe("how each layer draws (#1753)", () => {
         expect([rect!.style.left, rect!.style.width, rect!.style.top, rect!.style.bottom])
             .toEqual(["0%", "50%", `${(20.5 / 87) * 100}%`, `${((87 - 28.5) / 87) * 100}%`]);
         expect(rect!.hasAttribute("data-ink")).toBe(false);
+    });
+});
+
+describe("a chart row's switches, and how many numbers an axis asks for (#1753)", () => {
+    const labels = (row: Element) => [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.textContent);
+    const gridlines = (row: Element) => [...row.querySelectorAll("[data-plan-gridline]")].map((g) => Number(g.getAttribute("y1")));
+
+    test("a row whose grid is off draws no gridline, its numbers standing alone in the gutter; one whose tooltip is off reads nothing where the pointer rests", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("bare", variant("chart", {
+                layers: [variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                left: some({ domain: some(variant("number", { min: 0, max: 40 })), tickValues: some(variant("number", [0, 20, 40])), numTicks: none, format: none, label: none }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+                grid: false, legend: true, tooltip: false,
+            })),
+            planRow("full", variant("chart", {
+                layers: [variant("column", { points: [pt(0.5, 20)], axis: left, breach: none, fold: SUM,
+                    style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+                left: some({ domain: some(variant("number", { min: 0, max: 40 })), tickValues: some(variant("number", [0, 20, 40])), numTicks: none, format: none, label: none }),
+                right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
+            })),
+        ], 1), "chart-1753-switches");
+        const bare = container.querySelector(rowSel("bare"))!;
+        expect([gridlines(bare), labels(bare)]).toEqual([[], ["0", "20", "40"]]);
+        expect(bare.querySelector("[data-plan-readout]")).toBeNull();
+        const full = container.querySelector(rowSel("full"))!;
+        expect([gridlines(full), labels(full), full.querySelector("[data-plan-readout]") !== null]).toEqual([[76.5, 44.5, 12.5], ["0", "20", "40"], true]);
+    });
+
+    test("an axis declaring no ticks prints about as many round values as its numTicks asks for, a gridline each — its values where they were, at the top and foot of its scale", () => {
+        // A line from 3.2 to 9.7, a point a bucket, about four numbers asked for: 4, 6 and 8.
+        const { container } = renderPlan(planRoot([planRow("c", variant("chart", {
+            layers: [variant("line", { points: [pt(0.5, 3.2), pt(1.5, 9.7)], axis: left, breach: none, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } })],
+            left: some({ domain: none, tickValues: none, numTicks: some(4), format: none, label: none }),
+            right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
+        }))], 2), "chart-1753-numticks");
+        const row = container.querySelector(rowSel("c"))!;
+        expect([labels(row), gridlines(row).length]).toEqual([["4", "6", "8"], 3]);
+        // Its domain is its values' own: the line runs from the scale's foot to its top, as with no numbers asked for.
+        expect(subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!)).toEqual([[[250, 76.5], [750, 12.5]]]);
     });
 });

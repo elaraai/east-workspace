@@ -141,7 +141,7 @@ describe("Plan row-layer memoization (#616)", () => {
                 planRow("ontime", variant("chart", {
                     layers: [], left: none, right: none,
                     height: variant("spark", null), expandedHeight: none,
-                    expandable: true,
+                    expandable: true, grid: true, legend: true, tooltip: true,
                 })),
             ]), "plan-616-memo");
             // First selection: ONLY the newly-selected row re-renders — the

@@ -35,8 +35,10 @@
  *   left axis reads it in the gutter's value slot beside it — a narrow card's,
  *   which has no gutter, inside its plot's left edge — and a right axis reads
  *   its own value at the same line, inside the plot's right edge; a chart at a
- *   row's own height reads its scale by its gridlines alone;
- * - hovering a bucket reads out each data layer's value there.
+ *   row's own height reads its scale by its gridlines alone. A row whose
+ *   `grid` is off draws no gridline, its numbers standing alone (#1753);
+ * - hovering a bucket reads out each data layer's value there — unless the
+ *   row's `tooltip` is off.
  *
  * The marks are `@visx/shape` paths over `@visx/scale` value scales (#743),
  * from the numbers `chart-geometry.ts` derives. They render in a
@@ -239,8 +241,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
 
     // ── The crosshair readout (#743) ──
     // Each data layer's value at the hovered bucket, written straight into
-    // the DOM from the cursor channel — a hover renders nothing (#609).
-    const readLayers = useMemo(() => readoutLayers(kind), [kind]);
+    // the DOM from the cursor channel — a hover renders nothing (#609). A row
+    // whose tooltip is off reads none (#1753).
+    const readLayers = useMemo(() => (kind.tooltip ? readoutLayers(kind) : []), [kind]);
     const readings = useMemo(() => readoutTable(kind, scale, words), [kind, scale, words]);
     const readoutRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursor();
@@ -490,8 +493,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 its layer's look (#1753). */}
             <chakra.svg css={styles.chartMarks} width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none">
                 <title>{summary}</title>
-                {/* A gridline a tick, under every mark — across the render bounds, so a pan reveals the rest. */}
-                {ticks.map((t, i) => (
+                {/* A gridline a tick, under every mark — across the render bounds, so a pan reveals the rest — where the
+                    row draws its grid (#1753). */}
+                {kind.grid && ticks.map((t, i) => (
                     <line key={`grid-${i}`} x1={scale.renderMin * VW} x2={scale.renderMax * VW} y1={t.y} y2={t.y}
                         vectorEffect="non-scaling-stroke" data-plan-gridline="" />
                 ))}

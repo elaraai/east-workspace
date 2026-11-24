@@ -1183,6 +1183,59 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(vertical.includes("vertical (x) refLines are not supported")), true));
     });
 
+    test("a chart row draws its gridlines, a legend and a tooltip unless switched off, and each axis may ask for about how many numbers it prints and name its unit (#1753)", $ => {
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const points = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));
+        // Nothing said: every switch on, and an axis asks for no count and names no unit.
+        const plain = $.let(Plan.chart({
+            key: "p", label: "P", left: { domain: [0, 40] },
+            layers: Chart.Line(points, { x: r => r.week, y: r => r.pct }),
+        }).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(plain.grid, true));
+        $(Assert.equal(plain.legend, true));
+        $(Assert.equal(plain.tooltip, true));
+        $(Assert.equal(plain.left.unwrap("some").numTicks, none));
+        $(Assert.equal(plain.left.unwrap("some").label, none));
+        // Each switched off; a count and a unit on each axis, the right's beside the tick list that places its numbers.
+        const bare = $.let(Plan.chart({
+            key: "b", label: "B", grid: false, legend: false, tooltip: false,
+            left: { numTicks: 4, label: "k sheets" },
+            right: { tickValues: [0, 50, 100], numTicks: 3, label: "%" },
+            layers: Chart.Line(points, { x: r => r.week, y: r => r.pct }),
+        }).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(bare.grid, false));
+        $(Assert.equal(bare.legend, false));
+        $(Assert.equal(bare.tooltip, false));
+        $(Assert.equal(bare.left.unwrap("some").numTicks, some(4.0)));
+        $(Assert.equal(bare.left.unwrap("some").label, some("k sheets")));
+        $(Assert.equal(bare.right.unwrap("some").tickValues.unwrap("some").unwrap("number"), [0.0, 50.0, 100.0]));
+        $(Assert.equal(bare.right.unwrap("some").numTicks, some(3.0)));
+        $(Assert.equal(bare.right.unwrap("some").label, some("%")));
+        // A series' chart rows take the same switches.
+        const Row = StructType({ out: DictType(StringType, FloatType) });
+        const data = $.const(new Map([["p1", { out: new Map([["A", 1.0]]) }]]), DictType(StringType, Row));
+        const on = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "out", title: "Out", label: (_r, k) => k,
+                layers: [Plan.line(Plan.values("out", (v) => ({ y: v })))],
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(on.grid, true));
+        $(Assert.equal(on.legend, true));
+        $(Assert.equal(on.tooltip, true));
+        const off = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "out", title: "Out", label: (_r, k) => k, grid: false, tooltip: false,
+                layers: [Plan.line(Plan.values("out", (v) => ({ y: v })))],
+            })],
+        }).rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart"));
+        $(Assert.equal(off.grid, false));
+        $(Assert.equal(off.legend, true));
+        $(Assert.equal(off.tooltip, false));
+    });
+
     test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const points = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));

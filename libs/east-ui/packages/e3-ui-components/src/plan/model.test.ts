@@ -95,7 +95,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("chart rows: spark 32; expanded uses expandedHeight over the 88 default; fixed wins outright", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: true,
+            layers: [], left: none, right: none, height, expandedHeight, expandable: true, grid: true, legend: true, tooltip: true,
         });
         const spark = row(chart(variant("spark", null), none));
         expect(rowHeight(visible(spark), false, new Set())).toBe(32);
@@ -110,7 +110,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("a two-line gutter floors a chart SPARK row too — the sub-line has to fit", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: false,
+            layers: [], left: none, right: none, height, expandedHeight, expandable: false, grid: true, legend: true, tooltip: true,
         });
         // Every other kind ran through the two-line `floor()`; chart returned
         // its spark height directly, so a chart row carrying a sub-line clipped
@@ -263,7 +263,7 @@ describe("Plan windowRestHeight (#613)", () => {
 
     test("chart expansion measures at its DECLARED state, never a toggle's", () => {
         const chart = (height: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight: none, expandable: true,
+            layers: [], left: none, right: none, height, expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
         });
         expect(windowRestHeight(toCanvasRows([wire("s", chart(variant("spark", null)))]), "resource", false)).toBe(32);
         expect(windowRestHeight(toCanvasRows([wire("e", chart(variant("expanded", null)))]), "resource", false)).toBe(88);
@@ -304,6 +304,7 @@ describe("Plan windowRestHeight (#613)", () => {
 describe("win skeletons — the heights of evicted rows (#823)", () => {
     const chart = variant("chart", {
         layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+        grid: true, legend: true, tooltip: true,
     });
     const strip = groupKind(heatArm());
     const win = toCanvasRows([

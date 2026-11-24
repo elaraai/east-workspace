@@ -603,29 +603,46 @@ export interface ChartTick {
 }
 
 /**
+ * Where an axis places its ticks: the positions it declares, or — where it
+ * declares none — about `numTicks` round values across its domain (#1753),
+ * which they never move; none where it asks for neither.
+ *
+ * @param axis - The axis declaration
+ * @param scale - Its value scale, whose domain round values are found across
+ * @returns The positions, in data units
+ */
+function placedTicks(axis: ChartAxisValue | undefined, scale: ValueScale): readonly number[] {
+    const declared = axisTicks(axis);
+    if (declared.length > 0) return declared;
+    const count = axis !== undefined && axis.numTicks.type === "some" ? axis.numTicks.value : undefined;
+    return count !== undefined && Number.isFinite(count) && count > 0 ? scale.ticks(count) : [];
+}
+
+/**
  * A chart row's ticks — ONE set, which its gridlines and both its axes read.
  *
  * @remarks
- * The left axis's declared tick positions place them, and a declared right
+ * The left axis's tick positions place them — those it declares, or about
+ * `numTicks` round values across its domain (#1753) — and a declared right
  * axis reads its own value at each: the two share one set of gridlines, so a
  * right axis whose domain is the left's scaled — 0–40 beside 0–16 — reads round
- * numbers at the left's ticks, and the positions it declares place nothing.
- * Where the left declares none, it still labels its top when the row draws
+ * numbers at the left's ticks, and the positions it asks for place nothing.
+ * Where the left places none, it still labels its top when the row draws
  * columns on it (#949) — a bar's height reads against its scale's max, and
  * without one it cannot be read at all — and the right axis keeps the ticks it
- * declares.
+ * places.
  *
  * @param kind - The chart row
  * @param scales - Its two value scales, at the plot's height ({@link valueScale})
  * @param w - The canvas's words — the locale its numbers format in (#820)
- * @returns The ticks, in the order their axis declares them
+ * @returns The ticks, in the order their axis places them
  */
 export function chartTicks(kind: ChartKindValue, scales: { left: ValueScale; right: ValueScale }, w: PlanWords): ChartTick[] {
     const left = kind.left.type === "some" ? kind.left.value : undefined;
     const right = kind.right.type === "some" ? kind.right.value : undefined;
     const leftText = axisFormatter(left, w.locale);
     const rightText = axisFormatter(right, w.locale);
-    const declared = axisTicks(left);
+    const declared = placedTicks(left, scales.left);
     if (declared.length > 0) {
         return declared.map((v) => {
             const y = scales.left(v);
@@ -639,7 +656,7 @@ export function chartTicks(kind: ChartKindValue, scales: { left: ValueScale; rig
         const top = (scales.left.domain() as [number, number])[1];
         ticks.push({ y: scales.left(top), left: left?.format.type === "some" ? leftText(top) : w.number(top), right: undefined });
     }
-    for (const v of axisTicks(right)) {
+    for (const v of placedTicks(right, scales.right)) {
         const y = scales.right(v);
         // One gridline where the two axes' ticks fall on the same pixel.
         const shared = ticks.find((t) => Math.abs(t.y - y) < 0.5);

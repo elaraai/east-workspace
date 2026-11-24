@@ -12,9 +12,10 @@
  * A chart row's geometry (#743): column stacks per value axis, stack and sign,
  * value domains that contain what is drawn, continuous series at their true
  * positions, gaps, the crosshair's per-bucket reading, the one set of ticks
- * both axes read (#1750), and how each layer draws — its ink by its name, the
- * order the layers draw in, a point no stroke joins, the columns side by side
- * in a bucket, the areas on a stack and a bubble's radius (#1753).
+ * both axes read (#1750) and how many round values an axis asks for, and how
+ * each layer draws — its ink by its name, the order the layers draw in, a point
+ * no stroke joins, the columns side by side in a bucket, the areas on a stack
+ * and a bubble's radius (#1753).
  */
 
 import { describe, test, expect } from "vitest";
@@ -55,7 +56,9 @@ const line = (points: { t: number; y: number }[]) =>
 const valueAxis = (min: number | undefined, max: number | undefined) => some({
     domain: min !== undefined && max !== undefined ? some(variant("number", { min, max })) : none,
     tickValues: none,
+    numTicks: none,
     format: none,
+    label: none,
 });
 
 function chart(layers: ChartLayerValue[], opts: { left?: unknown; right?: unknown } = {}): ChartKindValue {
@@ -65,7 +68,10 @@ function chart(layers: ChartLayerValue[], opts: { left?: unknown; right?: unknow
         right: opts.right ?? none,
         height: variant("expanded", null),
         expandedHeight: none,
-        expandable: none,
+        expandable: false,
+        grid: true,
+        legend: true,
+        tooltip: true,
     } as unknown as ChartKindValue;
 }
 
@@ -326,7 +332,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
     test("values format through the axis's declared format", () => {
         const scale = axis(1);
         const kind = chart([line([{ t: 0.5, y: 0.25 }])], {
-            left: some({ domain: none, tickValues: none, format: some(variant("percent", null)) }),
+            left: some({ domain: none, tickValues: none, numTicks: none, format: some(variant("percent", null)), label: none }),
         });
         expect(readoutTable(kind, scale, PLAN_WORDS).get(0)).toEqual(["25%"]);
     });
@@ -348,7 +354,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
         // One decimal, never grouped — `2,5`, `1234`; a band's range is the table's.
         expect(table.get(0)).toEqual(["2,5", "1,5–2,3"]);
         expect(table.get(1)).toEqual(["1234", "—"]);
-        const pct = axisFormatter({ domain: none, tickValues: none, format: some(variant("percent", null)) } as never, "de-DE");
+        const pct = axisFormatter({ domain: none, tickValues: none, numTicks: none, format: some(variant("percent", null)), label: none } as never, "de-DE");
         expect(pct(0.25)).toMatch(/^25\s%$/u);
         // A negative zero prints as zero, as the bare `String` default did.
         expect(axisFormatter(undefined, "en-US")(-0)).toBe("0");
@@ -360,7 +366,9 @@ describe("one set of ticks for both axes (#1750)", () => {
     const ticked = (min: number, max: number, ticks?: number[]) => some({
         domain: some(variant("number", { min, max })),
         tickValues: ticks !== undefined ? some(variant("number", ticks)) : none,
+        numTicks: none,
         format: none,
+        label: none,
     });
     const right = (points: { t: number; y: number }[]) =>
         variant("line", {
@@ -418,6 +426,32 @@ describe("one set of ticks for both axes (#1750)", () => {
 
     test("a chart that declares no ticks and draws no columns has none", () => {
         expect(ticksOf(chart([line([{ t: 0.5, y: 3 }])], { right: ticked(0, 10) }), 88)).toEqual([]);
+    });
+
+    test("where an axis declares no ticks, about as many round values as its numTicks asks for place them, across its domain, which they never move; declared ticks win over a count (#1753)", () => {
+        // Values from 3.2 to 9.7, about four asked for: 4, 6 and 8 — the domain still the values' own.
+        const derived = chart([line([{ t: 0.5, y: 3.2 }, { t: 0.7, y: 9.7 }])],
+            { left: some({ domain: none, tickValues: none, numTicks: some(4), format: none, label: none }) });
+        expect(ticksOf(derived, 88).map((t) => t.left)).toEqual(["4", "6", "8"]);
+        expect(chartDomains(derived, layoutStacks(derived.layers, axis(1))).left).toEqual({ min: 3.2, max: 9.7 });
+        // A right axis reads its own value at each of the left's, whatever it asks for itself.
+        const both = chart([line([{ t: 0.5, y: 25 }]), right([{ t: 0.5, y: 50 }])], {
+            left: some({ domain: some(variant("number", { min: 0, max: 50 })), tickValues: none, numTicks: some(5), format: none, label: none }),
+            right: some({ domain: some(variant("number", { min: 0, max: 100 })), tickValues: none, numTicks: some(3), format: none, label: none }),
+        });
+        expect(ticksOf(both, 88).map((t) => [t.left, t.right]))
+            .toEqual([["0", "0"], ["10", "20"], ["20", "40"], ["30", "60"], ["40", "80"], ["50", "100"]]);
+        const declared = chart([line([{ t: 0.5, y: 8 }])], {
+            left: some({ domain: some(variant("number", { min: 0, max: 16 })), tickValues: some(variant("number", [0, 8, 16])), numTicks: some(10), format: none, label: none }),
+        });
+        expect(ticksOf(declared, 88).map((t) => t.left)).toEqual(["0", "8", "16"]);
+    });
+
+    test("where the left places no ticks and draws no columns, the right's numTicks place its own (#1753)", () => {
+        const kind = chart([right([{ t: 0.5, y: 60 }])], {
+            right: some({ domain: some(variant("number", { min: 0, max: 100 })), tickValues: none, numTicks: some(2), format: none, label: none }),
+        });
+        expect(ticksOf(kind, 88).map((t) => [t.left, t.right])).toEqual([[undefined, "0"], [undefined, "50"], [undefined, "100"]]);
     });
 });
 

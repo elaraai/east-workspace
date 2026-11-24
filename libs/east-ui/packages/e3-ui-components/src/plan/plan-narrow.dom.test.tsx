@@ -162,8 +162,8 @@ describe("Plan narrow layout (§10 / #570)", () => {
             axis: variant("left", null), breach: none, fold: variant("mean", null),
             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         })],
-        left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), format: none }),
-        right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+        left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), numTicks: none, format: none, label: none }),
+        right: none, height: variant("spark", null), expandedHeight: none, expandable: false, grid: true, legend: true, tooltip: true,
     });
     type Sent = "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel";
     /** A finger's event on the list: the page's first finger — no other down — is the browser's primary pointer. */

@@ -857,6 +857,7 @@ describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
                 }),
             ],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
         }));
         const derived = derivePlan(indexRows([chart]), undefined, "time", PLAN_WORDS, month);
         const layers = derived.charts.get("c")!.layers;

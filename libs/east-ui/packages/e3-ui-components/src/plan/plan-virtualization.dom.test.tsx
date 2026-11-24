@@ -118,7 +118,7 @@ const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("no
 /** A spark chart its expand control toggles to expanded (32px ↔ 88px, #1680's review). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
-    height: variant("spark", null), expandedHeight: none, expandable: true,
+    height: variant("spark", null), expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
 });
 const expandable = (px: string) => ({ height: some(px), axis: variant("keep", null) });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");

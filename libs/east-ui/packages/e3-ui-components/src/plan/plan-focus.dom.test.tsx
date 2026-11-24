@@ -376,6 +376,7 @@ describe("Plan link ribbons (#818)", () => {
             // k is an expandable chart: its expand control toggles it spark ↔ chart (#1680's review).
             const chart = variant("chart", {
                 layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+                grid: true, legend: true, tooltip: true,
             });
             const { container } = renderPlan(planRoot([
                 planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
@@ -652,8 +653,9 @@ describe("Plan expand-in-place (R2)", () => {
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 })],
-                left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
+                left: some({ domain: none, tickValues: some(variant("number", [80])), numTicks: none, format: none, label: none }),
                 right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
             })),
         ], {
             expandRender: (id: PlanRowId) =>
@@ -688,6 +690,7 @@ describe("Plan expand-in-place (R2)", () => {
                 style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
             })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+            grid: true, legend: true, tooltip: true,
         });
         const { container } = renderPlan(planRoot([
             planRow("ontime", chart(), { expand: { height: some("120px"), axis: variant("keep", null) } }),
@@ -740,10 +743,13 @@ describe("Plan expand-in-place (R2)", () => {
                 left: some({
                     domain: some(variant("number", { min: 80, max: 110 })),
                     tickValues: some(variant("number", [80])),
+                    numTicks: none,
                     format: none,
+                    label: none,
                 }),
                 right: none,
                 height: variant("spark", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
             }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {
@@ -784,9 +790,10 @@ describe("Plan expand-in-place (R2)", () => {
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 })],
-                left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
+                left: some({ domain: none, tickValues: some(variant("number", [80])), numTicks: none, format: none, label: none }),
                 right: none,
                 height: variant("expanded", null), expandedHeight: none, expandable: false,
+                grid: true, legend: true, tooltip: true,
             }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {

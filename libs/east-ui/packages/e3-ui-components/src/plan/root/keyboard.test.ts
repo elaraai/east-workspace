@@ -40,6 +40,7 @@ const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup:
 const group = (): PlanRowValue["kind"] => variant("group", { summary: variant("none", null) });
 const chart = (expandable: boolean) => variant("chart", {
     layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable,
+    grid: true, legend: true, tooltip: true,
 });
 
 const G = row("G", group());

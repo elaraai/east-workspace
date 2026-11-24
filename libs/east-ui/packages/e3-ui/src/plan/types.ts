@@ -664,13 +664,17 @@ export type PlanChartStyleType = typeof PlanChartStyleType;
  * scale, never per-axis).
  *
  * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, every stack's ends, and its reference lines' values and target zones' ranges)
- * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ no ticks)
+ * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ `numTicks`' round values, else none)
+ * @property numTicks - About how many numbers it prints where it declares no `tickValues` (#1753): round values across its domain, which they never move (`none` ⇒ none)
  * @property format - Optional tick format (the shared {@link ValueFormatType} — `Chart.format.*`)
+ * @property label - Its unit (`"k sheets"`), which a legend names beside each series on the axis (#1753)
  */
 export const PlanChartAxisType = StructType({
     domain:     OptionType(ChartDomainType),
     tickValues: OptionType(ChartTickValuesType),
+    numTicks:   OptionType(FloatType),
     format:     OptionType(ValueFormatType),
+    label:      OptionType(StringType),
 });
 export type PlanChartAxisType = typeof PlanChartAxisType;
 
@@ -694,7 +698,8 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * rectangle where they meet, a bound it is not given reaching the plot's edge,
  * in its `color` or the paper wash. Every mark sits at its true instant — a
  * point beyond the window keeps its position and the plot clips it. Hovering
- * a bucket reads each data layer's value there.
+ * a bucket reads each data layer's value there, where the row's `tooltip` is
+ * on.
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
  * horizontal bars flip the frame the shared axis owns.
  *
@@ -1565,7 +1570,10 @@ export type PlanExpandType = typeof PlanExpandType;
  * unit rides each quantity (#824). A heat parent's derived cells paint on the
  * kind's `scale` (#824 — it used to ride an empty cells arm). A chart row's
  * height is its `height` mode (`fixed` is its px), `expandedHeight` what the
- * expanded state opens to, and `expandable` whether the user may toggle it.
+ * expanded state opens to, and `expandable` whether the user may toggle it;
+ * `grid`, `legend` and `tooltip` say whether it draws a gridline at each tick,
+ * lists its series in a legend, and reads its values where the pointer rests
+ * (#1753).
  */
 export const PlanRowKindType = VariantType({
     group: StructType({
@@ -1591,6 +1599,12 @@ export const PlanRowKindType = VariantType({
          *  component height (`"120px"`; `none` ⇒ the 88px default). */
         expandedHeight: OptionType(StringType),
         expandable: BooleanType,
+        /** Whether it draws a gridline at each tick — its numbers print either way (#1753). */
+        grid: BooleanType,
+        /** Whether a legend lists its series (#1753). */
+        legend: BooleanType,
+        /** Whether hovering a bucket reads its values there (#1753). */
+        tooltip: BooleanType,
     }),
     heat: StructType({
         cells: PlanHeatCellsType,

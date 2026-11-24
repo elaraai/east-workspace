@@ -176,6 +176,7 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
                 style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
             })],
             left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+            grid: true, legend: true, tooltip: true,
         })),
         planRow("heat", variant("heat", {
             cells: variant("heat", {

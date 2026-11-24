@@ -97,7 +97,7 @@ const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup:
 const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
-    height: variant("spark", null), expandedHeight: none, expandable: true,
+    height: variant("spark", null), expandedHeight: none, expandable: true, grid: true, legend: true, tooltip: true,
 });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
 

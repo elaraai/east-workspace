@@ -388,12 +388,15 @@ describe("Plan chart rows (§4·K3)", () => {
             left: some({
                 domain: some(variant("number", { min: 80, max: 110 })),
                 tickValues: some(variant("number", [80, 100])),
+                numTicks: none,
                 format: none,
+                label: none,
             }),
             right: none,
             height,
             expandedHeight: none,
             expandable: false,
+            grid: true, legend: true, tooltip: true,
         });
         const spark = renderPlan(planRoot([
             planRow("ontime", chart(variant("spark", null)), { gutter: gutter("ON-TIME", { id: true, value: "94.2%" }) }),
@@ -704,6 +707,7 @@ describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", ()
             style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
         })],
         left: none, right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+        grid: true, legend: true, tooltip: true,
     }));
     const texts = (row: Element | null, sel: string) => Array.from(row!.querySelectorAll(sel)).map((n) => n.textContent);
 

@@ -1020,6 +1020,12 @@ export interface PlanChartSeriesConfig<
     expandedHeight?: SubtypeExprOrValue<StringType>;
     /** Spark ↔ expanded toggle (caret). */
     expandable?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether its rows draw a gridline at each tick (default `true`, #1753). */
+    grid?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether a legend lists its rows' series (default `true`, #1753). */
+    legend?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether hovering a bucket reads its rows' values there (default `true`, #1753). */
+    tooltip?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Gutter legend chips (shared by this series' rows). */
     swatches?: PlanGutterFields["swatches"];
 }
@@ -5107,6 +5113,9 @@ export function createSeriesChart<
             ...(cfg.height !== undefined ? { height: cfg.height } : {}),
             ...(cfg.expandedHeight !== undefined ? { expandedHeight: cfg.expandedHeight } : {}),
             ...(cfg.expandable !== undefined ? { expandable: cfg.expandable } : {}),
+            ...(cfg.grid !== undefined ? { grid: cfg.grid } : {}),
+            ...(cfg.legend !== undefined ? { legend: cfg.legend } : {}),
+            ...(cfg.tooltip !== undefined ? { tooltip: cfg.tooltip } : {}),
         }),
         ...(cfg.pinned !== undefined
             ? { pinned: (value: ExprType<EastType>, key: ExprType<EastType>) => East.value(cfg.pinned!(value, key), BooleanType) }

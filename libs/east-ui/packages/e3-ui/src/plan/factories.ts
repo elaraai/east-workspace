@@ -586,12 +586,14 @@ export function createFixedHeight(size: SubtypeExprOrValue<StringType>): ExprTyp
 /**
  * A chart-row y-axis input — the `Chart.Root` axis vocabulary
  * ({@link AxisOptions}), restricted to the members a Plan chart row's
- * value axis supports: `domain` (`[min, max]`), `tickValues` and `format`.
- * Same names, same types, same guards as a `Chart.Root` y-axis — temporal
- * domains / tick positions are a build-time error (the time axis is the
- * shared canvas scale, `Plan.axis`).
+ * value axis supports: `domain` (`[min, max]`), `tickValues`, `numTicks`
+ * (about how many round values it prints where it declares no `tickValues`,
+ * never moving its domain), `format`, and `label` (its unit, which a legend
+ * names beside each series on the axis) (#1753). Same names, same types, same
+ * guards as a `Chart.Root` y-axis — temporal domains / tick positions are a
+ * build-time error (the time axis is the shared canvas scale, `Plan.axis`).
  */
-export type PlanChartAxisInput = Pick<AxisOptions, "domain" | "tickValues" | "format">;
+export type PlanChartAxisInput = Pick<AxisOptions, "domain" | "tickValues" | "numTicks" | "format" | "label">;
 
 /** Whether a domain bound is temporal — mirrors `Chart.Root`'s `isTemporalBound`. */
 function isTemporalBound(bound: NonNullable<AxisOptions["domain"]>[0]): boolean {
@@ -622,7 +624,9 @@ function buildChartAxis(a: PlanChartAxisInput, side: "left" | "right"): ExprType
         tickValues: a.tickValues !== undefined
             ? some(variant("number", a.tickValues as SubtypeExprOrValue<ArrayType<FloatType>>))
             : none,
+        numTicks: a.numTicks !== undefined ? some(a.numTicks) : none,
         format: a.format !== undefined ? some(a.format) : none,
+        label: a.label !== undefined ? some(a.label) : none,
     }, PlanChartAxisType);
 }
 
@@ -712,6 +716,9 @@ export function bucketsKind(parts: PlanBucketsParts<PlanAxisKindLiteral>): ExprT
  * @property height - The height mode
  * @property expandedHeight - The height the expanded state opens to
  * @property expandable - Spark ↔ expanded toggle
+ * @property grid - Whether it draws a gridline at each tick
+ * @property legend - Whether a legend lists its series
+ * @property tooltip - Whether hovering a bucket reads its values there
  */
 export interface PlanChartParts {
     /** The Chart layer builders, consumed as data. The x accessor's static type picks the
@@ -730,6 +737,13 @@ export interface PlanChartParts {
     expandedHeight?: SubtypeExprOrValue<StringType>;
     /** Spark ↔ expanded toggle (caret; default `false`). */
     expandable?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether it draws a gridline at each tick (default `true`) — `false` leaves its numbers to read its scale by
+     *  (#1753). */
+    grid?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether a legend lists its series (default `true`, #1753). */
+    legend?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether hovering a bucket reads its values there (default `true`, #1753). */
+    tooltip?: SubtypeExprOrValue<BooleanType> | boolean;
 }
 
 /**
@@ -751,6 +765,9 @@ export function chartKind(parts: PlanChartParts): ExprType<PlanRowKindType> {
         height:     heightMode,
         expandedHeight: parts.expandedHeight !== undefined ? some(parts.expandedHeight) : none,
         expandable: parts.expandable ?? false,
+        grid:       parts.grid ?? true,
+        legend:     parts.legend ?? true,
+        tooltip:    parts.tooltip ?? true,
     }), PlanRowKindType);
 }
 
@@ -998,6 +1015,9 @@ export function createBuckets<K extends PlanAxisKindLiteral = never>(input: Plan
  * @property right - The right y-axis (ticks at the plot's right edge)
  * @property height - `"spark"` (32px, default) / `"expanded"` (88px) / `Plan.fixed(px)`
  * @property expandable - Spark ↔ expanded toggle (caret)
+ * @property grid - Whether it draws a gridline at each tick (default `true`)
+ * @property legend - Whether a legend lists its series (default `true`)
+ * @property tooltip - Whether hovering a bucket reads its values there (default `true`)
  */
 export interface PlanChartInput extends Omit<PlanRowBaseInput, "height">, PlanChartParts {}
 
