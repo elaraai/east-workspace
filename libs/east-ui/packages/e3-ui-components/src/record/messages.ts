@@ -149,10 +149,10 @@ export interface RecordMessages {
     shownOf: (p: { shown: string; total: string; n: number; noun: string; nouns: string }) => RecordLineText;
     /** The footer's stale note (FT1): how many rows the first age column with a threshold says are stale. */
     staleNote: (p: { count: string; threshold: string; unit: AgeUnit; one: boolean }) => string;
+    // The strip's keys name only the keys nobody would guess (east-workspace#1743) — a cycle's and a toggle's, and the Undo
+    // that takes a new row away; the ring's moves and ⏎ go unsaid, and a coarse pointer shows none.
     /** The strip over nothing (SP1): what a click on a cell does, and on a row. */
     stripRest: (p: { steps: boolean; inspector: boolean }) => string;
-    /** The strip's keys where the cell takes none of its own: the ring's moves. */
-    stripMove: () => string;
     /** The strip's label over a cell holding a state (SP2): its column, and the state. */
     stripState: (p: { header: string; state: string }) => string;
     /** The strip over a cycle (SP2): the row, the state's name, what the record holds while a draft changed it, and — where it steps — where a click and a ⇧-click take it. */
@@ -177,8 +177,6 @@ export interface RecordMessages {
     stripRequired: (p: { noun: string; how: { cycle: string } | "click" | "inspector" | undefined }) => string;
     /** A new row's field's keys (SP6). */
     stripRemoveRow: () => string;
-    /** A Sheet kind's keys, at rest: ⏎ edits, where it edits. */
-    stripEdit: (p: { editable: boolean }) => string;
     /** The inspector's chip on a row whose drafts change its fields (IN2): how many. */
     detailsPending: (p: { count: string }) => string;
     /** The inspector's counts with no row selected (IN8): the rows shown, the drafts pending, the rows stale. */
@@ -251,7 +249,6 @@ export const recordMessages: RecordMessages = {
     staleNote: ({ count, threshold, unit, one }) => `${count} stale · no update in ${threshold} ${UNITS[unit][one ? 0 : 1]}`,
     stripRest: ({ steps, inspector }) => (steps && inspector ? "Click a cell to step it · select a row to open it in the inspector"
         : steps ? "Click a cell to step it" : inspector ? "Select a row to open it in the inspector" : ""),
-    stripMove: () => "↑ ↓ ← → move",
     stripState: ({ header, state }) => `${header} · ${state}`,
     // The parts the cell has, in order: `A. Morgan · Supervised · was 0 · click → 2 · ⇧-click → 0`.
     stripCycle: ({ name, meta, was, next, previous }) => [name, meta, was === undefined ? "" : `was ${was}`, next === undefined ? "" : `click → ${next}`,
@@ -274,7 +271,6 @@ export const recordMessages: RecordMessages = {
         return how === undefined ? waits : how === "click" ? `${waits} · click sets it` : how === "inspector" ? `${waits} · set it in the inspector` : `${waits} · click sets ${how.cycle}`;
     },
     stripRemoveRow: () => "⌘Z removes the row",
-    stripEdit: ({ editable }) => (editable ? "⏎ edit · ↑ ↓ ← → move" : "↑ ↓ ← → move"),
     detailsPending: ({ count }) => `${count} pending`,
     detailsStat: ({ stat }) => (stat === "shown" ? "Shown" : stat === "pending" ? "Pending" : "Stale"),
     detailsHint: () => "Select a row to see its fields here.",

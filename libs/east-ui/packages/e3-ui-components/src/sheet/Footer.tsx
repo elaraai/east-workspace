@@ -4,7 +4,8 @@
  */
 
 /**
- * The footer (B§9): the host's counts · a state-sensitive key hint · a
+ * The footer (B§9): the host's counts · a state-sensitive key hint — the
+ * keys nobody would guess, and none on a coarse pointer (east-workspace#1743) · a
  * right-aligned `aria-live` message for every action — in the danger tone
  * where it says a gesture was refused (`refusal.ts`) · and over a paged
  * source the shared loading line at its trailing end (#1398, CL3): what is
@@ -20,7 +21,7 @@
 
 import { memo, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { OptimiseLegendItem, getSomeorUndefined } from "@elaraai/east-ui-components";
+import { OptimiseLegendItem, getSomeorUndefined, useCoarsePointer } from "@elaraai/east-ui-components";
 import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine, type PagedLoading } from "../shared/loading.js";
@@ -81,7 +82,9 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
     const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
-    const hints = hint === "" ? [] : hint.split(HINT_SEPARATOR);
+    // A coarse pointer has no keys to press: its footer names none (east-workspace#1743).
+    const coarse = useCoarsePointer();
+    const hints = coarse || hint === "" ? [] : hint.split(HINT_SEPARATOR);
     const legend = optimise?.legend === true;
     const units = hints.length + (legend ? 1 : 0);
     // A run's line takes the slot, at once: a run is not a read.

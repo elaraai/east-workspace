@@ -48,8 +48,10 @@
  *     the subtle rule at radius `sm`, mono 10/500 in `fg.muted`, the paper on
  *     a selected row — after the value or alone, cut with an ellipsis.
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
- *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5. Over a
- *     Sheet kind the Sheet's strip draws its chips in this frame.
+ *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5 at its
+ *     end — in the room the text leaves, whole or not at all, so the text keeps
+ *     its own (east-workspace#1743). Over a Sheet kind the Sheet's strip draws
+ *     its chips in this frame.
  *   - Footer: 36 tall, padded 0 20, mono 10.5 counts in `fg.muted`, the
  *     legend's 15-tall chips cut whole where the rail is short of room, and
  *     the shared loading line at its end; on a phone, the status line's words
@@ -79,6 +81,7 @@ import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { refusedRow, refusedTone } from "../refused-mark.js";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
@@ -426,8 +429,10 @@ export const recordSlotRecipe = defineSlotRecipe({
             flex: "none", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             color: "brand.solid", whiteSpace: "nowrap",
         },
-        stripText: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", lineHeight: STRIP_TEXT_LINE, color: "fg.strong" },
-        stripKeys: { flex: "none", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* The words keep their own width, cut with an ellipsis only where the strip is narrower than they are. */
+        stripText: { flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", lineHeight: STRIP_TEXT_LINE, color: "fg.strong" },
+        /* The keys take what the label and the words leave, at the strip's end, whole or not at all (east-workspace#1743). */
+        stripKeys: { ...wholeOrNone("100%"), flex: "1 1 0%", minWidth: "0", justifyContent: "flex-end", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
 
         /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */
         footer: {
