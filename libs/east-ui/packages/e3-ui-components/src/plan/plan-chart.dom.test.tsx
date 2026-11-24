@@ -14,7 +14,8 @@
  * the right reading the left's ticks, and the name on the row's first line.
  * And how each layer draws (#1753): its ink by its name or its author's
  * colour, its width, dash, strengths and curve, its dots, round, and a lone
- * point's, a dashed line's planned part, and the order the layers draw in.
+ * point's, a dashed line's planned part, the order the layers draw in, the
+ * columns side by side in a bucket, the areas on a stack, and bubbles.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -482,7 +483,7 @@ describe("how each layer draws (#1753)", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
             variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, 1)], axis: left, breach: none, fold: MEAN,
                 style: { label: none, color: none, curve: some(variant("monotoneX", null)), width: none, dash: none, dots: true, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
-            variant("scatter", { points: [pt(1.5, 3)], axis: left,
+            variant("scatter", { points: [{ ...pt(1.5, 3), size: none }], axis: left,
                 style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: some(6), stack: none, legend: true, tooltip: true, order: none } }),
         ]))], 4), "chart-1753-dots");
         const row = container.querySelector(rowSel("c"))!;
@@ -504,5 +505,49 @@ describe("how each layer draws (#1753)", () => {
         const row = container.querySelector(rowSel("c"))!;
         const drawn = [...row.querySelector('[data-plan-mark="column"]')!.parentElement!.children];
         expect(drawn.indexOf(row.querySelector('[data-plan-mark="line"]')!)).toBeLessThan(drawn.indexOf(row.querySelector('[data-plan-mark="column"]')!));
+    });
+
+    test("the columns of a bucket that share no stack stand side by side in it; a stack's pile up in one place", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("column", { points: [pt(0.5, 2)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 3)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+            variant("column", { points: [pt(0.5, 1)], axis: left, breach: none, fold: SUM,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("s"), legend: true, tooltip: true, order: none } }),
+        ]))], 1), "chart-1753-side");
+        const row = container.querySelector(rowSel("c"))!;
+        const placed = [...row.querySelectorAll('[data-plan-mark="column"]')].map((r) => [r3(Number(r.getAttribute("x"))), r3(Number(r.getAttribute("width")))]);
+        // Two places in the bucket's middle 640 of its 1000 units, 320 each, 15% of a place the air between them.
+        expect(placed).toEqual([[204, 272], [524, 272], [524, 272]]);
+        // The stack's second part sits on its first.
+        const [, first, second] = rects(row);
+        expect(r3(second![0] + second![1])).toBe(first![0]);
+    });
+
+    test("areas that share a stack pile up: each fills from the areas under it, its line along its top", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("area", { points: [pt(0.5, 10), pt(1.5, 20)], axis: left, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("load"), legend: true, tooltip: true, order: none } }),
+            variant("area", { points: [pt(0.5, 10), pt(1.5, 10)], axis: left, fold: MEAN,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: some("load"), legend: true, tooltip: true, order: none } }),
+        ], { left: valueAxis({ min: 0, max: 32 }) }))], 2), "chart-1753-stacked-areas");
+        const row = container.querySelector(rowSel("c"))!;
+        // [0, 32] over the 64px between 12.5 and 76.5: 2px a unit. The second area's top is the first's and its own.
+        const tops = [...row.querySelectorAll('[data-plan-mark="area-line"]')].map((l) => subpaths(l.getAttribute("d")!)[0]!.map(([, y]) => r3(y)));
+        expect(tops).toEqual([[56.5, 36.5], [36.5, 16.5]]);
+        // Its fill runs down to the first's top, never to the baseline at 76.5.
+        const upper = subpaths(row.querySelectorAll('[data-plan-mark="area"]')[1]!.getAttribute("d")!).flat().map(([, y]) => r3(y));
+        expect(maxOf(upper)).toBe(56.5);
+    });
+
+    test("a scatter point with a size is a bubble, its area in proportion to it; one with none draws its layer's dot", () => {
+        const { container } = renderPlan(planRoot([planRow("c", chartKind([
+            variant("scatter", { points: [{ ...pt(0.5, 1), size: some(400) }, { ...pt(1.5, 2), size: some(100) }, { ...pt(2.5, 3), size: none }], axis: left,
+                style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: some(4), stack: none, legend: true, tooltip: true, order: none } }),
+        ]))], 3), "chart-1753-bubbles");
+        const row = container.querySelector(rowSel("c"))!;
+        // The greatest at the chart rules' 16px on an 87px plot; a quarter of its size, half its radius; no size, the layer's 4.
+        expect([...row.querySelectorAll('[data-plan-dots] [data-plan-mark="scatter"]')].map((c) => Number(c.getAttribute("r")))).toEqual([16, 8, 4]);
     });
 });

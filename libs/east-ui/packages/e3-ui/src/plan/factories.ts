@@ -69,6 +69,7 @@ import {
     PlanCellMarkerType,
     PlanChartPointType,
     PlanChartBandPointType,
+    PlanChartScatterPointType,
     PlanChartLayerType,
     PlanChartStyleType,
     PlanAxisSideType,
@@ -124,8 +125,8 @@ import {
  * @property dots - A dot at every point
  * @property fillOpacity - An area's or a band's fill strength, 0–1
  * @property opacity - A stroke's or a dot's strength, 0–1
- * @property size - A scatter's dot radius, px
- * @property stack - The stack it piles on: columns sharing one accumulate
+ * @property size - A scatter's dot radius, px, for a point with no size of its own
+ * @property stack - The stack it piles on: columns sharing one accumulate, as do areas; columns sharing none stand side by side
  * @property legend - `false` keeps it out of the legend
  * @property tooltip - `false` keeps it out of the tooltip
  * @property order - Where it draws among the row's layers: higher draws later
@@ -159,9 +160,11 @@ export interface PlanLayerChannels {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** A stroke's or a dot's strength, 0–1. */
     opacity?: SubtypeExprOrValue<FloatType>;
-    /** A scatter's dot radius, px. */
+    /** A scatter's dot radius, px, for a point with no size of its own — a `Chart.Scatter`'s `size` encoding gives each
+     *  point one, and draws it as a bubble. */
     size?: SubtypeExprOrValue<FloatType>;
-    /** The stack it piles on: the columns that share one accumulate, each value axis on its own. */
+    /** The stack it piles on: the columns that share one accumulate, as do the areas that share one, each value axis
+     *  on its own — positive parts up, negative parts down. The columns of a bucket that share none stand side by side. */
     stack?: SubtypeExprOrValue<StringType>;
     /** `false` keeps it out of the legend. */
     legend?: SubtypeExprOrValue<BooleanType>;
@@ -366,7 +369,8 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
     }
     if (layer.mark === "scatter") {
         return layer.data.map((_$, s) => East.value(variant("scatter", {
-            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+            // Each point keeps the size its `size` encoding gave it: a bubble's (#1753).
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value, size: p.size }, PlanChartScatterPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
             style: chartStyle(layer.style, channels, seriesLabel(s.key), seriesColor(s.key), layer.radius),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
@@ -426,7 +430,12 @@ function valuesLayer(mark: PlanValuesMark, points: ExprType<EastType>, channels:
                 fold:   resolveFold(channels.fold, "sum"),
                 style,
             });
-            case "scatter": return variant("scatter", { points, axis, style });
+            // A values read gives a point its value alone: each draws the layer's own dot.
+            case "scatter": return variant("scatter", {
+                points: (points as ExprType<ArrayType<PlanChartPointType>>).map((_$, p) => East.value(
+                    { t: p.t, y: p.y, size: East.value(none, OptionType(FloatType)) }, PlanChartScatterPointType)),
+                axis, style,
+            });
             case "band":    return variant("band", { points, axis, style });
         }
     })();
@@ -486,7 +495,7 @@ export function createLine<R extends EastType, K extends PlanAxisKindLiteral, U,
  * @typeParam U - What it reads
  * @typeParam C - The channels, as written
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `axis`, `fold`, and how it draws ({@link PlanLayerChannels})
+ * @param channels - `axis`, `fold`, `stack` (the areas sharing one pile up), and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createArea<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
@@ -504,7 +513,7 @@ export function createArea<R extends EastType, K extends PlanAxisKindLiteral, U,
  * @typeParam U - What it reads
  * @typeParam C - The channels, as written
  * @param values - `Plan.values(field, (v) => ({ y }))`
- * @param channels - `breach`, `axis`, `stack` (the columns sharing one pile up), `fold`, and how it draws ({@link PlanLayerChannels})
+ * @param channels - `breach`, `axis`, `stack` (the columns sharing one pile up; those sharing none stand side by side), `fold`, and how it draws ({@link PlanLayerChannels})
  * @returns The layer, for a chart series' `layers`
  */
 export function createColumn<R extends EastType, K extends PlanAxisKindLiteral, U, const C extends PlanLayerChannels = PlanLayerChannels>(
@@ -515,7 +524,8 @@ export function createColumn<R extends EastType, K extends PlanAxisKindLiteral, 
 
 /**
  * A chart row's point markers over a row's values (#1436): every point drawn
- * where it is.
+ * where it is, at the layer's one dot size — bubbles, a size a point, come
+ * from a `Chart.Scatter`'s `size` encoding.
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the values' key rides

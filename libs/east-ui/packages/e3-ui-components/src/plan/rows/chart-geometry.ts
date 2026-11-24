@@ -4,11 +4,12 @@
  */
 
 /**
- * A chart row's geometry as numbers (#743) — the columns' stacked extents,
- * the value domain each axis side spans, the points a continuous series
- * draws, and each layer's value per bucket. The marks, the gutter ticks and
- * the crosshair readout all read it, so an axis can never label a scale the
- * marks do not use.
+ * A chart row's geometry as numbers (#743) — its stacks: each column's place
+ * in its bucket and its extent, and each stacked area's; the value domain each
+ * axis side spans, the points a continuous series draws, a bubble's radius,
+ * and each layer's value per bucket. The marks, the gutter ticks and the
+ * crosshair readout all read it, so an axis can never label a scale the marks
+ * do not use.
  *
  * Everything here is in DATA units and window FRACTIONS — the row maps them
  * into its viewBox. Positions are the scale's UNCLAMPED `fracOf`: clamping a
@@ -21,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { scaleLinear } from "@visx/scale";
+import { scaleLinear, scaleSqrt } from "@visx/scale";
 import type { ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { tickFormatter } from "@elaraai/east-ui-components/internal";
@@ -40,6 +41,8 @@ export type ChartStyleValue = ValueTypeOf<typeof Plan.Types.ChartStyle>;
 export type ChartPointValue = ValueTypeOf<typeof Plan.Types.ChartPoint>;
 /** A decoded `{t, lo, hi}` band point — the band arm's own point type. */
 export type ChartBandPointValue = Extract<ChartLayerValue, { type: "band" }>["value"]["points"][number];
+/** A decoded `{t, y, size}` scatter point — a point with a size a bubble (#1753). */
+export type ChartScatterPointValue = ValueTypeOf<typeof Plan.Types.ChartScatterPoint>;
 /** A decoded value-axis declaration. */
 export type ChartAxisValue = ValueTypeOf<typeof Plan.Types.ChartAxis>;
 /** A decoded breach threshold. */
@@ -74,6 +77,13 @@ function chartAir(height: number): { top: number; bottom: number } {
 }
 /** A column's inset within its bucket, as a share of the bucket's width. */
 const COLUMN_INSET = 0.18;
+/** The air between columns side by side in a bucket, as a share of a column's place — a plot's width is a share of
+ *  its own, so a share keeps it in proportion to the columns at any width. */
+const COLUMN_GAP = 0.15;
+/** The largest a bubble's radius is drawn, px — the chart rules' (#1753). */
+const BUBBLE_MAX = 16;
+/** The smallest a bubble's radius is drawn, px, so the least of a row's bubbles still reads. */
+const BUBBLE_MIN = 3;
 
 /**
  * Whether a value breaches a layer's threshold. The layer's own decoded
@@ -93,7 +103,7 @@ export function breached(v: number, breach: PlanBreachValue | undefined): boolea
 
 /** One drawn column, in data units and window fractions. */
 export interface ColumnGeometry {
-    /** Left / right edges as window fractions (inset within the bucket). */
+    /** Left / right edges as window fractions — inset within its bucket, at its place among the columns side by side there. */
     x0: number;
     x1: number;
     /** The span it covers on its axis — `lo` ≤ `hi`; a stack's part sits on the parts before it. */
@@ -123,47 +133,142 @@ interface SideStacks {
     undrawn: Map<number, StackEnds>;
 }
 
-/** The chart's column geometry: what is drawn, and every column's extent. */
-export interface ColumnLayout {
+/** A chart's stacks, by side and then by the name its layers give them. */
+type Stacks = Record<ChartSide, Map<string, SideStacks>>;
+
+/**
+ * A stack by its name on a side — begun the first time a layer names it.
+ *
+ * @param stacks - The chart's stacks of one mark
+ * @param side - The value axis the layer stacks on
+ * @param name - The stack's name
+ * @returns The stack
+ */
+function stackNamed(stacks: Stacks, side: ChartSide, name: string): SideStacks {
+    let pile = stacks[side].get(name);
+    if (pile === undefined) {
+        pile = { drawn: new Map(), undrawn: new Map() };
+        stacks[side].set(name, pile);
+    }
+    return pile;
+}
+
+/**
+ * Where a value sits on its stack at one bucket: on the end of its sign's
+ * side — positive parts climb from 0, negative parts descend from it — which
+ * it then extends.
+ *
+ * @param pile - The stack
+ * @param drawn - Whether its bucket is a render bucket, `key` its index; else `key` is its period's
+ * @param key - The bucket's key
+ * @param v - The value
+ * @returns The span it covers
+ */
+function pileOn(pile: SideStacks, drawn: boolean, key: number, v: number): { lo: number; hi: number } {
+    const byKey = drawn ? pile.drawn : pile.undrawn;
+    let ends = byKey.get(key);
+    if (ends === undefined) {
+        ends = { up: 0, down: 0 };
+        byKey.set(key, ends);
+    }
+    if (v >= 0) {
+        const lo = ends.up;
+        ends.up += v;
+        return { lo, hi: ends.up };
+    }
+    const hi = ends.down;
+    ends.down += v;
+    return { lo: ends.down, hi };
+}
+
+/**
+ * Each column layer's place among the columns side by side in a bucket
+ * (#1753): the layers of one stack share one, and every other column layer has
+ * its own, in the order they first appear — the same place in every bucket.
+ *
+ * @param layers - The chart's layers
+ * @returns Each column layer's place, by its index, and how many places there are
+ */
+function columnPlaces(layers: readonly ChartLayerValue[]): { of: Map<number, number>; count: number } {
+    const byStack: Record<ChartSide, Map<string, number>> = { left: new Map(), right: new Map() };
+    const of = new Map<number, number>();
+    let count = 0;
+    layers.forEach((layer, li) => {
+        if (layer.type !== "column") return;
+        const { axis, style } = layer.value;
+        if (style.stack.type === "some") {
+            const taken = byStack[axis.type].get(style.stack.value);
+            if (taken !== undefined) {
+                of.set(li, taken);
+                return;
+            }
+            byStack[axis.type].set(style.stack.value, count);
+        }
+        of.set(li, count++);
+    });
+    return { of, count };
+}
+
+/** A chart's stacked geometry: its columns, its stacked areas, and every extent they reach. */
+export interface StackLayout {
     /** The columns inside the render bounds, in layer then point order. */
-    drawn: ColumnGeometry[];
-    /** Every column's span per side — drawn or not — for the value domain. */
+    columns: ColumnGeometry[];
+    /** Each stacked area's points, by its layer's index: its fill from `lo` to `hi` at each instant — a gap where it
+     *  has no value. An area on no stack is not here: it fills from the baseline. */
+    areas: Map<number, ChartBandPointValue[]>;
+    /** Every column's span per side, and every stacked area point's — drawn or not — for the value domain. */
     extents: { left: number[]; right: number[] };
 }
 
 /**
- * Lay out a chart's columns.
+ * Lay out a chart's stacks — its columns, and its areas that share a stack.
  *
  * @remarks
- * Columns that share a `stack` pile up at their bucket (#1753); one with no
- * stack starts at the baseline. Stacks are kept per value-axis side, so a
- * left-axis column never becomes the base of a right-axis one (#743 item 4),
- * and per sign, so positive parts climb from 0 and negative parts descend from
- * it. A column outside the render bounds is not drawn, but it still stacks —
- * by its period — so the domain it contributes is the same wherever the
- * window sits. A gap draws nothing.
+ * Columns that share a `stack` pile up at their bucket (#1753), and so do
+ * areas; a column with no stack starts at the baseline. Columns and areas
+ * stack apart, and stacks are kept per value-axis side, so a left-axis column
+ * never becomes the base of a right-axis one (#743 item 4), and per sign, so
+ * positive parts climb from 0 and negative parts descend from it. A point
+ * outside the render bounds is not drawn, but it still stacks — by its period —
+ * so the domain it contributes is the same wherever the window sits. A gap
+ * draws nothing, and adds nothing to its stack.
+ *
+ * The columns of a bucket stand side by side in it, each at its place
+ * ({@link columnPlaces}) — a stack's columns in one — with a little air
+ * between them.
  *
  * @param layers - The chart's layers
  * @param scale - The shared scale
- * @returns The drawn columns and every column's extent
+ * @returns The drawn columns, the stacked areas and every extent
  */
-export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanScale): ColumnLayout {
-    // Each side's stacks, by the name the layers give them.
-    const stacks: Record<ChartSide, Map<string, SideStacks>> = { left: new Map(), right: new Map() };
-    const drawn: ColumnGeometry[] = [];
-    const extents: ColumnLayout["extents"] = { left: [], right: [] };
+export function layoutStacks(layers: readonly ChartLayerValue[], scale: PlanScale): StackLayout {
+    const columnStacks: Stacks = { left: new Map(), right: new Map() };
+    const areaStacks: Stacks = { left: new Map(), right: new Map() };
+    const places = columnPlaces(layers);
+    const columns: ColumnGeometry[] = [];
+    const areas = new Map<number, ChartBandPointValue[]>();
+    const extents: StackLayout["extents"] = { left: [], right: [] };
     layers.forEach((layer, li) => {
+        if (layer.type === "area") {
+            const { points, axis, style } = layer.value;
+            // An area on no stack fills from the baseline, as the row draws it.
+            if (style.stack.type === "none") return;
+            const pile = stackNamed(areaStacks, axis.type, style.stack.value);
+            areas.set(li, points.map((p) => {
+                const bucket = scale.renderBucketOf(p.t);
+                const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
+                if (!Number.isFinite(p.y) || !Number.isFinite(key)) return { t: p.t, lo: Number.NaN, hi: Number.NaN };
+                const { lo, hi } = pileOn(pile, bucket !== undefined, key, p.y);
+                extents[axis.type].push(lo, hi);
+                return { t: p.t, lo, hi };
+            }));
+            return;
+        }
         if (layer.type !== "column") return;
         const { points, axis, style, breach } = layer.value;
         const side = axis.type;
-        let pile: SideStacks | undefined;
-        if (style.stack.type === "some") {
-            pile = stacks[side].get(style.stack.value);
-            if (pile === undefined) {
-                pile = { drawn: new Map(), undrawn: new Map() };
-                stacks[side].set(style.stack.value, pile);
-            }
-        }
+        const pile = style.stack.type === "some" ? stackNamed(columnStacks, side, style.stack.value) : undefined;
+        const place = places.of.get(li) ?? 0;
         const threshold = breach.type === "some" ? breach.value : undefined;
         for (const p of points) {
             const v = p.y;
@@ -176,28 +281,16 @@ export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanSca
             if (pile !== undefined) {
                 const key = bucket !== undefined ? bucket.index : scale.toNumber(scale.floor(p.t));
                 if (!Number.isFinite(key)) continue;
-                const byKey = bucket !== undefined ? pile.drawn : pile.undrawn;
-                let ends = byKey.get(key);
-                if (ends === undefined) {
-                    ends = { up: 0, down: 0 };
-                    byKey.set(key, ends);
-                }
-                if (v >= 0) {
-                    lo = ends.up;
-                    hi = ends.up + v;
-                    ends.up = hi;
-                } else {
-                    hi = ends.down;
-                    lo = ends.down + v;
-                    ends.down = lo;
-                }
+                ({ lo, hi } = pileOn(pile, bucket !== undefined, key, v));
             }
             extents[side].push(lo, hi);
             if (bucket === undefined) continue;
             const inset = COLUMN_INSET * (bucket.x1 - bucket.x0);
-            drawn.push({
-                x0: bucket.x0 + inset,
-                x1: bucket.x1 - inset,
+            const slot = (bucket.x1 - bucket.x0 - 2 * inset) / places.count;
+            const gap = places.count > 1 ? COLUMN_GAP * slot : 0;
+            const x0 = bucket.x0 + inset + place * slot + gap / 2;
+            columns.push({
+                x0, x1: x0 + slot - gap,
                 lo, hi, value: v, side,
                 warn: breached(v, threshold),
                 planned: scale.nowFrac !== undefined && scale.fracOf(p.t) >= scale.nowFrac,
@@ -205,7 +298,31 @@ export function layoutColumns(layers: readonly ChartLayerValue[], scale: PlanSca
             });
         }
     });
-    return { drawn, extents };
+    return { columns, areas, extents };
+}
+
+/**
+ * A chart row's bubble radius (#1753): a scatter point with a size draws a
+ * bubble whose area is in proportion to it — its radius to the size's square
+ * root — against the greatest size among the row's scatter points, which draws
+ * at the chart rules' 16px, or a quarter of the plot's height where that is
+ * less, so a bubble fits its row. The least is drawn at 3px, so it still reads.
+ *
+ * @param kind - The chart row
+ * @param height - The plot's height, px
+ * @returns A size's radius, px — none where no point of the row has a size
+ */
+export function bubbleRadius(kind: ChartKindValue, height: number): ((size: number) => number) | undefined {
+    let most = 0;
+    for (const layer of kind.layers) {
+        if (layer.type !== "scatter") continue;
+        for (const p of layer.value.points) {
+            if (p.size.type === "some" && p.size.value > most) most = p.size.value;
+        }
+    }
+    if (!(most > 0) || !Number.isFinite(most)) return undefined;
+    const radius = scaleSqrt<number>({ domain: [0, most], range: [0, Math.min(BUBBLE_MAX, height / 4)] });
+    return (size) => Math.max(BUBBLE_MIN, Number.isFinite(size) && size > 0 ? radius(size) : 0);
 }
 
 /**
@@ -326,24 +443,25 @@ export function axisTicks(axis: ChartAxisValue | undefined): readonly number[] {
  *
  * @remarks
  * Derived from the geometry the row draws: line and scatter values; an area's
- * values AND its baseline (0); a band's bounds; reference lines and dots; and
- * each column's span — its baseline and, stacked, its stack's ends (#743 item
- * 2). Explicit tick positions are inside it too. A declared domain wins over
- * the derived one. No data spans `[0, 1]`, and an empty span opens to one
- * unit.
+ * values AND its baseline (0) — a stacked area's, its stack's ends; a band's
+ * bounds; reference lines and dots; and each column's span — its baseline
+ * and, stacked, its stack's ends (#743 item 2). Explicit tick positions are
+ * inside it too. A declared domain wins over the derived one. No data spans
+ * `[0, 1]`, and an empty span opens to one unit.
  *
  * @param kind - The chart row
- * @param columns - Its column layout ({@link layoutColumns})
+ * @param stacks - Its stack layout ({@link layoutStacks}), whose extents carry its columns and stacked areas
  * @returns The left and right domains
  */
-export function chartDomains(kind: ChartKindValue, columns: ColumnLayout): { left: ValueDomain; right: ValueDomain } {
+export function chartDomains(kind: ChartKindValue, stacks: StackLayout): { left: ValueDomain; right: ValueDomain } {
     const values: Record<ChartSide, number[]> = { left: [], right: [] };
-    for (const layer of kind.layers) {
+    kind.layers.forEach((layer, li) => {
         switch (layer.type) {
             case "line": case "scatter":
                 for (const p of layer.value.points) values[layer.value.axis.type].push(p.y);
                 break;
             case "area":
+                if (stacks.areas.has(li)) break;
                 values[layer.value.axis.type].push(0);
                 for (const p of layer.value.points) values[layer.value.axis.type].push(p.y);
                 break;
@@ -356,12 +474,12 @@ export function chartDomains(kind: ChartKindValue, columns: ColumnLayout): { lef
             case "column": case "refBand":
                 break;
         }
-    }
+    });
     const left = kind.left.type === "some" ? kind.left.value : undefined;
     const right = kind.right.type === "some" ? kind.right.value : undefined;
     return {
-        left: domainOf(left, values.left, columns.extents.left),
-        right: domainOf(right, values.right, columns.extents.right),
+        left: domainOf(left, values.left, stacks.extents.left),
+        right: domainOf(right, values.right, stacks.extents.right),
     };
 }
 

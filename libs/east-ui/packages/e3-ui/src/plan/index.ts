@@ -72,6 +72,7 @@ import {
     PlanContentType,
     PlanAnimationType,
     PlanChartPointType,
+    PlanChartScatterPointType,
     PlanAxisSideType,
     PlanBreachType,
     PlanChartAxisType,
@@ -258,6 +259,7 @@ export {
     type PlanAxisSideLiteral,
     PlanBreachType,
     PlanChartBandPointType,
+    PlanChartScatterPointType,
     PlanChartAxisType,
     PlanChartLayerType,
     PlanChartStyleType,
@@ -723,6 +725,8 @@ export interface PlanNamespace extends PlanTagType {
         ChartStyle: typeof PlanChartStyleType;
         /** One `{t, y}` chart point. */
         ChartPoint: typeof PlanChartPointType;
+        /** One `{t, y, size}` scatter point — a point with a size a bubble (#1753). */
+        ChartScatterPoint: typeof PlanChartScatterPointType;
         /** A chart y-axis declaration. */
         ChartAxis: typeof PlanChartAxisType;
         /** The chart height mode (spark / expanded / fixed). */
@@ -923,6 +927,7 @@ const PLAN_MEMBERS = {
         ChartLayer: PlanChartLayerType,
         ChartStyle: PlanChartStyleType,
         ChartPoint: PlanChartPointType,
+        ChartScatterPoint: PlanChartScatterPointType,
         ChartAxis: PlanChartAxisType,
         ChartHeight: PlanChartHeightType,
         AxisSide: PlanAxisSideType,

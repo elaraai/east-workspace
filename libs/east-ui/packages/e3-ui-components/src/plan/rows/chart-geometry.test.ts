@@ -13,7 +13,8 @@
  * value domains that contain what is drawn, continuous series at their true
  * positions, gaps, the crosshair's per-bucket reading, the one set of ticks
  * both axes read (#1750), and how each layer draws — its ink by its name, the
- * order the layers draw in, and a point no stroke joins (#1753).
+ * order the layers draw in, a point no stroke joins, the columns side by side
+ * in a bucket, the areas on a stack and a bubble's radius (#1753).
  */
 
 import { describe, test, expect } from "vitest";
@@ -21,8 +22,8 @@ import { none, some, variant } from "@elaraai/east";
 import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    CHART_TALL_PX, axisFormatter, breached, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutColumns, lonePoint,
-    readoutTable, splitAtNow, valueScale,
+    CHART_TALL_PX, axisFormatter, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks,
+    lonePoint, readoutTable, splitAtNow, valueScale,
     type ChartKindValue, type ChartLayerValue,
 } from "./chart-geometry.js";
 import { planMessages } from "../messages.js";
@@ -70,7 +71,7 @@ function chart(layers: ChartLayerValue[], opts: { left?: unknown; right?: unknow
 
 /** Each drawn column's extent on its axis, `[lo, hi]`. */
 const spans = (kind: ChartKindValue, scale: PlanScale) =>
-    layoutColumns(kind.layers, scale).drawn.map((c) => [c.side, c.lo, c.hi]);
+    layoutStacks(kind.layers, scale).columns.map((c) => [c.side, c.lo, c.hi]);
 
 describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
     test("stacked columns span their stack, and the derived domain holds the baseline and the stack's top — they fit the plot", () => {
@@ -78,12 +79,12 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
         const scale = axis(1);
         const kind = chart([column([{ t: 0.5, y: 20 }], { stack: "s" }), column([{ t: 0.5, y: 30 }], { stack: "s" })]);
         expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", 20, 50]]);
-        const columns = layoutColumns(kind.layers, scale);
-        const { left } = chartDomains(kind, columns);
+        const stacks = layoutStacks(kind.layers, scale);
+        const { left } = chartDomains(kind, stacks);
         expect(left).toEqual({ min: 0, max: 50 });
         // Every rect lands inside an 88px plot.
         const s = valueScale(left, 88);
-        for (const c of columns.drawn) {
+        for (const c of stacks.columns) {
             const top = Math.min(s(c.hi), s(c.lo));
             const bottom = Math.max(s(c.hi), s(c.lo));
             expect(top).toBeGreaterThanOrEqual(0);
@@ -95,10 +96,10 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
         const scale = axis(3);
         const kind = chart([column([{ t: 0.5, y: 10 }, { t: 1.5, y: -5 }])]);
         expect(spans(kind, scale)).toEqual([["left", 0, 10], ["left", -5, 0]]);
-        expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: -5, max: 10 });
+        expect(chartDomains(kind, layoutStacks(kind.layers, scale)).left).toEqual({ min: -5, max: 10 });
         // Positive only: the domain still reaches down to the baseline.
         const up = chart([column([{ t: 0.5, y: 40 }, { t: 1.5, y: 60 }])]);
-        expect(chartDomains(up, layoutColumns(up.layers, scale)).left).toEqual({ min: 0, max: 60 });
+        expect(chartDomains(up, layoutStacks(up.layers, scale)).left).toEqual({ min: 0, max: 60 });
     });
 
     test("a mixed-sign stack climbs with its positive parts and descends with its negative ones", () => {
@@ -110,7 +111,7 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
             column([{ t: 0.5, y: -4 }], { stack: "s" }),
         ]);
         expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", -10, 0], ["left", 20, 25], ["left", -14, -10]]);
-        expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: -14, max: 25 });
+        expect(chartDomains(kind, layoutStacks(kind.layers, scale)).left).toEqual({ min: -14, max: 25 });
     });
 
     test("only the columns sharing a stack pile up — two stacks at one bucket each start at the baseline (#1753)", () => {
@@ -122,7 +123,30 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
         ]);
         expect(spans(kind, scale)).toEqual([["left", 0, 20], ["left", 0, 30], ["left", 20, 25]]);
         // Each column says whose layer it is, for its look.
-        expect(layoutColumns(kind.layers, scale).drawn.map((c) => c.layer)).toEqual([0, 1, 2]);
+        expect(layoutStacks(kind.layers, scale).columns.map((c) => c.layer)).toEqual([0, 1, 2]);
+    });
+
+    test("the columns of a bucket that share no stack stand side by side in it — a stack's in one place, each in the same place in every bucket, a little air between (#1753)", () => {
+        const scale = axis(2);
+        const kind = chart([
+            column([{ t: 0.5, y: 20 }, { t: 1.5, y: 10 }]),
+            column([{ t: 0.5, y: 30 }], { stack: "halls" }),
+            column([{ t: 0.5, y: 5 }, { t: 1.5, y: 8 }], { stack: "halls" }),
+            column([{ t: 1.5, y: 40 }], { side: "right" }),
+        ]);
+        const columns = layoutStacks(kind.layers, scale).columns;
+        // Three places in a bucket's middle 64%: the first layer's, the halls', and the right axis's column's.
+        const slot = (0.5 * 0.64) / 3;
+        const x0 = (bucket: number, place: number) => 0.5 * bucket + 0.5 * 0.18 + place * slot + (0.15 * slot) / 2;
+        const at = [[0, 0], [1, 0], [0, 1], [0, 1], [1, 1], [1, 2]];
+        expect(columns.map((c) => c.layer)).toEqual([0, 0, 1, 2, 2, 3]);
+        columns.forEach((c, i) => {
+            const [bucket, place] = at[i]!;
+            expect(c.x0).toBeCloseTo(x0(bucket!, place!), 9);
+            expect(c.x1 - c.x0).toBeCloseTo(slot * 0.85, 9);
+        });
+        // The halls' columns pile in their one place.
+        expect(columns.map((c) => [c.lo, c.hi])).toEqual([[0, 20], [0, 10], [0, 30], [30, 35], [0, 8], [0, 40]]);
     });
 
     test("stacks never cross value axes — a right column never sits on a left one, in either layer order", () => {
@@ -152,9 +176,9 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
         // The data spans [40, 60]; the author declared [50, 70] — both bounds
         // are theirs, the data's reach past either is clipped by the plot.
         const kind = chart([line([{ t: 0.5, y: 40 }, { t: 1.5, y: 60 }])], { left: valueAxis(50, 70) });
-        expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: 50, max: 70 });
+        expect(chartDomains(kind, layoutStacks(kind.layers, scale)).left).toEqual({ min: 50, max: 70 });
         const tall = chart([column([{ t: 0.5, y: 150 }])], { left: valueAxis(0, 100) });
-        expect(chartDomains(tall, layoutColumns(tall.layers, scale)).left).toEqual({ min: 0, max: 100 });
+        expect(chartDomains(tall, layoutStacks(tall.layers, scale)).left).toEqual({ min: 0, max: 100 });
     });
 
     test("a column outside the render bounds is not drawn, but its stack still shapes the domain", () => {
@@ -163,16 +187,54 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
             column([{ t: 0.5, y: 10 }, { t: 7.5, y: 30 }], { stack: "s" }),
             column([{ t: 7.5, y: 30 }], { stack: "s" }),
         ]);
-        const columns = layoutColumns(kind.layers, scale);
-        expect(columns.drawn).toHaveLength(1);
-        expect(chartDomains(kind, columns).left).toEqual({ min: 0, max: 60 });
+        const stacks = layoutStacks(kind.layers, scale);
+        expect(stacks.columns).toHaveLength(1);
+        expect(chartDomains(kind, stacks).left).toEqual({ min: 0, max: 60 });
     });
 
     test("a gap draws no column and counts toward no domain", () => {
         const scale = axis(2);
         const kind = chart([column([{ t: 0.5, y: Number.NaN }, { t: 1.5, y: 8 }])]);
         expect(spans(kind, scale)).toEqual([["left", 0, 8]]);
-        expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: 0, max: 8 });
+        expect(chartDomains(kind, layoutStacks(kind.layers, scale)).left).toEqual({ min: 0, max: 8 });
+    });
+});
+
+describe("areas that share a stack pile up (#1753)", () => {
+    test("each fills from the areas under it at each bucket — positive parts up, negative parts down, a gap adding nothing — and the domain holds the stack's ends", () => {
+        const scale = axis(3);
+        const kind = chart([
+            variant("area", {
+                points: [pt(0.5, 10), pt(1.5, 20), pt(2.5, Number.NaN)], axis: variant("left", null), fold: variant("mean", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: some("load"), legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("area", {
+                points: [pt(0.5, 5), pt(1.5, -4), pt(2.5, 6)], axis: variant("left", null), fold: variant("mean", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: some("load"), legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            // An area on no stack fills from the baseline, as ever.
+            variant("area", {
+                points: [pt(0.5, 3)], axis: variant("left", null), fold: variant("mean", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+        ]);
+        const stacks = layoutStacks(kind.layers, scale);
+        const bounds = (li: number) => stacks.areas.get(li)!.map((p) => [p.lo, p.hi]);
+        // The first from the baseline; its gap a gap.
+        expect(bounds(0)).toEqual([[0, 10], [0, 20], [Number.NaN, Number.NaN]]);
+        // The second on the first's top where it climbs, under the baseline where it falls, from 0 where the first has none.
+        expect(bounds(1)).toEqual([[10, 15], [-4, 0], [0, 6]]);
+        expect(stacks.areas.has(2)).toBe(false);
+        expect(chartDomains(kind, stacks).left).toEqual({ min: -4, max: 20 });
     });
 });
 
@@ -216,7 +278,7 @@ describe("gaps and breaches", () => {
     test("a line's gap counts toward no domain", () => {
         const scale = axis(3);
         const kind = chart([line([{ t: 0.5, y: 4 }, { t: 1.5, y: Number.NaN }, { t: 2.5, y: 9 }])]);
-        expect(chartDomains(kind, layoutColumns(kind.layers, scale)).left).toEqual({ min: 4, max: 9 });
+        expect(chartDomains(kind, layoutStacks(kind.layers, scale)).left).toEqual({ min: 4, max: 9 });
     });
 });
 
@@ -293,7 +355,7 @@ describe("one set of ticks for both axes (#1750)", () => {
         }) as ChartLayerValue;
     /** The row's ticks at a plot height, on the scales its marks use. */
     const ticksOf = (kind: ChartKindValue, height: number) => {
-        const domains = chartDomains(kind, layoutColumns(kind.layers, axis(1)));
+        const domains = chartDomains(kind, layoutStacks(kind.layers, axis(1)));
         return chartTicks(kind, { left: valueScale(domains.left, height), right: valueScale(domains.right, height) }, PLAN_WORDS);
     };
 
@@ -414,5 +476,37 @@ describe("how each layer draws (#1753)", () => {
     test("a point with a value and none either side is one no stroke can draw", () => {
         const points = [pt(0.5, 3), pt(1.5, Number.NaN), pt(2.5, 4), pt(3.5, Number.NaN), pt(4.5, 5), pt(5.5, 6)];
         expect(points.map((_, i) => lonePoint(points, i))).toEqual([true, false, true, false, false, false]);
+    });
+
+    test("a scatter point with a size is a bubble — its area in proportion to it against the row's greatest, drawn at 16px or a quarter of the plot, the least at 3px", () => {
+        const kind = chart([
+            variant("scatter", {
+                points: [
+                    { t: numberInstant(0.5), y: 1, size: some(400) }, { t: numberInstant(1.5), y: 2, size: some(100) },
+                    { t: numberInstant(2.5), y: 3, size: some(1) },
+                ],
+                axis: variant("left", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: none, stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+            variant("scatter", {
+                points: [{ t: numberInstant(0.5), y: 1, size: none }], axis: variant("right", null),
+                style: {
+                    label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none,
+                    size: some(4), stack: none, legend: true, tooltip: true, order: none,
+                },
+            }) as ChartLayerValue,
+        ]);
+        const radius = bubbleRadius(kind, 120)!;
+        expect(radius(400)).toBeCloseTo(16, 9);
+        // A quarter of the size, a quarter of the area: half the radius.
+        expect(radius(100)).toBeCloseTo(8, 9);
+        expect(radius(1)).toBe(3);
+        // A plot too short for a 16px bubble draws its greatest at a quarter of its height.
+        expect(bubbleRadius(kind, 31)!(400)).toBeCloseTo(7.75, 9);
+        // A row whose points have no size draws its dots.
+        expect(bubbleRadius(chart([kind.layers[1]!]), 120)).toBeUndefined();
     });
 });

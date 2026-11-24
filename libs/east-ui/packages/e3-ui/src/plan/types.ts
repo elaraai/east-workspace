@@ -592,6 +592,23 @@ export const PlanChartBandPointType = StructType({ t: PlanInstantType, lo: Float
 export type PlanChartBandPointType = typeof PlanChartBandPointType;
 
 /**
+ * One `{t, y, size}` point of a scatter chart layer (#1753) — a point, and the
+ * magnitude a bubble draws it at.
+ *
+ * @remarks
+ * A point with a `size` is a bubble: its area is in proportion to its size,
+ * against the greatest size among the row's scatter points — a `Chart.Scatter`'s
+ * `size` encoding gives one. A point with none draws its layer's dot. A `y`
+ * that is not finite (`NaN`) draws nothing.
+ *
+ * @property t - The instant on the shared scale
+ * @property y - The measure value (`NaN` ⇒ nothing drawn)
+ * @property size - Its magnitude, which its bubble's area is in proportion to (`none` ⇒ its layer's dot)
+ */
+export const PlanChartScatterPointType = StructType({ t: PlanInstantType, y: FloatType, size: OptionType(FloatType) });
+export type PlanChartScatterPointType = typeof PlanChartScatterPointType;
+
+/**
  * How a chart layer draws (#1753) — the styling its `Chart.*` builder carries
  * (east-ui's `MarkStyle`), or a `Plan.layer` / `Plan.line` … channel gives it,
  * kept for the canvas to draw. Each part left unset draws its mark's own look.
@@ -616,8 +633,8 @@ export type PlanChartBandPointType = typeof PlanChartBandPointType;
  * @property dots - Whether every point draws a dot — a point with no neighbour to join draws one regardless
  * @property fillOpacity - An area's or a band's fill strength, 0–1 (`none` ⇒ its mark's light wash)
  * @property opacity - A stroke's or a dot's strength, 0–1
- * @property size - A scatter's dot radius, px
- * @property stack - The stack it piles on: the columns that share one accumulate
+ * @property size - A scatter's dot radius, px, for a point with no size of its own
+ * @property stack - The stack it piles on: the columns that share one accumulate, as do the areas that share one; columns that share none stand side by side
  * @property legend - Whether the legend lists it
  * @property tooltip - Whether the tooltip reads it
  * @property order - Where it draws among the row's layers: higher draws later (`none` ⇒ 0, in the order declared)
@@ -667,10 +684,13 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * and dashed after; columns observed `ink`, planned brand at half strength,
  * breach warn; columns that share a `stack` accumulate, each value axis
  * stacking on its own — positive parts up from the baseline, negative parts
- * down; refLines are dotted gridlines with a mono label. Each data layer
- * draws as its `style` says ({@link PlanChartStyleType}, #1753). Every mark
- * sits at its true instant — a point beyond the window keeps its position and
- * the plot clips it. Hovering a bucket reads each data layer's value there.
+ * down — and the columns of a bucket that share no stack stand side by side
+ * in it, a stack in one place; areas that share a `stack` pile up as columns
+ * do; a scatter point with a `size` is a bubble; refLines are dotted
+ * gridlines with a mono label. Each data layer draws as its `style` says
+ * ({@link PlanChartStyleType}, #1753). Every mark sits at its true instant — a
+ * point beyond the window keeps its position and the plot clips it. Hovering
+ * a bucket reads each data layer's value there.
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
  * horizontal bars flip the frame the shared axis owns.
  *
@@ -681,9 +701,9 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * bands draw every point where it is.
  *
  * @property line - A continuous line series (optional breach threshold; folds by `mean`)
- * @property area - A filled area series (folds by `mean`)
+ * @property area - A filled area series (folds by `mean`; its style's `stack` piles it)
  * @property column - Per-bucket columns (optional breach; folds by `sum`; its style's `stack` piles it)
- * @property scatter - Point markers
+ * @property scatter - Point markers, a point with a `size` a bubble ({@link PlanChartScatterPointType})
  * @property band - A filled range (lo/hi per instant)
  * @property refLine - A horizontal reference line at a y value (dotted, mono label)
  * @property refBand - A vertical reference band between two instants
@@ -696,7 +716,7 @@ export const PlanChartLayerType = VariantType({
                           style: PlanChartStyleType }),
     column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
                           breach: OptionType(PlanBreachType), fold: PlanFoldType, style: PlanChartStyleType }),
-    scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
+    scatter: StructType({ points: ArrayType(PlanChartScatterPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
     band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType, style: PlanChartStyleType }),
     refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
     refBand: StructType({ from: PlanInstantType, to: PlanInstantType, label: OptionType(StringType) }),

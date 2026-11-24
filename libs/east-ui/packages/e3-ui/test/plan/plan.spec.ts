@@ -1126,6 +1126,34 @@ describeEast("Plan", (test) => {
         }));
     });
 
+    test("a scatter's points keep the size its `size` encoding gives each — a bubble's; given none, and over a row's values, each draws the layer's dot (#1753)", $ => {
+        const Lot = StructType({ week: DateTimeType, out: FloatType, sheets: FloatType });
+        const lots = $.const([
+            { week: W27, out: 10.0, sheets: 400.0 }, { week: W28, out: 12.0, sheets: 100.0 },
+        ], ArrayType(Lot));
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            Chart.Scatter(lots, { x: r => r.week, y: r => r.out, size: r => r.sheets }),
+            Chart.Scatter(lots, { x: r => r.week, y: r => r.out }, { size: 4 }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("scatter").points.map((_$, p) => p.size), [some(400.0), some(100.0)]));
+        $(Assert.equal(layers.get(1n).unwrap("scatter").points.map((_$, p) => p.size), [none, none]));
+        $(Assert.equal(layers.get(1n).unwrap("scatter").style.size, some(4.0)));
+        // A row's values give each point its value alone: the layer's one dot size draws them all.
+        const Row = StructType({ out: DictType(StringType, FloatType) });
+        const data = $.const(new Map([["p1", { out: new Map([["A", 1.0], ["B", 2.0]]) }]]), DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis.ordinal({ values: ["A", "B"] }), data,
+            series: [Plan.series.chart(Row, {
+                key: "dots", title: "Dots", label: (_r, k) => k,
+                layers: [Plan.scatter(Plan.values("out", (v) => ({ y: v })), { size: 3 })],
+            })],
+        }));
+        const scatter = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("chart").layers.get(0n).unwrap("scatter"));
+        $(Assert.equal(scatter.points.map((_$, q) => q.y), [1.0, 2.0]));
+        $(Assert.equal(scatter.points.map((_$, q) => q.size), [none, none]));
+        $(Assert.equal(scatter.style.size, some(3.0)));
+    });
+
     test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const points = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));

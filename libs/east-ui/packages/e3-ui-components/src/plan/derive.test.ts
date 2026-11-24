@@ -852,7 +852,7 @@ describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 }),
                 variant("scatter", {
-                    points: pts([5, 6, 7, 8]), axis: variant("left", null),
+                    points: pts([5, 6, 7, 8]).map((p) => ({ ...p, size: none })), axis: variant("left", null),
                     style: { label: none, color: none, curve: none, width: none, dash: none, dots: false, fillOpacity: none, opacity: none, size: none, stack: none, legend: true, tooltip: true, order: none },
                 }),
             ],

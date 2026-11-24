@@ -19,7 +19,10 @@
  *   neighbour to join draws as a dot;
  * - columns draw planned at a lighter mix of their colour, breach warn;
  *   columns sharing a `stack` pile up, each value axis stacking on its own,
- *   positive parts up and negative parts down;
+ *   positive parts up and negative parts down, and the columns of a bucket
+ *   that share no stack stand side by side in it; areas sharing a `stack`
+ *   pile up as columns do, each filling from the areas under it;
+ * - a scatter point with a size draws a bubble, its area in proportion to it;
  * - contiguous breach buckets derive the outlined warn rectangle at
  *   expanded density;
  * - refLines are dotted gridlines with a mono label; refBands paper washes;
@@ -57,10 +60,10 @@ import { chartSummary } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
-    CHART_TALL_PX, breached, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutColumns, lonePoint, readoutLayers,
-    readoutTable, splitAtNow, styleOf, valueScale,
+    CHART_TALL_PX, breached, bubbleRadius, chartDomains, chartInks, chartTicks, drawOrder, drawnPoints, layoutStacks, lonePoint,
+    readoutLayers, readoutTable, splitAtNow, styleOf, valueScale,
     type ChartBandPointValue, type ChartInk, type ChartKindValue, type ChartPointValue, type ChartSide, type ChartStyleValue,
-    type ChartTick, type ColumnGeometry, type ColumnLayout, type Placed, type ValueDomain, type ValueScale,
+    type ChartTick, type ColumnGeometry, type Placed, type StackLayout, type ValueDomain, type ValueScale,
 } from "./chart-geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -118,10 +121,10 @@ function markLook(ink: ChartInk | undefined, style: ChartStyleValue | undefined,
 /** A data layer's curve, as a Chart draws it — a straight line between points where it gives none. */
 const curveOf = (style: ChartStyleValue) => curveFor(style.curve.type === "some" ? style.curve.value : undefined, curveLinear);
 
-/** A chart's layout on one scale — its columns and its value domains. */
+/** A chart's layout on one scale — its stacks and its value domains. */
 interface ChartGeometry {
     scale: PlanScale;
-    columns: ColumnLayout;
+    stacks: StackLayout;
     domains: { left: ValueDomain; right: ValueDomain };
 }
 
@@ -132,8 +135,8 @@ const geometryCache = new WeakMap<ChartKindValue, ChartGeometry>();
 function chartGeometry(kind: ChartKindValue, scale: PlanScale): ChartGeometry {
     const hit = geometryCache.get(kind);
     if (hit !== undefined && hit.scale === scale) return hit;
-    const columns = layoutColumns(kind.layers, scale);
-    const geometry = { scale, columns, domains: chartDomains(kind, columns) };
+    const stacks = layoutStacks(kind.layers, scale);
+    const geometry = { scale, stacks, domains: chartDomains(kind, stacks) };
     geometryCache.set(kind, geometry);
     return geometry;
 }
@@ -144,7 +147,7 @@ function useChartScales(kind: ChartKindValue, height: number) {
     const geometry = useMemo(() => chartGeometry(kind, scale), [kind, scale]);
     const left = useMemo(() => valueScale(geometry.domains.left, height), [geometry, height]);
     const right = useMemo(() => valueScale(geometry.domains.right, height), [geometry, height]);
-    return { scale, columns: geometry.columns, left, right };
+    return { scale, stacks: geometry.stacks, left, right };
 }
 
 /** The row's ticks at a plot height — one set for its gridlines and both its axes, on the scales its marks use. */
@@ -174,7 +177,7 @@ export interface ChartRowPlotProps {
 export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: ChartRowPlotProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
-    const { scale, columns, left: leftScale, right: rightScale } = useChartScales(kind, height);
+    const { scale, stacks, left: leftScale, right: rightScale } = useChartScales(kind, height);
     const ys = (side: ChartSide): ValueScale => (side === "right" ? rightScale : leftScale);
 
     // ── R2 (#591): a chart mark is a VALUE, not a geometry ──
@@ -271,13 +274,15 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     const order = useMemo(() => drawOrder(kind), [kind]);
     const columnsOf = useMemo(() => {
         const by = new Map<number, ColumnGeometry[]>();
-        for (const c of columns.drawn) {
+        for (const c of stacks.columns) {
             const list = by.get(c.layer);
             if (list === undefined) by.set(c.layer, [c]);
             else list.push(c);
         }
         return by;
-    }, [columns]);
+    }, [stacks]);
+    // A point with a size of its own is a bubble (#1753).
+    const bubble = useMemo(() => bubbleRadius(kind, height), [kind, height]);
 
     // Branch HERE, after every hook: the hooks above must run on every
     // render, or React sees a different hook order for a focused canvas than
@@ -294,12 +299,13 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     // the window's edge.
     const inBounds = (f: number) => f > scale.renderMin && f < scale.renderMax;
     // A line's or an area's dots: every point's where its style asks for them,
-    // and a point no stroke can join regardless — a sparse series loses no reading.
-    const pointDots = (li: number, points: readonly ChartPointValue[], s: ValueScale, every: boolean) => {
+    // and a point no stroke can join regardless — a sparse series loses no
+    // reading. Each sits where its stroke is (`at`): a stacked area's on its top.
+    const pointDots = (li: number, points: readonly ChartPointValue[], at: (pi: number) => number, every: boolean) => {
         points.forEach((p, pi) => {
             const f = scale.fracOf(p.t);
             if (!Number.isFinite(p.y) || !inBounds(f) || !(every || lonePoint(points, pi))) return;
-            dotMarks.push(<circle key={`dot-${li}-${pi}`} cx={`${f * 100}%`} cy={s(p.y)} r={DOT_R} data-plan-mark="dot" {...looks[li]} />);
+            dotMarks.push(<circle key={`dot-${li}-${pi}`} cx={`${f * 100}%`} cy={at(pi)} r={DOT_R} data-plan-mark="dot" {...looks[li]} />);
         });
     };
     for (const li of order) {
@@ -331,14 +337,32 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             }
             case "area": {
                 const s = ys(layer.value.axis.type);
-                const placed = drawnPoints(layer.value.points, scale);
+                const { points, style } = layer.value;
+                const curve = curveOf(style);
+                const stacked = stacks.areas.get(li);
+                if (stacked !== undefined) {
+                    // On its stack (#1753): its fill from where the areas under it end to where it does, its line
+                    // along its top.
+                    const placed = drawnPoints(stacked, scale);
+                    if (placed.length === 0) break;
+                    const top = (q: Placed<ChartBandPointValue>) => s(q.p.hi);
+                    pathMarks.push(
+                        <Area<Placed<ChartBandPointValue>> key={`area-${li}`} data={placed} x={x} y0={(q) => s(q.p.lo)} y1={top}
+                            defined={hasBounds} curve={curve} data-plan-mark="area" {...look} />,
+                        <LinePath<Placed<ChartBandPointValue>> key={`arealine-${li}`} data={placed} x={x} y={top}
+                            defined={hasBounds} curve={curve}
+                            vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
+                    );
+                    pointDots(li, points, (pi) => s(stacked[pi]!.hi), style.dots);
+                    break;
+                }
+                const placed = drawnPoints(points, scale);
                 if (placed.length === 0) break;
                 // The fill runs to 0 — or to the domain's nearer edge when a
                 // declared domain leaves 0 outside it.
                 const [min, max] = s.domain() as [number, number];
                 const base = s(Math.min(Math.max(0, min), max));
                 const y = (q: Placed<ChartPointValue>) => s(q.p.y);
-                const curve = curveOf(layer.value.style);
                 pathMarks.push(
                     <Area<Placed<ChartPointValue>> key={`area-${li}`} data={placed} x={x} y0={base} y1={y}
                         defined={hasY} curve={curve} data-plan-mark="area" {...look} />,
@@ -346,7 +370,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                         defined={hasY} curve={curve}
                         vectorEffect="non-scaling-stroke" data-plan-mark="area-line" {...look} />,
                 );
-                pointDots(li, layer.value.points, s, layer.value.style.dots);
+                pointDots(li, points, (pi) => s(points[pi]!.y), style.dots);
                 break;
             }
             case "line": {
@@ -369,7 +393,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                             vectorEffect="non-scaling-stroke" data-plan-mark="line-planned" {...look} />,
                     );
                 }
-                pointDots(li, layer.value.points, s, layer.value.style.dots);
+                pointDots(li, layer.value.points, (pi) => s(layer.value.points[pi]!.y), layer.value.style.dots);
                 const breach = layer.value.breach.type === "some" ? layer.value.breach.value : undefined;
                 if (breach !== undefined) {
                     placed.forEach((q, pi) => {
@@ -383,10 +407,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             case "scatter": {
                 const s = ys(layer.value.axis.type);
                 const size = layer.value.style.size;
-                const r = size.type === "some" ? size.value : DOT_R;
+                const dot = size.type === "some" ? size.value : DOT_R;
                 layer.value.points.forEach((p, pi) => {
                     const f = scale.fracOf(p.t);
                     if (!Number.isFinite(p.y) || !inBounds(f)) return;
+                    const r = p.size.type === "some" && bubble !== undefined ? bubble(p.size.value) : dot;
                     dotMarks.push(<circle key={`sc-${li}-${pi}`} cx={`${f * 100}%`} cy={s(p.y)}
                         r={r} data-plan-mark="scatter" {...look} />);
                 });
