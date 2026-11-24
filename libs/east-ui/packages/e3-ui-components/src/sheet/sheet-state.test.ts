@@ -446,6 +446,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         initial,
         candidates,
         candidateAt: (text, hi, groups) => { const l = candidates(text, groups); return l.length === 0 ? undefined : l[Math.min(Math.max(hi, 0), l.length - 1)]; },
+        offered: () => [],
         resolve,
         predicted: () => [],
         cell: (groups) => (groups[0].length + groups[1].length === 0 ? null : cell("Link", { from: groups[0], to: groups[1] })),
@@ -530,17 +531,29 @@ describe("the link editor", () => {
         expect(blurred.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140"), txt("mystery")], to: [] }), text: "" });
     });
 
-    test("⌫ pops the last chip back into the buffer, then crosses back to From; an empty link commits a blank", () => {
+    test("⌫ with nothing typed picks the half's last chip, and a second ⌫ removes it whole — never back into the buffer (east-workspace#1741); an empty To crosses back to From; an empty link commits a blank", () => {
         const ctx = linkCtxOf("both", [[id("R2140")], [id("A7301")]]);
         const open = run(initialSheetState(), [key("Enter")], ctx).state;   // opens in To (the first live EMPTY half is none ⇒ destination)
         expect(open.edit!.link!.side).toBe(1);
-        const popped = run(open, [ekey("Backspace")], ctx);
-        expect(popped.state.edit!.val).toBe("A7301");
-        expect(popped.state.edit!.link!.groups[1]).toEqual([]);
-        const crossed = run(popped.state, [{ t: "editor.change", val: "" }, ekey("Backspace")], ctx);
+        const picked = run(open, [ekey("Backspace")], ctx);
+        expect([picked.state.edit!.val, picked.state.edit!.link!.chipSel, labels(picked.state.edit!.link!.groups[1])]).toEqual(["", { anchor: 1, focus: 1 }, ["A7301"]]);
+        const removed = run(picked.state, [ekey("Backspace")], ctx);
+        expect([removed.state.edit!.val, labels(removed.state.edit!.link!.groups[1]), said(removed.state.msg)]).toEqual(["", [], "1 member removed"]);
+        const crossed = run(removed.state, [ekey("Backspace")], ctx);
         expect(crossed.state.edit!.link!.side).toBe(0);
-        const emptied = run(crossed.state, [ekey("Backspace"), { t: "editor.change", val: "" }, ekey("Enter")], ctx);
+        // From's chip picked, removed, and the empty link committed.
+        const emptied = run(crossed.state, [ekey("Backspace"), ekey("Backspace"), ekey("Enter")], ctx);
         expect(emptied.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: null, text: "" });
+    });
+
+    test("a chip's × takes its member out whole, wherever it stands, the caret back in the active half; past the chips, nothing (east-workspace#1741)", () => {
+        const ctx = linkCtxOf("both", [[id("R2140"), id("R2141")], [id("A7301")]]);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        const removed = run(open, [{ t: "chip.remove", i: 1 }], ctx);
+        expect([labels(removed.state.edit!.link!.groups[0]), labels(removed.state.edit!.link!.groups[1]), said(removed.state.msg)]).toEqual([["R2140"], ["A7301"], "1 member removed"]);
+        expect(removed.effects).toEqual([{ t: "focus.editor", selectAll: false }]);
+        expect(labels(run(open, [{ t: "chip.remove", i: 2 }], ctx).state.edit!.link!.groups[1])).toEqual([]);
+        expect(run(open, [{ t: "chip.remove", i: 3 }], ctx).state).toBe(open);
     });
 
     test("⇧← / ⇧→ select whole chips; ⌫ removes them; esc drops the selection first", () => {

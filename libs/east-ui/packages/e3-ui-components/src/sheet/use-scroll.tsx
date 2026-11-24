@@ -58,7 +58,7 @@ export function useSheetScroll(sheetDecode: SheetDecode, sheetSession: SheetSess
     const { editorFocus, revealSeq } = sheetEffects;
     const {
         edit, editBadge, editCombobox, editDate, editGhost, editMeta, editResolve, editWhenLevel, linkGhostText,
-        linkView, onEditorBlur, onEditorBrowse, onEditorChange, onEditorKey, onEditorPick, onHalfDown, styles,
+        linkView, onChipRemove, onEditorBlur, onEditorBrowse, onEditorChange, onEditorKey, onEditorPick, onHalfDown, styles,
     } = sheetOpenEditor;
     const { lensAwaitsNow, setLensAwaits } = sheetReading;
     const { ringCellRef } = sheetRing;
@@ -144,9 +144,10 @@ export function useSheetScroll(sheetDecode: SheetDecode, sheetSession: SheetSess
                 onKey={onEditorKey}
                 onBlur={onEditorBlur}
                 onHalfDown={onHalfDown}
+                onChipRemove={onChipRemove}
             />
         )
-        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, onEditorBrowse, editWhenLevel]);
+        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, onChipRemove, editCombobox, onEditorPick, onEditorBrowse, editWhenLevel]);
     // What a row in the range and the edited row are handed, held still while
     // they are the same — a hover elsewhere renders neither (#858).
     const rangeCols = useMemo(() => ({ c0: rect.c0, c1: rect.c1 }), [rect.c0, rect.c1]);

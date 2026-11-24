@@ -131,6 +131,8 @@ export function useSheetOpenEditor(sheetDecode: SheetDecode, sheetSession: Sheet
         }
     }, [dispatch, uiRef]);
     const onHalfDown = useCallback((side: 0 | 1) => dispatch({ t: "half.down", side }), [dispatch]);
+    // A chip's × in a link editor's half (east-workspace#1741): its member out of the cell.
+    const onChipRemove = useCallback((i: number) => dispatch({ t: "chip.remove", i }), [dispatch]);
     const linkView = useMemo<LinkEditorView | undefined>(() => {
         if (edit === null || linkEdit === undefined || linkEditCtx === undefined || editMeta === undefined) return undefined;
         const lo = linkEdit.chipSel === null ? -1 : Math.min(linkEdit.chipSel.anchor, linkEdit.chipSel.focus);
@@ -148,7 +150,7 @@ export function useSheetOpenEditor(sheetDecode: SheetDecode, sheetSession: Sheet
     }, [edit, linkEdit, linkEditCtx, editMeta, linkVocabularies]);
     return {
         edit, editBadge, editCombobox, editDate, editGhost, editMeta, editResolve, editWhenLevel, linkArmed, linkEdit,
-        linkEditCtx, linkGhostText, linkView, onEditorBlur, onEditorBrowse, onEditorChange, onEditorKey, onEditorPick,
+        linkEditCtx, linkGhostText, linkView, onChipRemove, onEditorBlur, onEditorBrowse, onEditorChange, onEditorKey, onEditorPick,
         onHalfDown, onStripAction, styles,
     };
 }

@@ -228,7 +228,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorNumber", "editorNumberInput", "editorStepper", "editorDate",
         "editorCombobox", "editorMenu", "editorOption", "editorOptionMeta",
         "editorTime",
-        "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
+        "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "chipLine", "chipMore", "chipText", "chipRemove", "lockTag", "lockWarn", "arrow",
         "retry", "rowError",
         "run", "runRow", "runGutter", "runCell", "runActionCell", "runBand",
         "gutterAction", "groupSummary",
@@ -1123,6 +1123,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             height: "100%",
             display: "flex",
             alignItems: "center",
+            // A half's buffer (#1741): a line of its input's face, and never narrower than what it holds — the characters
+            // typed and ghosted (`--editor-typed`, the renderer's geometry) and the caret's room — so a half crowded with
+            // chips scrolls rather than hide the words under the caret.
+            "[data-half] > &": {
+                flex: "1 1 0%",
+                height: "22px",
+                fontFamily: "mono",
+                fontSize: "12.5px",
+                _coarse: { fontSize: "16px" },
+                minWidth: "calc(var(--editor-typed, 0) * 1ch + 24px)",
+            },
         },
         editorMirror: {
             position: "absolute",
@@ -1264,16 +1275,37 @@ export const sheetSlotRecipe = defineSlotRecipe({
             position: "relative",
             zIndex: "1",
         },
+        // A half on one line (#1741): never a second line past its row. At rest its chips fit their line (`chipLine`); in the
+        // open editor they scroll sideways under what is typed, which stays in view — the active half underlined 1.5px in
+        // brand, 4px over its foot, by its background, which stays where it is as the half scrolls under it.
         half: {
             minWidth: "0",
             display: "flex",
-            flexWrap: "wrap",
+            flexWrap: "nowrap",
             gap: "4px",
             alignItems: "flex-start",
             alignContent: "flex-start",
             minHeight: "20px",
             "&[data-half=from]": { paddingRight: "3px", justifyContent: "flex-end" },
             "&[data-half=to]": { paddingLeft: "3px" },
+            "[data-slot=editor] &": {
+                position: "relative",
+                minHeight: "34px",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                paddingY: "7px",
+                overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
+                "& > [data-slot=chip]": { flexShrink: "0" },
+                "&[data-half=from]": { paddingLeft: "0", paddingRight: "3px", justifyContent: "flex-start" },
+                "&[data-half=to]": { paddingLeft: "3px", paddingRight: "0" },
+                "&[data-active]": {
+                    backgroundImage: "linear-gradient({colors.brand.solid}, {colors.brand.solid})",
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "calc(100% - 3px) 1.5px",
+                    backgroundPosition: "left bottom 4px",
+                },
+                "&[data-active][data-half=to]": { backgroundPosition: "right bottom 4px" },
+            },
         },
         // A half's label, where it holds no chip: as tall as a chip, its words on its cell's own line (#1638), centred
         // in it. A half stands its 20px at the middle of the cell's room, half a pixel down where that room is an odd
@@ -1341,6 +1373,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             lineHeight: "14px",
+            gap: "4px",
             fontFamily: "mono",
             fontSize: "10.5px",
             fontWeight: "600",
@@ -1356,11 +1389,71 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             overflow: "hidden",
         },
+        // A chip's meta gives way before its words do: it takes nearly all a narrow chip's shrink.
         chipMeta: {
             color: "fg.subtle",
             fontSize: "9px",
             letterSpacing: "0.03em",
-            flex: "0 1 auto",
+            flex: "0 1000 auto",
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        // A cell's members on one line (#1741): the chips that fit whole, then `+n` for the rest — never a second line past
+        // the row, nor a chip cut mid-word. A chip of a line keeps its natural width, so the fit measures what it needs,
+        // not the line's width a cap would hand it; the first chip, too wide on its own, is the one capped at the line,
+        // and shortens with "…" (`data-alone`). A from-half's chips run to its end.
+        chipLine: {
+            flex: "1 1 0%",
+            minWidth: "0",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            overflow: "hidden",
+            "& > [data-slot=chip], & > [data-slot=chipMore]": { flexShrink: "0" },
+            "& > [data-slot=chip]": { maxWidth: "none" },
+            "&[data-alone] > [data-slot=chip]:first-of-type": { flexShrink: "1", minWidth: "0", maxWidth: "100%" },
+            "&[data-end]": { justifyContent: "flex-end" },
+        },
+        // The count of the members past a line's room: a chip's box, in the subtler ink on no fill.
+        chipMore: {
+            display: "inline-flex",
+            alignItems: "center",
+            lineHeight: "14px",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            color: "fg.subtle",
+            background: "transparent",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.sm}",
+            paddingX: "4px",
+            paddingY: "1px",
+            whiteSpace: "nowrap",
+        },
+        // A chip's × in the open editor (east-workspace#1741): its member out of the cell, whole. Font Awesome's xmark in
+        // the chip's subtler ink, the danger ink on hover — and a picked chip's contrast — a 44px touch target by its halo.
+        chipRemove: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "10px",
+            height: "10px",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            color: "fg.subtle",
+            fontSize: "8px",
+            cursor: "pointer",
+            ...coarseHitArea({ position: true }),
+            _hover: { color: "fg.danger" },
+            "[data-slot=chip][data-picked] &": { color: "brand.contrast" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
+        },
+        // A chip's words: shortened with "…" where its chip is narrower than they are.
+        chipText: {
             minWidth: "0",
             overflow: "hidden",
             textOverflow: "ellipsis",

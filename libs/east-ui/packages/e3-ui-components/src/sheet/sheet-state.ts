@@ -84,7 +84,7 @@ import {
     same, clamp, selectionRect, wholeRows, initialSheetState,
     type CellRef, type CommitDir, type EditBuffer, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetNotice, type SheetUiState, type Transition,
 } from "./sheet-types.js";
-import { linkStartSide, withBuffer, linkChange, linkKey, switchSide } from "./sheet-link-state.js";
+import { linkStartSide, withBuffer, linkChange, linkKey, linkRemove, switchSide } from "./sheet-link-state.js";
 import {
     suggestKey, escSuggest, fillRow, takeFill, takeProposals, rejectProposal, applyReady, applyLanded, rekeySuggest, clearSuggest, afterRowsChanged,
 } from "./sheet-suggest-state.js";
@@ -669,6 +669,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit.link.side === e.side) return { state: s, effects: [{ t: "focus.editor", selectAll: false }] };
             return switchSide(s, e.side, ctx);
         }
+        case "chip.remove":
+            return linkRemove(s, e.i);
         case "select.move": {
             // A key's move landing once its window has (#860) — a key moves nothing while an editor is open.
             if (s.edit !== null) return { state: s, effects: [] };

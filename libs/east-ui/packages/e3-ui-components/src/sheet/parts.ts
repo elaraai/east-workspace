@@ -17,7 +17,7 @@ import type { EditIssue, HistoryAction, LandingAttributes, ToolbarItem } from "@
 import type { PlaceholderKind, SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetColumnIndex, SheetColumnMeta, SheetRegisterIndex } from "./model.js";
 import type { SheetCellRefusalWord } from "./messages.js";
-import type { SheetNotice } from "./sheet-types.js";
+import type { LinkEditCtx, SheetNotice } from "./sheet-types.js";
 import type { RefusedTurn } from "./refusal.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import type { SheetDropHost } from "./drop.js";
@@ -591,6 +591,12 @@ export interface SheetInspect {
     levelAt: (r: number, key: string) => "week" | "day" | "range" | "time" | undefined;
     /** The register members a column's options rule offers a row; `undefined` offers every one. */
     allowedAt: (r: number, key: string) => ReadonlySet<string> | undefined;
+    /**
+     * The link editor's context for a row's link or set cell under a column the grid draws (east-workspace#1741): what
+     * typing in the cell resolves members by, the members the row is offered, and the cell for the halves — `undefined`
+     * for any other column, one the grid does not draw, and a band, whose cells take no link editor.
+     */
+    linkAt: (r: number, key: string) => LinkEditCtx | undefined;
     /** A cell drawn as the grid draws it — a link's halves and their chips. */
     drawCell: (r: number, key: string) => ReactNode;
     /** An action field as Details draws it (#1478): its state, the cases its row is offered, and a choice's or a form's inline. */

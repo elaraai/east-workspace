@@ -8,23 +8,25 @@
  * vocabulary per link / set column, the per-driver halves and locks, the
  * checks run once per row value (a `WeakMap` over the immutable row), and the
  * link editor's context — candidates over the vocabulary, resolution, the
- * prediction from the column's pending fill, the cell for the halves. What a
- * row is OFFERED may be narrower than what it may hold: a column's `options`
- * rule (#844) narrows the candidates, never the resolution of typed text.
+ * prediction from the column's pending fill, the cell for the halves — built
+ * by one pure function (`link/context.ts`), which a phone's tags editor
+ * resolves its members through too (east-workspace#1741). What a row is
+ * OFFERED may be narrower than what it may hold: a column's `options` rule
+ * (#844) narrows the candidates, never the resolution of typed text.
  */
 
 import { useCallback, useMemo, useRef } from "react";
 import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
-import { linkVocabulary, narrowVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
-import { halvesFor, sidesDeclOf, type SidesDecl } from "./link/sides.js";
-import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers } from "./link/predict.js";
+import { linkVocabulary, narrowVocabulary, type LinkVocabulary } from "./link/grammar.js";
+import { halvesFor, sidesDeclOf, type LinkHalves, type SidesDecl } from "./link/sides.js";
+import { linkEditCtx } from "./link/context.js";
 import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
 import type { LinkCellContext } from "./cells/Cell.js";
-import type { LinkEditCtx, LinkGroups } from "./sheet-types.js";
+import type { LinkEditCtx } from "./sheet-types.js";
 import type { ShownDrafts } from "./shown-drafts.js";
-import type { SheetArityValue, SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetArityValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
 import type { SheetWords } from "./words.js";
 
 /** One link column's decoded declaration. */
@@ -161,23 +163,13 @@ export function useSheetLinks({ drafts, shown, columns, registers, driver, drive
         const row = it !== undefined && it.kind === "real" ? it.row : undefined;
         const cell = row?.cells.get(meta.key);
         const current = cell !== undefined && cell.type === "Link" ? cell.value : undefined;
-        const halves = meta.kind === "set"
-            ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" as const }
+        const halves: LinkHalves = meta.kind === "set"
+            ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" }
             : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
         const vocab = lc.vocab;
-        const usedOf = (groups: LinkGroups) => usedKeys([...groups[0], ...groups[1]], vocab);
         const allowed = allowedFor?.(r, meta);
         const offer = allowed !== undefined ? narrowVocabulary(vocab, allowed) : vocab;
-        return {
-            halves,
-            initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
-            candidates: (text, groups) => linkCandidates(text, offer, usedOf(groups), words),
-            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, offer, usedOf(groups), words),
-            resolve: (text, cand) => resolveBuffer(text, cand, vocab),
-            predicted: (side, groups, typed) => predictedMembers(predictedLink(r, meta.key), side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
-            cell: (groups): SheetCellValue | null => (groups[0].length === 0 && groups[1].length === 0 ? null : variant("Link", { from: groups[0], to: groups[1] })),
-            driverName: driverName(row),
-        };
+        return linkEditCtx({ vocab, offer, current, halves, predicted: () => predictedLink(r, meta.key), driverName: driverName(row), words });
     }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink, allowedFor, words]);
     return { linkVocabularies, linkColumns, driverName, linkCellCtx, linkCtxFor };
 }
