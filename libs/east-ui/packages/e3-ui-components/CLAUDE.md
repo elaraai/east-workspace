@@ -2218,8 +2218,15 @@ In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
 #1438's list at 1440 and 390: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving
 nothing as their cells land, the rows waiting washed meanwhile; the rows
-shading past the cap at the height of those they stand in for; a folded
-works drawing its crews' sums; and a crew's week typed.
+shading past the cap at the height of those they stand in for, from the
+totals e3 keeps for the period their columns are — a week's at a week, a
+month's at a month — hatched at neither and under no notice (#1739); a folded
+works drawing its crews' sums; and a crew's week typed. At 1440 it holds the
+horizon's bars to the works' own jobs and alarms too (#1739), counted from
+the example's generator as e3 counts them: by the quarter at the example's
+width, each bar the items touching its quarter, fewer than its months' added
+up; and, its frame widened until a month's bar has room, each bar its month's
+own. A phone draws no horizon.
 
 ### A table cell too narrow for its value (#1269, #1438)
 
