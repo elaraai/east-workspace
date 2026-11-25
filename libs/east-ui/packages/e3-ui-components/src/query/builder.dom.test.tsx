@@ -498,6 +498,35 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(container.querySelector("[data-query-save]")!.hasAttribute("data-fresh")).toBe(true);
     });
 
+    test("⌘/Ctrl ⏎ runs from the save popover's fields too — its name, its description, and its tags box, where ⏎ alone adds the tag typed: nothing is saved and no tag is added (#1758)", async () => {
+        const { container } = await mount();
+        await openQuery(variant("saved", BIG.name));
+        await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
+        await settle();
+        const dialog = screen.getByRole("dialog");
+        const tags = dialog.querySelector<HTMLInputElement>("[data-scope=tags-input][data-part=input]")!;
+        await act(async () => { fireEvent.change(tags, { target: { value: "weekly" } }); });
+        await settle();
+        const runs = () => h.oneShots().length;
+        const presses: [HTMLElement, Record<string, boolean>][] = [
+            [within(dialog).getByRole("textbox", { name: "Query name" }), { metaKey: true }],
+            [within(dialog).getByRole("textbox", { name: "What the query answers, in one sentence" }), { ctrlKey: true }],
+            [tags, { metaKey: true }],
+        ];
+        const ran: number[] = [];
+        for (const [field, held] of presses) {
+            const before = runs();
+            await act(async () => { fireEvent.keyDown(field, { key: "Enter", ...held }); });
+            await settle();
+            ran.push(runs() - before);
+        }
+        expect(ran).toEqual([1, 1, 1]);
+        // The popover stands, nothing saved; the tag typed is in its box still, no tag.
+        expect(screen.queryByRole("dialog")).toBe(dialog);
+        expect(await h.commits()).toEqual(before);
+        expect([tags.value, dialog.querySelectorAll("[data-scope=tags-input][data-part=item-text]").length]).toEqual(["weekly", 0]);
+    });
+
     test("the history item's Save: from its click until the record reads back, the steps are the drafts it saves — never the query as it stood before them", async () => {
         const { container } = await mount();
         await openQuery(variant("saved", BIG.name));

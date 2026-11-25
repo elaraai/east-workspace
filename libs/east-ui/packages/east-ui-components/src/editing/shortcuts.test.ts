@@ -6,11 +6,13 @@
  *
  * The history shortcuts (#988) are one reading of a key press, the same on
  * every editable collection, and a builder's frame hears them anywhere but a
- * field typed into (#1185).
+ * field typed into (#1185). A key that is an input method's — one pressed
+ * while it composes, or the one that ends its composition — is no key of a
+ * handler's (#1758).
  */
 
 import { expect, test } from "vitest";
-import { historyShortcut, typedInto, type HistoryKeyPress } from "./shortcuts.js";
+import { composingKey, historyShortcut, typedInto, type HistoryKeyPress } from "./shortcuts.js";
 
 function press(key: string, held: Partial<Omit<HistoryKeyPress, "key">> = {}): HistoryKeyPress {
     return { key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...held };
@@ -45,4 +47,16 @@ test("a press typed into a field — text, a number, a text area, a select, edit
     for (const pressed of [input("checkbox"), input("radio"), input("range"), document.createElement("button"), document.createElement("div"), null]) {
         expect(typedInto(pressed)).toBe(false);
     }
+});
+
+test("a key is an input method's while it composes, and as it ends its composition — Safari's Enter or Esc, sent after the composition's end as key 229 — on a DOM event or React's (#1758)", () => {
+    const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", { key: "Enter", ...init });
+    expect(composingKey(key({}))).toBe(false);
+    expect(composingKey(key({ isComposing: true }))).toBe(true);
+    // WebKit ends the composition first: the key that ended it arrives not composing, as key 229.
+    expect(composingKey(key({ keyCode: 229 }))).toBe(true);
+    expect(composingKey(key({ keyCode: 13 }))).toBe(false);
+    // React's event holds the DOM's.
+    expect(composingKey({ keyCode: 13, nativeEvent: key({ keyCode: 229 }) })).toBe(true);
+    expect(composingKey({ keyCode: 13, nativeEvent: key({ keyCode: 13 }) })).toBe(false);
 });

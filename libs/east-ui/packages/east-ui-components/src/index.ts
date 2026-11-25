@@ -668,6 +668,7 @@ export {
     historyShortcut,
     typedInto,
     takeKey,
+    composingKey,
     SessionBanners,
     useConflictsOpener,
     editingMessages,
@@ -700,6 +701,7 @@ export {
     type SessionBannersProps,
     type SessionDrafts,
     type TakenKey,
+    type ComposedKeyPress,
 } from "./editing/index.js";
 // The Optimise run's shared parts (#1409) — for the sibling renderer packages
 // whose builders take the app's optimiser: the Elara eye and its button, the

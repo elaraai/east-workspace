@@ -448,14 +448,16 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             if (card.getAttribute("data-step-id") === focus.entry) card.scrollIntoView?.({ block: "nearest" });
         }
     }, [focus, element]);
+    // ⌘/Ctrl ⏎ runs, anywhere in the builder — a field too. It is taken as the key comes down to its target, ahead of
+    // a field that takes every ⏎ for its own: the save popover's tags box, which would add the tag typed. A field that
+    // leaves a key already taken, as that one does, then does nothing with it.
+    const onRunKey = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+        if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter" || event.defaultPrevented) return;
+        event.preventDefault();
+        onRun();
+    }, [onRun]);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented) return;
-        // ⌘/Ctrl ⏎ runs, anywhere in the builder — a field too.
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            onRun();
-            return;
-        }
         // ⌘/Ctrl / opens the Datasets tab, the pane expanded.
         if ((event.metaKey || event.ctrlKey) && event.key === "/") {
             event.preventDefault();
@@ -469,7 +471,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         if (action === undefined) return;
         event.preventDefault();
         onAction(action);
-    }, [onRun, onAction, setPane]);
+    }, [onAction, setPane]);
 
     // ── Saving ──────────────────────────────────────────────────────────
     const taken = useMemo(() => {
@@ -660,7 +662,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     }, [phone, popover, editor.quick, m]);
     return (
         <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
-            data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDown={onKeyDown}>
+            data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDownCapture={onRunKey} onKeyDown={onKeyDown}>
             <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
                 <BuilderFrame
                     ref={widthRef}

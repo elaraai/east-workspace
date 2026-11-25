@@ -186,21 +186,20 @@ describe("<Query.Library> (#1063)", () => {
     test("#1758: the saved queries narrow through the record's indexes — a rail over Data source and Tag, the Saved range, and a search by the start of a name, a data source or a tag", () => {
         const INDEXES = ["queries_by_source", "queries_by_tag", "queries_by_name", "queries_by_saved_at"] as const;
         assert.deepEqual(Object.keys(ex.queries.indexes).sort(), [...INDEXES].sort(), "the examples' record declares the four");
-        const railed = () => ui("query_library_rail", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const saved = $.let(Record.bind(ex.queries));
-            const orders = $.let(Data.bindPaged(ex.orders));
+        // What the rail narrows by is checked where it is built, against the record's fields and its indexes — over the
+        // paged source alone: the record is read through its indexes, never whole beside them.
+        const rail = (search: readonly string[]) => () => East.function([], StringType, ($) => {
             const slice = $.let(Slice.bindRecords("queries.library", {
                 rows: {
-                    source: Data.bindPaged(ex.queries, { indexes: [...INDEXES] }), label: "Queries", range: "saved_at", search: ["name", "sources", "tags"],
+                    source: Data.bindPaged(ex.queries, { indexes: [...INDEXES] }), label: "Queries", range: "saved_at", search: [...search] as ("name" | "sources" | "tags")[],
                     fields: { name: { label: "Name" }, sources: { label: "Data source" }, tags: { label: "Tag" }, saved_at: { label: "Saved" } },
                 },
             }));
-            // What the rail narrows by is checked where the page is built, against the record's fields and its indexes.
-            $(slice.key);
-            return Query.Library({ queries: saved, datasets: { orders }, onOpen: heard });
-        }))));
-        const manifest = railed().role.value!;
-        assert.deepEqual(manifest.records, ["queries"]);
+            return slice.key;
+        });
+        assert.doesNotThrow(rail(["name", "sources", "tags"]));
+        // A field no index is led by is refused there, naming it.
+        assert.throws(rail(["description"]), /description/);
     });
 
     test("the public Query namespace is the two components a solution mounts, the queries it ships, the open query a host holds, its record's migration steps and their types; the carrier and its payload are the internal one's", () => {

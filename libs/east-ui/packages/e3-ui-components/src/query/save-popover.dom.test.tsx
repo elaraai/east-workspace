@@ -316,6 +316,48 @@ describe("the query's save popover (#936)", () => {
         expect(saved(onSave)).toEqual([["Big orders", none, ["monthly"]]]);
     });
 
+    test("#1758: on a device that takes touch too, a tag typed and left by Tab is saved: Tab to Save, then ⏎", async () => {
+        Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true });
+        try {
+            const { popover, onSave } = await mount();
+            const user = userEvent.setup();
+            await user.click(tagsInput(popover));
+            await user.type(tagsInput(popover), "weekly");
+            await user.tab();
+            expect(document.activeElement).toBe(cancelButton(popover));
+            await user.tab();
+            expect(document.activeElement).toBe(saveButton(popover));
+            await user.keyboard("{Enter}");
+            await closed();
+            expect(saved(onSave)).toEqual([["Big orders", none, ["weekly"]]]);
+        } finally {
+            Reflect.deleteProperty(navigator, "maxTouchPoints");
+        }
+    });
+
+    test("#1758: the ⏎ that ends an input method's composition saves nothing, in the name or the description — Safari sends it after the composition's end, as key 229", async () => {
+        const { popover, onSave } = await mount();
+        for (const field of [nameField(popover), descriptionField(popover)]) {
+            await act(async () => { fireEvent.keyDown(field, { key: "Enter", keyCode: 229 }); });
+            await act(async () => { fireEvent.keyDown(field, { key: "Enter", isComposing: true }); });
+            await settle();
+        }
+        expect([screen.queryByRole("dialog") !== null, saved(onSave)]).toEqual([true, []]);
+    });
+
+    test("#1758: ⌘ or Ctrl ⏎ is its host's, in the name and the description: it saves nothing, and goes on to the host as it came", async () => {
+        const { popover, onSave } = await mount();
+        // Each press goes on unprevented: what a builder around it runs its query on.
+        const passed = [
+            fireEvent.keyDown(nameField(popover), { key: "Enter", metaKey: true }),
+            fireEvent.keyDown(nameField(popover), { key: "Enter", ctrlKey: true }),
+            fireEvent.keyDown(descriptionField(popover), { key: "Enter", metaKey: true }),
+            fireEvent.keyDown(descriptionField(popover), { key: "Enter", ctrlKey: true }),
+        ];
+        await settle();
+        expect([passed, screen.queryByRole("dialog") !== null, saved(onSave)]).toEqual([[true, true, true, true], true, []]);
+    });
+
     test("Esc cancels — nothing is saved — and each opening starts over from the open query's name, description and tags", async () => {
         const { popover, onSave } = await mount();
         await act(async () => { fireEvent.change(nameField(popover), { target: { value: "Large orders" } }); });

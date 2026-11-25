@@ -397,6 +397,8 @@ export const queriesEmpty = e3.record("queries_empty", Query.Types.Saved, {
         // Its one write.
         patch: mutation.patch(),
     }),
+    // Queries saved before one held its data sources' names and its tags are carried by this one step.
+    migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 });
 
 
@@ -592,6 +594,8 @@ export const conflictQueries = e3.record("query_conflict_queries", Query.Types.S
                 saved_at: query.saved_at.addMinutes(1n),
             })))),
     }),
+    // Queries saved before one held its data sources' names and its tags are carried by this one step.
+    migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 });
 
 /**
@@ -680,6 +684,8 @@ export const historyQueries = e3.record("history_queries", Query.Types.Saved, {
         // Its one write.
         patch: mutation.patch(),
     }),
+    // Queries saved before one held its data sources' names and its tags are carried by this one step.
+    migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 });
 
 
@@ -758,6 +764,8 @@ export const salesQueries = e3.record("sales_queries", Query.Types.Saved, {
         // Its one write.
         patch: mutation.patch(),
     }),
+    // Queries saved before one held its data sources' names and its tags are carried by this one step.
+    migrations: (migration) => [migration.rows("sources_and_tags", Query.migrations.sourcesAndTags)],
 });
 
 export const queryBuilderSteps = example({

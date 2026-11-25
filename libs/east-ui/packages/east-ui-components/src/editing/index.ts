@@ -73,7 +73,7 @@ export { EditingScope, useEditingScope } from "./scope.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
 export { SessionBanners, type SessionBannersProps } from "./banners.js";
 export { useConflictsOpener } from "./conflicts.js";
-export { historyShortcut, typedInto, takeKey, type HistoryKeyPress, type TakenKey } from "./shortcuts.js";
+export { historyShortcut, typedInto, takeKey, composingKey, type HistoryKeyPress, type TakenKey, type ComposedKeyPress } from "./shortcuts.js";
 export {
     editingMessages,
     DRAFT_ISSUE_TEXT,
