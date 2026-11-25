@@ -12,38 +12,22 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import {
-    ArrayType, DictType, NullType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor,
-    none, some, toEastTypeValue, variant, type ValueTypeOf,
-} from "@elaraai/east";
-import { RecordSliceChoiceType, RecordSliceConfigType, RecordSliceStateType, type RecordSliceBinding } from "@elaraai/east-ui/internal";
-import { RecordSliceImpl, recordSliceSeeded } from "./record.js";
+import { DictType, NullType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
+import { RecordSliceChoiceType, RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { recordSliceSeeded } from "./record.js";
+import { recordArm, recordState } from "./record-arm.test-utils.js";
 import { getStore, initializeStore } from "../state-runtime.js";
 import { UIStore } from "../state-store.js";
-
-type State = ValueTypeOf<RecordSliceStateType>;
 
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const sameState = equalFor(RecordSliceStateType);
-const stateOf = (state: State): State => decodeState(encodeState(state));
 
-/** The binding's type, and the window of joined entries its Slice pages: what the record arm's operations are resolved at. */
-const Source = StructType({ id: StringType });
-const Window = ArrayType(StructType({ key: StringType, row: OptionType(StructType({ status: StringType })) }));
-const TYPES = [toEastTypeValue(Source), toEastTypeValue(Window)];
-
-/** A binding nothing is read through: these tests read the narrowing alone. */
-const SOURCE: RecordSliceBinding & { indexes: null; nested: null } = {
-    id: "orders", recordId: "orders", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
-    total: () => some(0n), entryKeys: () => [], seek: () => none, page: () => none, indexes: null, nested: null,
-};
-const CONFIG = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-    fields: [], indexes: [], range: none, search: [], presets: [], scope: new Map(),
-}));
 /** The narrowing the Slice is bound with: by the week, which no other state here is. */
-const INITIAL = stateOf({ where: new Map(), preset: none, resolution: some(variant("week", null)) });
-const BY_MONTH = stateOf({ where: new Map(), preset: none, resolution: some(variant("month", null)) });
+const INITIAL = recordState({ where: new Map(), preset: none, resolution: some(variant("week", null)) });
+const BY_MONTH = recordState({ where: new Map(), preset: none, resolution: some(variant("month", null)) });
+/** The Slice's operations, over a record of orders it offers no field of. */
+const { op, read } = recordArm(StructType({ status: StringType }), { fields: [], indexes: [], range: none, search: [], presets: [], scope: new Map() }, INITIAL);
 
 /** The narrowing an earlier release kept: its choices could be a `window` (#1385), which a read by area took over (#1432). */
 const OlderState = StructType({
@@ -54,14 +38,6 @@ const OlderState = StructType({
 const encodeOlder = encodeBeast2For(OlderState);
 /** One such narrowing's bytes, its own buffer: a store keeps the buffer it is given, and a value is said once. */
 const older = () => encodeOlder({ where: new Map([["status", variant("values", ['"late"'])]]), preset: none, resolution: none });
-
-const byName = new Map(RecordSliceImpl.map(p => [p.name, p.fn]));
-/** One of the record arm's operations over the binding of `key`, as a handle's method calls it. */
-function op(name: string, key: string, ...args: unknown[]): unknown {
-    const resolve = byName.get(`slice_record_${name}`) as (...types: unknown[]) => (...args: unknown[]) => unknown;
-    return resolve(...TYPES)(key, SOURCE, CONFIG, INITIAL, ...args);
-}
-const read = (key: string) => op("read", key) as State;
 
 afterEach(() => { vi.restoreAllMocks(); });
 
