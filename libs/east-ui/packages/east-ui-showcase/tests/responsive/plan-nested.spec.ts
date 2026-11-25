@@ -39,7 +39,7 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import {
     DateTimeType, East, PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, lessFor, printFor, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
+import { Plan, SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { e3Requests, heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
 import { drawnSel, openExample, sizePlanFrame } from "./plan-page";
@@ -102,7 +102,7 @@ async function cellsOf(row: Locator): Promise<Map<string, { readonly text: strin
 }
 
 /** A row's or a card's cell, by the instant its column starts at: its `data-cell`, the instant as East prints it. */
-const cellAt = (start: Date): string => `[data-cell="time:${printFor(DateTimeType)(start)}"]`;
+const cellAt = (start: Date): string => `[data-cell=${JSON.stringify(printFor(Plan.Types.Instant)(variant("time", start)))}]`;
 
 /** Whether one instant is earlier than another, as East orders them. */
 const earlier = lessFor(DateTimeType);

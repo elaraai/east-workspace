@@ -33,6 +33,7 @@ import { nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
+import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { act, entry, horizonLaidOut, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -344,7 +345,7 @@ describe("the works on a Plan (#1438)", () => {
             const part = cell.querySelector("[data-part]");
             return part === null ? [] : [[cell.getAttribute("data-cell"), Number((part.textContent ?? "").replace(/,/g, ""))] as const];
         });
-        expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [`time:${new Date(at).toISOString().replace("Z", "")}`, sum]));
+        expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [instantKey(timeInstant(new Date(at))), sum]));
     });
 
     test("a value too wide for its column draws a dot in its place, its numerals kept, hidden, for its hover to say; a column wide enough, its numerals", async () => {
