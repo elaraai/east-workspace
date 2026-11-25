@@ -23,14 +23,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, RecursiveType, SortedMap, StringType, StructType,
     compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import {
     Data, Plan, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
-    PlanPayloadType, Record, Schedule, ScheduleDraftsType, createEventSeam,
+    PlanPayloadType, Record, Schedule, ScheduleCellReadType, ScheduleDraftsType, createEventSeam,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { entry } from "../src/plan/row-id.test-utils.js";
@@ -230,7 +230,7 @@ async function inFlightSeam(): Promise<ValueTypeOf<typeof PlanEventSeamType>> {
         const kindBuilt = $.let(events.job.buildPlan("job"));
         const read = kindBuilt as unknown as globalThis.Record<string, ExprType<typeof PlanEventKindType>>;
         const inFlight = $.const(East.function(
-            [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)), () => none));
+            [DateTimeType, DateTimeType, ScheduleDraftsType, ScheduleCellReadType], OptionType(ArrayType(PlanEventItemType)), () => none));
         const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
             [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
         const kinds = $.let([kind], ArrayType(PlanEventKindType));
