@@ -9,7 +9,9 @@
  *
  * What a schedule's cells' reader wants and decides, worked out with no read
  * (#1039): the blocks of a paged kind's resources around the rows in view — an
- * end of them its window does not hold read as the other end (#1711) — the
+ * end of them its window does not hold read as the other end (#1711), and a
+ * block only the margin wants marked so — which of them a read takes in beneath
+ * the cap, the rows in view first (#1768), the
  * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
  * within the cap, and a window of the paged rows — the resources it draws, in
@@ -31,8 +33,8 @@ import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
     SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, sameCellSpan,
-    scheduleCellSpanOf, schedulePagedBlocks, scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged,
-    type ScheduleCellSpan,
+    scheduleCellSpanOf, scheduleCellsWithinCap, schedulePagedBlocks, scheduleWindowKeys, scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey,
+    type ScheduleCellPaged, type ScheduleCellSpan,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -90,6 +92,24 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
         expect(named(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0190"])))).toEqual(["0.3", "1.0"]);
     });
 
+    test("a block only the margin wants, none of its resources in view, is marked so: the cap holds the blocks in view (#1768)", () => {
+        /** The blocks a view wants that only its margin wants, by their names. */
+        const margins = (blocks: readonly { readonly id: string; readonly margin?: boolean | undefined }[] | undefined) =>
+            blocks?.filter((block) => block.margin === true).map((block) => block.id);
+        // Where a view opens, its first block is in view.
+        expect(margins(schedulePagedBlocks(two, undefined))).toEqual([]);
+        // The block before the rows in view; the rows in view in one block.
+        expect(margins(schedulePagedBlocks(two, span([0, "P-0100"], [0, "P-0120"])))).toEqual(["0.1"]);
+        // The margin's block in the next window.
+        expect(margins(schedulePagedBlocks(two, span([0, "P-0180"], [0, "P-0190"])))).toEqual(["1.0"]);
+        // Rows in view across two blocks, both in view, and the margin's block before them.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0060"], [0, "P-0110"])))).toEqual(["0.0", "0.1", "0.2"]);
+        expect(margins(schedulePagedBlocks(two, span([0, "P-0060"], [0, "P-0110"])))).toEqual(["0.0"]);
+        // Rows in view across a window's edge: each window's block in view, and the margin's block before them.
+        expect(named(schedulePagedBlocks(two, span([0, "P-0160"], [1, "P-0210"])))).toEqual(["0.2", "0.3", "1.0"]);
+        expect(margins(schedulePagedBlocks(two, span([0, "P-0160"], [1, "P-0210"])))).toEqual(["0.2"]);
+    });
+
     test("an end whose key its window does not hold — a group's own row, a row the window draws no more — is read as the other end, never as its window's start", () => {
         // The first end: the blocks around the last, and not every block from the window's start.
         expect(named(schedulePagedBlocks(two, span([0, "H-07"], [0, "P-0120"])))).toEqual(["0.1", "0.2"]);
@@ -136,9 +156,10 @@ describe("the paged rows' blocks a view wants (#1039, #1541, #1711)", () => {
             { slot: "presses", id: "0.0", keys: keysOf(0, 30), under: ["H-01"] },
             { slot: "presses", id: "0.0.1", keys: keysOf(30, 20), under: ["H-02"] },
         ]);
-        // A place wholly under one hall is one block, named as a place of no halls is.
+        // A place wholly under one hall is one block, named as a place of no halls is — the one before the rows in view
+        // only the margin's (#1768).
         expect(schedulePagedBlocks(halls, span([0, "P-0110"], [0, "P-0120"]))).toEqual([
-            { slot: "presses", id: "0.1", keys: keysOf(50, 50), under: ["H-02"] },
+            { slot: "presses", id: "0.1", keys: keysOf(50, 50), under: ["H-02"], margin: true },
             { slot: "presses", id: "0.2", keys: keysOf(100, 50), under: ["H-02"] },
         ]);
         // Resources under no row beside ones under a row: a block each, and the one under no row names none.
@@ -211,6 +232,29 @@ describe("a counted kind within the cap (#1039)", () => {
 
     test("while its count is in flight it is neither", () => {
         expect(scheduleWithinCap(counting(none, []), from, to)).toEqual(none);
+    });
+});
+
+describe("the blocks a read takes in beneath the cap: those in view, then the margin's while they fit (#1768)", () => {
+    /** A block meeting the rows in view, its cells holding `count` entries. */
+    const inView = (count: number) => ({ margin: false, count });
+    /** A block only the margin wants. */
+    const margin = (count: number) => ({ margin: true, count });
+
+    test("every block in view, and each of the margin's in their order while what is read stays within the cap", () => {
+        // A third block would pass the cap: the one after the rows in view is left unread.
+        expect(scheduleCellsWithinCap([margin(3_000), inView(3_500), inView(3_500), margin(3_000)])).toEqual([true, true, true, false]);
+        expect(scheduleCellsWithinCap([margin(1_500), inView(3_500), inView(3_500), margin(1_500)])).toEqual([true, true, true, true]);
+        // A margin's block past the cap is left unread, and a smaller one after it still read.
+        expect(scheduleCellsWithinCap([margin(5_000), inView(6_000), margin(4_000)])).toEqual([false, true, true]);
+        expect(scheduleCellsWithinCap([])).toEqual([]);
+    });
+
+    test("the blocks in view at the cap are read with no margin beside them; past it, none is read — the kind shades, or gives its notice", () => {
+        expect(SCHEDULE_EVENT_CAP).toBe(10_000);
+        expect(scheduleCellsWithinCap([inView(10_000), margin(1)])).toEqual([true, false]);
+        expect(scheduleCellsWithinCap([inView(6_000), inView(4_001)])).toBeUndefined();
+        expect(scheduleCellsWithinCap([margin(0), inView(10_001)])).toBeUndefined();
     });
 });
 
