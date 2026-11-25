@@ -49,7 +49,7 @@ import { useEquivalent } from "../shared/equivalent.js";
 import { entryRow } from "../shared/records/entry-row.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { tellHost } from "../shared/open.js";
-import { LibraryNewButton, SliceGallery, libraryCardMarks, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
+import { LibraryNewButton, SliceGallery, libraryCard, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
 import { queryAbout, refusalGlyph, whenWords, type QueryAbout } from "./about.js";
 import { sourceKind } from "./datasets-tab.js";
 import { useQueryRoot } from "./hooks.js";
@@ -154,17 +154,14 @@ function queryItem(saved: SavedQuery, about: QueryAbout, open: boolean, words: Q
     const f = words.formatters;
     const steps = about.steps === undefined ? undefined : { count: f.number(about.steps.count), n: about.steps.count };
     const gives = about.gives ?? (about.problems > 0 ? m.problemCount({ count: f.number(about.problems), n: about.problems }) : "");
-    return {
+    return libraryCard({
         key: saved.name, label: saved.name,
         sublabel: about.refusal !== undefined || about.description === undefined ? none : some(about.description),
-        icon: none,
         trailing: refusalGlyph(about),
-        draggable: false, filtered: false, media: none, avatar: none,
         byline: some(m.libraryByline({ source: about.source, steps, gives, when: whenWords(saved.saved_at, new Date(), f), run: false })),
         action: about.refusal === undefined ? some(m.openInBuilder()) : none,
-        search: none, groups: new Map(), facets: new Map(),
-        ...libraryCardMarks(open, m.openNow(), saved.tags),
-    };
+        open, openWord: m.openNow(), tags: saved.tags,
+    });
 }
 
 /** Props of {@link EastChakraQueryLibrary}. */

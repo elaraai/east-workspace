@@ -45,10 +45,11 @@
 
 import { memo, useCallback, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { OptionType, SetType, StringType, StructType, equalFor, equivalentFor, none, some, type ValueTypeOf, type option } from "@elaraai/east";
+import { OptionType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
 import { FieldForm, composingKey, useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 import { NamePopover } from "../shared/name-popover.js";
+import { TagsFormType, TagsType, type Tags } from "../shared/tags-form.js";
 import { DESCRIPTION_MAX } from "./model/step-words.js";
 import { useQueryWords } from "./words.js";
 
@@ -61,13 +62,7 @@ const descriptionEquivalent = equivalentFor(DescriptionType);
 /** Whether a description's data changed — what re-syncs the field. */
 const descriptionEqual = equalFor(DescriptionType);
 
-/** A saved query's tags. */
-const TagsType = SetType(StringType);
-/** A saved query's tags, as a value. */
-type Tags = ValueTypeOf<typeof TagsType>;
-/** What the popover's typed form edits: the tags. */
-const TagsFormType = StructType({ tags: TagsType });
-/** The memo's comparison of two sets of tags. */
+/** The memo's comparison of two sets of tags: a saved query's, as the popover's form edits them (`shared/tags-form.ts`). */
 const tagsEquivalent = equivalentFor(TagsType);
 /** Whether the tags changed — what re-syncs the field. */
 const tagsEqual = equalFor(TagsType);

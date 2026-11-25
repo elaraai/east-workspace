@@ -48,7 +48,7 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Box } from "@chakra-ui/react";
 import { faFileLines, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import {
-    SetType, StringType, StructType, defaultValue, equalFor, equivalentFor, isValueOf, none, printFor, some,
+    StringType, StructType, defaultValue, equalFor, equivalentFor, isValueOf, none, printFor, some,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
@@ -65,7 +65,8 @@ import { tellHost } from "../shared/open.js";
 import { entryRow } from "../shared/records/entry-row.js";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { LibraryNewButton, SliceGallery, libraryCardMarks, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
+import { LibraryNewButton, SliceGallery, libraryCard, libraryGallery, useLibraryRail, useRailValue } from "../shared/slice-gallery.js";
+import { TagsFormType, TagsType, type Tags } from "../shared/tags-form.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 
@@ -110,12 +111,8 @@ const SOURCE: Readonly<Record<View, string>> = { pages: "rows", templates: "temp
 /** The pages' field New page follows (L12): the one project the rail has chosen. */
 const PROJECT_FIELD = "project";
 
-/** A new page's tags, as its popover's form holds them. */
-const TagsType = SetType(StringType);
-type Tags = ValueTypeOf<typeof TagsType>;
-/** What New page's form edits: the project, where the rail has chosen none, and the tags. */
+/** What New page's form edits where the rail has chosen no project: the project, and the tags (`TagsFormType` where it has). */
 const ProjectFormType = StructType({ project: StringType, tags: TagsType });
-const TagsFormType = StructType({ tags: TagsType });
 /** No tags. */
 const NO_TAGS: Tags = defaultValue(TagsType);
 /** No name is taken before the commit: the library holds no page's name, and the commit refuses one the project holds. */
@@ -164,16 +161,13 @@ const LayoutWireframe = memo(function LayoutWireframe({ cells }: { cells: readon
  */
 function entryItem(row: PageRow, view: View, open: boolean, summary: string, m: StudioMessages, words: Formatters): LibraryItemValue {
     const n = row.entry.draft.cells.length;
-    return {
+    return libraryCard({
         key: printKey(row.key), label: row.entry.title,
         sublabel: some(textEqual(summary, "") ? m.blankSummary() : summary),
-        icon: none,
-        trailing: none, draggable: false, filtered: false, media: none, avatar: none,
         byline: some(m.entryByline({ project: row.key.project, placements: m.placements({ n, count: words.number(n) }) })),
         action: some(view === "pages" ? m.openInBuilder() : m.startFromTemplate()),
-        search: none, groups: new Map(), facets: new Map(),
-        ...libraryCardMarks(open, m.openNow(), row.entry.tags),
-    };
+        open, openWord: m.openNow(), tags: row.entry.tags,
+    });
 }
 
 /**

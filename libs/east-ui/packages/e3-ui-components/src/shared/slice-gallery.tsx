@@ -13,8 +13,10 @@
  *   each entry made its row once ({@link rowsOnce}); with no row its host's
  *   words, and while the rail narrows the source, the narrowing's, with Clear
  *   filters ({@link SliceGallery}). A card stands at
- *   the gallery's one size, its tags its one fact ({@link libraryGallery}), and
- *   the row its host says is open is marked ({@link libraryCardMarks}).
+ *   the gallery's one size, its tags its one fact ({@link libraryGallery}); it
+ *   is its row's words on the Library's item every library's card shares
+ *   ({@link libraryCard}), and the row its host says is open is marked
+ *   ({@link libraryCardMarks}).
  * - **The toolbar**: the rail over the slice ({@link useLibraryRail}), and New,
  *   the brand's solid button ({@link LibraryNewButton}), which follows the one
  *   value the rail has chosen of a field ({@link useRailValue}, L11, L12).
@@ -26,7 +28,7 @@ import { forwardRef, useCallback, useMemo, type ComponentPropsWithoutRef } from 
 import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faPlus } from "@fortawesome/free-solid-svg-icons";
-import { StringType, none, parseFor, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { StringType, none, parseFor, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { RecordSliceWhereType, recordSliceChosen, type RecordSliceBindType, type RecordSliceEntry, type RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type ToolbarItem } from "@elaraai/east-ui-components";
 import {
@@ -76,6 +78,44 @@ export function libraryCardMarks(open: boolean, openWord: string, tags: Iterable
         status: open ? some({ label: openWord, tone: variant("info", null), ring: false }) : none,
         placed: open,
         dims: new Map(chips.length === 0 ? [] : [[TAGS, variant("chips", chips)]]),
+    };
+}
+
+/** What a library's card says of its row: its words, and its marks. */
+export interface LibraryCardFace {
+    /** Its key: what a press on it is told. */
+    readonly key: string;
+    /** Its title. */
+    readonly label: string;
+    /** Its words under the title. */
+    readonly sublabel: option<string>;
+    /** Its glyph after the title, where it has one: a query's that can't open here. */
+    readonly trailing?: LibraryItemValue["trailing"] | undefined;
+    /** Its foot's words. */
+    readonly byline: option<string>;
+    /** Its foot's action, where a press opens it. */
+    readonly action: option<string>;
+    /** Whether it is the row its host says is open. */
+    readonly open: boolean;
+    /** The open row's status word (`Open`). */
+    readonly openWord: string;
+    /** The row's tags, in their order. */
+    readonly tags: Iterable<string>;
+}
+
+/**
+ * A library's card: its row's words and marks ({@link libraryCardMarks}) on the Library's gallery item every library's
+ * card shares — no icon, media or avatar of its own, and no drag, search, groups or facets.
+ *
+ * @param face - What the card says of its row
+ * @returns The Library's item the card is
+ */
+export function libraryCard(face: LibraryCardFace): LibraryItemValue {
+    return {
+        key: face.key, label: face.label, sublabel: face.sublabel, icon: none, trailing: face.trailing ?? none,
+        draggable: false, filtered: false, media: none, avatar: none, byline: face.byline, action: face.action,
+        search: none, groups: new Map(), facets: new Map(),
+        ...libraryCardMarks(face.open, face.openWord, face.tags),
     };
 }
 

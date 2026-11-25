@@ -17,9 +17,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
-import { system } from "@elaraai/east-ui-components";
+import { system, type LibraryItemValue } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { LibraryNewButton, libraryCardMarks, libraryGallery, rowsOnce } from "./slice-gallery.js";
+import { LibraryNewButton, libraryCard, libraryCardMarks, libraryGallery, rowsOnce } from "./slice-gallery.js";
 
 afterEach(() => { cleanup(); });
 
@@ -52,6 +52,19 @@ describe("a library of cards (#1761, #1762)", () => {
         expect([...open.dims]).toEqual([["tags", variant("chips", ["sales", "weekly"])]]);
         const shut = libraryCardMarks(false, "Open", []);
         expect([shut.placed, shut.status, [...shut.dims]]).toEqual([false, none, []]);
+    });
+
+    test("a card: its row's words and marks on the item every library's card shares — no icon, media, avatar, drag, search, groups or facets; its glyph where it has one, none otherwise", () => {
+        const face = { key: "k1", label: "Weekly", sublabel: some("What it places"), byline: some("ops · 3"), action: some("Open →"), open: true, openWord: "Open", tags: ["sales"] };
+        const card = libraryCard(face);
+        expect({ ...card, groups: [...card.groups], facets: [...card.facets], dims: [...card.dims] }).toEqual({
+            key: "k1", label: "Weekly", sublabel: some("What it places"), icon: none, trailing: none,
+            draggable: false, filtered: false, media: none, avatar: none, byline: some("ops · 3"), action: some("Open →"),
+            search: none, groups: [], facets: [],
+            status: some({ label: "Open", tone: variant("info", null), ring: false }), placed: true, dims: [["tags", variant("chips", ["sales"])]],
+        });
+        const glyph: LibraryItemValue["trailing"] = some({ icon: "triangle-exclamation", label: "Its data sources aren't bound here", tone: some(variant("warning", null)) });
+        expect(libraryCard({ ...face, trailing: glyph, open: false }).trailing).toBe(glyph);
     });
 
     test("New: its plus and its words, the brand's solid button; folded, the plus alone, named by its words; a caret where it opens a menu; it takes what its host hands it", () => {
