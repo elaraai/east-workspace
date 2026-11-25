@@ -6,7 +6,8 @@
 /**
  * One read-only cell by kind (B§11): text · mono (date, stamped) · num + unit
  * (quantity, integer) · enum dot + word · a set's members on one line, `+n`
- * for those past its room (`ChipLine`, east-workspace#1741) · the split link
+ * for those past its room (`ChipLine`, east-workspace#1741) — or, in Details,
+ * every member on as many lines as they take (`wrap`) · the split link
  * cell (`LinkCell`) · a custom kind's `print`. A date read at a level (#844) prints `dd/mm/yy`
  * (and its time at the time level) with the resolution as a tag — unless its
  * column declares a `format`, which it prints alone, as the author's pattern
@@ -59,10 +60,12 @@ export interface SheetCellContentProps {
     when?: { level: WhenLevel; actual?: Date | undefined } | undefined;
     /** A run of the optimiser changed the cell (#1409, R25): its value carries `data-op-value`, and fades in as the cell lands. */
     marked?: boolean | undefined;
+    /** A set's or a link's members on as many lines as they take, none folded into `+n`: Details', where the grid's cell keeps one line. */
+    wrap?: boolean | undefined;
 }
 
 /** Renders a cell's content. */
-export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when, marked }: SheetCellContentProps) {
+export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when, marked, wrap }: SheetCellContentProps) {
     // Numbers in the viewer's language — the one its edit box reads back (#852) — and the sheet's words (#861).
     const words = useSheetWords();
     const mark = marked === true ? "" : undefined;
@@ -142,7 +145,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             });
             return (
                 <Box css={styles.half} data-op-value={mark} data-half="to">
-                    <ChipLine styles={styles} chips={chips} />
+                    <ChipLine styles={styles} chips={chips} wrap={wrap} />
                 </Box>
             );
         }
@@ -163,6 +166,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                     flags={isGhost ? NO_FLAGS : link.flags}
                     ghost={isGhost}
                     driverName={link.driverName}
+                    wrap={wrap}
                 />
             );
         }

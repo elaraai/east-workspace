@@ -546,6 +546,18 @@ describe("the link editor", () => {
         expect(emptied.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: null, text: "" });
     });
 
+    test("⌫ and ← never cross into a half that is not live: a set's editor, which draws its destination alone, keeps its input once it holds no member", () => {
+        const ctx = linkCtxOf("to", [[], [id("A7301")]]);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(open.edit!.link!.side).toBe(1);
+        const emptied = run(open, [ekey("Backspace"), ekey("Backspace")], ctx);
+        expect(labels(emptied.state.edit!.link!.groups[1])).toEqual([]);
+        // A third ⌫, as a held key gives: the caret stays in the half it is in.
+        const stayed = run(emptied.state, [ekey("Backspace")], ctx);
+        expect([stayed.state.edit!.link!.side, stayed.effects]).toEqual([1, []]);
+        expect(run(emptied.state, [ekey("ArrowLeft")], ctx).state.edit!.link!.side).toBe(1);
+    });
+
     test("a chip's × takes its member out whole, wherever it stands, the caret back in the active half; past the chips, nothing (east-workspace#1741)", () => {
         const ctx = linkCtxOf("both", [[id("R2140"), id("R2141")], [id("A7301")]]);
         const open = run(initialSheetState(), [key("Enter")], ctx).state;

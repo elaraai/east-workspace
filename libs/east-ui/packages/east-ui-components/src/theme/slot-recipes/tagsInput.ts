@@ -21,7 +21,8 @@
  * pixels under it (#1636). The box is never narrower than its placeholder:
  * where a line holds less, the box wraps onto a line of its own
  * (`--tags-typed`, the placeholder's length the renderer gives, in the box's
- * own `ch`).
+ * own `ch`) — and never wider than that line: a placeholder longer than the
+ * field is cut inside the box, which keeps inside the field's edge.
  *
  * In a phone's frame its suggestions are a row of the shared `chip`s under the
  * box, where a wider frame links the browser's list (east-workspace#1741): one
@@ -98,8 +99,8 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
         input: {
             ...fieldInRingedControl,
             flex: 1,
-            /* Its placeholder whole, past its padding: never cut where it shares a line with chips. */
-            minWidth: "max(80px, calc(var(--tags-typed, 0ch) + 12px))",
+            /* Its placeholder whole, past its padding: never cut where it shares a line with chips — up to a line of its own, never past the field. */
+            minWidth: "min(100%, max(80px, calc(var(--tags-typed, 0ch) + 12px)))",
             height: CHIP.height,
             border: "none",
             outline: "none",

@@ -4,7 +4,6 @@
  */
 
 import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { flushSync } from "react-dom";
 import { Box as ChakraBox, chakra, Menu as ChakraMenu, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -14,6 +13,7 @@ import { Dock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { useMeasureAgain } from "../../hooks/useMeasureAgain.js";
 import { kept, keptFlag, keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
@@ -281,37 +281,15 @@ export function DockPane(props: DockPaneProps) {
     // layout effect: the row folds before it paints.
     const foldable = !collapsed && tabs.length > 0;
     const rowRef = useRef<HTMLDivElement | null>(null);
-    const [measuring, setMeasuring] = useState(true);
     const [measure, setMeasure] = useState<TabRowMeasure | undefined>(undefined);
     const signature = words.locale + tabs.map((tab) => `${tab.key}\u0000${tab.label}\u0000${tab.count ?? ""}`).join("\u0001");
-    // Other tabs, or the row back from the rail, are measured again.
-    useLayoutEffect(() => { if (foldable) setMeasuring(true); }, [signature, foldable]);
-    // So is a change of the row's room, before the pane paints at it. The row
-    // is as wide as its pane leaves it, whatever it holds, so folding never
-    // changes what it observes.
+    // Other tabs, the row back from the rail, a change of the row's room — before the pane paints at it — and fonts
+    // arriving are measured again (`useMeasureAgain`). The row is as wide as its pane leaves it, whatever it holds, so
+    // folding never changes what is observed.
+    const { measuring, measured: rowMeasured } = useMeasureAgain(rowRef, signature, foldable);
     useLayoutEffect(() => {
         const row = rowRef.current;
-        if (!foldable || row === null || typeof ResizeObserver === "undefined") return undefined;
-        let room = row.clientWidth;
-        const ro = new ResizeObserver(() => {
-            if (Math.abs(row.clientWidth - room) <= 0.5) return;
-            room = row.clientWidth;
-            flushSync(() => setMeasuring(true));
-        });
-        ro.observe(row);
-        return () => ro.disconnect();
-    }, [foldable]);
-    // Fonts arriving change the tabs' widths, not the row's room.
-    useEffect(() => {
-        const fonts = typeof document === "undefined" ? undefined : document.fonts;
-        if (!foldable || fonts === undefined) return undefined;
-        const again = () => setMeasuring(true);
-        fonts.addEventListener("loadingdone", again);
-        return () => fonts.removeEventListener("loadingdone", again);
-    }, [foldable]);
-    useLayoutEffect(() => {
-        const row = rowRef.current;
-        if (!foldable || !measuring || row === null) return;
+        if (!measuring || row === null) return;
         const width = (el: Element | null) => (el === null ? 0 : el.getBoundingClientRect().width);
         const gapOf = (el: Element | null) => (el === null ? 0 : Number.parseFloat(getComputedStyle(el).columnGap) || 0);
         const drawn = [...row.querySelectorAll<HTMLElement>('[role="tab"]')];
@@ -325,8 +303,8 @@ export function DockPane(props: DockPaneProps) {
             gap: gapOf(row.querySelector('[role="tablist"]')),
             more: width(row.querySelector("[data-dock-more-measure]")) + gapOf(row),
         });
-        setMeasuring(false);
-    }, [measuring, foldable, signature]);
+        rowMeasured();
+    }, [measuring, rowMeasured, signature]);
     const openIndex = Math.max(0, tabs.findIndex(tab => tab.key === openTab?.key));
     // The fold the last measure gave; the row draws every tab while it measures again.
     const measured = !foldable || measure === undefined || measure.tabs.length !== tabs.length

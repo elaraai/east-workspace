@@ -485,8 +485,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
          * its 22px on any pointer everywhere else): each chip 34 tall, padded 12 at its start, 8 apart, its × a 34 square
          * at its end, and the box a tag is typed into as tall, so a row of them is the 44 line inside the control's edge,
          * in the field chrome's body face (the touch floor's 16px on a coarse pointer, where a smaller face zooms the page)
-         * and never narrower than its placeholder; and the row of suggestions under it, the touch chip's 34 too, whatever
-         * the pointer. */
+         * and never narrower than its placeholder, up to a line of its own; and the row of suggestions under it, the touch
+         * chip's 34 too, whatever the pointer. */
         cellForm: {
             minWidth: 0,
             "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
@@ -501,7 +501,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
                     width: "34px", height: "34px", marginBlock: "-1px", marginInlineStart: "0", marginInlineEnd: "-1px", justifyContent: "center", fontSize: "12px",
                 },
                 "& [data-scope=tags-input][data-part=input]": {
-                    height: "34px", paddingInline: "8px", fontFamily: "body", minWidth: "max(80px, calc(var(--tags-typed, 0ch) + 16px))",
+                    height: "34px", paddingInline: "8px", fontFamily: "body", minWidth: "min(100%, max(80px, calc(var(--tags-typed, 0ch) + 16px)))",
                 },
             },
         },

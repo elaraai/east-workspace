@@ -136,6 +136,9 @@ export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
 export { PagedScan, SCAN_CONCURRENCY } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
+// When a layout measured as the page lays it out is measured again, before the browser paints: the one clock of every
+// measured fold — the Dock's tab row here, a ruler's labels, a cell's chips and a bucket cell's tiles beside it.
+export { useMeasureAgain, type MeasureAgain } from "./hooks/useMeasureAgain.js";
 // Keyboard and sizing primitives, and a control's touch target on a coarse
 // pointer — its halo, the row's widths kept (#346, #1221).
 export { radioGroupKey } from "./primitives/radio-group.js";

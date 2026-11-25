@@ -547,9 +547,10 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         if (it === undefined || meta === undefined || (it.kind !== "real" && it.kind !== "group")) return null;
         const cell = it.row.cells.get(meta.key);
         const member = namesMember(meta) && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+        // The pane has the room, and a touch screen no hover to read a `+n` by: a set's and a link's members on as many lines as they take.
         return (
             <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitAt(r, key)} member={member} ghost={undefined}
-                link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />
+                link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} wrap />
         );
     }, [rowAt, columnAt, registers, styles, unitAt, linkCellCtx]);
     const goToIssue = useCallback((issue: EditIssue) => {

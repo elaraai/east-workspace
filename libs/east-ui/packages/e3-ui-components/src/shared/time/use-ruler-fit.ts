@@ -10,7 +10,7 @@
  * on its column; `thinTicks` then decides from the labels as they drew which
  * draw and where. It measures before the browser paints — when the ruler
  * mounts, when its buckets change, when its track's width changes (in the
- * ResizeObserver's delivery) and when fonts arrive (`../use-measure-again.ts`)
+ * ResizeObserver's delivery) and when fonts arrive (`useMeasureAgain`)
  * — so no frame shows a label it does not rest on. A track with no width yet
  * (a ruler not laid out) draws every label.
  *
@@ -18,7 +18,7 @@
  */
 
 import { useLayoutEffect, useState, type RefObject } from "react";
-import { useMeasureAgain } from "../use-measure-again.js";
+import { useMeasureAgain } from "@elaraai/east-ui-components/internal";
 import type { Scale, ScaleBucket } from "./scale.js";
 
 /** The geometry and vocabulary a ruler needs, independent of its host. */

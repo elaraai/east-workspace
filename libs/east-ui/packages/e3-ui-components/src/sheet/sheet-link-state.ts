@@ -9,7 +9,9 @@
  * selection, the ⇥ ladder. A member leaves whole — never back into the buffer
  * to be deleted letter by letter (east-workspace#1741): Backspace with nothing
  * typed picks the half's last chip and a second removes it, as Delete and
- * Backspace remove any chips picked, and a chip's × removes it. Pure
+ * Backspace remove any chips picked, and a chip's × removes it. No key takes
+ * the caret into a half that is not live — a set's editor draws its
+ * destination alone, and the caret out of it would leave no input. Pure
  * functions over the machine state; the commit is injected by the core so
  * this module never imports it.
  *
@@ -213,12 +215,12 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
     if (link.chipSel !== null && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return setLink({ chipSel: null });
     if (e.key === "Backspace" && edit.val === "") {
         // The active half's last chip is picked, and the next Backspace takes it whole (east-workspace#1741); an empty To
-        // crosses back to From.
+        // crosses back to From, where From is live.
         if (link.groups[link.side].length > 0) {
             const last = (link.side === 0 ? 0 : link.groups[0].length) + link.groups[link.side].length - 1;
             return setLink({ chipSel: { anchor: last, focus: last } });
         }
-        if (link.side === 1) return switchSide(s, 0, ctx);
+        if (link.side === 1 && linkCtx.halves.from.live) return switchSide(s, 0, ctx);
         return { state: s, effects: [] };
     }
     if (e.key === "ArrowRight" && e.atEnd && edit.val.trim() !== "") {
@@ -238,8 +240,8 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
             return { state: { ...s, msg: { id: "predictedTaken", n: rest.length }, edit: { ...edit, link: { ...link, groups } } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
         }
     }
-    // Plain arrows at the edge of an empty buffer cross the divider.
+    // Plain arrows at the edge of an empty buffer cross the divider, into a live half.
     if (e.key === "ArrowRight" && edit.val === "" && !e.meta && link.side === 0 && linkCtx.halves.to.live) return switchSide(s, 1, ctx);
-    if (e.key === "ArrowLeft" && edit.val === "" && link.chipSel === null && link.side === 1) return switchSide(s, 0, ctx);
+    if (e.key === "ArrowLeft" && edit.val === "" && link.chipSel === null && link.side === 1 && linkCtx.halves.from.live) return switchSide(s, 0, ctx);
     return { state: s, effects: [] };
 }

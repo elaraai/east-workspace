@@ -406,7 +406,7 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
         const count = tab.querySelector("[data-tab-count]")?.textContent ?? "";
         return 8 * (tab.firstElementChild?.textContent?.length ?? 0) + (count === "" ? 0 : 7 + 6 * count.length);
     };
-    // jsdom lays nothing out: the tabs measure as the stand-in says, 20px apart, the menu's stand-in 30px.
+    // jsdom lays nothing out: the row is as wide as its room, and the tabs measure as the stand-in says, 20px apart, the menu's stand-in 30px.
     // Rows 11 is 51px, Registers 29 91px, Columns 6 69px: whole they take 251px, and 200px without their counts.
     beforeEach(() => {
         room = 260;
@@ -419,7 +419,8 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
             if (this.matches("[data-dock-more-measure]")) measures += 1;
             const width = this.matches('[role="tab"]') ? tabWidth(this)
                 : this.matches("[data-tab-count]") ? 6 * (this.textContent?.length ?? 0)
-                    : this.matches("[data-dock-more-measure]") ? 30 : 0;
+                    : this.matches("[data-dock-more-measure]") ? 30
+                        : this.matches("[data-dock-tabs]") ? room : 0;
             return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0, toJSON: () => ({}) } as DOMRect;
         };
         Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get(this: Element) { return this.matches("[data-dock-tabs]") ? room : 0; } });
