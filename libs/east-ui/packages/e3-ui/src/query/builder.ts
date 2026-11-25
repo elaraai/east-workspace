@@ -56,8 +56,8 @@ import { QueriesHandleType, type QueriesHandle } from "./queries.js";
  * The query open in a builder is not among them: its host gives it as `query`
  * and hears of another in `onOpen` (#1668).
  *
- * @param id - The builder's name, when a surface holds more than one; omitted, the one builder
- * @returns The key and the id
+ * @param id - The builder's or the query library's name, when a surface holds more than one; omitted, the one builder or library
+ * @returns The two keys: this viewer's recent runs', and the query library's
  */
 export function queryKeys(id: string | undefined): {
     /** This viewer's recent runs' storage key. */
