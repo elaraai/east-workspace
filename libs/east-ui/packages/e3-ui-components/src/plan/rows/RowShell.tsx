@@ -36,7 +36,7 @@ import { usePlanEdit, type PlanProposal } from "../edit/store.js";
 import { holdsKey, movedCandidate } from "../edit/use-carry.js";
 import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
-import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
+import { LoadingRowBar, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -222,8 +222,8 @@ export interface RowShellProps {
     /** The row is the last visible member of an open group — it carries the
      *  group's closing rule (#949). */
     groupEnd?: boolean | undefined;
-    /** Its events are unread (#1398, CL2): the region wash lies under what its plot holds, on the canvas's reveal clock,
-     *  and the plot is busy — never an empty row while its cells are on their way. */
+    /** Its events are unread (#1398, CL2): one skeleton bar lies across its plot under what it holds (#1764), on the
+     *  canvas's reveal clock, and the plot is busy — never an empty row while its cells are on their way. */
     unread?: boolean | undefined;
     children: ReactNode;
 }
@@ -793,7 +793,7 @@ export function RowShell({
                 // The keyboard carry's destination (#825), staged as a drag's is.
                 data-drop-active={carry !== null && !carry.refused ? "" : undefined}
                 data-drop-invalid={carry !== null && carry.refused ? "" : undefined}
-                // Its events still to land (#1398, CL2): busy, washed under what it holds.
+                // Its events still to land (#1398, CL2): busy, a skeleton bar under what it holds (#1764).
                 aria-busy={unread === true ? true : undefined}
                 data-plan-unread={unread === true ? "" : undefined}
                 onPointerMove={(e) => {
@@ -819,8 +819,8 @@ export function RowShell({
                     if (bucket !== undefined) dispatch({ t: "row.select", key: row.key, at: bucket.start });
                 }}
             >
-                {/* Under everything the plot draws after it — the rules, the marks, the now line (#1398, CL2). */}
-                {unread === true && <LoadingWash />}
+                {/* Under everything the plot draws after it — the rules, the marks, the now line (#1398, CL2; #1764). */}
+                {unread === true && <LoadingRowBar />}
                 {noGrid !== true && (
                     <GridSeparators styles={styles}
                         // A buckets row's lane rules lie under its day rules (#1735); a strip's and an expanded row's none.

@@ -198,15 +198,15 @@ export { SEARCH_DELAY_MS } from "./slice/record/index.js";
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
 
 // One way to show a read in flight or failed (#1398): the unloaded run and its placeholder shapes, the narrow
-// layouts' placeholder card, the region wash, a failure said once — a row grid's line, a region's box — and an
-// empty region said once in the line's slot, the reveal's one clock (CL4) — a builder's, around its frame, which its
-// parts read where they show — their words, and the retained treatment's recipe parts; and the footer's one loading
-// line with the rail's fit (CL3).
+// layouts' placeholder card, a row's skeleton bar (#1764), the region wash, a failure said once — a row grid's line, a
+// region's box — and an empty region said once in the line's slot, the reveal's one clock (CL4) — a builder's, around
+// its frame, which its parts read where they show — their words, and the retained treatment's recipe parts; and the
+// footer's one loading line with the rail's fit (CL3).
 export {
     REVEAL_DELAY_MS, REVEAL_HOLD_MS, revealStep, useLoadingReveal, type RevealState, type RevealStep, type RevealTimings,
     LoadingReveal, useRevealed, type LoadingRevealProps,
     barShare, runRows, runView, type RunGeometry, type RunGroup, type RunSlot, type RunView,
-    LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
+    LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingRowBar, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
     type LoadingEmptyLineProps, type LoadingFailedBoxProps, type LoadingFailedLineProps, type LoadingRetry, type LoadingWashProps, type PlaceholderCardProps,
     type PlaceholderKind, type PlaceholderShapeProps,
     UnloadedRun, type RunCell, type RunFailure, type RunGridCell, type UnloadedRunProps,

@@ -9,11 +9,11 @@
  * shared `UnloadedRun`: rows at the rows' pitch where the run meets the view,
  * each on the canvas's own two columns with the gutter's rule, the bucket grid
  * and the now line; its label a bar, and its sub line one on two-line rows;
- * its plot the region wash — no bar, card or event shape, so nothing implies
- * a time (CL2). The canvas cannot know how many rows an unvisited window
- * produces (a series emits several per source element, or none), so the
- * placeholder rows say nothing of a count: they are the rows' look at the
- * rows' pitch, and nothing else.
+ * its plot one skeleton bar across the whole window (#1764) — no event's bar,
+ * card or other shape, so nothing implies a time (CL2). The canvas cannot
+ * know how many rows an unvisited window produces (a series emits several per
+ * source element, or none), so the placeholder rows say nothing of a count:
+ * they are the rows' look at the rows' pitch, and nothing else.
  *
  * Its height comes from the ledger, so the run and the rows that replace it
  * occupy exactly the same space: scrolling in loads content without moving
@@ -79,12 +79,12 @@ export function PlanRunRow({ band, failure, styles, gridTemplate, pitch, noun, o
     const px = Math.max(0, band?.px ?? failure?.px ?? 0);
     const from = band?.from ?? failure?.from ?? 0;
     const to = band?.to ?? failure?.to ?? -1;
-    // The gutter's label — and its sub line on two-line rows — then the plot: the wash under the grid and the now line.
+    // The gutter's label — and its sub line on two-line rows — then the plot: its skeleton bar under the grid and the now line.
     const nowFrac = scale.nowFrac;
     const cells = useMemo((): RunCell[] => [
         { kind: pitch >= geometry.rowStacked ? "label2" : "label", css: slot(styles, "runGutter") },
         {
-            kind: "wash", css: slot(styles, "runPlot"),
+            kind: "rowBar", css: slot(styles, "runPlot"),
             overlay: <>
                 <GridSeparators styles={styles} />
                 {nowFrac !== undefined && <NowLine styles={styles} at={nowFrac} data-plan-axisline data-plan-now />}

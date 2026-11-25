@@ -308,7 +308,7 @@ describe("the timeline shows the period chosen and scrolls only within it (ruled
         expect(periodShown(container, timeline).chip).toMatch(/^\d+ overlaps$/);
     });
 
-    test("a step shows the period read ahead at once — nothing unread or washed, every row's hours said — keeps the view where it was along the period, reads nothing of it again and reads the period after it ahead; a step back the same, the Backlog read no more (#1398, CL7)", async () => {
+    test("a step shows the period read ahead at once — nothing unread, no row's skeleton bar nor any wash, every row's hours said — keeps the view where it was along the period, reads nothing of it again and reads the period after it ahead; a step back the same, the Backlog read no more (#1398, CL7, #1764)", async () => {
         const { container, timeline } = await openTimeline("month", "step-ahead");
         const october = windowOf(timeline);
         const [november, december, september] = [periodOn(october, 1), periodOn(october, 2), periodOn(october, -1)];
@@ -322,11 +322,11 @@ describe("the timeline shows the period chosen and scrolls only within it (ruled
             expect(windowOf(timeline), `${step}: the period`).toEqual(period);
             expect({
                 unread: timeline.getAttribute("data-calendar-unread"),
-                washed: timeline.querySelectorAll("[data-loading-wash]").length,
+                waiting: timeline.querySelectorAll("[data-loading-bar], [data-loading-wash]").length,
                 placeholders: timeline.querySelectorAll("[data-calendar-booked] [data-shape]").length,
                 busy: slot(container, "main").getAttribute("aria-busy"),
                 left: timeline.scrollLeft,
-            }, `${step}: shown at once, the view where it was along the period`).toEqual({ unread: null, washed: 0, placeholders: 0, busy: "false", left: along });
+            }, `${step}: shown at once, the view where it was along the period`).toEqual({ unread: null, waiting: 0, placeholders: 0, busy: "false", left: along });
             expect(timeline.querySelectorAll("[data-calendar-event]").length, `${step}: its events`).toBeGreaterThan(0);
         };
         await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Next month" })); });

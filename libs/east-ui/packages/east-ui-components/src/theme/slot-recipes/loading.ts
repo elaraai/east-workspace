@@ -7,7 +7,7 @@
  * The shared loading parts' slot recipe (#1398; the design of record's
  * `docs/proposals/loading-1398/guidelines/cards/loading-parts.css`, in the
  * theme's tokens): the unloaded run (`collections/loading/unloaded-run.tsx`)
- * and its placeholder shapes, the region wash, a failure said in place — the
+ * and its placeholder shapes, a row's skeleton bar, the region wash, a failure said in place — the
  * failed line a row grid holds, and the message box of a region with no row
  * to hold one — and the placeholder card of the narrow layouts.
  *
@@ -29,9 +29,13 @@
  *     meter track or a status's dot, which the host gives no fill of its own
  *     while it holds one.
  *   - band / chevron: a grouped run's band, its chevron real.
+ *   - rowBar: a row's plot waiting for its read (#1764) — one skeleton bar
+ *     across it, the placeholder fill at a body value bar's height, square-ended,
+ *     centred in the row and inset at either end; across the whole window, so it
+ *     implies no time — under the plot's rules and now line, which draw after it.
  *   - wash: the region wash, `--ink` at 6% over a region whose items have no
- *     known position yet — under the real rules, shading and the now line,
- *     which draw after it.
+ *     known position yet and that is not a row — under the real rules, shading
+ *     and the now line, which draw after it.
  *   - failedLine / failedIcon / failedMessage: a failure said once, in a row:
  *     `circle-exclamation` 14 `--neg`, the reason 13 `--ink`, then Retry.
  *   - failedBox: the same, where no row can hold a line — the Schematic's
@@ -138,7 +142,7 @@ export const loadingSlotRecipe = defineSlotRecipe({
     className: "elara-loading",
     slots: [
         "run", "row", "cell", "number", "bar", "chip", "box", "dot", "count", "arrow", "pair", "stack", "check", "fill", "band", "chevron",
-        "wash", "failedLine", "failedIcon", "failedMessage", "failedBox", "emptyLine", "emptyLead", "emptyIcon", "emptyHint",
+        "rowBar", "wash", "failedLine", "failedIcon", "failedMessage", "failedBox", "emptyLine", "emptyLead", "emptyIcon", "emptyHint",
         "card", "cardBody", "cardHead", "cardTitle", "cardMeta",
     ],
     base: {
@@ -239,6 +243,15 @@ export const loadingSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             color: "fg.muted",
             transform: "rotate(90deg)",
+        },
+        // Its offset a layout length, never a transform: a background's box paints on whole pixels.
+        rowBar: {
+            ...FILL,
+            position: "absolute",
+            insetInline: "{spacing.2}",
+            top: "calc(50% - 6px)",
+            height: "12px",
+            pointerEvents: "none",
         },
         wash: {
             position: "absolute",

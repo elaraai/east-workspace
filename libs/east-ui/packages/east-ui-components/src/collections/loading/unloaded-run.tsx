@@ -57,7 +57,7 @@ export interface RunCell {
     readonly align?: "start" | "end" | "center" | undefined;
     /** The host's own style for the cell, merged over the run's: its real rules, padding and track. */
     readonly css?: SystemStyleObject | undefined;
-    /** What the host draws over a `wash` cell, the same in every row: a plot's grid and its now line. */
+    /** What the host draws over a `rowBar` cell, the same in every row: a plot's grid and its now line. */
     readonly overlay?: ReactNode;
 }
 
@@ -251,12 +251,12 @@ function RunCellView({ cell, c, slot, index, number, shapes, styles }: {
     cell: RunCell; c: number; slot: RunSlot; index: number; number: string | undefined; shapes: boolean; styles: Record<string, SystemStyleObject>;
 }) {
     const real = cell.kind === "rowNumber" && number !== undefined;
-    // A wash is a region's ground, not a value: it draws under the host's overlay as soon as the fill does.
+    // A row's bar lies under the host's overlay, which draws at once: the bar as soon as the fill does.
     const drawn = real || shapes;
     return (
         <Box as="span" css={[styles.cell, cell.css]} data-run-cell={c} data-kind={cell.kind} data-align={cell.align ?? placeholderAlign(cell.kind)}>
             {drawn && <PlaceholderShape kind={cell.kind} index={index + (slot.line > 0 ? slot.line : 0)} number={number} overlay={cell.overlay} styles={styles} />}
-            {!drawn && cell.kind === "wash" && cell.overlay}
+            {!drawn && cell.kind === "rowBar" && cell.overlay}
         </Box>
     );
 }

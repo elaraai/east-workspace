@@ -29,7 +29,7 @@
  *   slice's: a Plan without one has no zoom but the one it shows.
  * - Below 480px of main, a tap on a cell opens the input in a popover anchored
  *   to it, its Enter writing as above. A card reads its row's nested series
- *   whatever the desktop folds, washed while they are read.
+ *   whatever the desktop folds, its skeleton bar drawn while they are read.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -198,8 +198,8 @@ describe("a number typed into a table cell (#1438)", () => {
         await typeIn(c, "15");
         await press(c, "Enter");
         await read.holding;
-        // The leaf, its middle measure and its top measure wash as in flight; its sibling does not.
-        const inFlight = () => [LEAF, MIDDLE, TOP, LEAF_2].map((row) => c.querySelector(`${row} [data-plan-unread]`) !== null);
+        // The leaf, its middle measure and its top measure draw as in flight, a skeleton bar across each; its sibling does not.
+        const inFlight = () => [LEAF, MIDDLE, TOP, LEAF_2].map((row) => c.querySelector(`${row} [data-plan-unread] > [data-loading-bar]`) !== null);
         await waitFor(() => expect(inFlight()).toEqual([true, true, true, false]));
         read.release();
         await settle();
@@ -448,18 +448,18 @@ describe("below 480px of main (#1438)", () => {
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["15", "22"]));
     });
 
-    test("with its measures folded on the desktop, a leaf's card reads its readings, washed while they are read and the frame waiting on them, and a tap on one takes a typed number, the subtotals above it moving", async () => {
+    test("with its measures folded on the desktop, a leaf's card reads its readings, its skeleton bar drawn while they are read and the frame waiting on them, and a tap on one takes a typed number, the subtotals above it moving", async () => {
         const { container: c } = await h.mount(ledgersTyped("week", { collapsed: true }));
         await settle();
         // Folded, the desktop lays out none of ledger 101's leaves.
         expect(c.querySelector(LEAF)).toBeNull();
         await narrowTo(390);
-        // Ledger 101's rows as cards, their readings' reads held: its leaf's card washes until they land.
+        // Ledger 101's rows as cards, their readings' reads held: its leaf's card draws its skeleton bar until they land.
         const reads = h.e3.hold((request) => request.kind === "find");
         const group = [...c.querySelectorAll<HTMLElement>("[data-plan-groupcard]")]
             .find((el) => el.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
         await act(async () => { fireEvent.click(group); });
-        await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread]`)).not.toBeNull());
+        await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread] > [data-loading-bar]`)).not.toBeNull());
         // The frame waits on them as it does on a row in view on the desktop: main busy, and its line saying so — a phone's
         // the footer's still, laid over main's foot (Mobile Builder Frame Spec.md R5).
         const line = () => slot(c, "footer")!.querySelector("[data-footer-line] [data-line-text]")?.textContent ?? null;

@@ -327,7 +327,7 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
             // Down among the presses from 1141: their rows drawn, their cells read.
             act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
             await waitFor(() => expect(plot(container, "P-1141")).not.toBeNull(), { timeout: 10_000 });
-            await waitFor(() => expect(plot(container, "P-1141")!.querySelector("[data-loading-wash]")).toBeNull(), { timeout: 10_000 });
+            await waitFor(() => expect(plot(container, "P-1141")!.querySelector("[data-loading-bar]")).toBeNull(), { timeout: 10_000 });
             await settle();
             // Two halls chosen that hold none of those presses, their windows held on their way.
             const windows = h.e3.hold((request) => request.dataset === PRESSES && (request.kind === "page" || request.kind === "runs")
@@ -338,7 +338,7 @@ describe("the presses, the Plan's rows, paged and narrowed by its rows source (#
             await settle();
             // The last view stands in as it was drawn — its rows, their cells — retained, and busy; the line says it filters.
             expect(plot(container, "P-1141")).not.toBeNull();
-            expect(plot(container, "P-1141")!.querySelector("[data-loading-wash]")).toBeNull();
+            expect(plot(container, "P-1141")!.querySelector("[data-loading-bar]")).toBeNull();
             expect(body(container).getAttribute("aria-disabled")).toBe("true");
             expect(slot(container, "main")!.getAttribute("aria-busy")).toBe("true");
             await waitFor(() => expect(loadingLine(container)).toMatch(/^Filtering/));

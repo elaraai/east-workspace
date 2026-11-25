@@ -692,34 +692,37 @@ describe("what the cells do not hold (#1039)", () => {
 // ============================================================================
 
 describe("the cells on their way (#1398, CL2)", () => {
-    test("while the cells of the rows in view are on their way, each press's row is washed under what it holds and busy, the footer's line says the jobs are read and main is busy — never an empty row; landed, the bars draw and nothing waits", async () => {
+    test("while the cells of the rows in view are on their way, each press's row draws one skeleton bar across its plot under what it holds and is busy, the footer's line says the jobs are read and main is busy — never an empty row, nor a washed one (#1764); landed, the bars draw and nothing waits", async () => {
         // The cells' jobs held on the wire: their counts land, their entries do not.
         const entries = h.e3.hold((request) => through(SERIES)(request) && request.kind === "runs");
         const { container: c } = await h.mount(seriesPlan);
         await entries.holding;
         await settle();
         const plot = (press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} [data-plan-plot]`);
-        // Each press's row holds its place, its plot washed and busy, no bar drawn: nothing says it is empty.
-        await waitFor(() => expect(plot("P-1001")?.querySelector("[data-loading-wash]")).not.toBeNull());
+        // Each press's row holds its place, one skeleton bar across its plot and busy, no job's bar drawn and nothing
+        // washed: nothing says it is empty.
+        await waitFor(() => expect(plot("P-1001")?.querySelector("[data-loading-bar]")).not.toBeNull());
+        expect(plot("P-1001")!.querySelectorAll("[data-loading-bar]")).toHaveLength(1);
+        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
         expect(plot("P-1001")!.getAttribute("aria-busy")).toBe("true");
         expect(plot("P-1001")!.querySelectorAll("[data-run]")).toHaveLength(0);
         // On the Plan's one reveal clock: shown once the wait has passed its delay.
-        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-wash]")!.hasAttribute("data-unrevealed")).toBe(false));
+        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-bar]")!.hasAttribute("data-unrevealed")).toBe(false));
         // The footer's line says what is read, in the jobs' words; main is busy.
         const line = slot(c, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
         await waitFor(() => expect(line.querySelector("[data-line-text]")?.textContent).toBe("Loading print job events…"));
         expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
-        // Landed: the bars draw, no row is washed or busy, and nothing waits.
+        // Landed: the jobs' bars draw, no row holds its skeleton bar or is busy, and nothing waits.
         await act(async () => { entries.release(); });
         await settle();
         await waitFor(() => expect(bar(c, "W-0001", "P-1001")).not.toBeNull());
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull();
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
         await waitFor(() => expect(line.hasAttribute("data-idle")).toBe(true));
         expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true");
     });
 
-    test("read again over the range it was read over — another planner's commit — each press's row stands as it was, its bars drawn and nothing washed, while main is busy; over a range it was not — a pan into a new week — the rows read again there are washed until their cells land", async () => {
+    test("read again over the range it was read over — another planner's commit — each press's row stands as it was, its bars drawn and no skeleton bar, while main is busy; over a range it was not — a pan into a new week — the rows read again there draw their skeleton bar until their cells land", async () => {
         const { container: c } = await h.mount(seriesPlan);
         await settle();
         const plot = (press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} [data-plan-plot]`);
@@ -731,25 +734,25 @@ describe("the cells on their way (#1398, CL2)", () => {
         await h.patch(ex.planWindowJobs, jobs);
         await entries.holding;
         await settle();
-        // Retained, never unread: the bars stand in, no row is washed or busy of its own, and main is busy.
+        // Retained, never unread: the bars stand in, no row holds a skeleton bar or is busy of its own, and main is busy.
         expect(bar(c, "W-0001", "P-1001")).not.toBeNull();
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull();
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
         expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
         await act(async () => { entries.release(); });
         await settle();
         await waitFor(() => expect(slot(c, "main")!.getAttribute("aria-busy")).not.toBe("true"));
-        // A pan into the week of 26 October, its cells' counts held: the rows read again there are washed and busy.
+        // A pan into the week of 26 October, its cells' counts held: the rows read again there draw their skeleton bar and are busy.
         const counts = h.e3.hold((request) => through(SERIES)(request) && request.kind === "find");
         await pan(c, "]", 7);
         await counts.holding;
         await settle();
-        expect(plot("P-1001")!.querySelector("[data-loading-wash]")).not.toBeNull();
+        expect(plot("P-1001")!.querySelector("[data-loading-bar]")).not.toBeNull();
         expect(plot("P-1001")!.getAttribute("aria-busy")).toBe("true");
-        // Counted, the week holds no job: nothing more is read, and no row is washed.
+        // Counted, the week holds no job: nothing more is read, and no row holds its skeleton bar.
         await act(async () => { counts.release(); });
         await settle();
-        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull());
+        await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-bar]")).toBeNull());
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
     });
 

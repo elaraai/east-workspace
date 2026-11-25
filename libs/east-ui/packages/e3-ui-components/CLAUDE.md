@@ -2118,11 +2118,12 @@ window through the seam with what it read:
   place of its children's, unfolded; a version the canvas's paged source names
   in its revision. Beside them (`onWaiting`), while a read is in flight, the
   rows waiting on it — each row with a run not held, as a pan, a zoom, a
-  scroll or a commit asks — which wash as a paged kind's unread rows do (the
-  plot busy, #1398 CL2, a card's body too) until their cells land: never a
-  blank plot that fills. The frame waits on them as on any read its view
-  waits for — main busy, the footer's line saying so, the wash shown on the
-  reveal clock: the rows in view the canvas reports at rest, or, narrow, the
+  scroll or a commit asks — which draw one skeleton bar across their plot as a
+  paged kind's unread rows do (the plot busy, #1398 CL2, a card's body too;
+  #1764) until their cells land: never a blank plot that fills. The frame
+  waits on them as on any read its view waits for — main busy, the footer's
+  line saying so, the bar shown on the reveal clock: the rows in view the
+  canvas reports at rest, or, narrow, the
   cards the list shows (`narrowShown`), since the list reports no range.
 - **The span.** The collections every series of the canvas reads, shown or
   not (`usePlanNestedSpan`, #1440): their periods across the record's rows,
@@ -2177,7 +2178,7 @@ window through the seam with what it read:
   (`usePlanWholeRows`, the binding's `rowsAll`), never a window's lean row: a
   row not held yet is read, every row asked meanwhile in one request, and the
   gesture is drafted once it lands; meanwhile the row and every row above it
-  draw in flight (the unread wash, the plot busy: `usePlanEditing`'s
+  draw in flight (the unread skeleton bar, the plot busy: `usePlanEditing`'s
   `inFlight`).
 - **Another planner's commit.** A source moving under the drafts reads every
   drafted row whole at the new revision, in one request, and carries the
@@ -2217,7 +2218,8 @@ what the test's heap holds.
 In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
 #1438's list at 1440 and 390: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving
-nothing as their cells land, the rows waiting washed meanwhile; the rows
+nothing as their cells land, the rows waiting drawing their skeleton bar
+meanwhile; the rows
 shading past the cap at the height of those they stand in for, from the
 totals e3 keeps for the period their columns are — a week's at a week, a
 month's at a month — hatched at neither and under no notice (#1739); a folded
@@ -2392,7 +2394,7 @@ unloaded run (east-ui-components' `UnloadedRun`, #1398, CL2; `SheetRunRow`,
 `PlanRunRow`): rows at the rows' own pitch where the run meets the view — the
 Sheet's with its gutter, its columns' rules and a flat sheet's real row
 numbers, each cell its column kind's shape; the Plan's with its label bars and
-its plot washed under its grid and now line — one item of the virtualizer
+one skeleton bar across its plot under its grid and now line (#1764) — one item of the virtualizer
 however long the run, and to the grid one row, its one cell across it, busy
 while its windows are read — under the Sheet's lens, while the lens reads its
 stretch (`RecordLens.reading`), never one it is not reading, far from the view
@@ -2469,7 +2471,8 @@ lanes, slots and resources, the Calendar's own grid, never the old period's
 events under its labels), a placeholder where its content goes, unseen at its
 footprint until the frame's one reveal clock says so (`LoadingReveal`), which
 the footer's line keeps too, and a region whose items have no known place
-washed (`LoadingWash`); or one whose
+washed (`LoadingWash`) — a timeline row's plot taking one skeleton bar across
+it instead (`LoadingRowBar`, #1764); or one whose
 read failed — its geometry, its cells blank, the failure said once, as a line
 in its first row in view (`LoadingFailedLine`: the Roster's first person's
 days, the Allocation's lane cells or Table row, the Calendar's timeline row
@@ -2619,7 +2622,8 @@ by the shared reader through the Calendar's adapter (`calendarCellsPaged`,
 standing while the view shows only places not read): the blocks of fifty
 around them by the tiles the window touches, every cell's searches in one
 request and the missing cells' entries in one more; a row whose cells have not
-landed draws the wash, busy, and its booked hours a placeholder
+landed draws its skeleton bar (#1764) — a Resources view's column the wash —
+busy, and its booked hours a placeholder
 (`drawnRows`), and while those cells are read — the wait that follows their
 windows' as the view reaches resources not read yet — the footer's line says
 the events read, as the Plan's does (`Loading print job events…`, the shared
@@ -2836,8 +2840,9 @@ A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;
 its `reading` only there, where rows wait on it): a row whose cells never
 landed — before the first read, or scrolled into view — or are on their way over
-a range they were not read over, a window moved, draws the shared wash under what
-it holds, busy, on the Plan's one reveal clock, and the footer's line reads the
+a range they were not read over, a window moved, draws the shared skeleton bar
+across its plot under what it holds (`LoadingRowBar`, #1764), busy, on the
+Plan's one reveal clock, and the footer's line reads the
 kind (`Loading print job events…`); a read again over the same range, a commit's
 or another narrowing's, leaves the cells standing in, retained. A window the view
 shows and then its rows' cells are one wait: what the view showed at its last rest

@@ -6,7 +6,8 @@
 /**
  * The mock's desktop views and the non-draggable narrow agenda. A period not
  * read yet draws its own grid at once — never the period before's events under
- * its labels — each region whose events have no known place yet washed, each
+ * its labels — each region whose events have no known place yet washed, a
+ * timeline row's plot a skeleton bar across it (#1764), each
  * count a placeholder (#1398, CL2, CL5, CL13); a period whose read failed keeps
  * its grid, its cells blank, and says so once: the time and month grids in a
  * box at their top-left in view, the timeline and the agenda in a line in their
@@ -56,7 +57,7 @@ import { Schedule } from "@elaraai/e3-ui/internal";
 import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
-    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
+    LoadingFailedBox, LoadingFailedLine, LoadingRowBar, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
     useSurfaceGestures, type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
@@ -1401,7 +1402,7 @@ const PlotShading = memo(function PlotShading({ shades, styles }: { shades: Retu
 });
 /**
  * A resource row's plot: its events in the period — every one of them, as the Roster's week draws its duties (ruled 9 Nov
- * 2026) — its wash while the period is read, its shading and its now line; and, the first row in view of a failed period,
+ * 2026) — a skeleton bar across it while the period is read (#1764), its shading and its now line; and, the first row in view of a failed period,
  * the failure, which it reads itself (#1398, CL9, CL11). Drawn again only as its events move, never by a scroll, and each
  * event only as what it shows moves (`sameTimelinePlot`). It fills its row, as tall as its lanes or its head makes it, and
  * its lanes' bars — and a shade bar, a lane's bars' height (`--calendar-bar`) — are a block in its middle (`timelineLanes`).
@@ -1416,10 +1417,10 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: Tim
     const rowShades = shadesOfRow(ctx, row);
     return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot}
         style={{ minHeight: geometry.height, "--calendar-bar": `${geometry.bar}px` } as CSSProperties} draw={view.view.period !== "month"}>
-        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
-        {read.state === "pending" && <LoadingWash />}
-        {/* A paged kind's resource whose cells have not landed (#1424): washed under what it holds, until they do. */}
-        {read.state === "held" && !rowDrawn(row, ctx.pagedKind, ctx.drawnRows) && <LoadingWash />}
+        {/* A period not read yet: a skeleton bar across the row's plot, under its shading and its now line (#1398, #1764). */}
+        {read.state === "pending" && <LoadingRowBar />}
+        {/* A paged kind's resource whose cells have not landed (#1424): the bar under what it holds, until they do. */}
+        {read.state === "held" && !rowDrawn(row, ctx.pagedKind, ctx.drawnRows) && <LoadingRowBar />}
         {read.state === "held" && rowShades !== undefined && bucket !== undefined
             && <ShadeMarks shades={rowShades} bucket={bucket} from={range.from.getTime()} to={range.to.getTime()} along="x" styles={styles} format={view.format} />}
         {read.state === "failed" && says && <Box css={styles.readLine} data-calendar-read-line="">
@@ -1463,12 +1464,12 @@ const RUN_COLUMNS = "auto minmax(0, 1fr)";
  * A run of the paged resource kind's places not read yet (#1424), or of a window whose read failed: the shared unloaded
  * run (`UnloadedRun`), as the Plan's and the Sheet's rows not read are — one item of the timeline however many places, as
  * tall as their rows at their pitch, drawing a row only where it meets the view: its name a placeholder in the sticky
- * resource column and its plot washed. A failed window says so once, in its first row in view, with Retry (#1398, CL11).
+ * resource column and a skeleton bar across its plot (#1764). A failed window says so once, in its first row in view, with Retry (#1398, CL11).
  */
 const TimelineRun = memo(function TimelineRun({ styles, from, to, pitch, failure, retryName, retry }: {
     styles: CalendarStyles; from: number; to: number; pitch: number; failure: string | undefined; retryName: string | undefined; retry: (() => void) | undefined;
 }) {
-    const cells = useMemo((): RunCell[] => [{ kind: "label", css: slotOf(styles, "runHead") }, { kind: "wash", css: slotOf(styles, "runPlot") }], [styles]);
+    const cells = useMemo((): RunCell[] => [{ kind: "label", css: slotOf(styles, "runHead") }, { kind: "rowBar", css: slotOf(styles, "runPlot") }], [styles]);
     const failed = useMemo((): RunFailure | undefined => failure === undefined || retry === undefined ? undefined
         : { message: failure, retry: { onRetry: retry, name: retryName }, from: 1 }, [failure, retry, retryName]);
     return <Box data-calendar-run={`${from}-${to}`} data-calendar-run-failed={failed === undefined ? undefined : ""}>

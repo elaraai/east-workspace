@@ -263,7 +263,7 @@ for (const theme of LAYOUT_THEMES) {
 const JOBS = "records.plan_window_jobs";
 
 for (const theme of LAYOUT_THEMES) {
-    test(`planWindows: presses scrolled into view whose cells are still on their way are washed across their plot and busy, on the reveal clock, the footer's line reading the jobs — never an empty row; landed, their bars draw and nothing is washed (#1398, CL2) — ${theme} @desktop`, async ({ page }) => {
+    test(`planWindows: presses scrolled into view whose cells are still on their way draw one skeleton bar across their plot and are busy, on the reveal clock, the footer's line reading the jobs — never an empty row, nor a washed one; landed, their bars draw and no skeleton bar is left (#1398, CL2, #1764) — ${theme} @desktop`, async ({ page }) => {
         await installE3Faults(page);
         const entry = await openExample(page, "planWindows", WINDOWS, theme);
         // The cells' entries held: the presses scrolled to below are on their way, their counts landed.
@@ -274,27 +274,31 @@ for (const theme of LAYOUT_THEMES) {
         await expect.poll(() => heldE3(page, held)).toBeGreaterThan(0);
         await settled(page, { holding: true });
         const plot = row.locator("[data-plan-plot]");
-        const wash = plot.locator("[data-loading-wash]");
-        await expect(wash).toHaveCount(1);
-        await expect(wash).not.toHaveAttribute("data-unrevealed", "");
-        // Shown on the reveal clock across the row's plot, in the wash's ink; the row busy, no bar on it.
+        const skeleton = plot.locator("[data-loading-bar]");
+        await expect(skeleton).toHaveCount(1);
+        await expect(skeleton).not.toHaveAttribute("data-unrevealed", "");
+        // Shown on the reveal clock: one bar across the row's plot, a small inset at either end, a body value bar's height
+        // in the row's middle, square-ended and painted — and no wash; the row busy, no job's bar on it.
         const drawn = await plot.evaluate((el) => {
-            const w = el.querySelector<HTMLElement>("[data-loading-wash]")!, s = getComputedStyle(w);
-            const p = el.getBoundingClientRect(), b = w.getBoundingClientRect();
+            const bar = el.querySelector<HTMLElement>("[data-loading-bar]")!, s = getComputedStyle(bar);
+            const p = el.getBoundingClientRect(), b = bar.getBoundingClientRect();
+            const start = b.left - p.left, end = p.right - b.right;
             return {
-                visibility: s.visibility, covers: Math.abs(b.width - p.width) <= 1 && Math.abs(b.height - p.height) <= 1,
+                visibility: s.visibility, height: b.height, centred: Math.abs(b.top + b.height / 2 - (p.top + p.height / 2)) <= 1,
+                inset: Math.abs(start - end) <= 1 && start > 0 && start <= 16, square: s.borderRadius === "0px",
                 painted: s.backgroundColor !== "rgba(0, 0, 0, 0)", busy: el.getAttribute("aria-busy"),
             };
         });
-        expect(drawn).toEqual({ visibility: "visible", covers: true, painted: true, busy: "true" });
+        expect(drawn).toEqual({ visibility: "visible", height: 12, centred: true, inset: true, square: true, painted: true, busy: "true" });
+        await expect(entry.locator("[data-frame-slot='main'] [data-loading-wash]")).toHaveCount(0);
         await expect(row.locator("[data-run]")).toHaveCount(0);
         const line = entry.locator("[data-frame-slot='footer'] [data-footer-line]");
         await expect(line.locator("[data-line-text]")).toHaveText("Loading print job events…");
-        // Landed: the bars draw, no row is washed, and the line says nothing.
+        // Landed: the jobs' bars draw, no skeleton bar is left, and the line says nothing.
         await releaseE3(page, held);
         await expect(row.locator("[data-run]").first()).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        await expect(entry.locator("[data-loading-wash]")).toHaveCount(0);
+        await expect(entry.locator("[data-loading-bar]")).toHaveCount(0);
         await expect(line).toHaveAttribute("data-idle", "");
     });
 }

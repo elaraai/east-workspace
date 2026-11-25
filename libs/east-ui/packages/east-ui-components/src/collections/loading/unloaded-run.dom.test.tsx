@@ -10,7 +10,7 @@
  * grouped run's bands; a failed run's one line with its Retry; every
  * placeholder `aria-hidden`. Laid out as the Sheet's rows are (a gutter with
  * the number, then the columns) and as the Plan's (a label column, then a
- * plot washed under its grid and its now line) — the two parts it replaces.
+ * plot's skeleton bar under its grid and its now line, #1764) — the two parts it replaces.
  * In a frame it follows the view itself (`rows-scroll.ts`): drawn as it
  * mounts, and again only as a row comes into the view or leaves it; under a
  * builder's reveal its shapes wait for the reveal's word (CL4).
@@ -34,10 +34,10 @@ const SHEET_CELLS: readonly RunCell[] = [
     { kind: "text" }, { kind: "text" }, { kind: "enum" }, { kind: "date", align: "end" }, { kind: "number" },
 ];
 
-/** The Plan's row: its label column's two lines, then its plot, washed under the host's grid and now line. */
+/** The Plan's row: its label column's two lines, then its plot, a skeleton bar under the host's grid and now line. */
 const PLAN_CELLS: readonly RunCell[] = [
     { kind: "label2" },
-    { kind: "wash", overlay: <i data-host-grid="" /> },
+    { kind: "rowBar", overlay: <i data-host-grid="" /> },
 ];
 
 /** Renders a run. */
@@ -130,19 +130,20 @@ describe("UnloadedRun (CL2)", () => {
         expect(cells.map((c) => [c.getAttribute("aria-colindex"), c.getAttribute("aria-colspan"), c.textContent])).toEqual([["2", "5", "Couldn't read rows 1–16,667Retry"]]);
     });
 
-    test("laid out as the Plan's rows: the label column's two bars, the plot washed under the host's grid and now line", () => {
+    test("laid out as the Plan's rows: the label column's two bars, the plot's skeleton bar under the host's grid and now line (#1764)", () => {
         mount({ height: 2778 * 42, pitch: 42, columns: "128px 1fr", cells: PLAN_CELLS, rowNumber: undefined, view: { top: 0, bottom: 84 } });
         const drawn = rows();
         expect(drawn.length).toBe(2);
         expect(drawn.map((row) => row.style.height)).toEqual(["42px", "42px"]);
-        expect(shapes(drawn[0]!)).toEqual(["label2", "wash"]);
-        // The host's grid draws over the wash in every row, as its real rows draw it.
-        expect(drawn.every((row) => row.querySelector("[data-loading-wash] + [data-host-grid]") !== null)).toBe(true);
+        expect(shapes(drawn[0]!)).toEqual(["label2", "rowBar"]);
+        // The host's grid draws over the bar in every row, as its real rows draw it; no region wash is drawn.
+        expect(drawn.every((row) => row.querySelector("[data-loading-bar] + [data-host-grid]") !== null)).toBe(true);
+        expect(document.querySelector("[data-loading-wash]")).toBeNull();
     });
 
-    test("a plot's grid and now line draw at once; the wash under them waits for the fill", () => {
+    test("a plot's grid and now line draw at once; the bar under them waits for the fill", () => {
         mount({ height: 2778 * 42, pitch: 42, columns: "128px 1fr", cells: PLAN_CELLS, rowNumber: undefined, view: { top: 0, bottom: 42 }, filled: false });
-        expect([rows()[0]!.querySelector("[data-host-grid]") !== null, rows()[0]!.querySelector("[data-loading-wash]")]).toEqual([true, null]);
+        expect([rows()[0]!.querySelector("[data-host-grid]") !== null, rows()[0]!.querySelector("[data-loading-bar]")]).toEqual([true, null]);
     });
 
     test("a grouped run repeats its band — its chevron real, its key and count placeholders — and its lines at the pitch", () => {

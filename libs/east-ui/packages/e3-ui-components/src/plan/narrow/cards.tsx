@@ -13,7 +13,7 @@
 import { memo, useMemo, type ComponentProps } from "react";
 import { Box } from "@chakra-ui/react";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
-import { LoadingWash } from "@elaraai/east-ui-components/internal";
+import { LoadingRowBar } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
@@ -56,7 +56,8 @@ export interface NarrowRowCardProps {
     watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
     /** The row's draft mark (#880) — the canvas row's, where the draft was made. */
     draft: PlanDraftMark | undefined;
-    /** Its cells are unread (#1398, #1438): the body washes under what it holds, as the canvas's row's plot does. */
+    /** Its cells are unread (#1398, #1438): one skeleton bar lies across the body under what it holds, as across the
+     *  canvas's row's plot (#1764). */
     unread: boolean;
 }
 
@@ -147,8 +148,8 @@ export const NarrowRowCard = memo(function NarrowRowCard({
             )}
             <Box css={styles.narrowCardBody} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
                 aria-busy={unread ? true : undefined} data-plan-unread={unread ? "" : undefined}>
-                {/* Under everything the body draws after it, as the canvas's row's plot washes (#1398, CL2). */}
-                {unread && <LoadingWash />}
+                {/* Under everything the body draws after it, as in the canvas's row's plot (#1398, CL2; #1764). */}
+                {unread && <LoadingRowBar />}
                 {!isChart && <GridSeparators styles={styles} />}
                 {diagnostic !== undefined ? (
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />

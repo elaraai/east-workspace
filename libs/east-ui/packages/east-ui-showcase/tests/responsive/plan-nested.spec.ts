@@ -13,7 +13,8 @@
  * - a scroll, a pan and a zoom move nothing as their cells land: every row in
  *   view — on a phone, every card — keeps its place and its height, and the
  *   scroll stays where it was put; while the cells are in flight the rows
- *   waiting on them are washed and busy, on the reveal clock, and no other;
+ *   waiting on them draw one skeleton bar across their plot and are busy, on
+ *   the reveal clock, and no other (#1764);
  * - past the cap, the rows shading the works' jobs are the height of the rows
  *   they stand in for, and shade from the totals e3 keeps for the period
  *   their columns are — a week's at a week, a month's at a month — hatched at
@@ -394,7 +395,7 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
     });
 
     for (const gesture of ["scroll", "pan", "zoom"] as const) {
-        test(`a ${gesture} moves nothing as its cells land: while they are in flight the rows waiting on them are washed and busy, and no other; landed, every row in view keeps its place and its height`, { tag }, async ({ page }) => {
+        test(`a ${gesture} moves nothing as its cells land: while they are in flight the rows waiting on them draw one skeleton bar across their plot and are busy, and no other; landed, every row in view keeps its place and its height`, { tag }, async ({ page }) => {
             await installE3Faults(page);
             const entry = await openExample(page, ALL, NESTED, theme);
             const narrow = narrowOf(page);
@@ -405,23 +406,27 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
             await settled(page, { holding: true });
             const waiting = entry.locator(narrow ? "[data-plan-cardbody][data-plan-unread]" : "[data-plan-plot][data-plan-unread]");
             await expect(waiting.first()).toBeVisible();
-            const washes = entry.locator("[data-loading-wash]");
-            await expect(washes).toHaveCount(await waiting.count());
-            await expect(washes.first()).not.toHaveAttribute("data-unrevealed", "");
-            // Across each one's plot, painted, busy.
+            const skeletons = entry.locator("[data-loading-bar]");
+            await expect(skeletons).toHaveCount(await waiting.count());
+            await expect(skeletons.first()).not.toHaveAttribute("data-unrevealed", "");
+            // No wash: a waiting row draws its bar alone.
+            await expect(entry.locator("[data-frame-slot='main'] [data-loading-wash]")).toHaveCount(0);
+            // Across each one's plot, a small inset at either end, a body value bar's height in its middle, painted, busy.
             for (const plot of await waiting.all()) {
                 const drawn = await plot.evaluate((el) => {
-                    const wash = el.querySelector<HTMLElement>(":scope > [data-loading-wash]")!;
-                    const style = getComputedStyle(wash);
-                    const p = el.getBoundingClientRect(), b = wash.getBoundingClientRect();
+                    const bar = el.querySelector<HTMLElement>(":scope > [data-loading-bar]")!;
+                    const style = getComputedStyle(bar);
+                    const p = el.getBoundingClientRect(), b = bar.getBoundingClientRect();
+                    const start = b.left - p.left, end = p.right - b.right;
                     return {
-                        visibility: style.visibility, covers: Math.abs(b.width - p.width) <= 1 && Math.abs(b.height - p.height) <= 1,
+                        visibility: style.visibility, height: b.height, centred: Math.abs(b.top + b.height / 2 - (p.top + p.height / 2)) <= 1,
+                        inset: Math.abs(start - end) <= 1 && start > 0 && start <= 16,
                         painted: style.backgroundColor !== "rgba(0, 0, 0, 0)", busy: el.getAttribute("aria-busy"),
                     };
                 });
-                expect(drawn).toEqual({ visibility: "visible", covers: true, painted: true, busy: "true" });
+                expect(drawn).toEqual({ visibility: "visible", height: 12, centred: true, inset: true, painted: true, busy: "true" });
             }
-            // Landed, nothing in view moves, and nothing is washed.
+            // Landed, nothing in view moves, and no skeleton bar is left.
             await watch(entry, narrow);
             await releaseE3(page, held);
             await expect(waiting).toHaveCount(0);
@@ -429,7 +434,7 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
             const frames = await framesOf(page);
             expect(Object.keys(frames[0]!.rows).length).toBeGreaterThan(0);
             expect(movedIn(frames)).toEqual([]);
-            await expect(washes).toHaveCount(0);
+            await expect(skeletons).toHaveCount(0);
         });
     }
 

@@ -248,21 +248,21 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         expect(drawnTwelve(container)).toEqual(drawnTwelve(whole));
     });
 
-    test("a pan into tiles it does not hold washes the machines waiting on them, their plots busy, until the cells land", async () => {
+    test("a pan into tiles it does not hold draws a skeleton bar across each machine waiting on them, their plots busy, until the cells land", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
         await settle();
-        const washed = () => TWELVE.filter((key) => container.querySelector(`${rowAt(entry("presses", key))} [data-plan-unread]`) !== null);
-        expect(washed()).toEqual([]);
+        const waiting = () => TWELVE.filter((key) => container.querySelector(`${rowAt(entry("presses", key))} [data-plan-unread] > [data-loading-bar]`) !== null);
+        expect(waiting()).toEqual([]);
         // A week on, the new week's tiles are searched: while the search is in flight every machine in view waits on it.
         const read = h.e3.hold((request) => through(IN_TIME)(request) && request.kind === "find");
         await pan(container, "]", 7);
         await read.holding;
-        await waitFor(() => expect(washed()).toEqual(TWELVE));
+        await waitFor(() => expect(waiting()).toEqual(TWELVE));
         expect(container.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-plan-unread]`)!.getAttribute("aria-busy")).toBe("true");
         read.release();
         await settle();
-        await waitFor(() => expect(washed()).toEqual([]));
+        await waitFor(() => expect(waiting()).toEqual([]));
     });
 
     test("a scroll to machines further down reads their blocks' cells alone, two requests", async () => {
