@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { policyFlagRefusal } from './rack.js';
+import { policyFlagRefusal, removedFlagRefusal } from './rack.js';
 
 it('refuses a policy flag its verb would leave unread, naming where it belongs, and takes those it reads', () => {
   // The policy's own, given a rule
@@ -33,4 +33,11 @@ it('refuses each flag an earlier release took, with any verb, saying it was remo
   }
   // Beside flags the verb takes, the removed one is still refused
   assert.match(policyFlagRefusal('defaults', { spill: false, keep: 'split' }) ?? '', /^--keep was removed/);
+});
+
+it('refuses a removed flag given bare, as Commander reads one with no value, before anything else of the command', () => {
+  assert.match(removedFlagRefusal({ keep: true }) ?? '', /^--keep was removed: /);
+  assert.match(removedFlagRefusal({ merges: true }) ?? '', /^--merges was removed: /);
+  assert.match(removedFlagRefusal({ weighFetch: false }) ?? '', /^--weigh-fetch\/--no-weigh-fetch was removed: /);
+  assert.equal(removedFlagRefusal({ size: 'large', spill: false }), undefined);
 });

@@ -390,6 +390,21 @@ export function readRackScopesEnded(json: string | null): string[] {
   return value.slice(0, RACK_SCOPES_ENDED_MAX).filter(isRackScopeId);
 }
 
+/**
+ * What a rack that keeps its source's own scope (`hub-keyed-scopes`) says of
+ * what it keeps of it, with each heartbeat.
+ */
+export interface RackReportedHubScope {
+  /** An id the rack changes whenever it deletes what it keeps of the scope as
+   *  a whole — its agent started, its key changed or was lost, the scope went
+   *  idle: a source that sees another forgets what it knew the rack to hold.
+   *  A scope's id in form ({@link isRackScopeId}). */
+  readonly store: string;
+  /** How long the rack keeps the scope unused, in ms: a source takes what it
+   *  knew it to hold as gone once it has not used the rack's scope so long. */
+  readonly idleMs: number;
+}
+
 /** What a rack says of a tier it boots environments over. */
 export interface RackReportedTier {
   /** The digest of the tier image's manifest: `sha256:<hex>` of its bytes */
@@ -496,6 +511,12 @@ export interface RackReport {
   readonly tiers?: Readonly<Record<string, RackReportedTier>>;
   /** All the rack has */
   readonly resources?: RackResources;
+  /**
+   * What the rack keeps of its source's own scope, beside
+   * {@link RACK_HUB_KEYED_SCOPES} ({@link RackReportedHubScope}): absent from
+   * a rack that names no such feature, or reports none.
+   */
+  readonly hubScope?: RackReportedHubScope;
   /** What of it is not booked now */
   readonly free?: RackResources;
 }
@@ -582,7 +603,17 @@ export function readRackReport(json: string): RackReport {
     ...(fields.tiers !== undefined && { tiers: tiers(fields.tiers) }),
     ...(fields.resources !== undefined && { resources: resources(fields.resources, 'the report\'s resources') }),
     ...(fields.free !== undefined && { free: resources(fields.free, 'the report\'s free resources') }),
+    ...hubScopeOf(fields.hubScope),
   };
+}
+
+/** A report's `hubScope`, read leniently: what is beside the work, so one of
+ *  another form is none, and the heartbeat is never refused for it. */
+function hubScopeOf(value: unknown): { hubScope?: RackReportedHubScope } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const { store, idleMs } = value as Record<string, unknown>;
+  if (!isRackScopeId(store) || typeof idleMs !== 'number' || !Number.isSafeInteger(idleMs) || idleMs <= 0) return {};
+  return { hubScope: { store, idleMs } };
 }
 
 /** A JSON value as a report's tiers. */

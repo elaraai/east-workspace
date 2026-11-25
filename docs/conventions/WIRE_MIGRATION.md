@@ -1725,10 +1725,16 @@ Each wire changed under this rule, with the kind it is.
     `RackPolicyType` by the rack package's own test, over the policy release
     1.0.107 stored, carried through every step; e3-core's own test carries a
     policy of release 1.0.117's form through it too. An earlier release
-    refuses a repository that has had the step, naming this release. `e3 rack
-    policy` refuses `--weigh-fetch`, `--no-weigh-fetch`, `--merges` and
-    `--keep`, with any verb, saying each was removed, and `show` no longer
-    prints them.
+    refuses a repository that has had the step, naming this release. A
+    setting let go that asked for more than the defaults (`weighFetch` on,
+    `defaultMerges` or a rule's `merges` `local`, `keep` `session`) is said:
+    the step leaves a notice beside the policy (`rack/policy-notice.beast2`,
+    an `Array<String>` of a line each, naming the setting and why it is gone),
+    which the first command that reads the rack policy after it prints on
+    stderr and removes (e3-core's `takeRackPolicyNotice`). `e3 rack policy`
+    refuses `--weigh-fetch`, `--no-weigh-fetch`, `--merges` and `--keep`,
+    with or without a value and with any verb, before anything else of the
+    command, saying each was removed, and `show` no longer prints them.
   - What a hub and the e3 processes of its machine exchange over its socket:
     `POST /v1/sessions/:id/fetch-costs` and its types (`FetchCostRequestType`,
     `FetchCostResultType`) are gone, and with them the hub's link meter; and a
@@ -1743,13 +1749,27 @@ Each wire changed under this rule, with the kind it is.
     (`RACK_HUB_KEYED_SCOPES`): it keeps a hub's objects for the hub's life,
     encrypted under a key the hub gives it. To such a rack, over a TLS
     listener, a hub grants every task's and unit's lease with its own scope
-    in the lease's `scope` (`{ "id", "feeds": true, "keyed": true }`, one id
-    for the hub's process; a call's lease names none), in place of any split
-    scope, and every heartbeat's answer carries the scope's key in
+    in the lease's `scope` (`{ "id", "feeds", "keyed": true }`, one id for
+    the hub's process, `feeds` the lease's split scope's where it names one,
+    else true; a call's lease names none), in place of any split scope, and
+    every heartbeat's answer to an admitted boot (one that awaits no
+    approval, of an agent the hub does not refuse) carries the scope's key in
     `x-e3-rack-hub-key` (`RACK_HUB_KEY_HEADER`: `{ "id", "key" }`, 32 bytes of
-    base64, the hub's in-memory secret's HMAC of the rack's id; read with
-    `readRackHubKey`). An answer with no key, or another id, tells the rack it
-    holds the key of no scope it kept, which it deletes. The key is never
+    base64, the hub's in-memory secret's HMAC of the rack's id and the boot
+    the heartbeat reports; read with `readRackHubKey`). An answer with no key,
+    or another id or key, tells the rack it holds the key of no scope it kept,
+    which it deletes. One scope serves every repository of the hub: a rack
+    keeps and reads each repository's objects apart, and the hub notes what
+    it holds of each apart. Such a rack's report may say what it keeps of the
+    scope (`hubScope`: `{ "store", "idleMs" }`, `RackReportedHubScope`): `store`
+    an id of a scope's form that it changes whenever it deletes what it kept
+    as a whole (its agent started, its key changed or was lost, the scope went
+    idle), `idleMs` how long it keeps the scope unused. A hub forgets what it
+    knew such a rack to hold when `store` changes, the feature or its key goes,
+    or it has not used the rack's scope for `idleMs` (24 hours where the report
+    names none); a reader takes a `hubScope` of another form as none, and
+    never refuses a heartbeat for it. A rack reports the feature only to a
+    source it reaches over pinned TLS. The key is never
     logged, stored, or put in a lease's event. A rack that does not name the
     feature is granted split scopes as before (`split-scopes`), or none; a
     rack that names it, under a hub from before it, is never told a key or a

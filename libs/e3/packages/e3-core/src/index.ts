@@ -140,6 +140,9 @@ export {
   isTransientFsError,
 } from './storage/local/localHelpers.js';
 
+// What a local repository's rack-policy upgrade let go, said once
+export { takeRackPolicyNotice } from './storage/local/rack-policy-rules.js';
+
 // An environment's layers composed where they run, by any rack agent, over
 // the tier they were built over
 export {

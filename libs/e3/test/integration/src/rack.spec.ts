@@ -220,7 +220,9 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   for (const removed of ['--weigh-fetch', '--merges', '--keep']) assert(!help.includes(removed), `${removed} is not offered`);
   // A flag an earlier release took is refused, saying it was removed, with any verb, and the policy is left as it was
   for (const args of [['set', 'train_*', 'rack', '--merges', 'local'], ['defaults', '--merges', 'rack'], ['defaults', '--keep', 'session'],
-    ['set', 'train_*', 'rack', '--keep', 'split'], ['defaults', '--weigh-fetch'], ['defaults', '--no-weigh-fetch'], ['enable', '--merges', 'local'], ['show', '--keep', 'session']]) {
+    ['set', 'train_*', 'rack', '--keep', 'split'], ['defaults', '--weigh-fetch'], ['defaults', '--no-weigh-fetch'], ['enable', '--merges', 'local'], ['show', '--keep', 'session'],
+    // Given bare, or beside words the verb does not take: still that it was removed
+    ['defaults', '--keep'], ['set', '--merges'], ['set', 'train_*', '--keep', 'session']]) {
     const removed = await f.cli('rack', 'policy', '.', ...args);
     assert.notEqual(removed.exitCode, 0, args.join(' '));
     assert.match(removed.stderr, /(--merges|--keep|--weigh-fetch\/--no-weigh-fetch) was removed: /, args.join(' '));

@@ -929,10 +929,22 @@ run of the same hub — is offered first to that rack (for up to 5 s) when that
 rack could run it, and reads its input there. Root on the running worker can
 read what it keeps while the hub runs, as it can a running task's inputs; its
 files, a disk image of it, and anything once the hub has stopped see
-ciphertext, and a restarted hub's racks start again from nothing. A rack whose
+ciphertext, and a restarted hub's racks start again from nothing. Every rack
+that keeps the hub's scope so keeps every task's inputs and outputs of the
+hub's repositories for the hub's life (24 hours idle at most), readable by root
+on that running worker throughout: there is no setting to keep a task's data
+off a rack's disk but to keep the task off the rack (`set <glob> local`).
+The hub is the process `e3` starts in the background: one it started itself
+exits after 15 idle minutes (`e3 rack config --idle-exit`), and takes its key
+with it, so what racks kept is gone by the next run after that; `e3 rack config
+--idle-exit 0`, or a hub run in the foreground as a service, keeps it for as
+long as that process runs. A rack whose
 agent keeps split scopes alone keeps a split task's pieces for its merges; one
 that keeps nothing fetches as it would. `--weigh-fetch`, `--merges` and
-`--keep` were removed from `e3 rack policy`, and are refused, saying so.
+`--keep` were removed from `e3 rack policy`, and are refused, saying so; a
+policy that held one of them is carried into this release's form as its
+repository is opened, and the first command that reads the policy after that
+says, once, on stderr, each setting it let go and why.
 `e3 rack list` shows each rack's cores, memory and GPUs, and what is free. A
 run says what happens, and sums its rack work up as it ends:
 

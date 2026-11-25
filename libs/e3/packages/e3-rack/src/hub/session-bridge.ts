@@ -580,7 +580,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
           ...(upload === undefined ? {} : { rawBody: c.req.raw.body === null ? new Uint8Array() : Readable.fromWeb(c.req.raw.body) }),
         });
         const read = response.statusCode === 200 || response.statusCode === 206;
-        const held = read && cap.layer === undefined ? { repo: cap.repo, hash: cap.hash } : undefined;
+        // Only an object read to the rack is one it holds: an upload's answer
+        // is 200 too, but what a lease wrote is noted as it completes with success
+        const held = upload === undefined && read && cap.layer === undefined ? { repo: cap.repo, hash: cap.hash } : undefined;
         const headers = new Headers({ 'content-type': 'application/octet-stream' });
         for (const name of ['content-length', 'content-range', 'accept-ranges', 'x-amz-version-id']) {
           const value = response.headers[name];

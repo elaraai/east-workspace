@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { DetachedSpec, StorageBackend } from '@elaraai/e3-core';
+import { takeRackPolicyNotice, type DetachedSpec, type StorageBackend } from '@elaraai/e3-core';
 import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackPolicy, RackRunnerHandle } from '@elaraai/e3-rack';
 // The protocol's entry alone, which loads no hub, route or TLS
 import { leaseReserve, ranLocally } from '@elaraai/e3-rack/protocol';
@@ -36,8 +36,24 @@ export function rackAsked(flags: RackFlags): boolean {
   return flags.rack === true || flags.rackOnly === true;
 }
 
+/**
+ * Says, once, on stderr, what the repository's upgrade let go of its rack
+ * policy, and why (e3-core's `takeRackPolicyNotice`): the first command that
+ * reads the policy after the upgrade says it, and no later one. A notice that
+ * cannot be read is passed over.
+ *
+ * @param repo - The repository's path
+ * @returns Once said
+ */
+export async function sayRackPolicyNotice(repo: string): Promise<void> {
+  const lines = await takeRackPolicyNotice(repo).catch(() => []);
+  if (lines.length === 0) return;
+  console.error(`Rack policy: carried into this release's form, which no longer holds these settings it had:\n${lines.map((line) => `  - ${line}`).join('\n')}`);
+}
+
 /** Resolves the invocation override, then the repository's enabled policy. */
 export async function rackEnabled(repo: string, flags: RackFlags): Promise<boolean> {
+  await sayRackPolicyNotice(repo);
   if (flags.rackOnly) return true;
   if (flags.rack !== undefined) return flags.rack;
   try {
@@ -55,6 +71,7 @@ export async function rackEnabled(repo: string, flags: RackFlags): Promise<boole
  * that runs nothing on a rack never loads the hub, its routes or its TLS.
  */
 export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunnerHandle> {
+  await sayRackPolicyNotice(options.repoPath);
   const { openRackRunner } = await import('@elaraai/e3-rack');
   return openRackRunner(options);
 }

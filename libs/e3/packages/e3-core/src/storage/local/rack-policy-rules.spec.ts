@@ -27,7 +27,7 @@ import { repoInit } from './repository.js';
 import { RACK_POLICY_KEEP, RackPolicyWithKeepType } from './rack-policy-keep.js';
 import { RACK_POLICY_LIMITS, rackPolicyFile } from './rack-policy-limits.js';
 import { RACK_POLICY_MERGES } from './rack-policy-merges.js';
-import { RACK_POLICY_RULES, RackPolicyRulesType, rackPolicyRules } from './rack-policy-rules.js';
+import { RACK_POLICY_RULES, RackPolicyRulesType, rackPolicyRules, takeRackPolicyNotice } from './rack-policy-rules.js';
 import { RACK_POLICY_WEIGH_FETCH } from './rack-policy-weigh-fetch.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 
@@ -101,6 +101,30 @@ describe('rack-policy-rules', () => {
     const once = readFileSync(rackPolicyFile(repo));
     assert.equal(await apply(), null);
     assert.deepEqual(readFileSync(rackPolicyFile(repo)), once);
+  });
+
+  it('says each setting it let go that asked for more than the defaults, and why, once, for the first command that reads the policy', async () => {
+    write(encodeBeast2For(RackPolicyWithKeepType)(kept));
+    assert.equal(await apply(), null);
+    const said = await takeRackPolicyNotice(repo);
+    assert.equal(said.length, 3, said.join('\n'));
+    assert.match(said[0]!, /^weighFetch \(--weigh-fetch\) was on: work is no longer weighed/);
+    assert.match(said[1]!, /^defaultMerges was local \(--merges local\): a split task's merges run where its pieces run$/);
+    assert.match(said[2]!, /^keep was session \(--keep session\): a rack keeps what your hub's tasks read and write/);
+    assert.deepEqual(await takeRackPolicyNotice(repo), [], 'said once');
+    // A rule that kept its own merges local is named too; one that named them on a rack asked for nothing more
+    const rules = { ...kept, weighFetch: false, defaultMerges: variant('rack', null), keep: variant('split', null),
+      rules: [{ ...kept.rules[0]!, merges: some(variant('local', null)) }, { ...kept.rules[1]!, merges: some(variant('rack', null)) }] };
+    write(encodeBeast2For(RackPolicyWithKeepType)(rules));
+    assert.equal(await apply(), null);
+    assert.deepEqual(await takeRackPolicyNotice(repo), ['the rule \'train_*\' kept its merges local (--merges local): a split task\'s merges run where its pieces run']);
+  });
+
+  it('says nothing of a policy that asked for nothing more than the defaults', async () => {
+    write(encodeBeast2For(RackPolicyWithKeepType)({ ...kept, weighFetch: false, defaultMerges: variant('rack', null), keep: variant('split', null),
+      rules: kept.rules.map((rule) => ({ ...rule, merges: none })) }));
+    assert.equal(await apply(), null);
+    assert.deepEqual(await takeRackPolicyNotice(repo), []);
   });
 
   it('leaves a policy already in this form as it is', async () => {

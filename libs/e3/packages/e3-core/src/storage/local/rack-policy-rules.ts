@@ -21,7 +21,12 @@
  * which the rack package reads and writes. Its beast2 header names the whole
  * policy type, and a decode refuses a header whose type differs, so a policy
  * an earlier release stored is rewritten: its rules and defaults are kept as
- * they are, and what the form no longer holds is let go.
+ * they are, and what the form no longer holds is let go. A setting let go
+ * that asked for more than the defaults did — fetches weighed, merges kept
+ * here, a rack keeping the session's work — is said: the step leaves a notice
+ * beside the policy (`rack/policy-notice.beast2`), naming each and why, which
+ * the first command that reads the rack policy after it prints and removes
+ * ({@link takeRackPolicyNotice}).
  *
  * The form it reads is the one `rack-policy-keep` writes, which runs before it,
  * after `rack-policy-limits`, `rack-policy-weigh-fetch` and
@@ -31,7 +36,8 @@
  * @packageDocumentation
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
   decodeBeast2For, encodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue,
@@ -83,6 +89,66 @@ const encodeRules = encodeBeast2For(RackPolicyRulesType);
 /** The name a repository's record keeps once the upgrade is applied. */
 export const RACK_POLICY_RULES = 'rack-policy-rules';
 
+/** The notice the step leaves of the settings it let go: a line of each. */
+const RackPolicyNoticeType = ArrayType(StringType);
+const encodeNotice = encodeBeast2For(RackPolicyNoticeType);
+const decodeNotice = decodeBeast2For(RackPolicyNoticeType);
+
+/**
+ * Where the step leaves its notice of the settings it let go.
+ * @param repo - Repository path
+ * @returns The notice's path
+ */
+function rackPolicyNoticeFile(repo: string): string {
+  return join(repo, 'rack', 'policy-notice.beast2');
+}
+
+/** Why each setting the form no longer holds is gone. */
+const WHY_WEIGH_FETCH = 'work is no longer weighed for what it would fetch: a rack keeps what your hub\'s tasks read and write, so an unchanged input crosses the link once';
+const WHY_MERGES = 'a split task\'s merges run where its pieces run';
+const WHY_KEEP = 'a rack keeps what your hub\'s tasks read and write for as long as the hub runs (24 h idle at most), encrypted under a key only the running hub holds';
+
+/** The settings of a policy of the form before this upgrade that asked for
+ *  more than the defaults, each with why it is gone: none of a policy that
+ *  asked for none. */
+function droppedOf(policy: PolicyWithKeep): string[] {
+  return [
+    ...(policy.weighFetch ? [`weighFetch (--weigh-fetch) was on: ${WHY_WEIGH_FETCH}`] : []),
+    ...(policy.defaultMerges.type === 'local' ? [`defaultMerges was local (--merges local): ${WHY_MERGES}`] : []),
+    ...policy.rules.flatMap((rule) => rule.merges.type === 'some' && rule.merges.value.type === 'local'
+      ? [`the rule '${rule.tasks}' kept its merges local (--merges local): ${WHY_MERGES}`] : []),
+    ...(policy.keep.type === 'session' ? [`keep was session (--keep session): ${WHY_KEEP}`] : []),
+  ];
+}
+
+/**
+ * Takes the notice the step left of the settings of a repository's rack
+ * policy it let go, once: what a command prints the first time it reads the
+ * policy after the step. A second call returns none.
+ *
+ * @param repo - Repository path
+ * @returns A line of each setting let go, and why; none when there is no
+ *   notice, or it does not read
+ * @example
+ * for (const line of await takeRackPolicyNotice(repo)) console.error(`  - ${line}`);
+ */
+export async function takeRackPolicyNotice(repo: string): Promise<string[]> {
+  const file = rackPolicyNoticeFile(repo);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readFile(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  await unlink(file).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
+  try {
+    return decodeNotice(bytes);
+  } catch {
+    return [];
+  }
+}
+
 /** Whether a stored policy's header names a form's type; false for bytes
  *  whose header does not read. */
 function isForm(bytes: Uint8Array, type: EastTypeValue): boolean {
@@ -118,7 +184,8 @@ function ofRules(policy: PolicyWithKeep): PolicyOfRules {
 /**
  * Rewrites a local repository's rack policy in the form of rules and defaults
  * alone: its rules and defaults are kept, and `weighFetch`, `defaultMerges`,
- * `keep` and each rule's `merges` are let go.
+ * `keep` and each rule's `merges` are let go; each of those that asked for
+ * more than the defaults is said in a notice ({@link takeRackPolicyNotice}).
  *
  * @remarks
  * A repository with no policy file has the defaults, and is left without one.
@@ -142,7 +209,11 @@ export const rackPolicyRules: RepositoryUpgrade = {
     }
     if (isForm(bytes, RULES_TYPE)) return null;
     const earlier = withKeep(bytes);
-    if (earlier !== null) await atomicWriteFile(file, encodeRules(ofRules(earlier)));
+    if (earlier === null) return null;
+    // Said before the policy is rewritten: a step a crash cut short says it again
+    const dropped = droppedOf(earlier);
+    if (dropped.length > 0) await atomicWriteFile(rackPolicyNoticeFile(repo), encodeNotice(dropped));
+    await atomicWriteFile(file, encodeRules(ofRules(earlier)));
     return null;
   },
 };

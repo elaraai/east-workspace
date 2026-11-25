@@ -696,35 +696,59 @@ read there by every later task that reads it.
 - **One scope for the hub's process.** The hub makes a random scope id and a
   random 256-bit secret as it starts, in its memory alone. Every task's and
   unit's lease of every session is granted to such a rack with the hub's
-  scope (`keyed`, feeding it); a call's lease with none. No session's close,
+  scope (`keyed`, feeding it, but a lease whose split scope feeds nothing);
+  a call's lease with none. No session's close,
   split task's end or cancel ends it: the hub stopping does, or the rack's
   own bounds.
 - **Encrypted under a key only the running hub holds.** Each heartbeat's answer
   gives the rack its key of the scope (`x-e3-rack-hub-key`): the secret's
-  HMAC of the rack's id, so no two racks keep under one key, sent only over
-  the hub's TLS listener, which the rack pins. A hub with a plain-HTTP
+  HMAC of the rack's id and the boot the heartbeat reports, so no two racks,
+  and no two boots of one, keep under one key, sent only over the hub's TLS
+  listener, which the rack pins, and withheld from a boot that awaits
+  approval (`e3 rack config --require-approval`) and from an agent too old to
+  be leased work: a disk image of a rack, restored with its token, reads
+  nothing the running rack kept. A hub with a plain-HTTP
   listener gives no key and grants no hub scope. The key is never logged,
   stored, or put in a lease's event, and the rack keeps it in memory only.
   What it keeps is AES-256-GCM ciphertext under that key, each object under
   a name that is an HMAC of its hash, checked against its tag and its hash
   before any lease reads it.
-- **For the hub's life, 24 hours idle at most.** A hub that restarts has a new
-  scope and a new key, and a rack deletes what it kept of the last as its
-  next heartbeat says so; it deletes it too when its source gives no key, as
+- **For the hub's life, 24 hours idle at most.** The hub's life is its
+  process's: a hub `e3` started in the background exits after 15 idle
+  minutes (`e3 rack config --idle-exit`), its key with it; `--idle-exit 0`, or
+  a hub run in the foreground as a service, keeps it for as long as it runs.
+  A hub that restarts has a new scope and a new key, and a rack deletes what
+  it kept of the last as its next heartbeat says so; it deletes it too when its source gives no key, as
   its agent starts, or once the scope has gone unused for its idle bound (24
   hours unless the agent is configured otherwise), and keeps it within its
   own bound on bytes, the least recently used going first.
 - **Who can read it.** Root on the running worker, while the hub's key is
   valid, can read what it keeps, as it can a running task's inputs. Anything
   else — the worker's files, a disk image of it, or anything at all once the
-  hub has stopped — has ciphertext.
+  hub has stopped — has ciphertext. So every rack that keeps the hub's scope
+  keeps **every task's inputs and outputs** of the hub's repositories for the
+  hub's life (24 hours idle at most), readable by root on that running worker
+  throughout. No setting turns it off: a task whose data must not sit on a
+  rack's disk is kept off the rack (`e3 rack policy . set <glob> local`).
+- **Per repository.** One scope for the hub, kept apart for each of its
+  repositories (an API server's `--rack` serves several): a rack keeps and
+  reads a repository's objects for that repository's leases alone, and the
+  hub notes what it holds of each apart, so a lease never waits for what a
+  rack holds of another.
 
-The hub notes which rack holds each object of its scope: what each lease
-wrote there, and what it was served whole for a lease. A lease goes first, for
-five seconds (`SCOPE_AFFINITY_MS`), to a rack that holds some of what it
-reads, input by input: work is not piled onto one rack, and a task that reads
-nothing any rack holds waits for none. What the hub knew a rack to hold it
-forgets as the rack reboots, and keeps of at most 200,000 objects. A rack
+The hub notes which racks hold each object of its scope, of each repository:
+what each lease that feeds it wrote there, and what each rack was served
+whole for one (a piece of an array, or a last merge, feeds nothing, and its
+rack keeps nothing of it), every rack that holds an object, up to eight. A
+lease goes first, for five seconds (`SCOPE_AFFINITY_MS`), to a rack that holds
+some of what it reads, input by input: work is not piled onto one rack, and a
+task that reads nothing any rack holds waits for none. What the hub knew a
+rack to hold it forgets once the rack keeps nothing of it — it reboots, its
+boot is given no key, its report names another store (`hubScope.store`: its
+agent restarted, or deleted what it kept as its key changed or was lost) or
+no longer the feature, it has not been used past the idle bound its report
+names (`hubScope.idleMs`, else 24 hours), or the hub's listener is bound
+again — and keeps of at most 200,000 objects. A rack
 that keeps split scopes alone is granted a unit's split scope as before, and
 a whole task none; one that keeps neither is granted no scope.
 
@@ -961,10 +985,14 @@ A unit's lease names its split task's execution (`event.scope`: `{ "id",
 `split-scopes` (`RACK_SPLIT_SCOPES`) and not `hub-keyed-scopes`
 (`RACK_HUB_KEYED_SCOPES`); to one that names `hub-keyed-scopes`, over a TLS
 listener, a task's or a unit's lease names the hub's own scope in the same
-field (`{ "id", "feeds": true, "keyed": true }`), and every heartbeat's answer
+field (`{ "id", "feeds", "keyed": true }`, `feeds` the split scope's where the
+lease names one, else true), and every heartbeat's answer of an admitted boot
 carries its key in `x-e3-rack-hub-key` (`RACK_HUB_KEY_HEADER`, `{ "id", "key" }`,
 32 bytes of base64, read with `readRackHubKey`): an answer with none, or
-another id, says the agent holds the key of no scope it kept. Every other
+another id or key, says the agent holds the key of no scope it kept. Such an
+agent's report says what it keeps of the scope (`hubScope`: `{ "store",
+"idleMs" }`, `RackReportedHubScope`), `store` an id it changes whenever it
+deletes what it kept as a whole, and `idleMs` how long it keeps it unused. Every other
 agent is granted the lease without a scope. A call's lease names none. Such an agent may keep what a lease of a scope wrote, once its
 source holds it, for the later leases of the scope (those `feeds` says read
 it), and lets it go when a heartbeat's answer names the scope in

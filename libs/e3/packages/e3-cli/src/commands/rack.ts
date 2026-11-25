@@ -11,6 +11,7 @@ import type { HubClient, HubConfig, RackComputeSize, RackPolicy, RackSecurityPol
 import { parseMemory } from '@elaraai/e3-core';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
+import { sayRackPolicyNotice } from './rack-options.js';
 
 // The rack package, with its hub, routes and TLS, is loaded by the command
 // that needs it: every other e3 command, and shell completion, starts
@@ -34,7 +35,7 @@ function dataOriginsLine(config: HubConfig): string {
  *  and those a release before this one took, which it refuses
  *  ({@link REMOVED_POLICY_FLAGS}). */
 export interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean; weighFetch?: boolean;
-  merges?: string; keep?: string }
+  merges?: string | boolean; keep?: string | boolean }
 /** A flag of `e3 rack policy` a release before this one took. */
 type RemovedPolicyFlag = 'weighFetch' | 'merges' | 'keep';
 /** A flag of `e3 rack policy` this release takes. */
@@ -64,6 +65,21 @@ const FLAG_NAMES: Readonly<Record<PolicyFlag, string>> = { size: '--size', timeo
   retryTaskFailuresLocally: '--retry-task-failures-locally/--no-retry-task-failures-locally' };
 
 /**
+ * Why `e3 rack policy` refuses a flag an earlier release took, given one with
+ * or without a value, whatever else it was given: checked before anything
+ * else of the command, so the refusal says the flag was removed.
+ *
+ * @param flags - The flags given
+ * @returns The refusal, or undefined when none was given
+ * @example
+ * removedFlagRefusal({ keep: true }); // '--keep was removed: …'
+ */
+export function removedFlagRefusal(flags: PolicyFlags): string | undefined {
+  const removed = (Object.keys(REMOVED_POLICY_FLAGS) as RemovedPolicyFlag[]).find((name) => flags[name] !== undefined);
+  return removed === undefined ? undefined : REMOVED_POLICY_FLAGS[removed];
+}
+
+/**
  * Why an `e3 rack policy` verb refuses the flags it was given, or undefined
  * when it takes them all: a flag a release before this one took is refused,
  * saying it was removed and why; and a flag the verb would leave unread is
@@ -77,8 +93,8 @@ const FLAG_NAMES: Readonly<Record<PolicyFlag, string>> = { size: '--size', timeo
  * policyFlagRefusal('defaults', { keep: 'session' }); // '--keep was removed: …'
  */
 export function policyFlagRefusal(action: string, flags: PolicyFlags): string | undefined {
-  const removed = (Object.keys(REMOVED_POLICY_FLAGS) as RemovedPolicyFlag[]).find((name) => flags[name] !== undefined);
-  if (removed !== undefined) return REMOVED_POLICY_FLAGS[removed];
+  const removed = removedFlagRefusal(flags);
+  if (removed !== undefined) return removed;
   const takes = POLICY_FLAGS[action] ?? [];
   const given = (Object.keys(FLAG_NAMES) as PolicyFlag[]).filter((name) => flags[name] !== undefined && !takes.includes(name));
   if (given.length === 0) return undefined;
@@ -322,18 +338,25 @@ export function createRackCommand(): Command {
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
     // Removed: parsed only so that one given is refused, saying so
     .addOption(new Option('--weigh-fetch').hideHelp()).addOption(new Option('--no-weigh-fetch').hideHelp())
-    .addOption(new Option('--merges <where>').hideHelp()).addOption(new Option('--keep <scope>').hideHelp())
+    .addOption(new Option('--merges [where]').hideHelp()).addOption(new Option('--keep [scope]').hideHelp())
     .addHelpText('after', '\nA rack keeps what your hub\'s tasks read and write — their inputs, and what they make — for as long as the hub runs (24 h idle at most), ' +
       'within the rack\'s own bound on what it keeps, encrypted under a key only the running hub holds: a later task of any run reads it there rather than over the link. ' +
-      'No policy setting governs it.' +
+      'A hub e3 started in the background exits after 15 idle minutes, its key with it (e3 rack config --idle-exit 0 keeps it running). ' +
+      'Every task a rack runs has its inputs and outputs kept there that long, readable by root on the running worker; no policy setting turns it off: ' +
+      'keep a task whose data must not stay on a rack off it (set <pattern> local).' +
       '\n\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G' +
       '\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
+      // A flag an earlier release took is refused first, however the rest reads
+      const removed = removedFlagRefusal(flags);
+      if (removed !== undefined) throw new Error(removed);
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
       const words = [...args]; const repoArg = defaultRepoArg(words[0] !== undefined && !verbs.includes(words[0]) ? words.shift() : undefined);
       if (/^https?:\/\//.test(repoArg)) throw new Error('The rack policy belongs to a local repository');
       const repo = await openRepo(repoArg); const action = words.shift() ?? 'show';
+      // What the repository's upgrade let go of its policy, said once
+      await sayRackPolicyNotice(repo);
       const arity = action === 'set' ? 2 : action === 'unset' || action === 'mode' ? 1 : 0;
       if (!verbs.includes(action) || words.length !== arity) throw new Error('Use e3 rack policy --help for policy actions and arguments');
       // A flag the verb would not read is refused, not ignored

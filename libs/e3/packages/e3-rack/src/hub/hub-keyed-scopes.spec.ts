@@ -19,15 +19,19 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { uuidv7 } from '@elaraai/e3-core';
+import { repoInit, uuidv7 } from '@elaraai/e3-core';
 import { IntegerType, encodeBeast2For } from '@elaraai/east';
 import { RACK_HUB_KEY_BYTES, RACK_HUB_KEYED_SCOPES, rackHubKeyHeader, readRackHubKey, type RackHubKey } from '../protocol/rack-json.js';
 import { readRackLeaseScope, type RackLeaseEvent, type RackLeaseScope } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { RackHub, SCOPE_AFFINITY_MS } from './hub.js';
+import { ApproveRackType } from '../protocol/control.js';
+import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
+import { socketRequest } from '../client/local-http.js';
 import { call, cleanup, closeAll, fixture, type HubFixture } from './hub.test-utils.js';
 import type { TestRackAgent } from '../testing/test-rack-agent.js';
 
@@ -125,7 +129,7 @@ it('grants every task\'s and unit\'s lease of every session with the hub\'s scop
 
   const first = await f.session();
   const second = await f.session();
-  const splitScope = { id: uuidv7(), feeds: false };
+  const splitScope = { id: uuidv7(), feeds: true };
   // A whole task, and a unit of a split task, of each session
   await first.create(task(['b'.repeat(64)]));
   assert.deepEqual(await grantedScope(keyed), hubScope, 'a whole task of no scope is granted the hub\'s');
@@ -267,4 +271,104 @@ it('notes what a unit wrote on a rack that keeps the hub\'s scope as the hub\'s,
     unit: splitUnitToWire({ inputs: ['merge', outputHash], merge: { parts: [outputHash], range: null }, own: false }) } } as RackLeaseEvent);
   assert.equal(await other.claim(), null, 'the merge waits for the rack that holds its part');
   assert.equal((await keyed.claim())?.leaseId, merged.leaseId);
+});
+
+/** Two racks that keep the hub's scope, on a hub whose clock the test sets, each having heard the hub once. */
+async function twoKeyed(options: { idleMs?: number } = {}) {
+  const clock = { time: Date.now() };
+  const f = await fixture({ now: () => clock.time, leaseWindowMs: 40 });
+  const keyed = await f.agent({ resources, hubKeyedScopes: true, label: 'keyed', ...(options.idleMs !== undefined && { hubScopeIdleMs: options.idleMs }) });
+  const other = await f.agent({ resources, hubKeyedScopes: true, label: 'other' });
+  for (const agent of [keyed, other]) await agent.heartbeat();
+  return { f, keyed, other, clock };
+}
+
+/** Whether a lease reading the hashes given waits for a rack other than `other`: `other` is granted nothing at once. */
+async function waitsOff(f: HubFixture, session: Awaited<ReturnType<HubFixture['session']>>, other: TestRackAgent, reads: string[]): Promise<boolean> {
+  const lease = await session.create(task(reads));
+  const grant = await other.claim();
+  if (grant === null) return true;
+  assert.equal(grant.leaseId, lease.leaseId);
+  await other.complete(grant, failed);
+  return false;
+}
+
+it('gives no key to a boot that awaits approval, and a boot it admits a key of its own, not the one its rack had before', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const keyed = await f.agent({ resources, hubKeyedScopes: true });
+  const first = await keyOf(keyed); assert(first !== undefined);
+  await socketRequest(f.socket, 'POST', '/v1/security', { requestType: RackSecurityPolicyType, body: { requireStartApproval: true }, responseType: RackSecurityPolicyType });
+  // The rack boots again, as a disk image of it restored would: no key until an operator admits that boot
+  keyed.reboot();
+  assert.equal(await keyOf(keyed), undefined, 'a boot that awaits approval is given no key');
+  await socketRequest(f.socket, 'POST', `/v1/racks/${keyed.rackId}/approve`, { requestType: ApproveRackType, body: { bootId: keyed.bootId }, responseType: RackRegistrationType });
+  const admitted = await keyOf(keyed); assert(admitted !== undefined);
+  assert.equal(admitted.id, first.id, 'the hub\'s one scope');
+  assert.notDeepEqual(admitted.key, first.key, 'under a key of the new boot\'s, which reads nothing the old boot kept');
+});
+
+it('grants a lease that feeds nothing the hub\'s scope feeding nothing, and notes nothing it wrote', async () => {
+  const { f, keyed, other } = await twoKeyed();
+  const session = await f.session();
+  // A last merge, or an array's piece: its split scope feeds nothing
+  await session.create(unit('1', { id: uuidv7(), feeds: false }));
+  const { outputHash, scope } = await runs(f, keyed);
+  assert.deepEqual(scope, { id: (keyed.hubKeys.at(-1))!.id, feeds: false, keyed: true }, 'the hub\'s scope, feeding nothing');
+  assert.equal(await waitsOff(f, session, other, [outputHash]), false, 'no lease waits for what the rack did not keep');
+});
+
+it('keeps every rack that was served an object as holding it, so a later lease waits for the first fetcher too', async () => {
+  const { f, keyed, other, clock } = await twoKeyed();
+  const third = await f.agent({ resources, hubKeyedScopes: true, label: 'third' });
+  await third.heartbeat();
+  const [input] = (await f.objects(1, 64)).keys(); assert(input !== undefined);
+  const session = await f.session();
+  // The first rack is served the input, then the second is, once the first has had its wait
+  for (const agent of [keyed, other]) {
+    await session.create(task([input]));
+    clock.time += SCOPE_AFFINITY_MS + 1;
+    for (const one of [keyed, other, third]) await one.heartbeat();
+    const grant = await agent.claim(); assert(grant);
+    await agent.fetch(grant, [input]);
+    await agent.complete(grant, failed);
+  }
+  // A lease that reads it: the first fetcher may take it at once, and a rack that holds none of it waits
+  const lease = await session.create(task([input]));
+  assert.equal(await third.claim(), null, 'a rack that holds none of it waits');
+  assert.equal((await keyed.claim())?.leaseId, lease.leaseId, 'the first rack still holds it');
+});
+
+it('forgets what a rack held of the hub\'s scope once it reports another store, or has gone unused past its idle bound', async () => {
+  const { f, keyed, other, clock } = await twoKeyed({ idleMs: 60_000 });
+  const session = await f.session();
+  const made = async () => { await session.create(task([randomUUID().replaceAll('-', '').padEnd(64, '0')])); return (await runs(f, keyed)).outputHash; };
+
+  // Held: a lease that reads it waits for the rack
+  const kept = await made();
+  assert.equal(await waitsOff(f, session, other, [kept]), true);
+  const there = await keyed.claim(); assert(there);
+  await keyed.complete(there, failed);
+
+  // Its agent restarted, and deleted what it kept: its next report names another store
+  const restarted = await made();
+  keyed.hubStore = randomUUID();
+  await keyed.heartbeat();
+  assert.equal(await waitsOff(f, session, other, [restarted]), false, 'a rack whose store changed holds none of it');
+
+  // Unused past the bound it reports: it keeps nothing of the scope
+  const idle = await made();
+  clock.time += 60_001;
+  for (const agent of [keyed, other]) await agent.heartbeat();
+  assert.equal(await waitsOff(f, session, other, [idle]), false, 'a rack idle past its bound holds none of it');
+});
+
+it('keeps the hub\'s scope apart for each repository: a lease of one never waits for what a rack holds of another', async () => {
+  const { f, keyed, other } = await twoKeyed();
+  const first = await f.session();
+  await first.create(task(['b'.repeat(64)]));
+  const { outputHash } = await runs(f, keyed);
+  assert.equal(await waitsOff(f, first, other, [outputHash]), true, 'its own repository\'s lease waits for it');
+  const otherRepo = join(f.home, 'other'); assert(repoInit(otherRepo).success);
+  const second = await f.session(otherRepo);
+  assert.equal(await waitsOff(f, second, other, [outputHash]), false, 'another repository\'s waits for none');
 });

@@ -147,10 +147,13 @@ sources' credentials, so separate clients, and a cloud deployment and developer
 hubs, need separate worker VMs. The hub keeps no task data. A worker whose
 agent keeps a hub's objects (`hub-keyed-scopes`) keeps what the hub's tasks read
 and write — their inputs and what they make — for later tasks of any run, for
-as long as the hub runs (24 hours idle at most, unless its agent is configured
-otherwise), within its own bound on bytes: encrypted under a key only the
-running hub holds, given it with each heartbeat over the pinned TLS listener
-and never stored. Root on the running worker can read it while the key is
+as long as the hub process runs (24 hours idle at most, unless its agent is
+configured otherwise; a hub e3 started in the background exits after 15 idle
+minutes unless `e3 rack config --idle-exit 0`), within its own bound on bytes:
+encrypted under a key only the running hub holds, of the rack's boot, given it
+with each heartbeat over the pinned TLS listener, withheld from a boot that
+awaits approval, and never stored. Every task's inputs and outputs a worker
+runs are kept so; no setting turns it off but keeping the task off the rack. Root on the running worker can read it while the key is
 valid, as it can a running task's inputs; its files, a disk image of it, and
 anything after the hub stops see ciphertext. A restarted hub has a new key, and
 the worker deletes what it kept under the old one. An agent that keeps split

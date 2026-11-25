@@ -11,6 +11,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { ArrayType, BooleanType } from '@elaraai/east';
+import { answer } from '../server/beast2.js';
 import { processOwner, uuidv7 } from '@elaraai/e3-core';
 import { closeSocketServer, serveOnSocket } from '../client/local-http.js';
 import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
@@ -179,4 +181,33 @@ it('tells of an object a rack was served through its data URL only once the answ
   const dropped = await fetchWhole(cut);
   dropped.emit('close');
   assert.deepEqual(served, [`rack-a r-repo L1 ${sent}`]);
+});
+
+it('tells of no object a rack wrote through an upload URL, whose answer the session gave 200: only a read is a holding', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'e3sb-'));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  // A session that has no object yet, and takes any upload whole
+  const app = new Hono();
+  app.post('/v1/touch', () => answer(ArrayType(BooleanType), [false]));
+  app.put('/v1/uploads/:id', async (c) => { await c.req.arrayBuffer(); return c.body(null, 200); });
+  const socket = hubSocketPath(home);
+  const server = await serveOnSocket(app, socket);
+  cleanup.push(() => closeSocketServer(server, socket));
+  const lease: RackLeaseRecord = { ...leaseOf('L1', 'e'.repeat(64)), status: 'claimed', claimedBy: 'rack-a', attempt: { executionId: uuidv7(), startedAtMs: 0 } };
+  const coordinator = new SessionLeaseCoordinator();
+  const served: string[] = [];
+  const bridge = new SessionProxyStorageBridge({ leases: { get: () => Promise.resolve(lease) } as unknown as RackLeaseStore, coordinator,
+    session: () => ({ dataSocket: socket, dataToken: 'a session credential' }), owner: await processOwner(), advertiseOrigin: () => 'https://hub.invalid',
+    served: (whole) => { served.push(whole.hash); } });
+  cleanup.push(() => { bridge.close(); return Promise.resolve(); });
+  const bytes = new Uint8Array(1024).fill(3);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const target = await coordinator.run('r-repo', 'L1', () => bridge.writeTarget('r-repo', 'L1', hash, bytes.byteLength));
+  assert(target !== null);
+  const outgoing = Object.assign(new EventEmitter(), { writableFinished: true });
+  const response = await bridge.dataRoutes().fetch(new Request(target.url, { method: 'PUT', body: bytes }), { outgoing });
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  outgoing.emit('finish'); outgoing.emit('close');
+  assert.deepEqual(served, [], 'an upload is no holding: what a lease wrote is noted only as it completes with success');
 });

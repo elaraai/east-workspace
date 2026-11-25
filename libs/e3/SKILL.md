@@ -89,7 +89,7 @@ What do you need?
 ├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack; one task or one call: run --rack, call --rack (reference/rack.md)
 │   ├─ A split task's pieces fill the rack → booked by what each reserves, capped half as much again; --memory-limit bounds the cap, --gpu asks for the GPU
 │   ├─ The policy → rules (task glob → rack|local, --size, --memory-limit, --gpu, --timeout, --allow-host-access) plus defaults (spill, claim timeout, retry failures locally)
-│   ├─ An input or an output crosses a slow link again → nothing to set: a rack keeps what the hub's tasks read and write for the hub's life (24 h idle max), encrypted under a key only the running hub holds, and later work of any run goes to it
+│   ├─ An input or an output crosses a slow link again → nothing to set: a rack keeps what the hub's tasks read and write for the hub process's life (24 h idle max; a background hub idle-exits after 15 min unless `rack config --idle-exit 0`), encrypted under a key only the running hub holds, readable by root on the running worker meanwhile, and later work of any run goes to it
 │   └─ A task with its own python/node environment → nothing new in the package: its layers are built for the rack's platform
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client (reference/from-code.md)

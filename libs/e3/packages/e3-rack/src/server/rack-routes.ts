@@ -293,14 +293,17 @@ export interface RackScopes {
   /**
    * The key of the source's own scope that the rack's heartbeat answer gives
    * it (`x-e3-rack-hub-key`): to a rack whose report names
-   * `hub-keyed-scopes`, over a TLS listener a rack pins. Never logged,
-   * stored, or put in a lease's event. Absent, or undefined, no answer gives
-   * one, and the rack lets go of any keyed scope it kept.
+   * `hub-keyed-scopes`, over a TLS listener a rack pins, whose boot is
+   * admitted. Never logged, stored, or put in a lease's event. Absent, or
+   * undefined, no answer gives one, and the rack lets go of any keyed scope
+   * it kept.
    *
    * @param rackId - The rack whose heartbeat it is
+   * @param boot - The boot the heartbeat reports, and whether it is admitted:
+   *   it awaits no approval, and its agent is not refused
    * @returns The scope's id and the rack's key
    */
-  key?(rackId: string): RackHubKey | undefined;
+  key?(rackId: string, boot: { readonly bootId: string; readonly admitted: boolean }): RackHubKey | undefined;
 }
 
 /** A committed route transition that waiters may observe. */
@@ -833,7 +836,7 @@ export function createRackRoutes(
     // The key of the source's own scope, to a rack that keeps it: with every
     // answer, so a rack that restarted has it again, and one whose source
     // restarted learns the scope it kept is gone
-    const key = options?.scopes?.key?.(rackId);
+    const key = options?.scopes?.key?.(rackId, { bootId: heartbeat.bootId, admitted: !pendingApproval && leaseRefusal(heartbeat.agentVersion) === null });
     if (key !== undefined) response.headers.set(RACK_HUB_KEY_HEADER, rackHubKeyHeader(key));
     return response;
   });

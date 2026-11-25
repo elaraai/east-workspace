@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCOPE_WRITES_MAX, ScopeWrites } from './scope-writes.js';
+import { SCOPE_HOLDERS_MAX, SCOPE_WRITES_MAX, ScopeWrites } from './scope-writes.js';
 
 it('names the rack that last wrote each object of a scope, and the racks that hold any of what a lease reads', () => {
   const writes = new ScopeWrites();
@@ -55,4 +55,20 @@ it('keeps at most its bound of objects, of every scope, the least recently writt
   writes.end('s1');
   assert.equal(writes.writer('s1', 'h'), undefined);
   assert.equal(writes.size, 2);
+});
+
+it('keeps every rack that holds an object, not only the last, up to its bound of racks, and lets one rack\'s go of a scope alone', () => {
+  const writes = new ScopeWrites();
+  writes.wrote('hub/r', 'rack-1', ['a']);
+  writes.wrote('hub/r', 'rack-2', ['a']);
+  assert.deepEqual([...writes.writersOf('hub/r', ['a'])].sort(), ['rack-1', 'rack-2'], 'the first fetcher still holds it');
+  assert.equal(writes.writer('hub/r', 'a'), 'rack-2', 'the latest noted');
+  for (let i = 0; i < SCOPE_HOLDERS_MAX + 2; i++) writes.wrote('hub/r', `rack-${i + 10}`, ['b']);
+  assert.equal(writes.writersOf('hub/r', ['b']).size, SCOPE_HOLDERS_MAX, 'at most its bound of racks, the oldest going');
+  writes.wrote('s2', 'rack-1', ['a']);
+  writes.forget('rack-1', ['hub/r']);
+  assert.deepEqual([...writes.writersOf('hub/r', ['a'])], ['rack-2'], 'one rack\'s holdings of the scope go');
+  assert.equal(writes.writer('s2', 'a'), 'rack-1', 'and of no other scope');
+  writes.forget('rack-2', ['hub/r']);
+  assert.equal(writes.writer('hub/r', 'a'), undefined);
 });

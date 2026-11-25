@@ -150,9 +150,13 @@ export interface TestRackAgentOptions {
   splitScopes?: boolean;
   /** Says it keeps a hub's objects under the hub's key
    *  ({@link RACK_HUB_KEYED_SCOPES}), and notes the key each heartbeat's
-   *  answer gives ({@link TestRackAgent.hubKeys}). Like a split scope's, what
-   *  it keeps is in its store already. */
+   *  answer gives ({@link TestRackAgent.hubKeys}), and reports its store
+   *  ({@link TestRackAgent.hubStore}). Like a split scope's, what it keeps is
+   *  in its store already. */
   hubKeyedScopes?: boolean;
+  /** How long it says it keeps the hub's scope unused, in ms: 24 hours
+   *  unless given. */
+  hubScopeIdleMs?: number;
 }
 
 /**
@@ -216,6 +220,9 @@ export class TestRackAgent {
   lastReport: RackReport | undefined;
   /** The split scopes its heartbeats' answers said ended, in the order said. */
   readonly scopesEnded: string[] = [];
+  /** The store it reports of its source's own scope, when it keeps one: a
+   *  test sets another, as an agent that deleted what it kept does. */
+  hubStore: string = randomUUID();
   /** The key of its source's own scope each heartbeat's answer gave, in the
    *  order they came: undefined for an answer that gave none. */
   readonly hubKeys: Array<RackHubKey | undefined> = [];
@@ -382,7 +389,8 @@ export class TestRackAgent {
     return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER]),
       ...(this.options.splitScopes === true ? [RACK_SPLIT_SCOPES] : []), ...(this.options.hubKeyedScopes === true ? [RACK_HUB_KEYED_SCOPES] : [])],
       ...(target !== null && { target }), ...(tier !== undefined && { tiers: Object.fromEntries(this.tiers.map((name) => [name, tier])) }),
-      ...(all !== undefined && { resources: all, free: this.free(all) }) };
+      ...(all !== undefined && { resources: all, free: this.free(all) }),
+      ...(this.options.hubKeyedScopes === true && { hubScope: { store: this.hubStore, idleMs: this.options.hubScopeIdleMs ?? 24 * 60 * 60_000 } }) };
   }
 
   /** What a poll may be answered with: what is free of the agent's

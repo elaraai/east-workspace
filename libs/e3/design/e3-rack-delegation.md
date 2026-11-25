@@ -443,11 +443,14 @@ release, the work's environment), never for one that could not.
 
 A rack whose report names `hub-keyed-scopes` is granted the hub's own scope
 in place of a split scope, on every task's and unit's lease of every session
-(a call's names none): one id for the hub's process, `keyed`, feeding it. The
-hub makes the id and a random 256-bit secret as it starts, in memory alone,
-and gives each such rack its key of the scope with every heartbeat's answer
-(`x-e3-rack-hub-key`, the secret's HMAC of the rack's id), only over its TLS
-listener, which the rack pins: a plain-HTTP listener grants no hub scope. The
+(a call's names none): one id for the hub's process, `keyed`, feeding it as
+the lease's split scope says, else feeding it. The hub makes the id and a
+random 256-bit secret as it starts, in memory alone, and gives each such rack
+its key of the scope with every heartbeat's answer (`x-e3-rack-hub-key`, the
+secret's HMAC of the rack's id and its boot), only over its TLS listener,
+which the rack pins, and never to a boot that awaits approval or an agent it
+refuses: a plain-HTTP listener grants no hub scope, and a disk image of a
+rack restored reads nothing the rack kept. The
 key is never logged, stored or put in a lease's event. The rack keeps what
 the scope's leases fetched and made, AES-256-GCM-encrypted under its key (a
 random nonce an object, the object's hash as additional data, a file name
@@ -455,11 +458,16 @@ that is an HMAC of its hash), verifies tag and hash before a lease reads one,
 and keeps no plaintext of it; it deletes what it kept as its source gives
 another key id (the hub restarted) or none, as its agent starts, or once
 idle past its bound (24 h unless configured). No session ends the hub's scope:
-the hub stopping does, its key with it. The hub notes what each lease wrote
-on such a rack, and what it was served whole there, as the hub scope's
-(`ScopeWrites`, the same bound), so a later lease of any session waits up to
-`SCOPE_AFFINITY_MS` for the rack that holds what it reads; a rack's reboot
-lets go of what it was noted to hold. Root on the running worker can read
+the hub stopping does, its key with it (a hub e3 started in the background
+exits after 15 idle minutes). The hub notes, for each repository apart, what
+each lease that feeds it wrote on such a rack, and what it was served whole
+there, as the hub scope's (`ScopeWrites`, the same bound, up to eight racks an
+object), so a later lease of any session of that repository waits up to
+`SCOPE_AFFINITY_MS` for a rack that holds what it reads. It lets go of what a
+rack was noted to hold once the rack keeps nothing of it: it reboots, its boot
+is given no key, its report's `hubScope.store` changes (its agent restarted,
+or deleted what it kept), it no longer names the feature, it has gone unused
+past `hubScope.idleMs`, or the listener is bound again. Root on the running worker can read
 what it keeps while the key is valid, as it can a running task's inputs;
 anything else — its files, a disk image, anything after the hub stops — has
 ciphertext. Hub control protocol 8 removed `fetch-costs` and the session's

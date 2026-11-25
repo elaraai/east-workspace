@@ -191,7 +191,11 @@ it('names the hub\'s scope on every task\'s and unit\'s lease of every session t
 
   // A split task: its units name the hub's scope, not an execution's of their own
   const events = await runSplit(f, run, agent);
-  assert(events.every((event) => event.scope?.id === key.id && event.scope.feeds && event.scope.keyed === true), JSON.stringify(events.map((event) => event.scope)));
+  assert(events.every((event) => event.scope?.id === key.id && event.scope.keyed === true), JSON.stringify(events.map((event) => event.scope)));
+  // Feeding it as their split task's scope says: a piece feeds the merge, a last merge feeds nothing the rack need keep
+  const pieces = events.filter((event) => event.runnerEvent.mode === 'unit' && event.runnerEvent.unit.merge === null);
+  assert(pieces.length > 0 && pieces.every((event) => event.scope?.feeds === true));
+  assert(events.some((event) => event.scope?.feeds === false), 'its last merges feed nothing');
 
   // A task of the session was cancelled, and the session closed: the hub's scope did not end
   const abort = new AbortController();
