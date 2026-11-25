@@ -297,31 +297,35 @@ test.describe("A set cell on one line (east-workspace#1741)", () => {
         expect(membersOf((await linesOf(entry)).find((l) => l.at === "P-0401/certificates"))).toEqual(["Forklift", "Confined space", "First aid", "Working at height"]);
     });
 
-    test("on a phone the box a tag is typed into is never narrower than its placeholder, at any phone width, where its line leaves it any room or none @mobile", async ({ page }) => {
-        const entry = await open(page, EVERY_KIND);
-        await recordCell(entry, "P-0408", "certificates").click();
-        const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
-        await expect(editor).toBeVisible();
-        const cut: string[] = [];
-        // The page is kept between tests: its own size is put back, whatever the sweep met.
-        const own = page.viewportSize()!;
-        try {
-            for (const take of ["Forklift", "Confined space", "First aid", "Working at height"]) {
+    // The editor's line holds one, two, three or four members, each as the sweep finds it: a test for each, so each
+    // sweeps the phone widths once — seventy-six of them, two frames each — well inside a test's time on a loaded runner.
+    const TAKEN = ["Forklift", "Confined space", "First aid", "Working at height"];
+    for (const [at, last] of TAKEN.entries()) {
+        test(`on a phone the box a tag is typed into is never narrower than its placeholder, at any phone width, where its line leaves it any room or none: ${at + 1} taken @mobile`, async ({ page }) => {
+            const entry = await open(page, EVERY_KIND);
+            await recordCell(entry, "P-0408", "certificates").click();
+            const editor = entry.locator('[data-sheet-cell-editor="certificates"] [data-cell-tags]');
+            await expect(editor).toBeVisible();
+            for (const take of TAKEN.slice(0, at + 1)) {
                 await editor.getByRole("button", { name: take, exact: true }).click();
                 await expect(editor.locator('[data-scope="tags-input"][data-part="item-text"]').last()).toHaveText(take);
+            }
+            const cut: string[] = [];
+            // The page is kept between tests: its own size is put back, whatever the sweep met.
+            const own = page.viewportSize()!;
+            try {
                 for (let width = 320; width <= 470; width += 2) {
                     await page.setViewportSize({ width, height: own.height });
                     // Laid out at that width: two frames, the frame's width read and the editor laid out again in the second.
                     await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
-                    if (!(await typedBoxOf(editor)).placeholderWhole) cut.push(`${take}@${width}`);
+                    if (!(await typedBoxOf(editor)).placeholderWhole) cut.push(`${last}@${width}`);
                 }
+            } finally {
                 await page.setViewportSize(own);
             }
-        } finally {
-            await page.setViewportSize(own);
-        }
-        expect(cut).toEqual([]);
-    });
+            expect(cut).toEqual([]);
+        });
+    }
 
     test("on a phone the row a set editor edits stays in view as the editor grows — whole while the room holds it, its top under the header once it does not — and a notice laid over main's foot never covers the editor @mobile", async ({ page }) => {
         const entry = await open(page, EVERY_KIND);
