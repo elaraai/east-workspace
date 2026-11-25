@@ -86,7 +86,7 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
-import { PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, parseJq, variant, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, parseJq, type ValueTypeOf } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import * as studio from "@elaraai/e3-ui/examples/studio/studio";
 import { installE3Faults, mutateE3 } from "./e3-faults";
@@ -113,7 +113,7 @@ async function writeStartingFilter(page: Page, where: string): Promise<void> {
     const filter = { key: "f-spec", source: "sales", where: parsed.program.value };
     const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
     const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => [
-        key, entry.type === "page" ? variant("page", { draft: { ...entry.value.draft, filters: [filter] }, live: entry.value.live }) : entry,
+        key, entry.kind.type === "page" ? { ...entry, draft: { ...entry.draft, filters: [filter] } } : entry,
     ]), compareFor(Studio.Types.Key));
     await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
 }

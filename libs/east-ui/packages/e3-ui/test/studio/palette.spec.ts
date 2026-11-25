@@ -14,16 +14,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, East, FloatType, SortedMap, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, FloatType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Studio, StudioKeyType, StudioPagesType } from "@elaraai/e3-ui";
+import { Data, Studio, StudioPagesType } from "@elaraai/e3-ui";
 import { builderKeys, paletteCards, palettePages } from "@elaraai/e3-ui/internal";
 
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 /** Two datasets a component reads. */
 const salesDaily = e3.input("palette_sales_daily", ArrayType(FloatType), variant("value", []));
@@ -46,25 +44,28 @@ const salesByRegion = Studio.visual.of("sales", Studio.visual.column({ x: Studio
 const aNote = Studio.visual.text("Figures are to last night.");
 
 /** The record: the Overview live, the Weekly drafted past its live version, the Detail never published, a template, and another project's page. */
-const PAGES = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "a-overview" }, variant("page", {
+const PAGES = Studio.value([
+    {
+        key: { project: "ops", page: "a-overview" },
         draft: { title: "Overview", cells: [], filters: [] },
-        live: some({ version: 2n, page: { title: "Overview", cells: [], filters: [] } }),
-    })],
-    [{ project: "ops", page: "b-weekly" }, variant("page", {
+        live: { version: 2n, page: { title: "Overview", cells: [], filters: [] } },
+    },
+    {
+        key: { project: "ops", page: "b-weekly" },
         draft: { title: "Weekly figures", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Weekly", cells: [], filters: [] } }),
-    })],
-    [{ project: "ops", page: "c-detail" }, variant("page", {
+        live: { version: 1n, page: { title: "Weekly", cells: [], filters: [] } },
+    },
+    {
+        key: { project: "ops", page: "c-detail" },
         draft: { title: "Detail", cells: [], filters: [] },
-        live: none,
-    })],
-    [{ project: "ops", page: "d-starter" }, variant("template", { title: "Starter", cells: [], filters: [] })],
-    [{ project: "retail", page: "home" }, variant("page", {
+    },
+    { key: { project: "ops", page: "d-starter" }, template: { title: "Starter", cells: [], filters: [] } },
+    {
+        key: { project: "retail", page: "home" },
         draft: { title: "Home", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
-    })],
-], compareFor(StudioKeyType));
+        live: { version: 1n, page: { title: "Home", cells: [], filters: [] } },
+    },
+]);
 
 describeEast("The builder's palette — its cards and its pages (#994)", (test) => {
     test("B3: a card's meta names the data its component reads, in words — never their keys; one that reads nothing says so", $ => {

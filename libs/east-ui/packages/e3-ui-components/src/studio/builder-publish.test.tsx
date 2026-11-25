@@ -15,13 +15,13 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, applyFor, variant } from "@elaraai/east";
+import { East, applyFor } from "@elaraai/east";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { Studio, StudioPagesType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { conflictCards, act, settle } from "../e3-web-mount.test-utils.js";
 import {
-    REGIONAL, h, before, mountBuilder, withEntry, openPage, readRecord, commits, tile, spanOf, keyOn, press, type Key,
+    REGIONAL, h, before, mountBuilder, withEntry, templateAt, openPage, readRecord, commits, tile, spanOf, keyOn, press, type Key,
 } from "./builder.test-utils.js";
 
 const applyPages = applyFor(StudioPagesType);
@@ -50,9 +50,9 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(await commits()).toEqual(["patch", ...before]);
         const template = (await readRecord()).get(TEMPLATE)!;
-        if (template.type !== "template") throw new Error("expected a template");
-        expect(template.value.title).toBe("Overview template");
-        expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
+        if (template.kind.type !== "template") throw new Error("expected a template");
+        expect(template.title).toBe("Overview template");
+        expect(template.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
         // The page's draft is still the canvas's to save.
         expect(spanOf(container, "c-trend")).toBe("9");
     });
@@ -79,11 +79,11 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         const popover = await openPopover();
         // Another operator saves a template under the same name between this popover's read and its commit.
         await h.race(ex.studioPages, () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); },
-            withEntry(TEMPLATE, variant("template", { title: "Theirs", cells: [], filters: [] })));
+            withEntry(TEMPLATE, templateAt(TEMPLATE, { title: "Theirs", cells: [], filters: [] })));
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Another write took the name Overview template first — choose another");
         const template = (await readRecord()).get(TEMPLATE)!;
-        if (template.type !== "template") throw new Error("expected a template");
-        expect(template.value.title).toBe("Theirs");
+        if (template.kind.type !== "template") throw new Error("expected a template");
+        expect(template.title).toBe("Theirs");
         expect(await commits()).toEqual(["patch", ...before]);
     });
 
@@ -245,9 +245,9 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "refused")).toBeNull();
         expect(await commits()).toEqual(["patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
-        if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a published page");
-        expect(regional.value.live.value.version).toBe(4n);
-        expect(regional.value.live.value.page).toEqual(regional.value.draft);
+        if (regional.kind.type !== "page" || regional.live.type !== "some") throw new Error("expected a published page");
+        expect(regional.live.value.version).toBe(4n);
+        expect(regional.live.value.page).toEqual(regional.draft);
         expect(part(container, "versions")!.textContent).toBe("Regional · v4 live");
     });
 
@@ -265,9 +265,9 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "refused")).toBeNull();
         expect(await commits()).toEqual(["patch", "patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
-        if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a published page");
-        expect(regional.value.live.value.version).toBe(4n);
-        expect(regional.value.live.value.page.cells.map((c) => [c.key, c.span])).toEqual([["p-kpi", 12n], ["p-trend", 7n], ["p-bars", 4n]]);
+        if (regional.kind.type !== "page" || regional.live.type !== "some") throw new Error("expected a published page");
+        expect(regional.live.value.version).toBe(4n);
+        expect(regional.live.value.page.cells.map((c) => [c.key, c.span])).toEqual([["p-kpi", 12n], ["p-trend", 7n], ["p-bars", 4n]]);
         expect(saveButton(container).disabled).toBe(true);
     });
 
@@ -281,9 +281,9 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await waitFor(() => expect(saveButton(container).disabled).toBe(true));
         expect(await commits()).toEqual(["patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
-        if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a page");
-        expect(regional.value.draft.cells.find((c) => c.key === "p-trend")!.span).toBe(7n);
-        expect(regional.value.live.value.version).toBe(3n);
+        if (regional.kind.type !== "page" || regional.live.type !== "some") throw new Error("expected a page");
+        expect(regional.draft.cells.find((c) => c.key === "p-trend")!.span).toBe(7n);
+        expect(regional.live.value.version).toBe(3n);
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
     });
 

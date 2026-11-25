@@ -16,21 +16,20 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, NullType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none,
+    ArrayType, East, FloatType, NullType, OptionType, PatchType, StringType, decodeBeast2For, equalFor, none,
     some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import { RecordCommitInfoType, TreePathType } from "@elaraai/e3-types";
+import { Slice } from "@elaraai/east-ui";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Record, RecordOutcomeType, Studio, StudioKeyType, StudioPagesType, ui } from "@elaraai/e3-ui";
+import { Data, Record, RecordOutcomeType, Studio, StudioPagesType, ui } from "@elaraai/e3-ui";
 import {
     StudioLibraryPayloadType, StudioPagesHandleType, layoutSummary, libraryPages, libraryProjects, libraryTemplates, nameWriteRefusal,
 } from "@elaraai/e3-ui/internal";
 
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 const pathKey = (p: ValueTypeOf<typeof TreePathType>) => p.map((s) => `${s.type}:${s.value}`).join("/");
 
@@ -63,8 +62,9 @@ const topRegions = Studio.visual.of("sales", Studio.visual.list({ item: byRegion
 const aNote = Studio.visual.text("Figures are to last night.");
 
 /** The record: in ops, the Overview live, the Detail never published, the Weekly drafted past its live version, and two templates; a retail page. */
-const PAGES = new SortedMap<Key, Entry>([
-    [{ project: "ops", page: "b-overview" }, variant("page", {
+const PAGES = Studio.value([
+    {
+        key: { project: "ops", page: "b-overview" },
         draft: {
             title: "Overview",
             cells: [
@@ -74,7 +74,7 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: some({
+        live: {
             version: 2n,
             page: {
                 title: "Overview",
@@ -85,9 +85,10 @@ const PAGES = new SortedMap<Key, Entry>([
                 ],
                 filters: [],
             },
-        }),
-    })],
-    [{ project: "ops", page: "a-detail" }, variant("page", {
+        },
+    },
+    {
+        key: { project: "ops", page: "a-detail" },
         draft: {
             title: "Detail",
             cells: [
@@ -95,27 +96,31 @@ const PAGES = new SortedMap<Key, Entry>([
             ],
             filters: [],
         },
-        live: none,
-    })],
-    [{ project: "ops", page: "c-weekly" }, variant("page", {
+    },
+    {
+        key: { project: "ops", page: "c-weekly" },
         draft: { title: "Weekly", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } }),
-    })],
-    [{ project: "ops", page: "t-summary" }, variant("template", {
-        title: "Summary",
-        cells: [
-            { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-            { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-            { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-        ],
-        filters: [],
-    })],
-    [{ project: "ops", page: "t-empty" }, variant("template", { title: "Empty", cells: [], filters: [] })],
-    [{ project: "retail", page: "home" }, variant("page", {
+        live: { version: 1n, page: { title: "Weekly (old)", cells: [], filters: [] } },
+    },
+    {
+        key: { project: "ops", page: "t-summary" },
+        template: {
+            title: "Summary",
+            cells: [
+                { key: "c-kpi-1", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-kpi-2", row: "r1", span: 6n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+            ],
+            filters: [],
+        },
+    },
+    { key: { project: "ops", page: "t-empty" }, template: { title: "Empty", cells: [], filters: [] } },
+    {
+        key: { project: "retail", page: "home" },
         draft: { title: "Home", cells: [], filters: [] },
-        live: some({ version: 1n, page: { title: "Home", cells: [], filters: [] } }),
-    })],
-], compareFor(StudioKeyType));
+        live: { version: 1n, page: { title: "Home", cells: [], filters: [] } },
+    },
+]);
 
 describeEast("<Studio.Library> — what it shows (#997)", (test) => {
     test("D2: the projects are the record's and the surface's own, in name order, each once", $ => {
@@ -198,7 +203,7 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
 describe("<Studio.Library> — the surface (#997)", () => {
     test("R4: its manifest holds the record it writes, and what its components read", () => {
         const pages = e3.record("library_pages", StudioPagesType, {
-            initial: new SortedMap<Key, Entry>([], compareFor(StudioKeyType)),
+            initial: Studio.value([]),
             mutations: (mutation) => ({
                 patch: mutation.patch(),
             }),
@@ -215,6 +220,43 @@ describe("<Studio.Library> — the surface (#997)", () => {
             "field:inputs/field:library_sales_daily",
             "field:records/field:library_pages",
         ]);
+    });
+
+    test("#1759: the pages and the templates narrow apart through the record's indexes, each led by what an entry is — the pages by project and by tag, searched by the start of a title, a project or a tag; the templates by the start of a title", () => {
+        const INDEXES = ["pages_by_kind", "pages_by_kind_project", "pages_by_kind_tag", "pages_by_kind_title"] as const;
+        const pages = e3.record("library_rail_pages", StudioPagesType, {
+            initial: PAGES,
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+            indexes: (index) => ({
+                // A page or a template is found among its kind's by its key through the index on the kind alone.
+                pages_by_kind: index.on(["kind"]),
+                pages_by_kind_project: index.on(["kind", "project"]),
+                pages_by_kind_tag: index.on(["kind", "tags"]),
+                pages_by_kind_title: index.on(["kind", "title"]),
+            }),
+        });
+        assert.deepEqual(Object.keys(pages.indexes).sort(), [...INDEXES]);
+        const surface = ui("library_rail_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const components = $.let([revenueTrend, kpiRail]);
+            const record = $.let(Record.bind(pages));
+            const slice = $.let(Slice.bindRecords("library.rail", {
+                rows: {
+                    source: Data.bindPaged(pages, { indexes: [...INDEXES] }), label: "Pages", scope: { kind: ["page"] }, search: ["title", "project", "tags"],
+                    fields: { title: { label: "Name" }, project: { label: "Project" }, tags: { label: "Tag" } },
+                },
+                templates: {
+                    source: Data.bindPaged(pages, { indexes: [...INDEXES] }), label: "Templates", scope: { kind: ["template"] }, search: ["title"],
+                    fields: { title: { label: "Name" } },
+                },
+            }));
+            // What the rail narrows by is checked where the page is built, against the entry's fields and the record's indexes.
+            $(slice.key);
+            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return Studio.Library({ pages: record, components, project: "ops", onOpen: go });
+        }))));
+        assert.deepEqual(surface.role.value!.records, ["library_rail_pages"]);
     });
 
     test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project, the open page its host gives it and who it tells of another; no page given marks none", () => {

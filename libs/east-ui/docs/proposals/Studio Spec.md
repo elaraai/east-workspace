@@ -105,10 +105,13 @@ The public `Studio` namespace is exactly this: `Studio.component`,
 and, since a placement holds content (a component's key, a visual or a text
 block), `Studio.source`, which declares a source a surface's visuals may read
 (`sources={{ orders: Studio.source(handle, meta) }}` on the builder and the page: the page library reads none),
-`Studio.visual`, which builds a placement's content for a record's seeds, and
-`Studio.migrations`, the steps a pages record lists
+`Studio.visual`, which builds a placement's content for a record's seeds,
+`Studio.value`, which writes the pages and templates a record ships (#1759), and
+`Studio.migrations`, the steps a pages record lists, in order
 (`migration.rows("cell_content", Studio.migrations.cellContent)` carries pages
-stored when a placement held a component's key alone).
+stored when a placement held a component's key alone, then
+`migration.rows("entry_fields", Studio.migrations.entryFields)` those stored
+before an entry held what it is, its project, its title and its tags).
 
 ---
 

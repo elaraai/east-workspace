@@ -18,7 +18,7 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { East, NullType, SortedMap, compareFor, none, printJq, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, NullType, none, printJq, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Record, Studio, type StudioPagesType } from "@elaraai/e3-ui/internal";
 import * as alertsExamples from "@elaraai/e3-ui/examples/studio/alerts";
@@ -40,9 +40,9 @@ const REGIONS = v.of("orders", v.column({ x: v.group("region"), values: [v.sum("
 const CELLS = [cell("c-regions", REGIONS), cell("c-orders", v.of("orders", v.kpi({ value: v.count() })))];
 
 /** The builder's pages: the tiles' page alone, live as it is drafted. */
-const PAGES: ValueTypeOf<typeof StudioPagesType> = new SortedMap([
-    [PAGE, variant("page", { draft: { title: "Orders", cells: CELLS, filters: [] }, live: some({ version: 1n, page: { title: "Orders", cells: CELLS, filters: [] } }) })],
-], compareFor(Studio.Types.Key));
+const PAGES: ValueTypeOf<typeof StudioPagesType> = Studio.value([
+    { key: PAGE, draft: { title: "Orders", cells: CELLS, filters: [] }, live: { version: 1n, page: { title: "Orders", cells: CELLS, filters: [] } } },
+]);
 
 /** Where the surface notes the page its builder asks for. */
 const ASKED = "alerts-inspector.asked";

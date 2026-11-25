@@ -11,18 +11,20 @@
  * operators build, and the three surfaces it mounts: the builder, the page
  * library and a published page. The record holds the mock of record's resting
  * state: the Ops console's Overview, live as v3 and drafted since, and the page
- * library's projects, pages and templates. A second record holds a page whose
+ * library's projects, pages and templates — each entry written with
+ * `Studio.value` (#1759), some of them tagged — and declares the indexes a
+ * page lists and narrows its entries by. A second record holds a page whose
  * placements hold content (#1669) — a text block and visuals over the two
- * sources the surface lists — and declares the one step that carries a
- * workspace's pages stored before a placement held content. A third holds a page of every form
+ * sources the surface lists — and declares the steps that carry a workspace's
+ * pages from the types earlier releases stored them as. A third holds a page of every form
  * a visual draws (#1671), over two years of a trade supplier's orders, its
  * readers starting in the latest quarter; a fourth, a page of the options a
  * chart and a value take (#1672).
  */
 
 import {
-    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, compareFor,
-    example, none, parseJq, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    example, none, parseJq, some, variant,
 } from "@elaraai/east";
 import {
     BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
@@ -33,9 +35,6 @@ import {
     studioAreas, studioAssignmentsToday, studioKpis, studioOrdersWeekly, studioPeople, studioReturns, studioRevenueDaily,
     studioRotaWeek, studioSales, studioShifts, studioVisitsDaily,
 } from "./studio-data.js";
-
-type Key = ValueTypeOf<typeof Studio.Types.Key>;
-type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 
 // ============================================================================
 // The data — what the components read (`studio-data.ts`)
@@ -217,11 +216,15 @@ export const shiftRoster = Studio.component("shift_roster", {
 /**
  * The pages record: the Ops console's pages — the Overview live as v3, its
  * draft resizing the trend and adding the bars beside it — and its templates,
- * and the other projects' pages.
+ * and the other projects' pages. Its indexes are each led by what an entry is,
+ * so the pages and the templates are read apart: by its kind alone — how one
+ * is found among its kind's by its key — by project, by tag — an entry filed
+ * once under each tag it holds — and by title.
  */
 export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
-    initial: new SortedMap<Key, Entry>([
-        [{ project: "Ops console", page: "Account detail" }, variant("page", {
+    initial: Studio.value([
+        {
+            key: { project: "Ops console", page: "Account detail" },
             draft: {
                 title: "Account detail",
                 cells: [
@@ -232,9 +235,10 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: none,
-        })],
-        [{ project: "Ops console", page: "Overview" }, variant("page", {
+        },
+        {
+            key: { project: "Ops console", page: "Overview" },
+            tags: ["operations", "weekly"],
             draft: {
                 title: "Overview",
                 cells: [
@@ -245,7 +249,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: some({
+            live: {
                 version: 3n,
                 page: {
                     title: "Overview",
@@ -256,9 +260,11 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     ],
                     filters: [],
                 },
-            }),
-        })],
-        [{ project: "Ops console", page: "Regional rollup" }, variant("page", {
+            },
+        },
+        {
+            key: { project: "Ops console", page: "Regional rollup" },
+            tags: ["sales"],
             draft: {
                 title: "Regional rollup",
                 cells: [
@@ -268,7 +274,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: some({
+            live: {
                 version: 1n,
                 page: {
                     title: "Regional rollup",
@@ -279,9 +285,11 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     ],
                     filters: [],
                 },
-            }),
-        })],
-        [{ project: "Ops console", page: "Weekly export" }, variant("page", {
+            },
+        },
+        {
+            key: { project: "Ops console", page: "Weekly export" },
+            tags: ["export", "weekly"],
             draft: {
                 title: "Weekly export",
                 cells: [
@@ -290,35 +298,45 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: some({ version: 2n, page: { title: "Weekly export", cells: [], filters: [] } }),
-        })],
-        [{ project: "Ops console", page: "Ops board" }, variant("template", {
-            title: "Ops board",
-            cells: [
-                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
-                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
-            ],
-            filters: [],
-        })],
-        [{ project: "Ops console", page: "Report brief" }, variant("template", {
-            title: "Report brief",
-            cells: [
-                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
-                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
-            ],
-            filters: [],
-        })],
-        [{ project: "Ops console", page: "Summary" }, variant("template", {
-            title: "Summary",
-            cells: [
-                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
-                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
-                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
-            ],
-            filters: [],
-        })],
-        [{ project: "Finance portal", page: "Ledger" }, variant("page", {
+            live: { version: 2n, page: { title: "Weekly export", cells: [], filters: [] } },
+        },
+        {
+            key: { project: "Ops console", page: "Ops board" },
+            template: {
+                title: "Ops board",
+                cells: [
+                    { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                ],
+                filters: [],
+            },
+        },
+        {
+            key: { project: "Ops console", page: "Report brief" },
+            template: {
+                title: "Report brief",
+                cells: [
+                    { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
+                ],
+                filters: [],
+            },
+        },
+        {
+            key: { project: "Ops console", page: "Summary" },
+            template: {
+                title: "Summary",
+                cells: [
+                    { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                ],
+                filters: [],
+            },
+        },
+        {
+            key: { project: "Finance portal", page: "Ledger" },
             draft: {
                 title: "Ledger",
                 cells: [
@@ -326,9 +344,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: none,
-        })],
-        [{ project: "HR roster", page: "Rota" }, variant("page", {
+        },
+        {
+            key: { project: "HR roster", page: "Rota" },
             draft: {
                 title: "Rota",
                 cells: [
@@ -336,7 +354,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 ],
                 filters: [],
             },
-            live: some({
+            live: {
                 version: 1n,
                 page: {
                     title: "Rota",
@@ -345,12 +363,19 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                     ],
                     filters: [],
                 },
-            }),
-        })],
-    ], compareFor(Studio.Types.Key)),
+            },
+        },
+    ]),
     mutations: (mutation) => ({
         // The record's one write.
         patch: mutation.patch(),
+    }),
+    // What a page lists and narrows the entries by, each led by what an entry is: a page or a template.
+    indexes: (index) => ({
+        pages_by_kind: index.on(["kind"]),
+        pages_by_kind_project: index.on(["kind", "project"]),
+        pages_by_kind_tag: index.on(["kind", "tags"]),
+        pages_by_kind_title: index.on(["kind", "title"]),
     }),
 });
 
@@ -364,8 +389,9 @@ export const studioBuilder = example({
         "Studio", "Studio.Builder", "builder", "canvas", "palette", "inspector", "publish preview", "Preview", "Publish",
         "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
         "mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
+        "Studio.value", "seed", "initial", "tags", "template", "index.on", "indexes", "kind", "project", "title",
     ],
-    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns; the page it shows is the surface's own state, given as `page` and changed in `onOpen` when the palette's Pages tab asks for another",
+    description: "The builder over the pages record — its pages and templates written with Studio.value (a page its `draft`, its `live` version and its `tags`; a template its `template`), its indexes led by what an entry is (`index.on([\"kind\"])`, `[\"kind\", \"project\"]`, `[\"kind\", \"tags\"]`, `[\"kind\", \"title\"]`): the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns; the page it shows is the surface's own state, given as `page` and changed in `onOpen` when the palette's Pages tab asks for another",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
@@ -423,9 +449,12 @@ export const studioConflictPages = e3.record("studio_conflict_pages", Studio.Typ
         // Someone else's save: every page's tiles a column narrower in its draft, its templates as they were.
         elsewhere: mutation.reduce(East.function([Studio.Types.Pages], Studio.Types.Pages, ($, pages) => {
             const narrower = $.const(tilesNarrower);
-            return pages.map((_$2, entry) => entry.match({
-                page: (_$3, held) => East.value(variant("page", { draft: narrower(held.draft), live: held.live }), Studio.Types.Entry),
-                template: (_$3, page) => East.value(variant("template", page), Studio.Types.Entry),
+            return pages.map((_$2, entry) => entry.kind.match({
+                page: (_$3) => East.value({
+                    kind: entry.kind, project: entry.project, title: entry.title, tags: entry.tags,
+                    draft: narrower(entry.draft), live: entry.live,
+                }, Studio.Types.Entry),
+                template: (_$3) => entry,
             }));
         })),
     }),
@@ -521,14 +550,17 @@ const itemsReturned = Studio.visual.of("returns", Studio.visual.kpi({
 /**
  * The pages of a project whose placements hold content: a text block, two
  * visuals over the sales, a developer's component, and two visuals over the
- * returns — so a filter's editor asks which dataset it is on. Its one migration step
- * carries a workspace whose pages were stored before a placement held content
- * — each component key becomes `component(key)` — and a workspace deployed
- * fresh counts it applied.
+ * returns — so a filter's editor asks which dataset it is on. Its migration
+ * steps carry a workspace's pages from the types earlier releases stored them
+ * as: `cell_content`, for pages stored before a placement held content — each
+ * component key becomes `component(key)` — then `entry_fields`, for entries
+ * stored before one held what it is, its project, its title and its tags. A
+ * workspace deployed fresh counts both applied.
  */
 export const studioContentPages = e3.record("studio_content_pages", Studio.Types.Pages, {
-    initial: new SortedMap<Key, Entry>([
-        [{ project: "Sales desk", page: "This week" }, variant("page", {
+    initial: Studio.value([
+        {
+            key: { project: "Sales desk", page: "This week" },
             draft: {
                 title: "This week",
                 cells: [
@@ -542,24 +574,26 @@ export const studioContentPages = e3.record("studio_content_pages", Studio.Types
                 ],
                 filters: [],
             },
-            live: none,
-        })],
-    ], compareFor(Studio.Types.Key)),
+        },
+    ]),
     mutations: (mutation) => ({
         // The record's one write.
         patch: mutation.patch(),
     }),
-    // Pages stored before a placement held content are carried by this one step.
-    migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)],
+    // Pages an earlier release stored are carried by these steps, in order.
+    migrations: (migration) => [
+        migration.rows("cell_content", Studio.migrations.cellContent),
+        migration.rows("entry_fields", Studio.migrations.entryFields),
+    ],
 });
 
 export const studioContent = example({
     keywords: [
         "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table",
-        "text block", "text", "content", "Studio.Types.Content", "Studio.migrations", "cellContent", "migration.rows", "migrations",
-        "Data.bind", "Studio.Builder", "e3.record", "two sources", "datasets", "starting filters", "filter",
+        "text block", "text", "content", "Studio.Types.Content", "Studio.value", "Studio.migrations", "cellContent", "entryFields",
+        "migration.rows", "migrations", "Data.bind", "Studio.Builder", "e3.record", "two sources", "datasets", "starting filters", "filter",
     ],
-    description: "A page whose placements hold content: a text block, visuals over the two sources the surface lists — over the sales, revenue by region as stacked columns and the top regions as a list; over the returns, refunds by reason as bars and the items returned as a KPI — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — and a filter is on one of the sources the page's visuals read: here two, so a new starting filter's editor asks which, and the rail names each source once before its chips. The page's seeds are built with Studio.visual, and its pages record declares Studio.migrations.cellContent, the one step that carries pages stored before a placement held content",
+    description: "A page whose placements hold content: a text block, visuals over the two sources the surface lists — over the sales, revenue by region as stacked columns and the top regions as a list; over the returns, refunds by reason as bars and the items returned as a KPI — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — and a filter is on one of the sources the page's visuals read: here two, so a new starting filter's editor asks which, and the rail names each source once before its chips. The page is written with Studio.value and its content built with Studio.visual, and its pages record declares the steps that carry pages an earlier release stored, in order: Studio.migrations.cellContent, for pages stored before a placement held content, then Studio.migrations.entryFields, for entries stored before one held what it is, its project, its title and its tags",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail]);
@@ -729,12 +763,13 @@ const visualFilters = [{ key: "f-quarter", source: "orders", where: latestQuarte
 
 /** The pages of the visuals' project: one page, Visuals, live as it was drafted, its readers starting in the latest quarter. */
 export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.Pages, {
-    initial: new SortedMap<Key, Entry>([
-        [{ project: "Sales desk", page: "Visuals" }, variant("page", {
+    initial: Studio.value([
+        {
+            key: { project: "Sales desk", page: "Visuals" },
             draft: { title: "Visuals", cells: visualCells, filters: visualFilters },
-            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells, filters: visualFilters } }),
-        })],
-    ], compareFor(Studio.Types.Key)),
+            live: { version: 1n, page: { title: "Visuals", cells: visualCells, filters: visualFilters } },
+        },
+    ]),
     mutations: (mutation) => ({
         // The record's one write.
         patch: mutation.patch(),
@@ -782,12 +817,13 @@ const chartOptionCells = [
 
 /** The pages of the chart options' project: one page, Chart options, live as it was drafted. */
 export const studioChartOptionPages = e3.record("studio_chart_option_pages", Studio.Types.Pages, {
-    initial: new SortedMap<Key, Entry>([
-        [{ project: "Sales desk", page: "Chart options" }, variant("page", {
+    initial: Studio.value([
+        {
+            key: { project: "Sales desk", page: "Chart options" },
             draft: { title: "Chart options", cells: chartOptionCells, filters: [] },
-            live: some({ version: 1n, page: { title: "Chart options", cells: chartOptionCells, filters: [] } }),
-        })],
-    ], compareFor(Studio.Types.Key)),
+            live: { version: 1n, page: { title: "Chart options", cells: chartOptionCells, filters: [] } },
+        },
+    ]),
     mutations: (mutation) => ({
         // The record's one write.
         patch: mutation.patch(),
@@ -857,16 +893,18 @@ const regionCells = [
 
 /** The pages of the clicks' project: Customers, and Region orders, each live as it was drafted. */
 export const studioClickPages = e3.record("studio_click_pages", Studio.Types.Pages, {
-    initial: new SortedMap<Key, Entry>([
-        [{ project: "Sales desk", page: "Customers" }, variant("page", {
+    initial: Studio.value([
+        {
+            key: { project: "Sales desk", page: "Customers" },
             draft: { title: "Customers", cells: customerCells, filters: [] },
-            live: some({ version: 1n, page: { title: "Customers", cells: customerCells, filters: [] } }),
-        })],
-        [{ project: "Sales desk", page: "Region orders" }, variant("page", {
+            live: { version: 1n, page: { title: "Customers", cells: customerCells, filters: [] } },
+        },
+        {
+            key: { project: "Sales desk", page: "Region orders" },
             draft: { title: "Region orders", cells: regionCells, filters: [] },
-            live: some({ version: 1n, page: { title: "Region orders", cells: regionCells, filters: [] } }),
-        })],
-    ], compareFor(Studio.Types.Key)),
+            live: { version: 1n, page: { title: "Region orders", cells: regionCells, filters: [] } },
+        },
+    ]),
     mutations: (mutation) => ({
         // The record's one write.
         patch: mutation.patch(),

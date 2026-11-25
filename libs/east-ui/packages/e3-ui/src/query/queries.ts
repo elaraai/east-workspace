@@ -38,6 +38,7 @@ import {
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RecordOutcomeType } from "../bind/record.js";
+import { keptTags } from "../utils/tags.js";
 import { QueryRootEntryType, SavedQueriesType, SavedQueryType } from "./types.js";
 
 // ============================================================================
@@ -104,18 +105,15 @@ export const querySources = East.function(
 
 /**
  * A saved query's tags as they are kept (#1758): each without the spaces
- * around it, once, and none that is empty.
+ * around it, once, and none that is empty — as every record's tags are kept
+ * ({@link keptTags}).
  *
  * @remarks
  * Every write of a saved query gives its `tags` through this — the builder's
  * save and `Query.value` — so a tag typed with a space after it is the tag
  * without it, and the record's index on them files a query under each once.
  */
-export const queryTags = East.function(
-    [SetType(StringType)],
-    SetType(StringType),
-    (_$, tags) => tags.toSet((_$2, tag) => tag.trim()).filter((_$2, tag) => tag.notEqual("")),
-);
+export const queryTags = keptTags;
 
 // ============================================================================
 // A save
