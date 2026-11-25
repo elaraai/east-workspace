@@ -12,14 +12,17 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { East, IntegerType, NullType, StringType, encodeBeast2For, equalFor } from "@elaraai/east";
+import { East, IntegerType, NullType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printType, some } from "@elaraai/east";
 import { State } from "@elaraai/east-ui/internal";
-import { getStore, initializeStore } from "./state-runtime.js";
+import { decodeStored, getStore, initializeStore } from "./state-runtime.js";
 import { getRegisteredPlatformImplementations } from "./registry.js";
 import { UIStore } from "./state-store.js";
 
 const KEY = "state-runtime.test.count";
 const integerEqual = equalFor(IntegerType);
+const sameText = equalFor(OptionType(StringType));
+/** What a read of the store's bytes gave, as an Option: `undefined` is nothing kept. */
+const kept = (value: string | undefined) => (value === undefined ? none : some(value));
 
 /** A page's read of the state: bound at an Integer, starting at 7. */
 const read = East.compile(East.function([], IntegerType, ($) => {
@@ -61,5 +64,22 @@ describe("State.bind — a value its store keeps under another type (#1758)", ()
         getStore().write(KEY, encodeBeast2For(IntegerType)(3n));
         expect(integerEqual(read(), 3n)).toBe(true);
         expect(said.mock.calls).toEqual([]);
+    });
+});
+
+describe("decodeStored — what a store keeps under a key, read as a type (#1758)", () => {
+    const asInteger = decodeBeast2For(IntegerType);
+    const asText = decodeBeast2For(StringType);
+
+    test("a value is nothing kept to the type it does not read as alone: a reader of the type it was written under still reads it", () => {
+        const said = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const bytes = encodeBeast2For(StringType)("seven");
+        // Two readers share the key by mistake, one at an Integer: it is told nothing is kept, and said so once.
+        expect(decodeStored(KEY, bytes, printType(IntegerType), asInteger)).toBeUndefined();
+        expect(decodeStored(KEY, bytes, printType(IntegerType), asInteger)).toBeUndefined();
+        expect(said.mock.calls.length).toBe(1);
+        // The reader at text reads what it wrote.
+        expect(sameText(kept(decodeStored(KEY, bytes, printType(StringType), asText)), some("seven"))).toBe(true);
+        expect(said.mock.calls.length).toBe(1);
     });
 });

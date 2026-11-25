@@ -139,8 +139,9 @@ export {
     recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
     recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceBasePlace,
 } from "./platform/slice/record.js";
-// The UI store, tracked reads, and the boundary a renderer's East calls run in.
-export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
+// The UI store, tracked reads, what it keeps under a key read as a type — nothing, where an earlier release kept it under
+// another (#1758) — and the boundary a renderer's East calls run in.
+export { getStore, initializeStore, trackKey, decodeStored } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
 export { PagedScan, SCAN_CONCURRENCY } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
