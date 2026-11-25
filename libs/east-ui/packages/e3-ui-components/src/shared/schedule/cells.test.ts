@@ -297,9 +297,9 @@ describe("a window of the paged rows, as the reader reads it (#1039, #1541)", ()
 });
 
 describe("what Saves landed, over a kind's cells read before them", () => {
-    /** What Saves landed of the jobs: one event, their requests drafted at these revisions. */
+    /** What Saves landed of the jobs: one event — its draft, its row and its row's value no matter here — their requests drafted at these revisions. */
     const jobs = (...from: string[]): ScheduleLanded => new Map([["jobs", {
-        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]) }]]), from: new Set(from),
+        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]), value: { title: "October brochures" } }]]), from: new Set(from),
     }]]);
     /** The jobs at a revision: the one their standing cells were read at, or the one their record reads at now. */
     const at = (revision: string): ReadonlyMap<string, string> => new Map([["jobs", revision]]);

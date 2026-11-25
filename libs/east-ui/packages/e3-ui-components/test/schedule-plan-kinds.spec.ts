@@ -135,6 +135,8 @@ async function built(program: typeof jobProgram): Promise<PlanKind> {
 }
 
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
+/** What a kind no reader of its cells names reads from: its window (#1771). */
+const OVER_WINDOW = variant("window", null);
 const DAY = ["2026-10-05T00:00:00Z", "2026-10-06T00:00:00Z"] as const;
 /** The range a canvas reads, which a kind read whole takes no notice of. */
 const RANGE = [at(DAY[0]), at(DAY[1])] as const;
@@ -143,7 +145,7 @@ const rolesEqual = equalFor(Schedule.Types.PlanRoles);
 
 /** A kind's events on 5 October, as Plan draws them. */
 function onTheFifth(kind: PlanKind): PlanItem[] {
-    const read = kind.planItems(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none);
+    const read = kind.planItems(at(DAY[0]), at(DAY[1]), NO_DRAFTS, OVER_WINDOW);
     if (read.type !== "some") assert.fail("expected the window read");
     return read.value;
 }
@@ -177,7 +179,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         const lockedKind = await built(lockedJobProgram);
         // The brochure run is proposed: locked by its row. The catalogue run, in the backlog, by its key.
         assert.deepEqual(onTheFifth(lockedKind).map((i) => [i.key, i.locked]), [["j1", true]]);
-        const waiting = lockedKind.planUnscheduled(...RANGE, NO_DRAFTS, none);
+        const waiting = lockedKind.planUnscheduled(...RANGE, NO_DRAFTS, OVER_WINDOW);
         if (waiting.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(waiting.value.map((i) => [i.key, i.locked]), [["j2", true]]);
         // Read by its key, the same; and with a draft in place the rule reads the drafted row: confirmed, it is locked no more.
@@ -187,7 +189,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         assert.equal(read.value.item.locked, true);
         const encodeDraft = encodeBeast2For(EditingDraftFieldType(sx.SchedulePrintJob));
         const confirmed = new SortedMap<string, Uint8Array>([["j1", encodeDraft(variant("value", { ...j1, state: variant("confirmed", null) }))]], compareFor(StringType));
-        const drafted = lockedKind.planItems(at(DAY[0]), at(DAY[1]), confirmed, none);
+        const drafted = lockedKind.planItems(at(DAY[0]), at(DAY[1]), confirmed, OVER_WINDOW);
         if (drafted.type !== "some") assert.fail("expected the window read");
         assert.deepEqual(drafted.value.map((i) => [i.key, i.locked]), [["j1", false]]);
         // No rule: none locked, in the window or the backlog.
@@ -211,7 +213,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
     });
 
     test("draws its backlog the same way, each row sized by its duration", async () => {
-        const read = (await built(jobProgram)).planUnscheduled(...RANGE, NO_DRAFTS, none);
+        const read = (await built(jobProgram)).planUnscheduled(...RANGE, NO_DRAFTS, OVER_WINDOW);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => i.key), ["j2"]);
         const [waiting] = read.value;
@@ -387,8 +389,8 @@ describe("Schedule.events — the Calendar's kind with Plan's options present (P
             assert.ok(equalFor(fields[f])(plain[f] as never, withPlan[f] as never), `the kind's ${f}`);
         }
         const items = equalFor(OptionType(ArrayType(Schedule.Types.Item)));
-        assert.ok(items(plain.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none), withPlan.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none)));
-        assert.ok(items(plain.unscheduled(...RANGE, NO_DRAFTS, none), withPlan.unscheduled(...RANGE, NO_DRAFTS, none)));
+        assert.ok(items(plain.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, OVER_WINDOW), withPlan.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, OVER_WINDOW)));
+        assert.ok(items(plain.unscheduled(...RANGE, NO_DRAFTS, OVER_WINDOW), withPlan.unscheduled(...RANGE, NO_DRAFTS, OVER_WINDOW)));
         const j1 = encodeBeast2For(sx.SchedulePrintJob)((await h.read(sx.schedulePrintJobs)).get("j1")!);
         const request = [{ id: "j1", entry: j1, gesture: variant("place", {
             start: at("2026-10-05T08:00:00Z"), end: at("2026-10-05T14:00:00Z"), resource: some({ kind: "presses", key: "pb" }),

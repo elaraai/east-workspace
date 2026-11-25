@@ -11,7 +11,9 @@
  * reads by key its own case's rows alone, its title handed the value its case
  * holds, and a draft changing a row's case moves its event to that case's
  * kind; it lands on the resources of its own cases of the row's `on` field,
- * and a template whose values hold another case makes none. Under the editing
+ * and a template whose values hold another case makes none. Handed the rows a
+ * reader holds of the record, by one handle (#1771), each reads its own case's
+ * from that one set, a draft laid over them as over its window. Under the editing
  * every builder shares (`useScheduleEditing`), the kinds are the record's one
  * session: a gesture over a run and a setup is one step, and Save sends the
  * record one request.
@@ -29,6 +31,7 @@ import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHi
 import { Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as sx from "@elaraai/e3-ui/examples/schedule/schedule";
 import { e3Harness, settle } from "../../e3-web-mount.test-utils.js";
+import { holdCellRows, releaseCellRows } from "./cell-rows.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef } from "./editing.js";
 
 const Step = sx.SchedulePrintStep;
@@ -84,9 +87,12 @@ async function builtKinds(): Promise<readonly [PlanKind, PlanKind, PlanKind]> {
     return [setup!, run!, shift!];
 }
 
-/** A kind's events on the steps' day, each its key and its title. */
-function itemsOf(kind: PlanKind, drafts = NO_DRAFTS): [string, string][] {
-    const read = kind.planItems(...OCT_5, drafts, none);
+/** What a kind's seams draw from: its window, the rows a reader holds of it by their handle, or none of its events (#1771). */
+type KindRead = Parameters<PlanKind["planItems"]>[3];
+
+/** A kind's events on the steps' day, each its key and its title — read over its window, unless given what to read. */
+function itemsOf(kind: PlanKind, drafts = NO_DRAFTS, given: KindRead = variant("window", null)): [string, string][] {
+    const read = kind.planItems(...OCT_5, drafts, given);
     if (read.type !== "some") throw new Error(`expected ${kind.key}'s events read`);
     return read.value.map((item) => [item.key, item.title]);
 }
@@ -96,7 +102,7 @@ describe("the kinds of one record's cases (#1769)", () => {
         const [setup, run, shift] = await builtKinds();
         expect([itemsOf(setup), itemsOf(run), itemsOf(shift)]).toEqual([[["k1", "4 plates"]], [["k2", "Brochure run"]], [["k3", "Crew of 3"]]]);
         expect([setup.takes, run.takes, shift.takes]).toEqual([["presses"], ["presses"], ["crews"]]);
-        const crewShift = shift.planItems(...OCT_5, NO_DRAFTS, none);
+        const crewShift = shift.planItems(...OCT_5, NO_DRAFTS, variant("window", null));
         if (crewShift.type !== "some") throw new Error("expected the shifts read");
         expect(refEqual(crewShift.value[0]!.resource, some({ kind: "crews", key: "c1" }))).toBe(true);
         // Its record read whole, counted in memory: its case's events alone, counted exactly.
@@ -116,6 +122,31 @@ describe("the kinds of one record's cases (#1769)", () => {
         const turned = draftsOf([["k1", stepDraft(variant("value", { ...k1, kind: variant("run", { title: "Proof run", sheets: 200 }) }))]]);
         expect([itemsOf(setup, turned), itemsOf(run, turned)]).toEqual([[], [["k1", "Proof run"], ["k2", "Brochure run"]]]);
         expect([setup.planEvent("k1", turned, ...OCT_5, none).type, run.planEvent("k1", turned, ...OCT_5, none).type]).toEqual(["none", "some"]);
+    });
+
+    test("handed the rows a reader holds of their record, by one handle, each reads its own case's from the one set — made once, never a copy a kind — a draft laid over them; handed nothing, none (#1771)", async () => {
+        const [setup, run, shift] = await builtKinds();
+        // The record's rows as a reader holds them: as the page unpacked them, under a handle the seams read them by.
+        const stored = await h.read(steps);
+        const rows = [...stored].map(([key, row]) => ({ key, row }));
+        let made = 0;
+        const handle = holdCellRows(() => { made += 1; return rows; });
+        try {
+            const held: KindRead = variant("rows", handle);
+            expect([itemsOf(setup, NO_DRAFTS, held), itemsOf(run, NO_DRAFTS, held), itemsOf(shift, NO_DRAFTS, held)])
+                .toEqual([[["k1", "4 plates"]], [["k2", "Brochure run"]], [["k3", "Crew of 3"]]]);
+            expect(made).toBe(1);
+            // A draft changing a row's case moves its event over the rows held as over the window.
+            const k1 = stored.get("k1")!;
+            const turned = draftsOf([["k1", stepDraft(variant("value", { ...k1, kind: variant("run", { title: "Proof run", sheets: 200 }) }))]]);
+            expect([itemsOf(setup, turned, held), itemsOf(run, turned, held)]).toEqual([[], [["k1", "Proof run"], ["k2", "Brochure run"]]]);
+            // Handed nothing — hidden, or past the cap: none of its events.
+            expect(itemsOf(run, NO_DRAFTS, variant("nothing", null))).toEqual([]);
+        } finally {
+            releaseCellRows([handle]);
+        }
+        // Let go of, the rows are no seam's to read: a read of them names its handle.
+        expect(() => run.planItems(...OCT_5, NO_DRAFTS, variant("rows", handle))).toThrow(handle);
     });
 
     test("a template whose values hold another case makes no event, and a kind takes no resource of another case's", async () => {

@@ -39,11 +39,11 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DateTimeType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, SortedMap, SortedSet, StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { planHideId, type PlanEventDraftsType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useBacklogNarrowing, type BacklogNarrowing } from "../../shared/schedule/backlog.js";
-import { scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { SCHEDULE_READ_WINDOW, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { scheduleOverlaps, type ScheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { eventReadRange } from "../root/events.js";
 import type { PlanEventPart } from "../root/sources.js";
@@ -200,7 +200,8 @@ export function usePlanEventCounts(
                 const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
                 if (within.type !== "some" || !within.value) return READING;
             }
-            const read = held === undefined ? none : some(held);
+            // What the reader read of it, or — a kind it names not — its window (#1771).
+            const read = held ?? SCHEDULE_READ_WINDOW;
             const drafted = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
             if (shown) {
                 const items = kind.planItems(new Date(from), new Date(to), drafted, read);

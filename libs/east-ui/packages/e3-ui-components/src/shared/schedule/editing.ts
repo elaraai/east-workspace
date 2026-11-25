@@ -291,14 +291,13 @@ export function useScheduleEditing<I extends Item = Item>({
             if (standing?.current?.[part.key]?.row(id) !== undefined) return true;
             const own = part.read?.row(id);
             if (own !== undefined && own.type === "some" && own.value.type === "some") return true;
-            const held = heldRowOf(cellRows?.current, part.key, id);
-            return held.type === "some" && held.value.type === "some";
+            return cellRows?.current?.get(part.key)?.has(id) === true;
         });
         const shown = function* (): Iterable<string> {
             for (const part of group) {
                 yield* standing?.current?.[part.key]?.ids() ?? [];
                 yield* part.read?.ids() ?? [];
-                for (const [id] of cellRows?.current?.get(part.key) ?? []) yield id;
+                yield* cellRows?.current?.get(part.key)?.ids() ?? [];
             }
         };
         const made = once === undefined || !windowed ? once : pastKeys({
@@ -444,7 +443,10 @@ export function useScheduleEditing<I extends Item = Item>({
                 if (row === undefined) {
                     // A deleted event is none, its draft `missing`, as a draft deleting it is.
                     const saved = rowOf(entry.after);
-                    row = { draft: codec.encodeDraft(entry.after.draft === undefined ? MISSING : entry.after.draft), row: saved === undefined ? undefined : codec.encodeRow(saved) };
+                    row = {
+                        draft: codec.encodeDraft(entry.after.draft === undefined ? MISSING : entry.after.draft),
+                        row: saved === undefined ? undefined : codec.encodeRow(saved), value: saved,
+                    };
                     was.encoded.set(entry, row);
                 }
                 if (before?.rows.get(id) !== row) same = false;
@@ -743,8 +745,7 @@ export function useScheduleEditing<I extends Item = Item>({
                         if (part.entries.type !== "some") return false;
                         return shared.of[i]!.some((j) => {
                             const over = parts[j]!.key;
-                            const cell = heldRowOf(cellRows?.current, over, id);
-                            return standing?.current?.[over]?.row(id) !== undefined || (cell.type === "some" && cell.value.type === "some");
+                            return standing?.current?.[over]?.row(id) !== undefined || cellRows?.current?.get(over)?.has(id) === true;
                         });
                     },
                     underKey: (id, version) => ({ draft: variant("value", codec.underKey(id, rowOf(version))), wire: { id }, place: KEY_ORDER }),
@@ -878,8 +879,9 @@ export function useScheduleEditing<I extends Item = Item>({
                 if (own.type !== "some") return undefined;
                 return own.value.type === "some" ? some(codec.decodeRow(own.value.value)) : none;
             }
-            const cell = heldRowOf(cellRows?.current, part.key, id);
-            if (cell.type === "some" && cell.value.type === "some") return some(codec.decodeRow(cell.value.value));
+            // Where its cells hold it, as the page unpacked it (#1771): no row packed and unpacked for it.
+            const cell = cellRows?.current?.get(part.key);
+            if (cell?.has(id) === true) return some(cell.value(id));
             // Not held: read by its key ({@link ScheduleEditing.rowsByKey}). A text no key prints as names no row the
             // record holds (#1549).
             return codec.keyOf(id) === undefined ? none : undefined;

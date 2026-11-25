@@ -158,6 +158,8 @@ const printDateTime = printFor(DateTimeType);
 const printKey = printFor(StringType);
 const draftsOf = (entries: [string, Uint8Array][]) => new SortedMap(entries, compareString);
 const NO_DRAFTS = draftsOf([]);
+/** What a kind no reader of its cells names reads from: its window (#1771). */
+const OVER_WINDOW = variant("window", null);
 /** No kind read by its cells, and no shading (#1039): every kind read over the window, every row drawing its events. */
 const NO_READS: ValueTypeOf<typeof PlanEventReadsType> = new SortedMap([], compareString);
 const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], compareString);
@@ -173,7 +175,7 @@ const heldJobs = () => h.read(ex.planWindowJobs);
 
 /** A kind's events over `[from, to)`, once e3 has answered what they wait on. */
 const itemsIn = (kind: EventKind, from: string, to: string, drafts = NO_DRAFTS): Promise<PlanItem[]> =>
-    h.ready(() => kind.planItems(at(from), at(to), drafts, none));
+    h.ready(() => kind.planItems(at(from), at(to), drafts, OVER_WINDOW));
 
 /** The keys of a kind's events over `[from, to)`. */
 const keysIn = async (kind: EventKind, from: string, to: string, drafts = NO_DRAFTS): Promise<string[]> =>
@@ -269,7 +271,7 @@ describe("an event kind read by its day index (PB54)", () => {
 
     test("answers `none` while the search or a page is in flight, and the rows once each lands", async () => {
         const jobs = await kindOf(windowedJobs);
-        const read = () => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, none);
+        const read = () => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, OVER_WINDOW);
         const search = h.e3.hold(finds(JOBS, BY_DAY));
         assert.equal((await h.inFlight(read, search)).type, "none", "its search in flight");
         assert.deepEqual(pagesOf(JOBS, BY_DAY), [], "no page is read before the search lands");
@@ -295,7 +297,7 @@ describe("an event kind read by its day index (PB54)", () => {
 
     test("reads the backlog through its index: every page from its start, `none` while one is in flight, the drafts in place", async () => {
         const jobs = await kindOf(windowedJobs);
-        const read = (drafts = NO_DRAFTS) => () => jobs.planUnscheduled(...BESIDE, drafts, none);
+        const read = (drafts = NO_DRAFTS) => () => jobs.planUnscheduled(...BESIDE, drafts, OVER_WINDOW);
         const first = h.e3.hold(pageAt(JOBS, 0, UNSCHEDULED));
         assert.equal((await h.inFlight(read(), first)).type, "none", "its first page in flight");
         first.release();
@@ -335,7 +337,7 @@ describe("one event by its key, never the record whole (#1199)", () => {
     test("a backlog event is found in the backlog's window, with no read by its key", async () => {
         const jobs = await kindOf(windowedJobs);
         // The canvas reads its backlog first, as its Backlog tab lists it: an event neither window holds yet is read by its key.
-        await h.ready(() => jobs.planUnscheduled(FROM, TO, NO_DRAFTS, none));
+        await h.ready(() => jobs.planUnscheduled(FROM, TO, NO_DRAFTS, OVER_WINDOW));
         const read = await h.ready(() => jobs.planEvent("W-0018", NO_DRAFTS, FROM, TO, none));
         assert.equal(read.item.title, "Winter brochure");
         assert.deepEqual([sought(JOBS).length, pagesOf(JOBS).length], [0, 0]);
@@ -621,7 +623,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         await bookProofs();
         const past = await kindOf(wholeJobs);
         assert.ok(countEqual(counted(past, FORTNIGHT), some(10_014n)), "the proofs and the thirteen jobs");
-        assert.equal(past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none).type, "none", "past the cap, none of its events");
+        assert.equal(past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, OVER_WINDOW).type, "none", "past the cap, none of its events");
         // The week after the proofs is within it.
         assert.ok(countEqual(counted(past, AFTER), some(7n)));
         assert.deepEqual(await keysIn(past, ...AFTER), AFTER_JOBS);
@@ -632,7 +634,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         const jobs = await narrowedJobs();
         assert.equal(jobs.countExact, true, "its count is its events'");
         assert.equal(await h.ready(() => counted(jobs, FORTNIGHT)), 10_014n);
-        const fortnight = () => jobs.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
+        const fortnight = () => jobs.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, OVER_WINDOW);
         assert.equal(fortnight().type, "none");
         // Nothing in flight, and still none: the window counted past the cap, and never read.
         await h.settle();
@@ -657,7 +659,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         const pages = pagesOf(JOBS, BY_DAY).length;
         // The proofs, each on the Monday alone: 10,018 entries, past the cap.
         assert.equal(await h.ready(() => counted(past, FORTNIGHT)), 10_018n);
-        const fortnight = () => past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
+        const fortnight = () => past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, OVER_WINDOW);
         assert.equal(fortnight().type, "none");
         // Nothing in flight, and still none: the days counted past the cap, and never read.
         await h.settle();
@@ -688,7 +690,7 @@ describe("a window that reads no rows", () => {
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)) }, window: days, backlogWindow: backlog, entries: all,
             });
         });
-        await assert.rejects(h.ready(() => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, none)),
+        await assert.rejects(h.ready(() => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, OVER_WINDOW)),
             /Schedule\.events: "Print job": `window` reads each event's row from the record through a day index keyed by Schedule\.days — Data\.bindPaged\(record, \{ index, join: true \}\) — and this one reads the index alone: give it `join: true`/);
     });
 });

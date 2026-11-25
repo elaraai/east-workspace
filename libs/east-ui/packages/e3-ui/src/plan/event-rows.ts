@@ -44,12 +44,12 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
     StringType, StructType, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
 import { IconType, PickStateType } from "@elaraai/east-ui";
-import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
+import { PlanEventItemType, PlanEventKindType, ScheduleCellReadType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { PlanEventShadeType, shadedKind } from "./shade.js";
 // The shade a bucket draws past the cap, given on as ever (#1039).
@@ -78,11 +78,11 @@ export type PlanEventDraftsType = typeof PlanEventDraftsType;
 
 /**
  * What a reader read of each event kind by its series index's cells (#1039),
- * by the kind's slot: the entries, one beast2 of the kind's `cellsType`, that
- * the kind draws its events from. A kind it does not name is read over the
- * window, as ever.
+ * by the kind's slot: what the kind draws its events from (#1771) — the rows
+ * it holds, named by their handle, or none of the kind's events. A kind it
+ * does not name is read over the window, as ever.
  */
-export const PlanEventReadsType = DictType(StringType, BlobType);
+export const PlanEventReadsType = DictType(StringType, ScheduleCellReadType);
 
 /** Type representing {@link PlanEventReadsType}. */
 export type PlanEventReadsType = typeof PlanEventReadsType;
@@ -520,6 +520,7 @@ export function createEventSeam(
             const result = $.let(none, OptionType(PlanEventPlacedType));
             const rowKeyOf = $.const(childRowKey);
             const noDrafts = $.const(new Map(), ScheduleDraftsType);
+            const overWindow = $.const(variant("window", null), ScheduleCellReadType);
             const hidden = $.let(hiding.toSet(), SetType(StringType));
             // Each kind's events over the window, its drafts in place (PB17) — a kind a reader read by its cells from
             // what it read (#1039). A hidden kind is not read: it places nothing, so nothing waits on it.
@@ -527,7 +528,9 @@ export function createEventSeam(
                 const kind = $.let(built.get(BigInt(i)));
                 const kindDrafts = $.let(drafts.get(slot, () => noDrafts));
                 const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
-                $.if(hidden.has(planHideId.events(slot)).not(), ($2) => { $2.assign(read, kind.planItems(from, to, kindDrafts, given.tryGet(slot))); });
+                $.if(hidden.has(planHideId.events(slot)).not(), ($2) => {
+                    $2.assign(read, kind.planItems(from, to, kindDrafts, given.get(slot, () => overWindow)));
+                });
                 return read;
             });
             const ready = reads.reduce<ExprType<BooleanType>>((all, read) => all.and(() => read.hasTag("some")), East.value(true, BooleanType));

@@ -66,7 +66,7 @@ test("the payload contains bound kinds and preferences, with no authored frame t
 test("the window and backlog project one record, and a shared by-key read retains all its typed fields", async () => {
     const kind = (await payload()).events[0]!;
     // No reader's cells: the window and the backlog are read over the window, the event by its key.
-    const scheduled = kind.items(from, to, drafts(), none); const backlog = kind.unscheduled(from, to, drafts(), none);
+    const scheduled = kind.items(from, to, drafts(), variant("window", null)); const backlog = kind.unscheduled(from, to, drafts(), variant("window", null));
     assert.equal(scheduled.type, "some"); assert.equal(backlog.type, "some");
     if (scheduled.type !== "some" || backlog.type !== "some") assert.fail("expected loaded records");
     assert.deepEqual(scheduled.value.map(item => item.key), ["job1", "job2", "job3", "job5"]);

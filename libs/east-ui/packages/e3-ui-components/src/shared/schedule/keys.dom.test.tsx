@@ -43,7 +43,9 @@ import { getRegisteredPlatformImplementations, useTrackedEvaluation, type EditHi
 import { Data, KindSideFields, Record, Schedule, recordSide, type KindBinding } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { e3Harness, reloadPage, settle } from "../../e3-web-mount.test-utils.js";
-import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef, type ScheduleFollowing } from "./editing.js";
+import {
+    useScheduleEditing, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEntryRef, type ScheduleFollowing, type ScheduleKindRows,
+} from "./editing.js";
 import { windowRead } from "./records.js";
 
 /** A rack: its code, which is its key too, and the bay it stands in. */
@@ -207,10 +209,18 @@ function ShownProbe({ by }: { readonly by: ShownBy }) {
     const side = result.value;
     const records = useMemo(() => (side.editing.type !== "some" ? []
         : [{ key: "shown", name: "Tickets", editing: side.editing.value, entries: side.entries, newKey: side.newKey }]), [side]);
-    const shown = useMemo(() => new Map(["T-1", "T-3", "T-7"].map((id) => [id, { row: encodeJob({ ref: "", title: id, start: DAY, end: LATER }) }] as const)), []);
+    const values = useMemo(() => new Map(["T-1", "T-3", "T-7"].map((id) => [id, { ref: "", title: id, start: DAY, end: LATER }] as const)), []);
+    const shown = useMemo(() => new Map([...values].map(([id, row]) => [id, { row: encodeJob(row) }] as const)), [values]);
     const standing = useMemo(() => (by !== "standing" ? undefined : { current: { shown: { row: (id: string) => shown.get(id)?.row, ids: () => shown.keys() } } }), [by, shown]);
     const reads = useMemo(() => (by !== "reads" ? undefined : { shown: windowRead(() => some(shown)) }), [by, shown]);
-    const held = useMemo(() => (by !== "held" ? undefined : { current: new Map([["shown", shown]]) }), [by, shown]);
+    // As a reader's cells hold them (#1771): each row as the page unpacked it, and its bytes.
+    const held = useMemo(() => {
+        if (by !== "held") return undefined;
+        const rows: ScheduleKindRows = {
+            has: (id) => values.has(id), get: (id) => shown.get(id), value: (id) => values.get(id), ids: () => values.keys(), rows: () => values.entries(),
+        };
+        return { current: new Map([["shown", rows]]) };
+    }, [by, values, shown]);
     probe.editing = useScheduleEditing({ kinds: NO_KINDS, records, reads, standing, held, storageKey: `schedule-shown-${by}`, joined: NO_JOINED, autosave: false });
     return null;
 }

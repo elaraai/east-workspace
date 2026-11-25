@@ -85,7 +85,7 @@ import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRo
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
-import { schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, type PlanLandingValue } from "./landings.js";
 import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
@@ -216,9 +216,9 @@ function failedKinds(kinds: PlanEventKinds, from: Date, to: Date, drafts: ValueT
     const out: string[] = [];
     for (const kind of kinds) {
         if (hides(hidden, planHideId.events(kind.key))) continue;
-        const held = reads.get(kind.key);
         try {
-            kind.planItems(from, to, drafts.get(kind.key) ?? NO_KIND_DRAFTS, held === undefined ? none : some(held));
+            // What the reader read of it, or — a kind it names not — its window (#1771).
+            kind.planItems(from, to, drafts.get(kind.key) ?? NO_KIND_DRAFTS, reads.get(kind.key) ?? SCHEDULE_READ_WINDOW);
         } catch {
             out.push(kind.key);
         }

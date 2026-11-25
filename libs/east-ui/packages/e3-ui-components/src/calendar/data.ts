@@ -50,9 +50,11 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { DateTimeType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
+import { DateTimeType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { schedulePeriodFailure, scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
+import {
+    SCHEDULE_READ_WINDOW, schedulePeriodFailure, scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead,
+} from "../shared/schedule/cells.js";
 import { viewOfPeriod } from "../shared/view-read.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
@@ -195,7 +197,8 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
             // rows alone, without those of events its narrowing does not hold.
             const held = cells.reads.get(kind.key);
             const changes = cells.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
-            const given = held === undefined ? none : some(held);
+            // What the reader read of it, or — a kind it names not — its window (#1771).
+            const given = held ?? SCHEDULE_READ_WINDOW;
             if (held === undefined) {
                 // A kind read a window at a time is the reader's to read (#1599): until it gives the kind cells, the
                 // window waits on it, and nothing reads the kind's window apart from it.
@@ -226,7 +229,7 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
         let loading = false;
         for (const kind of value.events) {
             if (!kind.backlog || windowed.has(kind.key)) continue;
-            const unscheduled = kind.unscheduled(EVER.from, EVER.to, drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, none);
+            const unscheduled = kind.unscheduled(EVER.from, EVER.to, drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, SCHEDULE_READ_WINDOW);
             if (unscheduled.type === "some") { for (const item of unscheduled.value) items.push(item); } else loading = true;
         }
         return { items, loading };
@@ -249,7 +252,7 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
             // A kind read by its series index's cells is never read over a window (#1424). Every other is counted there
             // first, and read only within the cap.
             if (byCells.has(kind.key)) continue;
-            kind.items(next.from, next.to, EMPTY_SCHEDULE_DRAFTS, none);
+            kind.items(next.from, next.to, EMPTY_SCHEDULE_DRAFTS, SCHEDULE_READ_WINDOW);
         }
     }, [value.events, byCells]);
     useReadAhead(result.ok && !result.value.loading, ahead, readNext);

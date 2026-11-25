@@ -327,6 +327,21 @@ export const ScheduleReadType = StructType({ item: ScheduleItemType, row: BlobTy
 export type ScheduleReadType = typeof ScheduleReadType;
 
 /**
+ * What a kind's read seams draw its events from (#1771): the window, which the kind reads itself; the rows a builder's
+ * reader holds of it — the entries it read by the kind's series index's cells (#1039), or its window's own stored rows
+ * (#1599) — named by a handle, the rows as the page unpacked them, which the seams read through `schedule_cell_rows` at
+ * the kind's `cellsType`; or none of its events, which the reader reads none of — a kind it hides, or one past the cap.
+ *
+ * @property window - Read over the window, by the kind itself
+ * @property rows - The rows the reader holds under this handle
+ * @property nothing - No event of the kind: it draws none, and its backlog is read alone
+ */
+export const ScheduleCellReadType = VariantType({ window: NullType, rows: StringType, nothing: NullType });
+
+/** Type representing {@link ScheduleCellReadType}. */
+export type ScheduleCellReadType = typeof ScheduleCellReadType;
+
+/**
  * The fields whose edits are owned by the schedule section of an inspector.
  *
  * @property title - The field of an event's title; empty for a title worked out from the row, or a kind with none
@@ -354,9 +369,11 @@ export const ScheduleRolesType = StructType({
  * A builder over resources read a window at a time reads a kind placed on them
  * a cell at a time (#1039, #1424): the shared schedule reader reads the kind's
  * series index's cells — the events of a block of resources in one time tile —
- * and hands what it read to the kind's seams as beast2 of `cellsType`. Every
- * other kind is counted first (`count`), and read over the window only within
- * the builder's cap.
+ * and tells the kind's seams what to draw from ({@link ScheduleCellReadType}):
+ * the rows it read, by a handle naming them as the page unpacked them, which the
+ * seams read through `schedule_cell_rows` at `cellsType` (#1771), never bytes to
+ * unpack. Every other kind is counted first (`count`), and read over the window
+ * only within the builder's cap.
  *
  * @property key - The kind's slot name
  * @property name - Its name
@@ -367,16 +384,18 @@ export const ScheduleRolesType = StructType({
  * @property templates - Its templates, for the library
  * @property templatesSource - The builder's Slice source whose shown keys filter its templates, the source its templates list names; none, every template shows (#1343)
  * @property fields - The inspector's form over its other fields (`Fields`)
- * @property items - Its events overlapping `[from, to)`, the drafts in place; `none` while a read is in flight. Given the
- *   entries a reader read by the kind's series index's cells (#1039) — beast2 of `cellsType`, a key given twice held once
- *   — it draws those and never reads the window: every draft given in place, one of an entry not given drawn as drafted,
- *   for the reader gives a draft of an entry it did not read only where its narrowing holds the entry, or the record
- *   does not. A builder that caps its kinds (the Calendar's and the Plan's) reads the window only within the cap
- *   (`SCHEDULE_EVENT_CAP`), counted first: past it, the window answers `none` and reads no page
+ * @property items - Its events overlapping `[from, to)`, the drafts in place, from what it is told to draw from
+ *   ({@link ScheduleCellReadType}); `none` while a read is in flight. Given the rows a reader holds of it (`rows`, #1039)
+ *   — an Array of `cellsType` read through `schedule_cell_rows` (#1771), a key given twice held once — it draws those
+ *   and never reads the window: every draft given in place, one of an entry not given drawn as drafted, for the reader
+ *   gives a draft of an entry it did not read only where its narrowing holds the entry, or the record does not; told
+ *   `nothing`, it draws none. Over the window (`window`), a builder that caps its kinds (the Calendar's and the Plan's)
+ *   reads it only within the cap (`SCHEDULE_EVENT_CAP`), counted first: past it, the window answers `none` and reads no
+ *   page
  * @property unscheduled - Its backlog: the rows with no time, the drafts in place. It takes the window `[from, to)`
  *   the canvas reads: a kind narrowed by its builder's slice holds the events its narrowing holds there and in its
- *   backlog alike, so a draft moves one between them by its times (#1343). Given the entries a reader read by its cells
- *   (#1039), it reads its backlog alone, never the window, those entries held beside it
+ *   backlog alike, so a draft moves one between them by its times (#1343). Given the rows a reader holds of it (#1039),
+ *   it reads its backlog alone, never the window, those rows held beside it; told `nothing`, its backlog alone
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
  * @property locked - The author's lock over entries (#1541, U9), one answer each: whether the kind's rule holds the
@@ -398,7 +417,7 @@ export const ScheduleRolesType = StructType({
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property inspector - The author's form in place of the default fields
  * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
- * @property cellsType - What a reader encodes the entries it read by cells in for `items`, `unscheduled` and `event` (#1039): an Array of `{ key, row }`, at the record's key and row types
+ * @property cellsType - The type of the entries a reader read by cells (#1039), at which `items` and `unscheduled` read them through its handle (#1771), and its window's stored rows are encoded in (`stored`): an Array of `{ key, row }`, at the record's key and row types
  * @property stored - The stored rows its window's read holds over `[from, to)`, as a reader holds a kind's cells (#1599): one beast2 of `cellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts over: the window's, and its backlog's where the kind reads the two as one (a kind narrowed by its builder's slice that does not page its backlog itself). What a builder keeps standing of a kind read a window at a time while that window is read again: the rows `items` and `event` are then given, so a draft made meanwhile draws at once and a gesture begins from the row shown. `none` while a read is in flight, and past the cap its window is read under; a record read whole is every row it holds
  * @property count - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`countExact`); and a kind whose record is read whole counted in memory. `none` while the count is in flight
  * @property countExact - Whether `count` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
@@ -413,8 +432,8 @@ export const ScheduleKindType = StructType({
     templates: ArrayType(ScheduleTemplateType),
     templatesSource: OptionType(StringType),
     fields: ArrayType(FieldSpecType),
-    items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
-    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
+    items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, ScheduleCellReadType], OptionType(ArrayType(ScheduleItemType))),
+    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, ScheduleCellReadType], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
     locked: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType))),
@@ -547,7 +566,7 @@ export type PlanEventChildType = typeof PlanEventChildType;
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
  * @property child - The rows beneath its resource it lands on; `none`, it lands on its resource's own rows
- * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from the entries a reader read by its cells when it is given them, else over the window; `none` while a read is in flight
+ * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from what it is told to draw from ({@link ScheduleCellReadType}) — the window, the rows a reader holds of it, or none; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, as `unscheduled` reads it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
  * @property planRows - Its events' rows over `[from, to)` and its backlog's beside them, by key, the drafts in place, read once (#1409, R24): beast2 of `DictType(keyType, rowType)`, the record's own key and row types — the reads `planEvent` finds one row in, so a run's request finds every event's row there rather than reading them all again an event; `none` while a read is in flight. It reads the window, never a reader's cells: a kind read by its cells carries no request
@@ -562,8 +581,8 @@ export const PlanEventKindType = StructType({
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
     child: OptionType(PlanEventChildType),
-    planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
-    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
+    planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, ScheduleCellReadType], OptionType(ArrayType(PlanEventItemType))),
+    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, ScheduleCellReadType], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
     planRows: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(BlobType)),
     inspector: OptionType(RowInspectorType),

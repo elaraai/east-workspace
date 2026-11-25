@@ -841,6 +841,9 @@ export { templateValues } from './schedule/templates.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
+// The rows a builder's reader read of a kind's cells (#1771): what each kind's read seams take through a handle, at its
+// own cells type — the rows as the page unpacked them, which the renderer answers.
+export { scheduleCellRows } from './schedule/cell-rows.js';
 // A builder's reference record (#1551): its slice's `reference` source, which the Roster and the Allocation window as their
 // own kind's and read for their check alone, its rows carried as bytes beside their type.
 export { SCHEDULE_REFERENCE, ScheduleReferenceType } from './schedule/reference.js';

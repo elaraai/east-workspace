@@ -12,8 +12,9 @@
  *
  * - The seams a kind read by its cells draws through: the `.east` text its
  *   series and summary file a resource's events under, the type of its cells,
- *   its items and its backlog from what a reader read — the drafts in place,
- *   with no read of the window — one event from the rows the cells hold, and
+ *   its items and its backlog from what a reader read — the rows themselves,
+ *   by their handle (#1771), the drafts in place, with no read of the window —
+ *   one event from the rows the cells hold, and
  *   the presses — the canvas's own rows, read a page at a time (#1541) — a
  *   window of them at a time, shaded past the budget.
  * - The refusals a Plan makes of a source's series and summary indexes as its
@@ -41,10 +42,11 @@ import {
 import { Slice } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
-import { Data, Plan, PlanEventShadingType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, PlanEventShadingType, PlanPayloadType, Record, Schedule, type ScheduleCellReadType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
+import { ScheduleCellRowsImpl, holdCellRows } from "../src/shared/schedule/cell-rows.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "plan/plan-windows": ex });
@@ -136,7 +138,8 @@ async function payloadOf(declared: Declared = {}): Promise<Payload> {
     const program = East.function([], PlanPayloadType, ($) => seriesPayload($, declared));
     const { platform } = await h.platform(program);
     StateRuntime.initializeStore(new UIStore());
-    const implementations = [...platform];
+    // And the rows a builder's reader holds, which a kind's seams read through `schedule_cell_rows` (#1771).
+    const implementations = [...platform, ...ScheduleCellRowsImpl];
     implementations.push(...createRecordSliceImplementation(() => implementations));
     return East.compile(program, implementations)() as Payload;
 }
@@ -151,10 +154,13 @@ const seamOf = (payload: Payload) => (payload.seam.type === "some" ? payload.sea
 const pressesIn = (blocks: readonly { rows: readonly { id: ValueTypeOf<typeof Plan.Types.RowId> }[] }[]) =>
     blocks.flatMap((b) => b.rows).flatMap((row) => (row.id.type === "entry" ? [row.id.value.path[row.id.value.path.length - 1]!] : []));
 
-/** A kind's cells, encoded as a reader hands them to its seams: each stored job's key beside its row — or what `drawn` gives of it, its tile (#1725). */
-function cellsOf(payload: Payload, jobs: ReadonlyMap<string, Job>, keys: readonly string[], drawn: (job: Job) => Job | Tile = (job) => job): Uint8Array {
-    const cellsType = fromEastTypeValue(jobsOf(payload).cellsType);
-    return encodeBeast2For(cellsType)(keys.map((key) => ({ key, row: drawn(jobs.get(key)!) })) as never);
+/**
+ * A kind's cells as a reader hands them to its seams (#1771): each stored job's key beside its row — or what `drawn`
+ * gives of it, its tile (#1725) — held as they are under a handle its seams read them by, never packed for them.
+ */
+function cellsOf(jobs: ReadonlyMap<string, Job>, keys: readonly string[], drawn: (job: Job) => Job | Tile = (job) => job): ValueTypeOf<typeof ScheduleCellReadType> {
+    const rows = keys.map((key) => ({ key, row: drawn(jobs.get(key)!) }));
+    return variant("rows", holdCellRows(() => rows));
 }
 
 // ============================================================================
@@ -178,8 +184,8 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         const jobs = jobsOf(payload);
         const held = await heldJobs();
         // The first week's cells of the first fifty presses, as a reader read them: the jobs on Presses 1001 to 1004.
-        const cells = cellsOf(payload, held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"]);
-        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, some(cells));
+        const cells = cellsOf(held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"]);
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cells);
         assert.equal(items.type, "some");
         assert.deepEqual(items.value!.map((item) => item.key), ["W-0001", "W-0002", "W-0003", "W-0004"], "the jobs overlapping the range, each once");
         // The museum guide deleted, the brochure run moved out of the range, and the order forms — in the backlog, so in
@@ -191,7 +197,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
             ["W-0001", jobDraft(variant("value", brochure))],
             ["W-0017", jobDraft(variant("value", forms))],
         ]);
-        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, some(cells));
+        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, cells);
         assert.deepEqual(drafted.type === "some" ? drafted.value.map((item) => [item.key, item.resource]) : [], [
             ["W-0002", some({ kind: "presses", key: "P-1001" })],
             ["W-0004", some({ kind: "presses", key: "P-1003" })],
@@ -204,8 +210,8 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         const payload = await payloadOf();
         const jobs = jobsOf(payload);
         const held = await heldJobs();
-        const cells = cellsOf(payload, held, ["W-0001"]);
-        const backlog = await h.ready(() => jobs.planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, some(cells)));
+        const cells = cellsOf(held, ["W-0001"]);
+        const backlog = await h.ready(() => jobs.planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, cells));
         assert.deepEqual(backlog.map((item) => item.key), ["W-0017", "W-0018", "W-0019", "W-0020"]);
         // Read through the interval index under the unset start, never the window.
         const reads = jobReads();
@@ -237,7 +243,7 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         assert.deepEqual(pressesIn(first.rows), ["P-1001", "P-1002", "P-1003"]);
         assert.deepEqual(pressesIn((await h.ready(() => source.page(1_999n, 5n))).rows), ["P-3000"], "a window past the last press holds what is left");
         const held = await heldJobs();
-        const reads = new SortedMap([["job", cellsOf(payload, held, ["W-0001", "W-0002", "W-0003"])]], compareString);
+        const reads = new SortedMap([["job", cellsOf(held, ["W-0001", "W-0002", "W-0003"])]], compareString);
         const placed = await h.ready(() => seamOf(payload).placed(FIRST, TWO_WEEKS, new SortedMap([], compareString), [], reads));
         const shading: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([["presses.span", new SortedMap([
             ["P-1001", [{ at: FIRST, value: some(0.25) }, { at: at("2026-10-06T00:00:00Z"), value: some(0.5) }]],
@@ -327,8 +333,8 @@ describe("a kind drawn from the copies of its events its series index holds (#17
         const jobs = jobsOf(payload);
         assert.ok(isTypeEqual(fromEastTypeValue(jobs.cellsType), ArrayType(StructType({ key: StringType, row: ex.PrintJobTile }))));
         const held = await heldJobs();
-        const cells = cellsOf(payload, held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"], tileOf);
-        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, some(cells));
+        const cells = cellsOf(held, ["W-0001", "W-0002", "W-0003", "W-0004", "W-0005"], tileOf);
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cells);
         assert.deepEqual(items.type === "some" ? items.value.map((item) => [item.key, item.title]) : [], [
             ["W-0001", "Brochure run · Alder & Finch"], ["W-0002", "Night catalogue · Larkspur Home"],
             ["W-0003", "Museum guide · Driftwood Museum"], ["W-0004", "Course handbooks · Elmway College"],
@@ -342,7 +348,7 @@ describe("a kind drawn from the copies of its events its series index holds (#17
             ["W-0001", jobDraft(variant("value", brochure))],
             ["W-0017", jobDraft(variant("value", forms))],
         ]);
-        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, some(cells));
+        const drafted = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), drafts, cells);
         assert.deepEqual(drafted.type === "some" ? drafted.value.map((item) => [item.key, item.title, item.resource]) : [], [
             ["W-0002", "Night catalogue · Larkspur Home", some({ kind: "presses", key: "P-1001" })],
             ["W-0004", "Course handbooks · Elmway College", some({ kind: "presses", key: "P-1003" })],
@@ -354,7 +360,7 @@ describe("a kind drawn from the copies of its events its series index holds (#17
     test("its backlog is the jobs with no start read whole beside its cells: each drawn as its tile, its duration and its due date its row's", async () => {
         const payload = await payloadOf(copied);
         const held = await heldJobs();
-        const backlog = await h.ready(() => jobsOf(payload).planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, some(cellsOf(payload, held, ["W-0001"], tileOf))));
+        const backlog = await h.ready(() => jobsOf(payload).planUnscheduled(FIRST, TWO_WEEKS, NO_DRAFTS, cellsOf(held, ["W-0001"], tileOf)));
         // An hour each 8,000 sheets, which no tile holds.
         assert.deepEqual(backlog.map((item) => [item.key, item.title, item.minutes]), [
             ["W-0017", "Order forms · Larkspur Home", 300n], ["W-0018", "Winter brochure · Bluewater Tours", 480n],
@@ -378,7 +384,7 @@ describe("a kind drawn from the copies of its events its series index holds (#17
         const payload = await payloadOf({ ...copied, locked: (j: ExprType<typeof PrintJob>) => j.state.hasTag("actual") });
         const jobs = jobsOf(payload);
         const held = await heldJobs();
-        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, some(cellsOf(payload, held, ["W-0001", "W-0003", "W-0004"], tileOf)));
+        const items = jobs.planItems(FIRST, at("2026-10-10T00:00:00Z"), NO_DRAFTS, cellsOf(held, ["W-0001", "W-0003", "W-0004"], tileOf));
         assert.deepEqual(items.type === "some" ? items.value.map((item) => [item.key, item.locked]) : [], [["W-0001", true], ["W-0003", true], ["W-0004", false]]);
         // A gesture's recorder asks it of each row it finds, drawn as its tile first.
         const lock = jobs.locked.type === "some" ? jobs.locked.value : assert.fail("expected the kind's lock");

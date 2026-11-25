@@ -42,6 +42,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { DateTimeType, StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
 import type { KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked } from "@elaraai/east-ui-components/internal";
+import { SCHEDULE_READ_WINDOW } from "../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { draftsOffPage, hiddenLine, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
@@ -207,8 +208,9 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
             // Every event its record holds, scheduled or in its backlog.
             rows: () => {
                 const drafts = draftsOf();
-                const scheduled = kind.items(EVER.from, EVER.to, drafts, none);
-                const backlog = kind.backlog ? kind.unscheduled(EVER.from, EVER.to, drafts, none) : some<CalendarItem[]>([]);
+                // Read whole, over all of time: its own read of its window (#1771).
+                const scheduled = kind.items(EVER.from, EVER.to, drafts, SCHEDULE_READ_WINDOW);
+                const backlog = kind.backlog ? kind.unscheduled(EVER.from, EVER.to, drafts, SCHEDULE_READ_WINDOW) : some<CalendarItem[]>([]);
                 if (scheduled.type === "none" || backlog.type === "none") return none;
                 return some([...scheduled.value, ...backlog.value].map((item) => ({ item, kind: kind.name })));
             },

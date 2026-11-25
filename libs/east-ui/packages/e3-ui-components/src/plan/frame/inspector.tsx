@@ -148,7 +148,7 @@ import type { PlanStateWord } from "../messages.js";
 import { rowKeyOf, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
-import { scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { SCHEDULE_READ_WINDOW, scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
 import { eventReadRange } from "../root/events.js";
 import { landingResourceOf, landingRowId, landingSeriesTargetOf, landingTargetOf, resourceKeyOf, type PlanLandingTarget } from "../root/landings.js";
@@ -1557,7 +1557,8 @@ function useWindowFacts(
                 if (within.type !== "some" || !within.value) return READING;
             }
             const kindDrafts = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
-            const items = kind.planItems(from, to, kindDrafts, held === undefined ? none : some(held));
+            // What the reader read of it, or — a kind it names not — its window (#1771).
+            const items = kind.planItems(from, to, kindDrafts, held ?? SCHEDULE_READ_WINDOW);
             if (items.type === "none") return READING;
             counted = true;
             for (const item of items.value) {

@@ -58,6 +58,7 @@ import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { createScopedRecordPlatform } from '../platform/record-runtime.js';
 import { DecisionBindPlatform } from '../decision/handle-runtime.js';
+import { ScheduleCellRowsImpl } from '../shared/schedule/cell-rows.js';
 import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
@@ -176,6 +177,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                     ...DownloadImpl,
                     ...ShareImpl,
                     ...DecisionBindPlatform,
+                    ...ScheduleCellRowsImpl,
                     ...createScopedBindPlatform(manifest),
                     ...createScopedPagedPlatform(manifest.pages),
                     ...createScopedFuncPlatform(manifest.functions),
