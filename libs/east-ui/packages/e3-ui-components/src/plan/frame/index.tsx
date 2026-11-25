@@ -560,7 +560,7 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }} {...optimiseLanding?.attributes}>
             {kinds.length > 0 && (
                 <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
-                    hidden={hidden} onRead={setKindsRead} />
+                    hidden={hidden} placings={chrome?.placings} onRead={setKindsRead} />
             )}
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}

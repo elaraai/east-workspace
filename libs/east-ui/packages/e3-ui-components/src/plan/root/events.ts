@@ -30,6 +30,13 @@
  * interval index lands some fifty-five key searches a window, and each would
  * otherwise render the whole canvas (#1343, #1344).
  *
+ * Each read that lands is handed to the frame too, with what it was read over
+ * — the range, the drafts, the cells and the ids hidden — through a store the
+ * canvas renders nothing for ({@link PlanEventPlacings}, #1771). The footer's
+ * counts take the window's events from it, each that meets the window by the
+ * views' rule ({@link placedEvents}), so no kind's events are read again for
+ * them. While a read is in flight, or has failed, the last one stands.
+ *
  * # Joined into the rows
  *
  * Inline, the root's blocks are placed once, the Unassigned rows after them.
@@ -70,7 +77,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
-    SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
+    DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
@@ -86,6 +93,7 @@ import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import { SCHEDULE_READ_WINDOW, schedulePeriodFailure, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { meetsWindow } from "../../shared/schedule/window.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 import { landingRowId, type PlanLandingValue } from "./landings.js";
 import { ownRefresh, ownSnapshot, usePagedWrapper, wrappedRows } from "./wrapped-source.js";
@@ -158,6 +166,11 @@ const shadingEqual = equalFor(PlanEventShadingType);
 /** Whether two lists of the events filed for a row, one way of drawing, are one: what a landing row's join reads. */
 const listEqual = equalFor(PlanEventPlacedType.fields.on.value.value.value);
 const rowIdEqual = equalFor(Plan.Types.RowId);
+const compareDateTime = compareFor(DateTimeType);
+/** The events filed for a row, one way of drawing — or a kind's on no row — each with its times and its kind's icon. */
+type PlacedListValue = ValueTypeOf<typeof PlanEventPlacedType.fields.lost.value>;
+/** One event as Plan draws it, as the events placed hold it. */
+type PlacedItemValue = PlacedListValue[number]["item"];
 /** No series the event kinds land on. */
 const NO_LANDINGS: readonly PlanLandingValue[] = [];
 /** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
@@ -256,6 +269,94 @@ export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | u
 }
 
 /**
+ * A read of the event kinds' events that landed, and what it was read over (#1771): what the footer's counts take a
+ * window's events from, where the window is within its range and they count by the drafts, the cells and the ids hidden
+ * it was read with.
+ */
+export interface PlanEventPlacing {
+    /** The events of the range, filed by the series they land on. */
+    readonly placed: PlanEventPlacedValue;
+    /** The range's start: the scale's window less the periods laid out before it. */
+    readonly from: Date;
+    /** Its end, exclusive. */
+    readonly to: Date;
+    /** Every kind's drafts the read was given — the same object while they hold. */
+    readonly drafts: ValueTypeOf<typeof PlanEventDraftsType>;
+    /** The kinds' cells and counts it read them by; `undefined` for none. */
+    readonly cells: ScheduleCellsRead | undefined;
+    /** The ids the viewer hid in the Series tab: a kind hidden there was not read. */
+    readonly hidden: readonly string[];
+}
+
+/** Where the canvas hands the frame each read of the event kinds' events that lands (#1771): a store of the last. */
+export interface PlanEventPlacings {
+    /** The last read that landed; `undefined` before one has. */
+    get(): PlanEventPlacing | undefined;
+    /** Hands on a read that landed: the one held already moves nothing. */
+    set(placing: PlanEventPlacing): void;
+    /** Listens for the next; returns the unsubscribe. */
+    subscribe(listener: () => void): () => void;
+}
+
+/**
+ * A store of the event kinds' events as each read of them lands (#1771): the canvas's reader of them writes it, and the
+ * frame's reader of the footer's counts reads it — the canvas renders nothing for it.
+ *
+ * @returns The store
+ */
+export function createEventPlacings(): PlanEventPlacings {
+    let held: PlanEventPlacing | undefined;
+    const listeners = new Set<() => void>();
+    return {
+        get: () => held,
+        set(next) {
+            if (Object.is(next, held)) return;
+            held = next;
+            for (const listener of [...listeners]) listener();
+        },
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => { listeners.delete(listener); };
+        },
+    };
+}
+
+/**
+ * Each kind's events in a window, as the canvas placed them (#1771): those of a read that landed that meet `[from, to)`
+ * by the views' rule ({@link meetsWindow}) — on every series they land on, and on none — by their kind's slot, where
+ * the window is within the range they were read over and they were read with the drafts, the cells and the ids hidden
+ * given. A kind's seams read a window by the same rule, so they are the events a read of the window would give.
+ *
+ * @param placing - The last read that landed; `undefined` before one has
+ * @param from - The window's start
+ * @param to - Its end, exclusive
+ * @param drafts - Every kind's drafts, as the read is given them
+ * @param cells - The kinds' cells and counts it reads them by
+ * @param hidden - The ids the viewer hides in the Series tab
+ * @returns Each kind's events in the window, by its slot — a kind with none there absent; `undefined` before a read has
+ *   landed, or where the last that did was of another range, or of other drafts, cells or ids hidden: its read is in flight
+ */
+export function placedEvents(
+    placing: PlanEventPlacing | undefined, from: Date, to: Date, drafts: ValueTypeOf<typeof PlanEventDraftsType>,
+    cells: ScheduleCellsRead | undefined, hidden: readonly string[],
+): ReadonlyMap<string, readonly PlacedItemValue[]> | undefined {
+    if (placing === undefined || !Object.is(placing.drafts, drafts) || !Object.is(placing.cells, cells) || !sameTexts(placing.hidden, hidden)) return undefined;
+    if (compareDateTime(placing.from, from) > 0 || compareDateTime(to, placing.to) > 0) return undefined;
+    const out = new Map<string, PlacedItemValue[]>();
+    const take = (list: PlacedListValue): void => {
+        for (const one of list) {
+            if (!meetsWindow(one.start, one.end, from, to)) continue;
+            const held = out.get(one.item.kind);
+            if (held === undefined) out.set(one.item.kind, [one.item]);
+            else held.push(one.item);
+        }
+    };
+    for (const byDraw of placing.placed.on.values()) for (const byKey of byDraw.values()) for (const list of byKey.values()) take(list);
+    for (const list of placing.placed.lost.values()) take(list);
+    return out;
+}
+
+/**
  * The event kinds' events over the range the canvas draws: the scale's window
  * and the periods laid out beyond each edge, what the viewer hides left out,
  * every kind's drafts in place (#1194, PB17) — a kind read by its cells drawn
@@ -269,12 +370,14 @@ export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | u
  * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold
  * @param cells - The kinds' cells and counts, when the reader decides a kind (#1039): each kind's cells it gives — none past the cap — every kind's drafts as the seams take them, the shading
  * @param kinds - The event kinds, as the payload carries them: a read that fails names those whose own events it could not read (#1398)
+ * @param placings - Where each read that lands is handed on, with what it was read over (#1771): what the footer's counts take a
+ *   window's events from; none, nowhere
  * @returns The events as the canvas draws them now
  */
 export function usePlanEventPlaced(
     events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN,
     drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS, cells?: ScheduleCellsRead | undefined,
-    kinds: PlanEventKinds = NO_EVENT_KINDS,
+    kinds: PlanEventKinds = NO_EVENT_KINDS, placings?: PlanEventPlacings,
 ): PlanEventLead {
     const seam = events?.seam;
     const range = eventReadRange(scale);
@@ -336,6 +439,12 @@ export function usePlanEventPlaced(
         held.current = { placed: next, shading, hidden, version: previous.version + 1 };
         return held.current;
     }, [result, hidden, shading]);
+    // The read that landed, with what it was read over, handed to the frame (#1771) — never one in flight or failed: the
+    // last stands, and the footer's counts with it.
+    const landed = result.ok && result.value !== undefined ? now.placed : undefined;
+    const placing = useMemo((): PlanEventPlacing | undefined => (landed === undefined || from === undefined || to === undefined ? undefined
+        : { placed: landed, from: new Date(from), to: new Date(to), drafts, cells, hidden }), [landed, from, to, drafts, cells, hidden]);
+    useLayoutEffect(() => { if (placing !== undefined) placings?.set(placing); }, [placings, placing]);
     return useMemo(() => ({ placed: now.placed, shading: now.shading, cells, version: now.version, error }), [now, cells, error]);
 }
 
@@ -372,6 +481,8 @@ export interface PlanEventsReaderProps {
     spans: PlanCellSpanStore;
     /** What confirmed Saves landed of the kinds read by their cells, and how it is let go: drawn until the cells are read again. */
     editing: PlanCellsArgs["editing"];
+    /** Where each read of the events that lands is handed to the frame, with what it was read over (#1771): the footer's counts take a window's events from it. */
+    placings: PlanEventPlacings;
     /** Where the events go: called only when they move. */
     onLead: (lead: PlanEventLead) => void;
 }
@@ -386,19 +497,21 @@ export interface PlanEventsReaderProps {
  * before one of its events is read; the rows the canvas reports in view are
  * read here alone. What a Save landed of a kind read by its cells draws as the
  * Save left it until they are read again: its confirmation reads its events by
- * their keys, never the cells.
+ * their keys, never the cells. Each read that lands is handed to the frame as
+ * well, with what it was read over, which the canvas renders nothing for
+ * (#1771): the footer's counts take the window's events from it.
  *
  * @param props - What the events are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
+export function PlanEventsReader({ events, scale, hidden, drafts, kinds, rows, windowEntries, parts, links, spans, editing, placings, onLead }: PlanEventsReaderProps): null {
     const span = useSyncExternalStore(spans.subscribe, spans.get);
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
         kinds, landings: events?.landings ?? [], rows, windowEntries, parts, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
     });
-    const lead = usePlanEventPlaced(events, scale, hidden, drafts, cells, kinds);
+    const lead = usePlanEventPlaced(events, scale, hidden, drafts, cells, kinds, placings);
     // What the canvas holds: no events until the first read lands.
     const reported = useRef<{ version: number; error: PlanEventFailure | undefined; cells: ScheduleCellsRead | undefined }>({ version: 0, error: undefined, cells: undefined });
     useLayoutEffect(() => {

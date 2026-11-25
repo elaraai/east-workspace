@@ -13,7 +13,9 @@
  * whose key is the event's ref as East prints it, and that key; over rows read
  * a page at a time, a top-level resource's row by its id, from the events
  * placed alone (#1199). The events are read over the range the canvas draws and
- * held while they hold; the root's rows are joined with them — inline once, a
+ * held while they hold, each read that lands handed to the frame with what it
+ * was read over, a window's events those of it that meet the window by the
+ * views' rule (#1771); the root's rows are joined with them — inline once, a
  * page at a time each window its source serves, and a window read again over
  * new events alone only in the rows whose events moved (#1712) — and the windows name the
  * snapshot of their data apart from the revision new events move (#1199), a
@@ -22,16 +24,17 @@
 
 import { describe, test, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant } from "@elaraai/east";
-import { Plan, ScheduleEventRefType, planChildRowKey, planHideId } from "@elaraai/e3-ui/internal";
+import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Plan, ScheduleEventRefType, planChildRowKey, planHideId, type PlanEventDraftsType } from "@elaraai/e3-ui/internal";
+import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import { NO_EDITS, rowId, timeAt, utcAt } from "../plan.test-utils.js";
 import { entry } from "../row-id.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import {
-    resolveEventLinks, usePlanEventPlaced, usePlanEventRoot,
-    type PlanEventLead, type PlanEventPlacedValue, type PlanEventRows, type PlanEventSeamValue, type PlanLandingValue,
+    createEventPlacings, placedEvents, resolveEventLinks, usePlanEventPlaced, usePlanEventRoot,
+    type PlanEventLead, type PlanEventPlacedValue, type PlanEventPlacing, type PlanEventRows, type PlanEventSeamValue, type PlanLandingValue,
 } from "./events.js";
 
 const printRef = printFor(ScheduleEventRefType);
@@ -253,6 +256,93 @@ describe("the event kinds' events over the range the canvas draws (#1192)", () =
         rerender({ rows: events() });
         expect(result.current.placed).toBe(next);
         expect([result.current.version, result.current.error, result.current.cells, result.current.shading.size]).toEqual([2, undefined, undefined, 0]);
+    });
+});
+
+describe("the events placed, handed to the frame (#1771)", () => {
+    /** Four weeks by the day, from Monday 5 October. */
+    const scale = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "day" }) as PlanScale;
+    const WINDOW = { from: utcAt("2026-10-05T00:00:00"), to: utcAt("2026-11-02T00:00:00") };
+    /** The range the canvas reads: the window, and the two days the scale lays out beyond each edge. */
+    const RANGE = { from: utcAt("2026-10-03T00:00:00"), to: utcAt("2026-11-04T00:00:00") };
+    /** Every kind's drafts — none — the one object a read is given. */
+    const DRAFTS: ValueTypeOf<typeof PlanEventDraftsType> = new SortedMap([], compareString);
+
+    test("each read that lands is handed on with what it was read over — its range, its drafts, its cells and the ids hidden — and one in flight or failed hands on nothing: the last stands", () => {
+        const placings = createEventPlacings();
+        let heard = 0;
+        placings.subscribe(() => { heard += 1; });
+        let answer: () => ReturnType<PlanEventSeamValue["placed"]> = () => none;
+        // A new seam each time, so the read is evaluated again.
+        const events = (): PlanEventRows => ({ seam: seamOf(() => answer()), landings: LANDINGS, paged: false });
+        const hidden = [planHideId.events("stop")];
+        const { rerender } = renderHook(({ rows }) => usePlanEventPlaced(rows, scale, hidden, DRAFTS, undefined, undefined, placings),
+            { initialProps: { rows: events() } });
+        // In flight from the first: nothing handed on.
+        expect(placings.get()).toBeUndefined();
+        const first = placedOn([["presses", "span", "a1", "job", "J-1"]]);
+        answer = () => some(first);
+        rerender({ rows: events() });
+        const landed = placings.get();
+        expect(landed).toEqual({ placed: first, from: RANGE.from, to: RANGE.to, drafts: DRAFTS, cells: undefined, hidden });
+        // The very events the canvas holds, and the very drafts it was given: what the footer knows them by.
+        expect(landed?.placed).toBe(first);
+        expect(landed?.drafts).toBe(DRAFTS);
+        expect(heard).toBe(1);
+        // In flight again, then failed: the last stands, and no listener hears of either.
+        answer = () => none;
+        rerender({ rows: events() });
+        expect(placings.get()).toBe(landed);
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            answer = () => { throw new Error("a press with no load"); };
+            rerender({ rows: events() });
+            expect(placings.get()).toBe(landed);
+        } finally {
+            errors.mockRestore();
+        }
+        expect(heard).toBe(1);
+        // The same events landing again are handed on as the canvas holds them: the events it drew.
+        answer = () => some(placedOn([["presses", "span", "a1", "job", "J-1"]]));
+        rerender({ rows: events() });
+        expect(placings.get()?.placed).toBe(first);
+        expect(heard).toBe(2);
+    });
+
+    test("a window's events are those of the range placed that meet it by the views' rule — one ending as it begins does not, an instant at its start does, one starting as it ends does not — on every series and on none, by their kind; and there are none for a window the last read was not of", () => {
+        /** An event of a kind from one time to another, as the seam files one: its times, and its kind's icon. */
+        const one = (kind: string, key: string, start: Date, end: Date) => ({
+            item: { kind, key, title: key, start: some(start), end: some(end), resource: none, status: none, minutes: 60n, due: none, state: confirmed, quantity: none, lane: none },
+            start, end, icon: { prefix: "fas", name: "file-lines", label: none, style: none },
+        });
+        const placed = {
+            on: new SortedMap([["presses", new SortedMap([["span", new SortedMap([["a1", [
+                // Ends as the window begins; runs into it; an instant at its start; starts as it ends.
+                one("job", "J-1", utcAt("2026-10-04T22:00:00"), WINDOW.from),
+                one("job", "J-2", utcAt("2026-10-04T22:00:00"), utcAt("2026-10-05T01:00:00")),
+                one("job", "J-3", WINDOW.from, WINDOW.from),
+                one("job", "J-4", WINDOW.to, utcAt("2026-11-02T03:00:00")),
+            ]]], compareString)]], compareString)]], compareString),
+            // On no resource: one inside the window, and one in the days the canvas reads beyond it.
+            lost: new SortedMap([["note", [
+                one("note", "N-1", utcAt("2026-10-20T09:00:00"), utcAt("2026-10-20T09:00:00")),
+                one("note", "N-2", utcAt("2026-11-03T09:00:00"), utcAt("2026-11-03T09:00:00")),
+            ]]], compareString),
+        } as unknown as PlanEventPlacedValue;
+        const placing: PlanEventPlacing = { placed, from: RANGE.from, to: RANGE.to, drafts: DRAFTS, cells: undefined, hidden: [] };
+        const keysOf = (events: ReturnType<typeof placedEvents>) => (events === undefined ? undefined : [...events].map(([kind, items]) => [kind, items.map((i) => i.key)]));
+        expect(keysOf(placedEvents(placing, WINDOW.from, WINDOW.to, DRAFTS, undefined, []))).toEqual([["job", ["J-2", "J-3"]], ["note", ["N-1"]]]);
+        // None for a window the last read was not of: reaching past its range at either end, or read with other drafts,
+        // other cells or other ids hidden — nor before a read has landed.
+        const otherCells = { reads: new SortedMap([], compareString) } as unknown as ScheduleCellsRead;
+        expect([
+            placedEvents(placing, utcAt("2026-10-01T00:00:00"), WINDOW.to, DRAFTS, undefined, []),
+            placedEvents(placing, WINDOW.from, utcAt("2026-11-05T00:00:00"), DRAFTS, undefined, []),
+            placedEvents(placing, WINDOW.from, WINDOW.to, new SortedMap([], compareString), undefined, []),
+            placedEvents(placing, WINDOW.from, WINDOW.to, DRAFTS, otherCells, []),
+            placedEvents(placing, WINDOW.from, WINDOW.to, DRAFTS, undefined, [planHideId.events("job")]),
+            placedEvents(undefined, WINDOW.from, WINDOW.to, DRAFTS, undefined, []),
+        ]).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
     });
 });
 

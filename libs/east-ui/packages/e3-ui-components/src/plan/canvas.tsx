@@ -151,7 +151,7 @@ import { createPlanWindowHold, restoredWindow, statedWindow, usePlanWindow } fro
 import { writePlanWindow } from "./controller/effects.js";
 import { PLAN_ROW_SOURCES, planEventParts, planNouns, planPart, ROWS_SOURCE } from "./root/sources.js";
 import {
-    PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
+    PlanEventsReader, createEventPlacings, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
 import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
@@ -585,6 +585,9 @@ export function usePlanCanvas({
     // when they move.
     // The paged rows in view, as the body reports them at rest (#1039): what the reader of the kinds' cells reads.
     const [cellSpans] = useState(createCellSpanStore);
+    // Each read of the events that lands, with what it was read over (#1771): what the frame's footer counts the window's
+    // events from — handed over by the reader, which the canvas renders nothing for.
+    const [placings] = useState(createEventPlacings);
     // A paged source's rows beside their nested series index (#1438): their collections read a cell at a time by a
     // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
     const [nestedViews] = useState(createNestedViewStore);
@@ -2107,7 +2110,7 @@ export function usePlanCanvas({
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
                 kinds={kinds} rows={kept.data.rows.type === "inline" ? kept.data.rows : kept.value.rows} windowEntries={pagingWindowEntries} parts={eventParts}
-                links={linked.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
+                links={linked.data.links} spans={cellSpans} editing={eventEditing} placings={placings} onLead={setLead} />
         )
         : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is
@@ -2601,6 +2604,7 @@ export function usePlanCanvas({
                 landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main },
             } : undefined,
             cells: lead.cells,
+            placings: events !== undefined ? placings : undefined,
             linksOver: linksOverCap,
             // The same array while the reader's notices hold, so the frame's banners are made again only as they move.
             itemsOver: nestedSeam !== undefined && nestedLead !== undefined ? nestedLead.notices : NO_ITEMS_OVER,

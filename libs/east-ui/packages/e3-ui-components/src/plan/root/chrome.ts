@@ -27,6 +27,7 @@ import type { PlanTransport } from "../shell/transport.js";
 import type { PlanToolsChrome } from "../links/connect.js";
 import type { PlanLinksOver } from "../links/kinds.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import type { PlanEventPlacings } from "./events.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanNestedNotice } from "./nested.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
@@ -155,6 +156,11 @@ export interface PlanChrome {
      * their cells nor counts.
      */
     cells: ScheduleCellsRead | undefined;
+    /**
+     * The event kinds' events as each read of them lands, and what each was read over (#1771): what the footer's counts
+     * take the window's events from, so none of a kind's are read again for them; `undefined` for a Plan without event kinds.
+     */
+    placings?: PlanEventPlacings | undefined;
     /** The link kinds holding more links than are read (#1541, U10): none of such a kind's links is drawn, and the frame's notice says how many it holds. */
     linksOver: readonly PlanLinksOver[];
     /**
